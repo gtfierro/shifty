@@ -1,6 +1,7 @@
 use oxigraph::model::{Term, TermRef};
 use crate::named_nodes::{RDF, SHACL};
 use oxigraph::model::Graph;
+use crate::components::ToSubjectRef;
 use std::cell::RefCell;
 use crate::types::ID;
 use std::collections::HashSet;
@@ -104,9 +105,9 @@ impl ValidationContext {
         let mut items: Vec<TermRef> = Vec::new();
         let rdf = RDF::new();
         let mut current: TermRef = list;
-        while let Some(first) = self.shape_graph.object_for_subject_predicate(current, rdf.first) {
+        while let Some(first) = self.shape_graph.object_for_subject_predicate(current.to_subject_ref(), rdf.first) {
             items.push(first);
-            if let Some(rest) = self.shape_graph.object_for_subject_predicate(current, rdf.rest) {
+            if let Some(rest) = self.shape_graph.object_for_subject_predicate(current.to_subject_ref(), rdf.rest) {
                 current = rest.into();
             } else {
                 break;
