@@ -119,6 +119,55 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
         }
     }
 
+    // value range
+    if let Some(min_exclusive_terms) = pred_obj_pairs.get(&shacl.min_exclusive.into()) {
+        for min_exclusive_term in min_exclusive_terms {
+            if let TermRef::Literal(_lit) = min_exclusive_term { // Ensure it's a literal
+                components.push(Component::MinExclusiveConstraint(
+                    MinExclusiveConstraintComponent {
+                        min_exclusive: min_exclusive_term.clone().into(),
+                    },
+                ));
+            }
+        }
+    }
+
+    if let Some(min_inclusive_terms) = pred_obj_pairs.get(&shacl.min_inclusive.into()) {
+        for min_inclusive_term in min_inclusive_terms {
+            if let TermRef::Literal(_lit) = min_inclusive_term {
+                components.push(Component::MinInclusiveConstraint(
+                    MinInclusiveConstraintComponent {
+                        min_inclusive: min_inclusive_term.clone().into(),
+                    },
+                ));
+            }
+        }
+    }
+
+    if let Some(max_exclusive_terms) = pred_obj_pairs.get(&shacl.max_exclusive.into()) {
+        for max_exclusive_term in max_exclusive_terms {
+            if let TermRef::Literal(_lit) = max_exclusive_term {
+                components.push(Component::MaxExclusiveConstraint(
+                    MaxExclusiveConstraintComponent {
+                        max_exclusive: max_exclusive_term.clone().into(),
+                    },
+                ));
+            }
+        }
+    }
+
+    if let Some(max_inclusive_terms) = pred_obj_pairs.get(&shacl.max_inclusive.into()) {
+        for max_inclusive_term in max_inclusive_terms {
+            if let TermRef::Literal(_lit) = max_inclusive_term {
+                components.push(Component::MaxInclusiveConstraint(
+                    MaxInclusiveConstraintComponent {
+                        max_inclusive: max_inclusive_term.clone().into(),
+                    },
+                ));
+            }
+        }
+    }
+
     //// Qualified value shape constraints
     //for qvs in context.shape_graph().objects_for_subject_predicate(
     //    start.to_subject_ref(),
@@ -167,6 +216,12 @@ pub enum Component {
     // cardinality constraints
     MinCount(MinCountConstraintComponent),
     MaxCount(MaxCountConstraintComponent),
+
+    // value range constraints
+    MinExclusiveConstraint(MinExclusiveConstraintComponent),
+    MinInclusiveConstraint(MinInclusiveConstraintComponent),
+    MaxExclusiveConstraint(MaxExclusiveConstraintComponent),
+    MaxInclusiveConstraint(MaxInclusiveConstraintComponent),
 }
 
 // value type
@@ -203,4 +258,21 @@ pub struct MinCountConstraintComponent {
 
 pub struct MaxCountConstraintComponent {
     max_count: u64,
+}
+
+// value range constraints
+pub struct MinExclusiveConstraintComponent {
+    min_exclusive: Term,
+}
+
+pub struct MinInclusiveConstraintComponent {
+    min_inclusive: Term,
+}
+
+pub struct MaxExclusiveConstraintComponent {
+    max_exclusive: Term,
+}
+
+pub struct MaxInclusiveConstraintComponent {
+    max_inclusive: Term,
 }

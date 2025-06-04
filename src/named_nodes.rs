@@ -10,6 +10,10 @@ pub struct SHACL {
     pub qualified_value_shapes_disjoint: NamedNodeRef<'static>,
     pub node_kind: NamedNodeRef<'static>,
     pub datatype: NamedNodeRef<'static>,
+    pub min_exclusive: NamedNodeRef<'static>,
+    pub min_inclusive: NamedNodeRef<'static>,
+    pub max_exclusive: NamedNodeRef<'static>,
+    pub max_inclusive: NamedNodeRef<'static>,
 }
 
 impl SHACL {
@@ -24,6 +28,10 @@ impl SHACL {
             qualified_value_shapes_disjoint: NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint").unwrap(),
             node_kind: NamedNodeRef::new("http://www.w3.org/ns/shacl#nodeKind").unwrap(),
             datatype: NamedNodeRef::new("http://www.w3.org/ns/shacl#datatype").unwrap(),
+            min_exclusive: NamedNodeRef::new("http://www.w3.org/ns/shacl#minExclusive").unwrap(),
+            min_inclusive: NamedNodeRef::new("http://www.w3.org/ns/shacl#minInclusive").unwrap(),
+            max_exclusive: NamedNodeRef::new("http://www.w3.org/ns/shacl#maxExclusive").unwrap(),
+            max_inclusive: NamedNodeRef::new("http://www.w3.org/ns/shacl#maxInclusive").unwrap(),
         }
     }
 }
