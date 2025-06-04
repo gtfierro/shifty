@@ -2,7 +2,7 @@ use oxigraph::model::{Term, TermRef, SubjectRef, TripleRef};
 use std::collections::HashMap;
 use crate::context::ValidationContext;
 use crate::types::ID;
-use crate::named_nodes::SHACL;
+use crate::named_nodes::{SHACL, RDF};
 
 pub trait ToSubjectRef {
     fn to_subject_ref(&self) -> SubjectRef;
@@ -28,39 +28,7 @@ impl<'a> ToSubjectRef for TermRef<'a> {
     }
 }
 
-fn parse_rdf_list(list_head: TermRef, context: &ValidationContext) -> Vec<Term> {
-    let mut items = Vec::new();
-    let mut current_node = list_head;
-    let shacl = SHACL::new();
-
-    while current_node != shacl.rdf_nil.into() {
-        let subject_ref = match current_node {
-            TermRef::NamedNode(n) => SubjectRef::NamedNode(n),
-            TermRef::BlankNode(b) => SubjectRef::BlankNode(b),
-            _ => return items, // Not a valid list node or rdf:nil
-        };
-
-        let first_term = context.shape_graph().object_for_subject_predicate(subject_ref, shacl.rdf_first);
-        if let Some(item) = first_term {
-            items.push(item.into_owned());
-        } else {
-            // Malformed list: node has no rdf:first
-            return items; 
-        }
-
-        let rest_term = context.shape_graph().object_for_subject_predicate(subject_ref, shacl.rdf_rest);
-        if let Some(rest) = rest_term {
-            current_node = rest;
-        } else {
-            // Malformed list: node has no rdf:rest
-            return items;
-        }
-    }
-    items
-}
-
-
-pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Component> {
+pub fn parse_components(start: TermRef, context: &mut ValidationContext) -> Vec<Component> {
     let mut components = Vec::new();
     let shacl = SHACL::new();
 
@@ -239,8 +207,9 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
 
     if let Some(language_in_terms) = pred_obj_pairs.get(&shacl.language_in.into()) {
         if let Some(list_head_term) = language_in_terms.first() { // sh:languageIn maxCount 1
-            let list_items = parse_rdf_list(list_head_term.clone(), context);
+            let list_items = context.parse_rdf_list(list_head_term.clone());
             let languages: Vec<String> = list_items.into_iter().filter_map(|term| {
+                let term = term.into();
                 if let Term::Literal(lit) = term {
                     // TODO: Validate that datatype is xsd:string as per spec?
                     // For now, just extract the string value.
