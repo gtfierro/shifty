@@ -1,4 +1,4 @@
-use oxigraph::model::{Term, TermRef, SubjectRef};
+use oxigraph::model::{Term, TermRef, SubjectRef, Quad};
 use std::hash::Hash;
 use crate::named_nodes::{RDF, SHACL};
 use crate::shape::NodeShape; // Removed PropertyShape, Shape
@@ -7,6 +7,11 @@ use crate::components::{ToSubjectRef, parse_components, Component}; // Added Com
 use std::cell::RefCell;
 use crate::types::{ID, Target, ComponentID};
 use std::collections::{HashSet, HashMap};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+use std::error::Error;
+use oxigraph::io::{RdfParser, RdfFormat};
 
 pub struct IDLookupTable<IdType: Copy + Eq + Hash> {
     id_map: std::collections::HashMap<Term, IdType>,
@@ -62,6 +67,35 @@ impl ValidationContext {
             node_shapes: HashMap::new(),
             components: HashMap::new(),
         }
+    }
+
+    fn load_graph_from_path_internal(file_path: &str) -> Result<Graph, Box<dyn Error>> {
+        let path = Path::new(file_path);
+        let file = File::open(path)
+            .map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
+        let reader = BufReader::new(file);
+        let format = RdfFormat::from_file_path(path)
+            .map_err(|e| format!("Failed to determine RDF format for '{}': {}", file_path, e))?;
+
+        let mut graph = Graph::new();
+        let quad_iter = RdfParser::from_format(format).for_reader(reader);
+
+        for quad_result in quad_iter {
+            let quad = quad_result
+                .map_err(|e| format!("RDF parsing error in '{}': {}", file_path, e))?;
+            // Insert the subject, predicate, object from the Quad into the Graph.
+            // This effectively merges all named graphs and the default graph into one.
+            graph.insert((quad.subject.as_ref(), quad.predicate.as_ref(), quad.object.as_ref()).into());
+        }
+        Ok(graph)
+    }
+
+    pub fn from_files(shape_graph_path: &str, data_graph_path: &str) -> Result<Self, Box<dyn Error>> {
+        let shape_graph = Self::load_graph_from_path_internal(shape_graph_path)
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Error loading shape graph from '{}': {}", shape_graph_path, e))))?;
+        let data_graph = Self::load_graph_from_path_internal(data_graph_path)
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Error loading data graph from '{}': {}", data_graph_path, e))))?;
+        Ok(Self::new(shape_graph, data_graph))
     }
 
     fn get_node_shapes(&self) -> Vec<ID> {
