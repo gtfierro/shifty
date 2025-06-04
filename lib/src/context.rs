@@ -1,22 +1,20 @@
-use oxigraph::model::{Term, TermRef, SubjectRef, TripleRef};
-use std::hash::Hash;
+use crate::components::{parse_components, Component, ToSubjectRef}; // Added Component
 use crate::named_nodes::{RDF, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
+use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Target, ID};
+use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::Graph;
-use crate::components::{ToSubjectRef, parse_components, Component}; // Added Component
+use oxigraph::model::{SubjectRef, Term, TermRef, TripleRef};
 use std::cell::RefCell;
-use crate::types::{ID, Target, ComponentID, PropShapeID, Path as PShapePath};
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fs::File;
+use std::hash::Hash;
 use std::io::BufReader;
 use std::path::Path;
-use std::error::Error;
-use oxigraph::io::{RdfParser, RdfFormat};
 
 fn clean(input: &str) -> String {
-    input.chars()
-        .filter(|c| c.is_alphanumeric())
-        .collect()
+    input.chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 pub struct IDLookupTable<IdType: Copy + Eq + Hash> {
@@ -47,7 +45,7 @@ impl<IdType: Copy + Eq + Hash + From<u64>> IDLookupTable<IdType> {
             id
         }
     }
-    
+
     pub fn get(&self, term: &Term) -> Option<IdType> {
         self.id_map.get(term).map(|id| id.to_owned())
     }
@@ -94,9 +92,15 @@ impl ValidationContext {
         // print all node shapes
         println!("digraph {{");
         for shape in self.node_shapes.values() {
-            let name = self.nodeshape_id_lookup.borrow().id_to_term.get(shape.identifier()).unwrap().clone();
+            let name = self
+                .nodeshape_id_lookup
+                .borrow()
+                .id_to_term
+                .get(shape.identifier())
+                .unwrap()
+                .clone();
             let name = format!("{}", name);
-            let name= clean(&name);
+            let name = clean(&name);
             println!("n{} [label=\"{}\"];", shape.identifier(), name);
             for pshape in shape.property_shapes() {
                 println!("n{} -> p{};", shape.identifier(), pshape);
@@ -106,9 +110,15 @@ impl ValidationContext {
             }
         }
         for pshape in self.prop_shapes.values() {
-            let name = self.propshape_id_lookup.borrow().id_to_term.get(pshape.identifier()).unwrap().clone();
+            let name = self
+                .propshape_id_lookup
+                .borrow()
+                .id_to_term
+                .get(pshape.identifier())
+                .unwrap()
+                .clone();
             let name = format!("{}", name);
-            let name= clean(&name);
+            let name = clean(&name);
 
             let path = pshape.path();
             let path = clean(&path);
@@ -125,28 +135,46 @@ impl ValidationContext {
 
     fn load_graph_from_path_internal(file_path: &str) -> Result<Graph, Box<dyn Error>> {
         let path = Path::new(file_path);
-        let file = File::open(path)
-            .map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
+        let file =
+            File::open(path).map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
         let reader = BufReader::new(file);
 
         let mut graph = Graph::new();
         let quad_iter = RdfParser::from_format(RdfFormat::Turtle).for_reader(reader);
 
         for quad_result in quad_iter {
-            let quad = quad_result
-                .map_err(|e| format!("RDF parsing error in '{}': {}", file_path, e))?;
+            let quad =
+                quad_result.map_err(|e| format!("RDF parsing error in '{}': {}", file_path, e))?;
             // Insert the subject, predicate, object from the Quad into the Graph.
             // This effectively merges all named graphs and the default graph into one.
-            graph.insert(TripleRef::new(quad.subject.as_ref(), quad.predicate.as_ref(), quad.object.as_ref()));
+            graph.insert(TripleRef::new(
+                quad.subject.as_ref(),
+                quad.predicate.as_ref(),
+                quad.object.as_ref(),
+            ));
         }
         Ok(graph)
     }
 
-    pub fn from_files(shape_graph_path: &str, data_graph_path: &str) -> Result<Self, Box<dyn Error>> {
-        let shape_graph = Self::load_graph_from_path_internal(shape_graph_path)
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Error loading shape graph from '{}': {}", shape_graph_path, e))))?;
-        let data_graph = Self::load_graph_from_path_internal(data_graph_path)
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Error loading data graph from '{}': {}", data_graph_path, e))))?;
+    pub fn from_files(
+        shape_graph_path: &str,
+        data_graph_path: &str,
+    ) -> Result<Self, Box<dyn Error>> {
+        let shape_graph = Self::load_graph_from_path_internal(shape_graph_path).map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "Error loading shape graph from '{}': {}",
+                    shape_graph_path, e
+                ),
+            ))
+        })?;
+        let data_graph = Self::load_graph_from_path_internal(data_graph_path).map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error loading data graph from '{}': {}", data_graph_path, e),
+            ))
+        })?;
         let mut ctx = Self::new(shape_graph, data_graph);
         ctx.parse();
         Ok(ctx)
@@ -158,7 +186,10 @@ impl ValidationContext {
         // - ? sh:property <pshape>
         // - <pshape> a sh:PropertyShape
         let mut prop_shapes = HashSet::new();
-        for pshape in self.shape_graph.subjects_for_predicate_object(rdf.type_, sh.property_shape) {
+        for pshape in self
+            .shape_graph
+            .subjects_for_predicate_object(rdf.type_, sh.property_shape)
+        {
             prop_shapes.insert(pshape.into());
         }
 
@@ -184,7 +215,10 @@ impl ValidationContext {
         // parse these out of the shape graph and return a vector of IDs
         let mut node_shapes = HashSet::new();
         // <shape> rdf:type sh:NodeShape
-        for shape in self.shape_graph.subjects_for_predicate_object(rdf.type_, shacl.node_shape) {
+        for shape in self
+            .shape_graph
+            .subjects_for_predicate_object(rdf.type_, shacl.node_shape)
+        {
             node_shapes.insert(shape.into());
         }
 
@@ -194,7 +228,10 @@ impl ValidationContext {
         }
 
         // ? sh:qualifiedValueShape <shape>
-        for triple in self.shape_graph.triples_for_predicate(shacl.qualified_value_shape) {
+        for triple in self
+            .shape_graph
+            .triples_for_predicate(shacl.qualified_value_shape)
+        {
             node_shapes.insert(triple.object.into());
         }
 
@@ -252,7 +289,8 @@ impl ValidationContext {
         let subject: SubjectRef = shape.to_subject_ref();
 
         // get the targets
-        let targets: Vec<Target> = self.shape_graph
+        let targets: Vec<Target> = self
+            .shape_graph
             .triples_for_subject(subject)
             .filter_map(|triple| Target::from_predicate_object(triple.predicate, triple.object))
             .collect();
@@ -265,16 +303,13 @@ impl ValidationContext {
             self.components.insert(component_id, component);
         }
 
-        let property_shapes: Vec<PropShapeID> = self.shape_graph.objects_for_subject_predicate(subject, sh.property)
+        let property_shapes: Vec<PropShapeID> = self
+            .shape_graph
+            .objects_for_subject_predicate(subject, sh.property)
             .filter_map(|o| self.propshape_id_lookup.borrow().get(&o.into_owned()))
             .collect();
 
-        let node_shape = NodeShape::new(
-            id,
-            targets,
-            property_shapes,
-            component_ids,
-        );
+        let node_shape = NodeShape::new(id, targets, property_shapes, component_ids);
         self.node_shapes.insert(id, node_shape);
         id
     }
@@ -283,7 +318,10 @@ impl ValidationContext {
         let id = self.get_or_create_prop_id(pshape.into());
         let shacl = SHACL::new();
         let subject: SubjectRef = pshape.to_subject_ref();
-        let path_head: TermRef = self.shape_graph.object_for_subject_predicate(subject, shacl.path).unwrap();
+        let path_head: TermRef = self
+            .shape_graph
+            .object_for_subject_predicate(subject, shacl.path)
+            .unwrap();
         let path = PShapePath::Simple(path_head.into());
         // get constraint components
         let constraints = parse_components(pshape, self);
@@ -292,23 +330,24 @@ impl ValidationContext {
             // add the component to our context.components map
             self.components.insert(component_id, component);
         }
-        let prop_shape = PropertyShape::new(
-            id,
-            path,
-            component_ids,
-        );
+        let prop_shape = PropertyShape::new(id, path, component_ids);
         self.prop_shapes.insert(id, prop_shape);
         id
-
     }
 
     pub fn parse_rdf_list(&self, list: TermRef) -> Vec<TermRef> {
         let mut items: Vec<TermRef> = Vec::new();
         let rdf = RDF::new();
         let mut current: TermRef = list;
-        while let Some(first) = self.shape_graph.object_for_subject_predicate(current.to_subject_ref(), rdf.first) {
+        while let Some(first) = self
+            .shape_graph
+            .object_for_subject_predicate(current.to_subject_ref(), rdf.first)
+        {
             items.push(first);
-            if let Some(rest) = self.shape_graph.object_for_subject_predicate(current.to_subject_ref(), rdf.rest) {
+            if let Some(rest) = self
+                .shape_graph
+                .object_for_subject_predicate(current.to_subject_ref(), rdf.rest)
+            {
                 current = rest.into();
             } else {
                 break;

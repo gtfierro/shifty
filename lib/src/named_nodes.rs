@@ -40,10 +40,16 @@ impl SHACL {
             class: NamedNodeRef::new("http://www.w3.org/ns/shacl#class").unwrap(),
             node: NamedNodeRef::new("http://www.w3.org/ns/shacl#node").unwrap(),
             property: NamedNodeRef::new("http://www.w3.org/ns/shacl#property").unwrap(),
-            qualified_value_shape: NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShape").unwrap(),
+            qualified_value_shape: NamedNodeRef::new(
+                "http://www.w3.org/ns/shacl#qualifiedValueShape",
+            )
+            .unwrap(),
             min_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
             max_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#maxCount").unwrap(),
-            qualified_value_shapes_disjoint: NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint").unwrap(),
+            qualified_value_shapes_disjoint: NamedNodeRef::new(
+                "http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint",
+            )
+            .unwrap(),
             not: NamedNodeRef::new("http://www.w3.org/ns/shacl#not").unwrap(),
             node_kind: NamedNodeRef::new("http://www.w3.org/ns/shacl#nodeKind").unwrap(),
             datatype: NamedNodeRef::new("http://www.w3.org/ns/shacl#datatype").unwrap(),
@@ -66,8 +72,10 @@ impl SHACL {
 
             target_class: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetClass").unwrap(),
             target_node: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetNode").unwrap(),
-            target_objects_of: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetObjectsOf").unwrap(),
-            target_subjects_of: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetSubjectsOf").unwrap(),
+            target_objects_of: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetObjectsOf")
+                .unwrap(),
+            target_subjects_of: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetSubjectsOf")
+                .unwrap(),
         }
     }
 }
@@ -86,8 +94,10 @@ impl RDF {
     pub fn new() -> Self {
         RDF {
             type_: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
-            subject: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#subject").unwrap(),
-            predicate: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate").unwrap(),
+            subject: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#subject")
+                .unwrap(),
+            predicate: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate")
+                .unwrap(),
             object: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#object").unwrap(),
             first: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap(),
             rest: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap(),

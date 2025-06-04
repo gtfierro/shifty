@@ -1,20 +1,19 @@
 #![allow(dead_code, unused_variables)]
-mod types;
 mod components;
-mod shape;
 pub mod context;
 mod named_nodes;
+mod shape;
+mod types;
 
 use components::Component;
 use shape::Shape;
-use types::ID;
 use std::collections::HashMap;
+use types::ID;
 
 pub struct Store {
     shape_lookup: HashMap<ID, Shape>,
     component_lookup: HashMap<ID, Component>,
 }
-
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
