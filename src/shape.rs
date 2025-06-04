@@ -1,7 +1,6 @@
 use crate::types::{ID, ComponentID};
 use crate::types::{Path, Target};
-use crate::named_nodes::SHACL;
-use oxigraph::model::{Term, NamedNode, TermRef};
+// SHACL, Term, NamedNode, TermRef were unused
 
 pub enum Shape {
     NodeShape(NodeShape),
