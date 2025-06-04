@@ -70,3 +70,10 @@ impl Context {
         }
     }
 }
+
+impl ValidationContext {
+    /// Returns an ID for the given term, creating a new one if necessary.
+    pub fn get_or_create_id(&mut self, term: Term) -> ID {
+        self.id_lookup.get_or_create_id(term)
+    }
+}

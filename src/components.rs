@@ -44,10 +44,7 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
         NamedNodeRef::new("http://www.w3.org/ns/shacl#node").unwrap(),
     ) {
         components.push(Component::NodeConstraint(NodeConstraintComponent {
-            shape: match shape_term {
-                TermRef::Literal(lit) => lit.value().parse().unwrap(),
-                _ => panic!("Invalid shape term: {:?}", shape_term),
-            },
+            shape: context.get_or_create_id(shape_term.clone().into()),
         }));
     }
     // Property constraints
@@ -56,10 +53,7 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
         NamedNodeRef::new("http://www.w3.org/ns/shacl#property").unwrap(),
     ) {
         components.push(Component::PropertyConstraint(PropertyConstraintComponent {
-            shape: match prop {
-                TermRef::Literal(lit) => lit.value().parse().unwrap(),
-                _ => panic!("Invalid property shape term: {:?}", prop),
-            },
+            shape: context.get_or_create_id(prop.clone().into()),
         }));
     }
     // Qualified value shape constraints
@@ -88,10 +82,7 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
             .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         components.push(Component::QualifiedValueShape(
             QualifiedValueShapeComponent {
-                shape: match qvs {
-                    TermRef::Literal(lit) => lit.value().parse().unwrap(),
-                    _ => panic!("Invalid qualified value shape term: {:?}", qvs),
-                },
+                shape: context.get_or_create_id(qvs.clone().into()),
                 min_count,
                 max_count,
                 disjoint,
