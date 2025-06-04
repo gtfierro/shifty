@@ -40,7 +40,7 @@ fn parse_rdf_list(list_head: TermRef, context: &ValidationContext) -> Vec<Term> 
             _ => return items, // Not a valid list node or rdf:nil
         };
 
-        let first_term = context.shape_graph().object_for_subject_predicate(subject_ref, shacl.rdf_first.into());
+        let first_term = context.shape_graph().object_for_subject_predicate(subject_ref, shacl.rdf_first);
         if let Some(item) = first_term {
             items.push(item.into_owned());
         } else {
@@ -48,7 +48,7 @@ fn parse_rdf_list(list_head: TermRef, context: &ValidationContext) -> Vec<Term> 
             return items; 
         }
 
-        let rest_term = context.shape_graph().object_for_subject_predicate(subject_ref, shacl.rdf_rest.into());
+        let rest_term = context.shape_graph().object_for_subject_predicate(subject_ref, shacl.rdf_rest);
         if let Some(rest) = rest_term {
             current_node = rest;
         } else {
