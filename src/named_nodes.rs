@@ -20,6 +20,9 @@ pub struct SHACL {
     pub flags: NamedNodeRef<'static>,
     pub language_in: NamedNodeRef<'static>,
     pub unique_lang: NamedNodeRef<'static>,
+    pub rdf_first: NamedNodeRef<'static>,
+    pub rdf_rest: NamedNodeRef<'static>,
+    pub rdf_nil: NamedNodeRef<'static>,
 }
 
 impl SHACL {
@@ -44,6 +47,9 @@ impl SHACL {
             flags: NamedNodeRef::new("http://www.w3.org/ns/shacl#flags").unwrap(),
             language_in: NamedNodeRef::new("http://www.w3.org/ns/shacl#languageIn").unwrap(),
             unique_lang: NamedNodeRef::new("http://www.w3.org/ns/shacl#uniqueLang").unwrap(),
+            rdf_first: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap(),
+            rdf_rest: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap(),
+            rdf_nil: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil").unwrap(),
         }
     }
 }
