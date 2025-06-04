@@ -8,6 +8,8 @@ pub struct SHACL {
     pub min_count: NamedNodeRef<'static>,
     pub max_count: NamedNodeRef<'static>,
     pub qualified_value_shapes_disjoint: NamedNodeRef<'static>,
+    pub node_kind: NamedNodeRef<'static>,
+    pub datatype: NamedNodeRef<'static>,
 }
 
 impl SHACL {
@@ -20,6 +22,8 @@ impl SHACL {
             min_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
             max_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#maxCount").unwrap(),
             qualified_value_shapes_disjoint: NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint").unwrap(),
+            node_kind: NamedNodeRef::new("http://www.w3.org/ns/shacl#nodeKind").unwrap(),
+            datatype: NamedNodeRef::new("http://www.w3.org/ns/shacl#datatype").unwrap(),
         }
     }
 }

@@ -50,11 +50,27 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
             },
         );
 
-    // class constraint component
+    // value type
     if let Some(class_terms) = pred_obj_pairs.get(&shacl.class.into()) {
         for class_term in class_terms {
             components.push(Component::ClassConstraint(ClassConstraintComponent {
                 class: class_term.clone().into(),
+            }));
+        }
+    }
+
+    if let Some(datatype_terms) = pred_obj_pairs.get(&shacl.datatype.into()) {
+        for datatype_term in datatype_terms {
+            components.push(Component::DatatypeConstraint(DatatypeConstraintComponent {
+                datatype: datatype_term.clone().into(),
+            }));
+        }
+    }
+
+    if let Some(node_kind_terms) = pred_obj_pairs.get(&shacl.node_kind.into()) {
+        for node_kind_term in node_kind_terms {
+            components.push(Component::NodeKindConstraint(NodeKindConstraintComponent {
+                node_kind: node_kind_term.clone().into(),
             }));
         }
     }
@@ -68,34 +84,41 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
         }
     }
 
+    // property constraints
+    if let Some(property_terms) = pred_obj_pairs.get(&shacl.property.into()) {
+        for property_term in property_terms {
+            components.push(Component::PropertyConstraint(PropertyConstraintComponent {
+                shape: context.get_or_create_id(property_term.clone().into()),
+            }));
+        }
+    }
 
-    // Class constraints
-    //if let Some(class_term) = context.shape_graph().object_for_subject_predicate(
-    //    start.to_subject_ref(),
-    //    shacl.class,
-    //) {
-    //    components.push(Component::ClassConstraint(ClassConstraintComponent {
-    //        class: class_term.into(),
-    //    }));
-    //}
-    //// Node constraints
-    //if let Some(shape_term) = context.shape_graph().object_for_subject_predicate(
-    //    start.to_subject_ref(),
-    //    shacl.node,
-    //) {
-    //    components.push(Component::NodeConstraint(NodeConstraintComponent {
-    //        shape: context.get_or_create_id(shape_term.clone().into()),
-    //    }));
-    //}
-    //// Property constraints
-    //for prop in context.shape_graph().objects_for_subject_predicate(
-    //    start.to_subject_ref(),
-    //    shacl.property,
-    //) {
-    //    components.push(Component::PropertyConstraint(PropertyConstraintComponent {
-    //        shape: context.get_or_create_id(prop.clone().into()),
-    //    }));
-    //}
+
+    // cardinality
+    if let Some(min_count_terms) = pred_obj_pairs.get(&shacl.min_count.into()) {
+        for min_count_term in min_count_terms {
+            if let TermRef::Literal(lit) = min_count_term {
+                if let Ok(min_count) = lit.value().parse::<u64>() {
+                    components.push(Component::MinCount(MinCountConstraintComponent {
+                        min_count,
+                    }));
+                }
+            }
+        }
+    }
+
+    if let Some(max_count_terms) = pred_obj_pairs.get(&shacl.max_count.into()) {
+        for max_count_term in max_count_terms {
+            if let TermRef::Literal(lit) = max_count_term {
+                if let Ok(max_count) = lit.value().parse::<u64>() {
+                    components.push(Component::MaxCount(MaxCountConstraintComponent {
+                        max_count,
+                    }));
+                }
+            }
+        }
+    }
+
     //// Qualified value shape constraints
     //for qvs in context.shape_graph().objects_for_subject_predicate(
     //    start.to_subject_ref(),
@@ -132,14 +155,31 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
 }
 
 pub enum Component {
-    ClassConstraint(ClassConstraintComponent),
     NodeConstraint(NodeConstraintComponent),
     PropertyConstraint(PropertyConstraintComponent),
     QualifiedValueShape(QualifiedValueShapeComponent),
+
+    // value type
+    ClassConstraint(ClassConstraintComponent),
+    DatatypeConstraint(DatatypeConstraintComponent),
+    NodeKindConstraint(NodeKindConstraintComponent),
+
+    // cardinality constraints
+    MinCount(MinCountConstraintComponent),
+    MaxCount(MaxCountConstraintComponent),
 }
 
+// value type
 pub struct ClassConstraintComponent {
     class: Term,
+}
+
+pub struct DatatypeConstraintComponent {
+    datatype: Term,
+}
+
+pub struct NodeKindConstraintComponent {
+    node_kind: Term,
 }
 
 pub struct NodeConstraintComponent {
@@ -155,4 +195,12 @@ pub struct QualifiedValueShapeComponent {
     min_count: Option<u64>,
     max_count: Option<u64>,
     disjoint: Option<bool>,
+}
+
+pub struct MinCountConstraintComponent {
+    min_count: u64,
+}
+
+pub struct MaxCountConstraintComponent {
+    max_count: u64,
 }
