@@ -4,7 +4,7 @@ use crate::context::ValidationContext;
 use crate::types::ID;
 use crate::named_nodes::SHACL;
 
-trait ToSubjectRef {
+pub trait ToSubjectRef {
     fn to_subject_ref(&self) -> SubjectRef;
 }
 
