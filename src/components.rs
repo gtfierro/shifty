@@ -1,6 +1,16 @@
-use oxigraph::model::{Term, NamedNode, BlankNode, Literal};
+use oxigraph::model::{Term, NamedNode, BlankNode, Literal, SubjectRef};
 use oxigraph::model::{Dataset, Graph, GraphName, Quad, Triple};
 use crate::types::ID;
+
+impl<'a> From<&'a Term> for SubjectRef<'a> {
+    fn from(term: &'a Term) -> SubjectRef<'a> {
+        match term {
+            Term::NamedNode(n) => SubjectRef::NamedNodeRef(n.into()),
+            Term::BlankNode(b)   => SubjectRef::BlankNodeRef(b.into()),
+            _ => panic!("Invalid subject term: {:?}", term),
+        }
+    }
+}
 
 pub fn parse_components(start: Term, shape_graph: &Graph) -> Vec<Component> {
     let mut components = Vec::new();
