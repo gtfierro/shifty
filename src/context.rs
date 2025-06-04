@@ -1,5 +1,6 @@
-use oxigraph::model::{Term, NamedNode, BlankNode, Literal};
+use oxigraph::model::{Term};
 use oxigraph::model::Graph;
+use std::cell::RefCell;
 use crate::types::ID;
 
 pub struct IDLookupTable {
@@ -37,7 +38,7 @@ impl IDLookupTable {
 }
 
 pub struct ValidationContext {
-    id_lookup: IDLookupTable,
+    id_lookup: RefCell<IDLookupTable>,
     shape_graph: Graph,
     data_graph: Graph,
 }
@@ -45,7 +46,7 @@ pub struct ValidationContext {
 impl ValidationContext {
     pub fn new(shape_graph: Graph, data_graph: Graph) -> Self {
         ValidationContext {
-            id_lookup: IDLookupTable::new(),
+            id_lookup: RefCell::new(IDLookupTable::new()),
             shape_graph,
             data_graph,
         }
@@ -92,7 +93,7 @@ impl Context {
 
 impl ValidationContext {
     /// Returns an ID for the given term, creating a new one if necessary.
-    pub fn get_or_create_id(&mut self, term: Term) -> ID {
-        self.id_lookup.get_or_create_id(term)
+    pub fn get_or_create_id(&self, term: Term) -> ID {
+        self.id_lookup.borrow_mut().get_or_create_id(term)
     }
 }

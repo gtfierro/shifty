@@ -1,4 +1,4 @@
-use oxigraph::model::{Term, NamedNodeRef, TermRef, SubjectRef, BlankNode, Graph, TripleRef};
+use oxigraph::model::{Term, TermRef, SubjectRef, TripleRef};
 use std::collections::HashMap;
 use crate::context::ValidationContext;
 use crate::types::ID;
