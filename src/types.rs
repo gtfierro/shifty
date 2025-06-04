@@ -1,6 +1,4 @@
-use oxigraph::model::{Term, NamedNode, BlankNode, Literal};
-use crate::components::Component;
-use crate::shape::Shape;
+use oxigraph::model::{Term, NamedNode};
 
 pub type ID = u64;
 

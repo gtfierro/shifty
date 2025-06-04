@@ -1,73 +1,73 @@
-use oxigraph::model::{Term, NamedNode, BlankNode, Literal, SubjectRef};
+use oxigraph::model::{Term, NamedNodeRef, TermRef, Literal};
 use oxigraph::model::{Dataset, Graph, GraphName, Quad, Triple};
 use crate::types::ID;
 
-impl<'a> From<&'a Term> for SubjectRef<'a> {
-    fn from(term: &'a Term) -> SubjectRef<'a> {
-        match term {
-            Term::NamedNode(n) => SubjectRef::NamedNodeRef(n.into()),
-            Term::BlankNode(b)   => SubjectRef::BlankNodeRef(b.into()),
-            _ => panic!("Invalid subject term: {:?}", term),
-        }
-    }
-}
 
 pub fn parse_components(start: Term, shape_graph: &Graph) -> Vec<Component> {
     let mut components = Vec::new();
     // Class constraints
     if let Some(class_term) = shape_graph.object_for_subject_predicate(
         &start,
-        NamedNode::new("http://www.w3.org/ns/shacl#class").unwrap(),
+        NamedNodeRef::new("http://www.w3.org/ns/shacl#class").unwrap(),
     ) {
         components.push(Component::ClassConstraint(ClassConstraintComponent {
-            class: class_term.into(),
+            class: class_term.to_owned(),
         }));
     }
     // Node constraints
     if let Some(shape_term) = shape_graph.object_for_subject_predicate(
         &start,
-        NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap(),
+        NamedNodeRef::new("http://www.w3.org/ns/shacl#node").unwrap(),
     ) {
         components.push(Component::NodeConstraint(NodeConstraintComponent {
-            shape: shape_term.into(),
+            shape: match shape_term {
+                TermRef::Literal(lit) => lit.value().parse().unwrap(),
+                _ => panic!("Invalid shape term: {:?}", shape_term),
+            },
         }));
     }
     // Property constraints
     for prop in shape_graph.objects_for_subject_predicate(
         &start,
-        NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap(),
+        NamedNodeRef::new("http://www.w3.org/ns/shacl#property").unwrap(),
     ) {
         components.push(Component::PropertyConstraint(PropertyConstraintComponent {
-            shape: prop.into(),
+            shape: match prop {
+                TermRef::Literal(lit) => lit.value().parse().unwrap(),
+                _ => panic!("Invalid property shape term: {:?}", prop),
+            },
         }));
     }
     // Qualified value shape constraints
     for qvs in shape_graph.objects_for_subject_predicate(
         &start,
-        NamedNode::new("http://www.w3.org/ns/shacl#qualifiedValueShape").unwrap(),
+        NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShape").unwrap(),
     ) {
         let min_count = shape_graph
             .object_for_subject_predicate(
-                &qvs,
-                NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
+                &qvs.to_owned(),
+                NamedNodeRef::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
             )
-            .and_then(|t| t.into_literal().and_then(|lit| lit.value().parse().ok()));
+            .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         let max_count = shape_graph
             .object_for_subject_predicate(
-                &qvs,
-                NamedNode::new("http://www.w3.org/ns/shacl#maxCount").unwrap(),
+                &qvs.to_owned(),
+                NamedNodeRef::new("http://www.w3.org/ns/shacl#maxCount").unwrap(),
             )
-            .and_then(|t| t.into_literal().and_then(|lit| lit.value().parse().ok()));
+            .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         let disjoint = shape_graph
             .object_for_subject_predicate(
-                &qvs,
-                NamedNode::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint")
+                &qvs.to_owned(),
+                NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint")
                     .unwrap(),
             )
-            .and_then(|t| t.into_literal().and_then(|lit| lit.value().parse().ok()));
+            .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         components.push(Component::QualifiedValueShape(
             QualifiedValueShapeComponent {
-                shape: qvs.into(),
+                shape: match qvs {
+                    TermRef::Literal(lit) => lit.value().parse().unwrap(),
+                    _ => panic!("Invalid qualified value shape term: {:?}", qvs),
+                },
                 min_count,
                 max_count,
                 disjoint,
