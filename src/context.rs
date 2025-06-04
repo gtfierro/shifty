@@ -1,4 +1,5 @@
 use oxigraph::model::{Term, TermRef, SubjectRef};
+use std::hash::Hash;
 use crate::named_nodes::{RDF, SHACL};
 use crate::shape::{NodeShape, PropertyShape, Shape};
 use oxigraph::model::Graph;
@@ -7,13 +8,13 @@ use std::cell::RefCell;
 use crate::types::{ID, Target, ComponentID};
 use std::collections::{HashSet, HashMap};
 
-pub struct IDLookupTable {
-    id_map: std::collections::HashMap<Term, ID>,
-    id_to_term: std::collections::HashMap<ID, Term>,
-    next_id: ID,
+pub struct IDLookupTable<IdType: Copy + Eq + Hash> {
+    id_map: std::collections::HashMap<Term, IdType>,
+    id_to_term: std::collections::HashMap<IdType, Term>,
+    next_id: u64, // Internal counter remains u64
 }
 
-impl IDLookupTable {
+impl<IdType: Copy + Eq + Hash + From<u64>> IDLookupTable<IdType> {
     pub fn new() -> Self {
         IDLookupTable {
             id_map: std::collections::HashMap::new(),
@@ -23,11 +24,12 @@ impl IDLookupTable {
     }
 
     // Returns an ID for the given term, creating a new ID if it doesn't exist
-    pub fn get_or_create_id(&mut self, term: Term) -> ID {
+    pub fn get_or_create_id(&mut self, term: Term) -> IdType {
         if let Some(&id) = self.id_map.get(&term) {
             id
         } else {
-            let id = self.next_id;
+            let id_val = self.next_id;
+            let id: IdType = id_val.into(); // Convert u64 to IdType
             self.id_map.insert(term.clone(), id);
             self.id_to_term.insert(id, term);
             self.next_id += 1;
@@ -36,13 +38,14 @@ impl IDLookupTable {
     }
 
     // Returns the term associated with the given ID
-    pub fn get_term(&self, id: ID) -> Option<&Term> {
+    pub fn get_term(&self, id: IdType) -> Option<&Term> {
         self.id_to_term.get(&id)
     }
 }
 
 pub struct ValidationContext {
-    id_lookup: RefCell<IDLookupTable>,
+    node_id_lookup: RefCell<IDLookupTable<ID>>,
+    component_id_lookup: RefCell<IDLookupTable<ComponentID>>,
     shape_graph: Graph,
     data_graph: Graph,
     node_shapes: HashMap<ID, NodeShape>,
@@ -52,7 +55,8 @@ pub struct ValidationContext {
 impl ValidationContext {
     pub fn new(shape_graph: Graph, data_graph: Graph) -> Self {
         ValidationContext {
-            id_lookup: RefCell::new(IDLookupTable::new()),
+            node_id_lookup: RefCell::new(IDLookupTable::<ID>::new()),
+            component_id_lookup: RefCell::new(IDLookupTable::<ComponentID>::new()),
             shape_graph,
             data_graph,
             node_shapes: HashMap::new(),
@@ -76,29 +80,29 @@ impl ValidationContext {
         let mut node_shapes = HashSet::new();
         // <shape> rdf:type sh:NodeShape
         while let Some(shape) = self.shape_graph.subject_for_predicate_object(rdf.type_, shacl.node_shape) {
-            node_shapes.insert(self.get_or_create_id(shape.into()));
+            node_shapes.insert(self.get_or_create_node_id(shape.into()));
         }
 
         // ? sh:node <shape>
         for triple in self.shape_graph.triples_for_predicate(shacl.node) {
-            node_shapes.insert(self.get_or_create_id(triple.object.into()));
+            node_shapes.insert(self.get_or_create_node_id(triple.object.into()));
         }
 
         // ? sh:qualifiedValueShape <shape>
         for triple in self.shape_graph.triples_for_predicate(shacl.qualified_value_shape) {
-            node_shapes.insert(self.get_or_create_id(triple.object.into()));
+            node_shapes.insert(self.get_or_create_node_id(triple.object.into()));
         }
 
         // ? sh:not <shape>
         for triple in self.shape_graph.triples_for_predicate(shacl.not) {
-            node_shapes.insert(self.get_or_create_id(triple.object.into()));
+            node_shapes.insert(self.get_or_create_node_id(triple.object.into()));
         }
 
         // ? sh:or (list of <shape>)
         for triple in self.shape_graph.triples_for_predicate(shacl.or_) {
             let list = triple.object.into();
             for item in self.parse_rdf_list(list) {
-                node_shapes.insert(self.get_or_create_id(item.into()));
+                node_shapes.insert(self.get_or_create_node_id(item.into()));
             }
         }
 
@@ -106,7 +110,7 @@ impl ValidationContext {
         for triple in self.shape_graph.triples_for_predicate(shacl.and_) {
             let list = triple.object.into();
             for item in self.parse_rdf_list(list) {
-                node_shapes.insert(self.get_or_create_id(item.into()));
+                node_shapes.insert(self.get_or_create_node_id(item.into()));
             }
         }
 
@@ -114,7 +118,7 @@ impl ValidationContext {
         for triple in self.shape_graph.triples_for_predicate(shacl.xone) {
             let list = triple.object.into();
             for item in self.parse_rdf_list(list) {
-                node_shapes.insert(self.get_or_create_id(item.into()));
+                node_shapes.insert(self.get_or_create_node_id(item.into()));
             }
         }
 
@@ -130,7 +134,7 @@ impl ValidationContext {
     pub fn parse_node_shape(&mut self, shape: TermRef) -> ID {
         // Parses a shape from the shape graph and returns its ID.
         // Adds the shape to the node_shapes map.
-        let id = self.get_or_create_id(shape.into());
+        let id = self.get_or_create_node_id(shape.into());
 
         let subject: SubjectRef = shape.to_subject_ref();
 
@@ -207,8 +211,13 @@ impl Context {
 }
 
 impl ValidationContext {
-    /// Returns an ID for the given term, creating a new one if necessary.
-    pub fn get_or_create_id(&self, term: Term) -> ID {
-        self.id_lookup.borrow_mut().get_or_create_id(term)
+    /// Returns an ID for the given term, creating a new one if necessary for a NodeShape.
+    pub fn get_or_create_node_id(&self, term: Term) -> ID {
+        self.node_id_lookup.borrow_mut().get_or_create_id(term)
+    }
+
+    /// Returns a ComponentID for the given term, creating a new one if necessary for a Component.
+    pub fn get_or_create_component_id(&self, term: Term) -> ComponentID {
+        self.component_id_lookup.borrow_mut().get_or_create_id(term)
     }
 }
