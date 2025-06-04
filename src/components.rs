@@ -10,6 +10,7 @@ pub enum Component {
     ClassConstraint(ClassConstraintComponent),
     NodeConstraint(NodeConstraintComponent),
     PropertyConstraint(PropertyConstraintComponent),
+    QualifiedValueShape(QualifiedValueShapeComponent),
 }
 
 pub struct ClassConstraintComponent {
@@ -25,4 +26,12 @@ pub struct NodeConstraintComponent {
 pub struct PropertyConstraintComponent {
     identifier: ID,
     shape: ID,
+}
+
+pub struct QualifiedValueShapeComponent {
+    identifier: ID,
+    shape: ID,
+    min_count: Option<u64>,
+    max_count: Option<u64>,
+    disjoint: Option<bool>,
 }
