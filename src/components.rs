@@ -34,7 +34,7 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
     // Class constraints
     if let Some(class_term) = context.shape_graph().object_for_subject_predicate(
         start.to_subject_ref(),
-        NamedNodeRef::new("http://www.w3.org/ns/shacl#class").unwrap(),
+        shacl.class,
     ) {
         components.push(Component::ClassConstraint(ClassConstraintComponent {
             class: class_term.into(),
@@ -43,7 +43,7 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
     // Node constraints
     if let Some(shape_term) = context.shape_graph().object_for_subject_predicate(
         start.to_subject_ref(),
-        NamedNodeRef::new("http://www.w3.org/ns/shacl#node").unwrap(),
+        shacl.node,
     ) {
         components.push(Component::NodeConstraint(NodeConstraintComponent {
             shape: context.get_or_create_id(shape_term.clone().into()),
@@ -52,7 +52,7 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
     // Property constraints
     for prop in context.shape_graph().objects_for_subject_predicate(
         start.to_subject_ref(),
-        NamedNodeRef::new("http://www.w3.org/ns/shacl#property").unwrap(),
+        shacl.property,
     ) {
         components.push(Component::PropertyConstraint(PropertyConstraintComponent {
             shape: context.get_or_create_id(prop.clone().into()),
@@ -61,25 +61,24 @@ pub fn parse_components(start: Term, context: &mut ValidationContext) -> Vec<Com
     // Qualified value shape constraints
     for qvs in context.shape_graph().objects_for_subject_predicate(
         start.to_subject_ref(),
-        NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShape").unwrap(),
+        shacl.qualified_value_shape,
     ) {
         let min_count = context.shape_graph()
             .object_for_subject_predicate(
                 qvs.to_subject_ref(),
-                NamedNodeRef::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
+                shacl.min_count,
             )
             .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         let max_count = context.shape_graph()
             .object_for_subject_predicate(
                 qvs.to_subject_ref(),
-                NamedNodeRef::new("http://www.w3.org/ns/shacl#maxCount").unwrap(),
+                shacl.max_count,
             )
             .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         let disjoint = context.shape_graph()
             .object_for_subject_predicate(
                 qvs.to_subject_ref(),
-                NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint")
-                    .unwrap(),
+                shacl.qualified_value_shapes_disjoint,
             )
             .and_then(|t| if let TermRef::Literal(lit) = t { lit.value().parse().ok() } else { None });
         components.push(Component::QualifiedValueShape(
