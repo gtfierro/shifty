@@ -23,6 +23,7 @@ pub struct SHACL {
     pub rdf_first: NamedNodeRef<'static>,
     pub rdf_rest: NamedNodeRef<'static>,
     pub rdf_nil: NamedNodeRef<'static>,
+    pub node_shape: NamedNodeRef<'static>,
 }
 
 impl SHACL {
@@ -50,6 +51,31 @@ impl SHACL {
             rdf_first: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap(),
             rdf_rest: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap(),
             rdf_nil: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil").unwrap(),
+            node_shape: NamedNodeRef::new("http://www.w3.org/ns/shacl#NodeShape").unwrap(),
+        }
+    }
+}
+
+pub struct RDF {
+    pub type_: NamedNodeRef<'static>,
+    pub subject: NamedNodeRef<'static>,
+    pub predicate: NamedNodeRef<'static>,
+    pub object: NamedNodeRef<'static>,
+    pub first: NamedNodeRef<'static>,
+    pub rest: NamedNodeRef<'static>,
+    pub nil: NamedNodeRef<'static>,
+}
+
+impl RDF {
+    pub fn new() -> Self {
+        RDF {
+            type_: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+            subject: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#subject").unwrap(),
+            predicate: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate").unwrap(),
+            object: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#object").unwrap(),
+            first: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap(),
+            rest: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap(),
+            nil: NamedNodeRef::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil").unwrap(),
         }
     }
 }
