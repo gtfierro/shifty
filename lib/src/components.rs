@@ -462,6 +462,72 @@ pub fn parse_components(
         new_components.insert(component_id, component);
     }
 
+    // Other Constraint Components
+
+    // sh:closed / sh:ignoredProperties
+    if let Some(closed_terms) = pred_obj_pairs.get(&shacl.closed.into()) {
+        for closed_term_ref in closed_terms {
+            // sh:closed maxCount 1, but loop for safety
+            if let TermRef::Literal(lit) = closed_term_ref {
+                if let Ok(closed_val) = lit.value().parse::<bool>() {
+                    let ignored_properties_list_opt = pred_obj_pairs
+                        .get(&shacl.ignored_properties.into())
+                        .and_then(|terms| terms.first().cloned()); // sh:ignoredProperties maxCount 1
+
+                    let ignored_properties_terms: Vec<Term> =
+                        if let Some(list_head) = ignored_properties_list_opt {
+                            context
+                                .parse_rdf_list(list_head)
+                                .into_iter()
+                                .map(|t| t.into_owned())
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+
+                    let component =
+                        Component::ClosedConstraint(ClosedConstraintComponent {
+                            closed: closed_val,
+                            ignored_properties: if ignored_properties_terms.is_empty() {
+                                None
+                            } else {
+                                Some(ignored_properties_terms)
+                            },
+                        });
+                    let component_id =
+                        context.get_or_create_component_id(closed_term_ref.into_owned());
+                    new_components.insert(component_id, component);
+                }
+            }
+        }
+    }
+
+    // sh:hasValue
+    if let Some(has_value_terms) = pred_obj_pairs.get(&shacl.has_value.into()) {
+        for has_value_term_ref in has_value_terms {
+            let component = Component::HasValueConstraint(HasValueConstraintComponent {
+                value: has_value_term_ref.clone().into(),
+            });
+            let component_id =
+                context.get_or_create_component_id(has_value_term_ref.into_owned());
+            new_components.insert(component_id, component);
+        }
+    }
+
+    // sh:in
+    if let Some(in_terms) = pred_obj_pairs.get(&shacl.in_.into()) {
+        if let Some(list_head_term_ref) = in_terms.first() {
+            // sh:in maxCount 1
+            let list_items = context.parse_rdf_list(list_head_term_ref.clone());
+            let values: Vec<Term> = list_items.into_iter().map(|t| t.into_owned()).collect();
+
+            let component = Component::InConstraint(InConstraintComponent { values });
+            let component_id =
+                context.get_or_create_component_id(list_head_term_ref.into_owned());
+            new_components.insert(component_id, component);
+        }
+    }
+
     new_components
 }
 
@@ -508,6 +574,11 @@ pub enum Component {
     AndConstraint(AndConstraintComponent),
     OrConstraint(OrConstraintComponent),
     XoneConstraint(XoneConstraintComponent),
+
+    // other constraint components
+    ClosedConstraint(ClosedConstraintComponent),
+    HasValueConstraint(HasValueConstraintComponent),
+    InConstraint(InConstraintComponent),
 }
 
 impl Component {
@@ -544,6 +615,10 @@ impl Component {
             Component::AndConstraint(_) => "AndConstraint".to_string(),
             Component::OrConstraint(_) => "OrConstraint".to_string(),
             Component::XoneConstraint(_) => "XoneConstraint".to_string(),
+
+            Component::ClosedConstraint(_) => "ClosedConstraint".to_string(),
+            Component::HasValueConstraint(_) => "HasValueConstraint".to_string(),
+            Component::InConstraint(_) => "InConstraint".to_string(),
         }
     }
 
@@ -574,6 +649,9 @@ impl Component {
             Component::AndConstraint(c) => c.to_graphviz_string(component_id, context),
             Component::OrConstraint(c) => c.to_graphviz_string(component_id, context),
             Component::XoneConstraint(c) => c.to_graphviz_string(component_id, context),
+            Component::ClosedConstraint(c) => c.to_graphviz_string(component_id, context),
+            Component::HasValueConstraint(c) => c.to_graphviz_string(component_id, context),
+            Component::InConstraint(c) => c.to_graphviz_string(component_id, context),
         }
     }
 }
@@ -983,5 +1061,61 @@ impl GraphvizOutput for XoneConstraintComponent {
             ));
         }
         format!("{} [label=\"Xone\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
+    }
+}
+
+// Other Constraint Components
+#[derive(Debug)]
+pub struct ClosedConstraintComponent {
+    closed: bool,
+    ignored_properties: Option<Vec<Term>>,
+}
+
+impl GraphvizOutput for ClosedConstraintComponent {
+    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+        let mut label_parts = vec![format!("Closed: {}", self.closed)];
+        if let Some(ignored) = &self.ignored_properties {
+            if !ignored.is_empty() {
+                let ignored_str = ignored
+                    .iter()
+                    .map(format_term_for_label)
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                label_parts.push(format!("Ignored: [{}]", ignored_str));
+            }
+        }
+        format!("{} [label=\"{}\"];", component_id.to_graphviz_id(), label_parts.join("\\n"))
+    }
+}
+
+#[derive(Debug)]
+pub struct HasValueConstraintComponent {
+    value: Term,
+}
+
+impl GraphvizOutput for HasValueConstraintComponent {
+    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+        format!(
+            "{} [label=\"HasValue: {}\"];",
+            component_id.to_graphviz_id(),
+            format_term_for_label(&self.value)
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct InConstraintComponent {
+    values: Vec<Term>,
+}
+
+impl GraphvizOutput for InConstraintComponent {
+    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+        let values_str = self
+            .values
+            .iter()
+            .map(format_term_for_label)
+            .collect::<Vec<String>>()
+            .join(", ");
+        format!("{} [label=\"In: [{}]\"];", component_id.to_graphviz_id(), values_str)
     }
 }
