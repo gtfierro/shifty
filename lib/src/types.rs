@@ -18,6 +18,12 @@ impl fmt::Display for ID {
     }
 }
 
+impl ID {
+    pub fn to_graphviz_id(&self) -> String {
+        format!("n{}", self.0)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ComponentID(pub u64);
 
@@ -33,6 +39,12 @@ impl fmt::Display for ComponentID {
     }
 }
 
+impl ComponentID {
+    pub fn to_graphviz_id(&self) -> String {
+        format!("c{}", self.0)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PropShapeID(pub u64);
 
@@ -45,6 +57,12 @@ impl From<u64> for PropShapeID {
 impl fmt::Display for PropShapeID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl PropShapeID {
+    pub fn to_graphviz_id(&self) -> String {
+        format!("p{}", self.0)
     }
 }
 

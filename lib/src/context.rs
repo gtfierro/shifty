@@ -133,12 +133,12 @@ impl ValidationContext {
             // 'name' here is the Term identifier of the NodeShape
             let name_label = format_term_for_label(&name);
             println!(
-                "n{} [label=\"NodeShape\\n{}\"];",
-                shape.identifier().0,
+                "{} [label=\"NodeShape\\n{}\"];",
+                shape.identifier().to_graphviz_id(),
                 name_label
             );
             for comp in shape.constraints() {
-                println!("    n{} -> c{};", shape.identifier().0, comp.0);
+                println!("    {} -> {};", shape.identifier().to_graphviz_id(), comp.to_graphviz_id());
             }
         }
         for pshape in self.prop_shapes.values() {
@@ -155,12 +155,12 @@ impl ValidationContext {
             let path_term = pshape.path_term(); // Get the Term of the path
             let path_label = format_term_for_label(path_term); // Format it
             println!(
-                "    p{} [label=\"PropertyShape\\nPath: {}\"];",
-                pshape.identifier().0,
+                "    {} [label=\"PropertyShape\\nPath: {}\"];",
+                pshape.identifier().to_graphviz_id(),
                 path_label
             );
             for comp in pshape.constraints() {
-                println!("    p{} -> c{};", pshape.identifier().0, comp.0);
+                println!("    {} -> {};", pshape.identifier().to_graphviz_id(), comp.to_graphviz_id());
             }
         }
         for (ident, comp) in self.components.iter() {

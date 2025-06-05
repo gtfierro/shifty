@@ -589,7 +589,7 @@ pub struct ClassConstraintComponent {
 impl GraphvizOutput for ClassConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let class_name = format_term_for_label(&self.class);
-        format!("c{} [label=\"Class: {}\"];", component_id.0, class_name)
+        format!("{} [label=\"Class: {}\"];", component_id.to_graphviz_id(), class_name)
     }
 }
 
@@ -601,7 +601,7 @@ pub struct DatatypeConstraintComponent {
 impl GraphvizOutput for DatatypeConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let datatype_name = format_term_for_label(&self.datatype);
-        format!("c{} [label=\"Datatype: {}\"];", component_id.0, datatype_name)
+        format!("{} [label=\"Datatype: {}\"];", component_id.to_graphviz_id(), datatype_name)
     }
 }
 
@@ -613,7 +613,7 @@ pub struct NodeKindConstraintComponent {
 impl GraphvizOutput for NodeKindConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let node_kind_name = format_term_for_label(&self.node_kind);
-        format!("c{} [label=\"NodeKind: {}\"];", component_id.0, node_kind_name)
+        format!("{} [label=\"NodeKind: {}\"];", component_id.to_graphviz_id(), node_kind_name)
     }
 }
 
@@ -634,8 +634,8 @@ impl GraphvizOutput for NodeConstraintComponent {
             );
         let label = format!("NodeConstraint\\n({})", shape_term_str);
         format!(
-            "c{0} [label=\"{1}\"];\n    c{0} -> n{2} [style=dashed, label=\"validates\"];",
-            component_id.0, label, self.shape.0
+            "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"validates\"];",
+            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
         )
     }
 }
@@ -657,8 +657,8 @@ impl GraphvizOutput for PropertyConstraintComponent {
             );
         let label = format!("PropertyConstraint\\n({})", shape_term_str);
         format!(
-            "c{0} [label=\"{1}\"];\n    c{0} -> p{2} [style=dashed, label=\"validates\"];",
-            component_id.0, label, self.shape.0
+            "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"validates\"];",
+            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
         )
     }
 }
@@ -693,8 +693,8 @@ impl GraphvizOutput for QualifiedValueShapeComponent {
         }
         let label = label_parts.join("\\n");
         format!(
-            "c{0} [label=\"{1}\"];\n    c{0} -> n{2} [style=dashed, label=\"qualifies\"];",
-            component_id.0, label, self.shape.0
+            "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"qualifies\"];",
+            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
         )
     }
 }
@@ -706,7 +706,7 @@ pub struct MinCountConstraintComponent {
 
 impl GraphvizOutput for MinCountConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("c{} [label=\"MinCount: {}\"];", component_id.0, self.min_count)
+        format!("{} [label=\"MinCount: {}\"];", component_id.to_graphviz_id(), self.min_count)
     }
 }
 
@@ -717,7 +717,7 @@ pub struct MaxCountConstraintComponent {
 
 impl GraphvizOutput for MaxCountConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("c{} [label=\"MaxCount: {}\"];", component_id.0, self.max_count)
+        format!("{} [label=\"MaxCount: {}\"];", component_id.to_graphviz_id(), self.max_count)
     }
 }
 
@@ -730,8 +730,8 @@ pub struct MinExclusiveConstraintComponent {
 impl GraphvizOutput for MinExclusiveConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         format!(
-            "c{} [label=\"MinExclusive: {}\"];",
-            component_id.0,
+            "{} [label=\"MinExclusive: {}\"];",
+            component_id.to_graphviz_id(),
             format_term_for_label(&self.min_exclusive)
         )
     }
@@ -745,8 +745,8 @@ pub struct MinInclusiveConstraintComponent {
 impl GraphvizOutput for MinInclusiveConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         format!(
-            "c{} [label=\"MinInclusive: {}\"];",
-            component_id.0,
+            "{} [label=\"MinInclusive: {}\"];",
+            component_id.to_graphviz_id(),
             format_term_for_label(&self.min_inclusive)
         )
     }
@@ -760,8 +760,8 @@ pub struct MaxExclusiveConstraintComponent {
 impl GraphvizOutput for MaxExclusiveConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         format!(
-            "c{} [label=\"MaxExclusive: {}\"];",
-            component_id.0,
+            "{} [label=\"MaxExclusive: {}\"];",
+            component_id.to_graphviz_id(),
             format_term_for_label(&self.max_exclusive)
         )
     }
@@ -775,8 +775,8 @@ pub struct MaxInclusiveConstraintComponent {
 impl GraphvizOutput for MaxInclusiveConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         format!(
-            "c{} [label=\"MaxInclusive: {}\"];",
-            component_id.0,
+            "{} [label=\"MaxInclusive: {}\"];",
+            component_id.to_graphviz_id(),
             format_term_for_label(&self.max_inclusive)
         )
     }
@@ -790,7 +790,7 @@ pub struct MinLengthConstraintComponent {
 
 impl GraphvizOutput for MinLengthConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("c{} [label=\"MinLength: {}\"];", component_id.0, self.min_length)
+        format!("{} [label=\"MinLength: {}\"];", component_id.to_graphviz_id(), self.min_length)
     }
 }
 
@@ -801,7 +801,7 @@ pub struct MaxLengthConstraintComponent {
 
 impl GraphvizOutput for MaxLengthConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("c{} [label=\"MaxLength: {}\"];", component_id.0, self.max_length)
+        format!("{} [label=\"MaxLength: {}\"];", component_id.to_graphviz_id(), self.max_length)
     }
 }
 
@@ -815,8 +815,8 @@ impl GraphvizOutput for PatternConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let flags_str = self.flags.as_deref().unwrap_or("");
         format!(
-            "c{} [label=\"Pattern: {}\\nFlags: {}\"];",
-            component_id.0,
+            "{} [label=\"Pattern: {}\\nFlags: {}\"];",
+            component_id.to_graphviz_id(),
             sanitize_graphviz_string(&self.pattern), // Pattern is a String, not a Term
             flags_str
         )
@@ -831,8 +831,8 @@ pub struct LanguageInConstraintComponent {
 impl GraphvizOutput for LanguageInConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         format!(
-            "c{} [label=\"LanguageIn: [{}]\"];",
-            component_id.0,
+            "{} [label=\"LanguageIn: [{}]\"];",
+            component_id.to_graphviz_id(),
             self.languages.join(", ")
         )
     }
@@ -845,7 +845,7 @@ pub struct UniqueLangConstraintComponent {
 
 impl GraphvizOutput for UniqueLangConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("c{} [label=\"UniqueLang: {}\"];", component_id.0, self.unique_lang)
+        format!("{} [label=\"UniqueLang: {}\"];", component_id.to_graphviz_id(), self.unique_lang)
     }
 }
 
@@ -859,8 +859,8 @@ impl GraphvizOutput for EqualsConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
-            "c{} [label=\"Equals: {}\"];",
-            component_id.0, property_name
+            "{} [label=\"Equals: {}\"];",
+            component_id.to_graphviz_id(), property_name
         )
     }
 }
@@ -874,8 +874,8 @@ impl GraphvizOutput for DisjointConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
-            "c{} [label=\"Disjoint: {}\"];",
-            component_id.0, property_name
+            "{} [label=\"Disjoint: {}\"];",
+            component_id.to_graphviz_id(), property_name
         )
     }
 }
@@ -889,8 +889,8 @@ impl GraphvizOutput for LessThanConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
-            "c{} [label=\"LessThan: {}\"];",
-            component_id.0, property_name
+            "{} [label=\"LessThan: {}\"];",
+            component_id.to_graphviz_id(), property_name
         )
     }
 }
@@ -904,8 +904,8 @@ impl GraphvizOutput for LessThanOrEqualsConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
-            "c{} [label=\"LessThanOrEquals: {}\"];",
-            component_id.0, property_name
+            "{} [label=\"LessThanOrEquals: {}\"];",
+            component_id.to_graphviz_id(), property_name
         )
     }
 }
@@ -928,8 +928,8 @@ impl GraphvizOutput for NotConstraintComponent {
             );
         let label = format!("Not\\n({})", shape_term_str);
         format!(
-            "c{0} [label=\"{1}\"];\n    c{0} -> n{2} [style=dashed, label=\"negates\"];",
-            component_id.0, label, self.shape.0
+            "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"negates\"];",
+            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
         )
     }
 }
@@ -944,11 +944,11 @@ impl GraphvizOutput for AndConstraintComponent {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
-                "    c{} -> n{} [style=dashed, label=\"conjunct\"];\n",
-                component_id.0, shape_id.0
+                "    {} -> {} [style=dashed, label=\"conjunct\"];\n",
+                component_id.to_graphviz_id(), shape_id.to_graphviz_id()
             ));
         }
-        format!("c{} [label=\"And\"];\n{}", component_id.0, edges.trim_end())
+        format!("{} [label=\"And\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
     }
 }
 
@@ -962,11 +962,11 @@ impl GraphvizOutput for OrConstraintComponent {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
-                "    c{} -> n{} [style=dashed, label=\"disjunct\"];\n",
-                component_id.0, shape_id.0
+                "    {} -> {} [style=dashed, label=\"disjunct\"];\n",
+                component_id.to_graphviz_id(), shape_id.to_graphviz_id()
             ));
         }
-        format!("c{} [label=\"Or\"];\n{}", component_id.0, edges.trim_end())
+        format!("{} [label=\"Or\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
     }
 }
 
@@ -980,10 +980,10 @@ impl GraphvizOutput for XoneConstraintComponent {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
-                "    c{} -> n{} [style=dashed, label=\"xone_option\"];\n",
-                component_id.0, shape_id.0
+                "    {} -> {} [style=dashed, label=\"xone_option\"];\n",
+                component_id.to_graphviz_id(), shape_id.to_graphviz_id()
             ));
         }
-        format!("c{} [label=\"Xone\"];\n{}", component_id.0, edges.trim_end())
+        format!("{} [label=\"Xone\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
     }
 }
