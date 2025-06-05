@@ -39,6 +39,11 @@ pub struct SHACL {
     pub disjoint: NamedNodeRef<'static>,
     pub less_than: NamedNodeRef<'static>,
     pub less_than_or_equals: NamedNodeRef<'static>,
+
+    pub closed: NamedNodeRef<'static>,
+    pub ignored_properties: NamedNodeRef<'static>,
+    pub has_value: NamedNodeRef<'static>,
+    pub in_: NamedNodeRef<'static>, // `in` is a reserved keyword in Rust
 }
 
 impl SHACL {
@@ -99,6 +104,12 @@ impl SHACL {
                 "http://www.w3.org/ns/shacl#lessThanOrEquals",
             )
             .unwrap(),
+
+            closed: NamedNodeRef::new("http://www.w3.org/ns/shacl#closed").unwrap(),
+            ignored_properties: NamedNodeRef::new("http://www.w3.org/ns/shacl#ignoredProperties")
+                .unwrap(),
+            has_value: NamedNodeRef::new("http://www.w3.org/ns/shacl#hasValue").unwrap(),
+            in_: NamedNodeRef::new("http://www.w3.org/ns/shacl#in").unwrap(),
         }
     }
 }
