@@ -132,7 +132,11 @@ impl ValidationContext {
                 .clone();
             // 'name' here is the Term identifier of the NodeShape
             let name_label = format_term_for_label(&name);
-            println!("n{} [label=\"{}\"];", shape.identifier().0, name_label);
+            println!(
+                "n{} [label=\"NodeShape\\n{}\"];",
+                shape.identifier().0,
+                name_label
+            );
             for comp in shape.constraints() {
                 println!("    n{} -> c{};", shape.identifier().0, comp.0);
             }
@@ -150,7 +154,11 @@ impl ValidationContext {
             
             let path_term = pshape.path_term(); // Get the Term of the path
             let path_label = format_term_for_label(path_term); // Format it
-            println!("    p{} [label=\"{}\"];", pshape.identifier().0, path_label);
+            println!(
+                "    p{} [label=\"PropertyShape\\nPath: {}\"];",
+                pshape.identifier().0,
+                path_label
+            );
             for comp in pshape.constraints() {
                 println!("    p{} -> c{};", pshape.identifier().0, comp.0);
             }
