@@ -13,8 +13,38 @@ use std::hash::Hash;
 use std::io::BufReader;
 use std::path::Path;
 
-pub(crate) fn clean(input: &str) -> String {
+// Renamed from clean. Filters to alphanumeric characters.
+pub(crate) fn sanitize_graphviz_string(input: &str) -> String {
     input.chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+// Formats a Term for display in a Graphviz label.
+pub(crate) fn format_term_for_label(term: &Term) -> String {
+    match term {
+        Term::NamedNode(nn) => {
+            let iri_str = nn.as_str();
+            if let Some(hash_idx) = iri_str.rfind('#') {
+                iri_str[hash_idx + 1..].to_string()
+            } else if let Some(slash_idx) = iri_str.rfind('/') {
+                if slash_idx == iri_str.len() - 1 && iri_str.len() > 1 {
+                    // Handles cases like http://example.com/ns/
+                    // Take the segment before the last slash if it ends with a slash
+                    let without_trailing_slash = &iri_str[..slash_idx];
+                    if let Some(prev_slash_idx) = without_trailing_slash.rfind('/') {
+                        without_trailing_slash[prev_slash_idx + 1..].to_string()
+                    } else {
+                        without_trailing_slash.to_string() // Fallback for http://example.com/
+                    }
+                } else {
+                    iri_str[slash_idx + 1..].to_string()
+                }
+            } else {
+                iri_str.to_string() // Fallback if no # or /
+            }
+        }
+        Term::BlankNode(_bn) => "bnode".to_string(),
+        Term::Literal(lit) => lit.value().to_string().replace('"', "\\\""), // Escape quotes for DOT language
+    }
 }
 
 pub struct IDLookupTable<IdType: Copy + Eq + Hash> {
@@ -99,9 +129,9 @@ impl ValidationContext {
                 .get(shape.identifier())
                 .unwrap()
                 .clone();
-            let name = format!("{}", name);
-            let name = clean(&name);
-            println!("n{} [label=\"{}\"];", shape.identifier().0, name);
+            // 'name' here is the Term identifier of the NodeShape
+            let name_label = format_term_for_label(&name);
+            println!("n{} [label=\"{}\"];", shape.identifier().0, name_label);
             for comp in shape.constraints() {
                 println!("    n{} -> c{};", shape.identifier().0, comp.0);
             }
@@ -114,12 +144,12 @@ impl ValidationContext {
                 .get(pshape.identifier())
                 .unwrap()
                 .clone();
-            let name = format!("{}", name);
-            let name = clean(&name);
-
-            let path = pshape.path();
-            let path = clean(&path);
-            println!("    p{} [label=\"{}\"];", pshape.identifier().0, path);
+            // The 'name' variable (PropertyShape's own identifier, which is 'pshape_identifier_term' above) 
+            // is not used for the label. We use the path term for the label as it's generally more informative.
+            
+            let path_term = pshape.path_term(); // Get the Term of the path
+            let path_label = format_term_for_label(path_term); // Format it
+            println!("    p{} [label=\"{}\"];", pshape.identifier().0, path_label);
             for comp in pshape.constraints() {
                 println!("    p{} -> c{};", pshape.identifier().0, comp.0);
             }
