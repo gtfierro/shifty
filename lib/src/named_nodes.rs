@@ -5,6 +5,8 @@ pub struct SHACL {
     pub node: NamedNodeRef<'static>,
     pub property: NamedNodeRef<'static>,
     pub qualified_value_shape: NamedNodeRef<'static>,
+    pub qualified_min_count: NamedNodeRef<'static>,
+    pub qualified_max_count: NamedNodeRef<'static>,
     pub min_count: NamedNodeRef<'static>,
     pub max_count: NamedNodeRef<'static>,
     pub qualified_value_shapes_disjoint: NamedNodeRef<'static>,
@@ -47,6 +49,14 @@ impl SHACL {
             property: NamedNodeRef::new("http://www.w3.org/ns/shacl#property").unwrap(),
             qualified_value_shape: NamedNodeRef::new(
                 "http://www.w3.org/ns/shacl#qualifiedValueShape",
+            )
+            .unwrap(),
+            qualified_min_count: NamedNodeRef::new(
+                "http://www.w3.org/ns/shacl#qualifiedMinCount",
+            )
+            .unwrap(),
+            qualified_max_count: NamedNodeRef::new(
+                "http://www.w3.org/ns/shacl#qualifiedMaxCount",
             )
             .unwrap(),
             min_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
