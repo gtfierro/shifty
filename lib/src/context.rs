@@ -40,6 +40,7 @@ impl<IdType: Copy + Eq + Hash + From<u64>> IDLookupTable<IdType> {
             let id_val = self.next_id;
             let id: IdType = id_val.into(); // Convert u64 to IdType
             self.id_map.insert(term.clone(), id);
+            println!("Creating new ID: {} for term: {} and type {}", id_val, term, std::any::type_name::<IdType>());
             self.id_to_term.insert(id, term);
             self.next_id += 1;
             id
