@@ -65,7 +65,7 @@ impl PropertyShape {
         }
     }
 
-    pub fn path_term(&self) -> &crate::types::Term {
+    pub fn path_term(&self) -> &oxigraph::model::Term {
         match &self.path {
             Path::Simple(t) => t,
         }

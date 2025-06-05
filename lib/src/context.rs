@@ -44,6 +44,7 @@ pub(crate) fn format_term_for_label(term: &Term) -> String {
         }
         Term::BlankNode(_bn) => "bnode".to_string(),
         Term::Literal(lit) => lit.value().to_string().replace('"', "\\\""), // Escape quotes for DOT language
+        Term::Triple(_t) => "rdf_triple".to_string(), // Handle Triple case
     }
 }
 

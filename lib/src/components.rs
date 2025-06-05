@@ -1,4 +1,4 @@
-use crate::context::{clean, ValidationContext};
+use crate::context::{format_term_for_label, sanitize_graphviz_string, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::types::{ComponentID, ID, PropShapeID};
 use oxigraph::model::{SubjectRef, Term, TermRef, TripleRef};
@@ -392,7 +392,7 @@ pub struct ClassConstraintComponent {
 
 impl GraphvizOutput for ClassConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        let class_name = clean(&format!("{}", self.class));
+        let class_name = format_term_for_label(&self.class);
         format!("c{} [label=\"Class: {}\"];", component_id.0, class_name)
     }
 }
@@ -404,7 +404,7 @@ pub struct DatatypeConstraintComponent {
 
 impl GraphvizOutput for DatatypeConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        let datatype_name = clean(&format!("{}", self.datatype));
+        let datatype_name = format_term_for_label(&self.datatype);
         format!("c{} [label=\"Datatype: {}\"];", component_id.0, datatype_name)
     }
 }
@@ -416,7 +416,7 @@ pub struct NodeKindConstraintComponent {
 
 impl GraphvizOutput for NodeKindConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        let node_kind_name = clean(&format!("{}", self.node_kind));
+        let node_kind_name = format_term_for_label(&self.node_kind);
         format!("c{} [label=\"NodeKind: {}\"];", component_id.0, node_kind_name)
     }
 }
@@ -434,7 +434,7 @@ impl GraphvizOutput for NodeConstraintComponent {
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),
-                |term| clean(&format!("{}", term)),
+                |term| format_term_for_label(term),
             );
         let label = format!("NodeConstraint\\n({})", shape_term_str);
         format!(
@@ -457,7 +457,7 @@ impl GraphvizOutput for PropertyConstraintComponent {
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingPropShape:{}", self.shape),
-                |term| clean(&format!("{}", term)),
+                |term| format_term_for_label(term),
             );
         let label = format!("PropertyConstraint\\n({})", shape_term_str);
         format!(
@@ -483,7 +483,7 @@ impl GraphvizOutput for QualifiedValueShapeComponent {
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),
-                |term| clean(&format!("{}", term)),
+                |term| format_term_for_label(term),
             );
         let mut label_parts = vec![format!("QualifiedValueShape\\nShape: {}", shape_term_str)];
         if let Some(min) = self.min_count {
@@ -536,7 +536,7 @@ impl GraphvizOutput for MinExclusiveConstraintComponent {
         format!(
             "c{} [label=\"MinExclusive: {}\"];",
             component_id.0,
-            clean(&format!("{}", self.min_exclusive))
+            format_term_for_label(&self.min_exclusive)
         )
     }
 }
@@ -551,7 +551,7 @@ impl GraphvizOutput for MinInclusiveConstraintComponent {
         format!(
             "c{} [label=\"MinInclusive: {}\"];",
             component_id.0,
-            clean(&format!("{}", self.min_inclusive))
+            format_term_for_label(&self.min_inclusive)
         )
     }
 }
@@ -566,7 +566,7 @@ impl GraphvizOutput for MaxExclusiveConstraintComponent {
         format!(
             "c{} [label=\"MaxExclusive: {}\"];",
             component_id.0,
-            clean(&format!("{}", self.max_exclusive))
+            format_term_for_label(&self.max_exclusive)
         )
     }
 }
@@ -581,7 +581,7 @@ impl GraphvizOutput for MaxInclusiveConstraintComponent {
         format!(
             "c{} [label=\"MaxInclusive: {}\"];",
             component_id.0,
-            clean(&format!("{}", self.max_inclusive))
+            format_term_for_label(&self.max_inclusive)
         )
     }
 }
@@ -621,7 +621,7 @@ impl GraphvizOutput for PatternConstraintComponent {
         format!(
             "c{} [label=\"Pattern: {}\\nFlags: {}\"];",
             component_id.0,
-            clean(&self.pattern),
+            sanitize_graphviz_string(&self.pattern), // Pattern is a String, not a Term
             flags_str
         )
     }
