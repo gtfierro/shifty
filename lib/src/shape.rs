@@ -12,7 +12,6 @@ pub enum Shape {
 pub struct NodeShape {
     identifier: ID,
     targets: Vec<Target>,
-    property_shapes: Vec<PropShapeID>,
     constraints: Vec<ComponentID>,
     // TODO severity
     // TODO message
@@ -22,23 +21,17 @@ impl NodeShape {
     pub fn new(
         identifier: ID,
         targets: Vec<Target>,
-        property_shapes: Vec<PropShapeID>,
         constraints: Vec<ComponentID>,
     ) -> Self {
         NodeShape {
             identifier,
             targets,
-            property_shapes,
             constraints,
         }
     }
 
     pub fn identifier(&self) -> &ID {
         &self.identifier
-    }
-
-    pub fn property_shapes(&self) -> &[PropShapeID] {
-        &self.property_shapes
     }
 
     pub fn constraints(&self) -> &[ComponentID] {
