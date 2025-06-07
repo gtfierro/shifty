@@ -3,7 +3,7 @@ use crate::named_nodes::{RDF, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Target, ID};
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{SubjectRef, Term, TermRef}; // Removed TripleRef
+use oxigraph::model::{GraphName, GraphNameRef, NamedNode, SubjectRef, Term, TermRef}; // Removed TripleRef, Added NamedNode, GraphName, GraphNameRef
 use oxigraph::store::Store; // Added Store
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +12,9 @@ use std::fs::File;
 use std::hash::Hash;
 use std::io::BufReader;
 use std::path::Path;
+
+const SHAPE_GRAPH_IRI: &str = "urn:shape_graph";
+const DATA_GRAPH_IRI: &str = "urn:data_graph";
 
 // Renamed from clean. Filters to alphanumeric characters.
 pub(crate) fn sanitize_graphviz_string(input: &str) -> String {
@@ -91,21 +94,23 @@ pub struct ValidationContext {
     nodeshape_id_lookup: RefCell<IDLookupTable<ID>>,
     propshape_id_lookup: RefCell<IDLookupTable<PropShapeID>>,
     component_id_lookup: RefCell<IDLookupTable<ComponentID>>,
-    shape_graph: Store,
-    data_graph: Store,
+    store: Store,
+    shape_graph_iri: NamedNode,
+    data_graph_iri: NamedNode,
     node_shapes: HashMap<ID, NodeShape>,
     prop_shapes: HashMap<PropShapeID, PropertyShape>,
     components: HashMap<ComponentID, Component>,
 }
 
 impl ValidationContext {
-    pub fn new(shape_graph: Store, data_graph: Store) -> Self {
+    pub fn new(store: Store, shape_graph_iri: NamedNode, data_graph_iri: NamedNode) -> Self {
         ValidationContext {
             nodeshape_id_lookup: RefCell::new(IDLookupTable::<ID>::new()),
             propshape_id_lookup: RefCell::new(IDLookupTable::<PropShapeID>::new()),
             component_id_lookup: RefCell::new(IDLookupTable::<ComponentID>::new()),
-            shape_graph,
-            data_graph,
+            store,
+            shape_graph_iri,
+            data_graph_iri,
             node_shapes: HashMap::new(),
             prop_shapes: HashMap::new(),
             components: HashMap::new(),
@@ -171,56 +176,70 @@ impl ValidationContext {
         println!("}}")
     }
 
-    fn load_graph_from_path_internal(file_path: &str) -> Result<Store, Box<dyn Error>> {
+    // Loads triples from a file into the specified named graph of the given store.
+    fn load_graph_into_store(
+        store: &Store,
+        file_path: &str,
+        target_graph_name: GraphNameRef,
+    ) -> Result<(), Box<dyn Error>> {
         let path = Path::new(file_path);
-        let file =
-            File::open(path).map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
+        let file = File::open(path)
+            .map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
         let reader = BufReader::new(file);
 
-        let store = Store::new().map_err(|e| Box::new(e) as Box<dyn Error>)?;
-        let parser = RdfParser::from_format(RdfFormat::Turtle); // Assuming Turtle, adjust if needed
+        // Assuming Turtle format for simplicity, adjust RdfFormat::Turtle if other formats are expected.
+        // This parser will direct all triples from the input file into the `target_graph_name`.
+        let parser = RdfParser::from_format(RdfFormat::Turtle) // TODO: Make format configurable or detect
+            .with_default_graph(target_graph_name.into_owned()); // Load into the specified graph
 
-        // Store::load_from_reader consumes the reader and parser.
-        // We need to ensure all quads go into the default graph for Store,
-        // or handle graph names if the RDF format supports them and it's desired.
-        // For simplicity, this example loads into the default graph.
-        // RdfParser can be configured with .with_default_graph() or .without_named_graphs()
-        // if specific graph handling is needed before passing to load_from_reader.
-        // The load_from_reader method itself doesn't offer direct control over which graph
-        // triples from a triple-based format go into, beyond parser configuration.
-        // For quad-based formats, it respects the graph name in the quad.
-
-        // To mimic the old behavior of merging all into one graph (effectively the default graph of the Store):
-        // We can iterate and insert manually if RdfParser is configured to strip graph names or if it's a triples format.
-        for quad_result in parser.for_reader(reader) {
-            let quad = quad_result.map_err(|e| format!("RDF parsing error in '{}': {}", file_path, e))?;
-            // Insert into the store. If quad has a graph name, it will be used.
-            // If it's from a triples format and parser is not set to a default graph, it goes to store's default graph.
-            store.insert(&quad).map_err(|e| Box::new(e) as Box<dyn Error>)?;
-        }
-        Ok(store)
+        store
+            .load_from_reader(parser, reader)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?;
+        Ok(())
     }
 
     pub fn from_files(
         shape_graph_path: &str,
         data_graph_path: &str,
     ) -> Result<Self, Box<dyn Error>> {
-        let shape_graph = Self::load_graph_from_path_internal(shape_graph_path).map_err(|e| {
+        let store = Store::new().map_err(|e| Box::new(e) as Box<dyn Error>)?;
+
+        let shape_graph_named_node = NamedNode::new(SHAPE_GRAPH_IRI)
+            .map_err(|e| format!("Invalid shape graph IRI: {}", e))?;
+        let data_graph_named_node = NamedNode::new(DATA_GRAPH_IRI)
+            .map_err(|e| format!("Invalid data graph IRI: {}", e))?;
+
+        Self::load_graph_into_store(
+            &store,
+            shape_graph_path,
+            shape_graph_named_node.as_ref().into(),
+        )
+        .map_err(|e| {
             Box::new(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!(
-                    "Error loading shape graph from '{}': {}",
-                    shape_graph_path, e
+                    "Error loading shape graph from '{}' into <{}>: {}",
+                    shape_graph_path, SHAPE_GRAPH_IRI, e
                 ),
             ))
         })?;
-        let data_graph = Self::load_graph_from_path_internal(data_graph_path).map_err(|e| {
+
+        Self::load_graph_into_store(
+            &store,
+            data_graph_path,
+            data_graph_named_node.as_ref().into(),
+        )
+        .map_err(|e| {
             Box::new(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Error loading data graph from '{}': {}", data_graph_path, e),
+                format!(
+                    "Error loading data graph from '{}' into <{}>: {}",
+                    data_graph_path, DATA_GRAPH_IRI, e
+                ),
             ))
         })?;
-        let mut ctx = Self::new(shape_graph, data_graph);
+
+        let mut ctx = Self::new(store, shape_graph_named_node, data_graph_named_node);
         ctx.parse();
         Ok(ctx)
     }
@@ -229,13 +248,14 @@ impl ValidationContext {
         let rdf = RDF::new();
         let sh = SHACL::new();
         let mut prop_shapes = HashSet::new();
+        let shape_graph_name_ref = GraphNameRef::NamedNode(self.shape_graph_iri.as_ref());
 
         // - <pshape> a sh:PropertyShape
-        for quad_res in self.shape_graph.quads_for_pattern(
+        for quad_res in self.store.quads_for_pattern(
             None,
             Some(rdf.type_),
             Some(sh.property_shape.into()),
-            None,
+            Some(shape_graph_name_ref),
         ) {
             if let Ok(quad) = quad_res {
                 prop_shapes.insert(quad.subject.into()); // quad.subject is Subject, .into() converts to Term
@@ -243,10 +263,12 @@ impl ValidationContext {
         }
 
         // - ? sh:property <pshape>
-        for quad_res in self
-            .shape_graph
-            .quads_for_pattern(None, Some(sh.property), None, None)
-        {
+        for quad_res in self.store.quads_for_pattern(
+            None,
+            Some(sh.property),
+            None,
+            Some(shape_graph_name_ref),
+        ) {
             if let Ok(quad) = quad_res {
                 prop_shapes.insert(quad.object); // quad.object is Term
             }
@@ -361,11 +383,12 @@ impl ValidationContext {
         let sh = SHACL::new();
 
         let subject: SubjectRef = shape.to_subject_ref();
+        let shape_graph_name_ref = GraphNameRef::NamedNode(self.shape_graph_iri.as_ref());
 
         // get the targets
         let targets: Vec<Target> = self
-            .shape_graph
-            .quads_for_pattern(Some(subject), None, None, None)
+            .store
+            .quads_for_pattern(Some(subject), None, None, Some(shape_graph_name_ref))
             .filter_map(Result::ok)
             .filter_map(|quad| {
                 Target::from_predicate_object(quad.predicate.as_ref(), quad.object.as_ref())
@@ -373,6 +396,7 @@ impl ValidationContext {
             .collect();
 
         // get constraint components
+        // parse_components will internally use context.store() and context.shape_graph_iri_ref()
         let constraints = parse_components(shape, self);
         let component_ids: Vec<ComponentID> = constraints.keys().cloned().collect();
         for (component_id, component) in constraints {
@@ -380,12 +404,13 @@ impl ValidationContext {
             self.components.insert(component_id, component);
         }
 
-        let property_shapes: Vec<PropShapeID> = self
-            .shape_graph
-            .quads_for_pattern(Some(subject), Some(sh.property), None, None)
+        let _property_shapes: Vec<PropShapeID> = self // This seems to be about sh:property linking to PropertyShapes.
+            .store                                     // It was collected but not used in NodeShape::new.
+            .quads_for_pattern(Some(subject), Some(sh.property), None, Some(shape_graph_name_ref))
             .filter_map(Result::ok)
             .filter_map(|quad| self.propshape_id_lookup.borrow().get(&quad.object))
             .collect();
+        // TODO: property_shapes are collected but not used in NodeShape::new. This might be an existing oversight or for future use.
 
         let node_shape = NodeShape::new(id, targets, component_ids);
         self.node_shapes.insert(id, node_shape);
@@ -396,15 +421,18 @@ impl ValidationContext {
         let id = self.get_or_create_prop_id(pshape.into_owned());
         let shacl = SHACL::new();
         let subject: SubjectRef = pshape.to_subject_ref();
+        let shape_graph_name_ref = GraphNameRef::NamedNode(self.shape_graph_iri.as_ref());
+
         let path_head_term: Term = self
-            .shape_graph
-            .quads_for_pattern(Some(subject), Some(shacl.path), None, None)
+            .store
+            .quads_for_pattern(Some(subject), Some(shacl.path), None, Some(shape_graph_name_ref))
             .filter_map(Result::ok)
             .map(|quad| quad.object)
             .next()
             .unwrap(); // Assuming path is always present and valid
         let path = PShapePath::Simple(path_head_term);
         // get constraint components
+        // parse_components will internally use context.store() and context.shape_graph_iri_ref()
         let constraints = parse_components(pshape, self);
         let component_ids: Vec<ComponentID> = constraints.keys().cloned().collect();
         for (component_id, component) in constraints {
@@ -422,6 +450,7 @@ impl ValidationContext {
         let rdf = RDF::new();
         let mut current_term = list_head_term;
         let nil_term: Term = rdf.nil.into_owned().into(); // Convert NamedNodeRef to Term
+        let shape_graph_name_ref = GraphNameRef::NamedNode(self.shape_graph_iri.as_ref());
 
         while current_term != nil_term {
             let subject_ref = match current_term.as_ref() {
@@ -431,8 +460,8 @@ impl ValidationContext {
             };
 
             let first_val_opt: Option<Term> = self
-                .shape_graph
-                .quads_for_pattern(Some(subject_ref), Some(rdf.first), None, None)
+                .store
+                .quads_for_pattern(Some(subject_ref), Some(rdf.first), None, Some(shape_graph_name_ref))
                 .filter_map(Result::ok)
                 .map(|q| q.object)
                 .next();
@@ -444,8 +473,8 @@ impl ValidationContext {
             }
 
             let rest_node_opt: Option<Term> = self
-                .shape_graph
-                .quads_for_pattern(Some(subject_ref), Some(rdf.rest), None, None)
+                .store
+                .quads_for_pattern(Some(subject_ref), Some(rdf.rest), None, Some(shape_graph_name_ref))
                 .filter_map(Result::ok)
                 .map(|q| q.object)
                 .next();
@@ -459,12 +488,16 @@ impl ValidationContext {
         items
     }
 
-    pub fn shape_graph(&self) -> &Store {
-        &self.shape_graph
+    pub fn store(&self) -> &Store {
+        &self.store
     }
 
-    pub fn data_graph(&self) -> &Store {
-        &self.data_graph
+    pub fn shape_graph_iri_ref(&self) -> GraphNameRef {
+        GraphNameRef::NamedNode(self.shape_graph_iri.as_ref())
+    }
+
+    pub fn data_graph_iri_ref(&self) -> GraphNameRef {
+        GraphNameRef::NamedNode(self.data_graph_iri.as_ref())
     }
 
     /// Returns an ID for the given term, creating a new one if necessary for a NodeShape.

@@ -37,9 +37,15 @@ pub fn parse_components(
 
     // make a list of all the predicate-object pairs for the given start term, as a dictionary
     // The key is NamedNode (predicate), value is Vec<Term> (objects)
+    // These pairs are read from the shape graph.
     let pred_obj_pairs: HashMap<NamedNode, Vec<Term>> = context
-        .shape_graph()
-        .quads_for_pattern(Some(start.to_subject_ref()), None, None, None)
+        .store()
+        .quads_for_pattern(
+            Some(start.to_subject_ref()),
+            None,
+            None,
+            Some(context.shape_graph_iri_ref()),
+        )
         .filter_map(Result::ok) // Filter out StorageError
         .fold(HashMap::new(), |mut acc, quad| {
             // quad.predicate is NamedNode, quad.object is Term
