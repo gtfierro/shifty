@@ -233,8 +233,8 @@ impl ValidationContext {
         // - <pshape> a sh:PropertyShape
         for quad_res in self.shape_graph.quads_for_pattern(
             None,
-            Some(rdf.type_.as_ref()),
-            Some(sh.property_shape.as_ref()),
+            Some(rdf.type_),
+            Some(sh.property_shape),
             None,
         ) {
             if let Ok(quad) = quad_res {
@@ -245,7 +245,7 @@ impl ValidationContext {
         // - ? sh:property <pshape>
         for quad_res in self
             .shape_graph
-            .quads_for_pattern(None, Some(sh.property.as_ref()), None, None)
+            .quads_for_pattern(None, Some(sh.property), None, None)
         {
             if let Ok(quad) = quad_res {
                 prop_shapes.insert(quad.object); // quad.object is Term
@@ -273,8 +273,8 @@ impl ValidationContext {
         // <shape> rdf:type sh:NodeShape
         for quad_res in self.shape_graph.quads_for_pattern(
             None,
-            Some(rdf.type_.as_ref()),
-            Some(shacl.node_shape.as_ref()),
+            Some(rdf.type_),
+            Some(shacl.node_shape),
             None,
         ) {
             if let Ok(quad) = quad_res {
@@ -285,7 +285,7 @@ impl ValidationContext {
         // ? sh:node <shape>
         for quad_res in self
             .shape_graph
-            .quads_for_pattern(None, Some(shacl.node.as_ref()), None, None)
+            .quads_for_pattern(None, Some(shacl.node), None, None)
         {
             if let Ok(quad) = quad_res {
                 node_shapes.insert(quad.object);
@@ -295,7 +295,7 @@ impl ValidationContext {
         // ? sh:qualifiedValueShape <shape>
         for quad_res in self.shape_graph.quads_for_pattern(
             None,
-            Some(shacl.qualified_value_shape.as_ref()),
+            Some(shacl.qualified_value_shape),
             None,
             None,
         ) {
@@ -307,7 +307,7 @@ impl ValidationContext {
         // ? sh:not <shape>
         for quad_res in self
             .shape_graph
-            .quads_for_pattern(None, Some(shacl.not.as_ref()), None, None)
+            .quads_for_pattern(None, Some(shacl.not), None, None)
         {
             if let Ok(quad) = quad_res {
                 node_shapes.insert(quad.object);
@@ -330,13 +330,13 @@ impl ValidationContext {
         };
 
         // ? sh:or (list of <shape>)
-        process_list_constraint(shacl.or_.as_ref());
+        process_list_constraint(shacl.or_);
 
         // ? sh:and (list of <shape>)
-        process_list_constraint(shacl.and_.as_ref());
+        process_list_constraint(shacl.and_);
 
         // ? sh:xone (list of <shape>)
-        process_list_constraint(shacl.xone.as_ref());
+        process_list_constraint(shacl.xone);
 
         node_shapes.into_iter().collect()
     }
@@ -382,7 +382,7 @@ impl ValidationContext {
 
         let property_shapes: Vec<PropShapeID> = self
             .shape_graph
-            .quads_for_pattern(Some(subject), Some(sh.property.as_ref()), None, None)
+            .quads_for_pattern(Some(subject), Some(sh.property), None, None)
             .filter_map(Result::ok)
             .filter_map(|quad| self.propshape_id_lookup.borrow().get(&quad.object))
             .collect();
@@ -398,7 +398,7 @@ impl ValidationContext {
         let subject: SubjectRef = pshape.to_subject_ref();
         let path_head_term: Term = self
             .shape_graph
-            .quads_for_pattern(Some(subject), Some(shacl.path.as_ref()), None, None)
+            .quads_for_pattern(Some(subject), Some(shacl.path), None, None)
             .filter_map(Result::ok)
             .map(|quad| quad.object)
             .next()
@@ -432,7 +432,7 @@ impl ValidationContext {
 
             let first_val_opt: Option<Term> = self
                 .shape_graph
-                .quads_for_pattern(Some(subject_ref), Some(rdf.first.as_ref()), None, None)
+                .quads_for_pattern(Some(subject_ref), Some(rdf.first), None, None)
                 .filter_map(Result::ok)
                 .map(|q| q.object)
                 .next();
@@ -445,7 +445,7 @@ impl ValidationContext {
 
             let rest_node_opt: Option<Term> = self
                 .shape_graph
-                .quads_for_pattern(Some(subject_ref), Some(rdf.rest.as_ref()), None, None)
+                .quads_for_pattern(Some(subject_ref), Some(rdf.rest), None, None)
                 .filter_map(Result::ok)
                 .map(|q| q.object)
                 .next();
