@@ -1,21 +1,84 @@
+use clap::Parser;
 use shacl::context::ValidationContext;
-use std::env;
+use std::path::PathBuf;
+use graphviz_rust::cmd::{CommandArg, Format};
+use graphviz_rust::exec_dot;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    if args.len() != 3 {
-        eprintln!("Usage: {} <shapes_file> <data_file>", args[0]);
-        std::process::exit(1);
+#[derive(Parser)]
+struct GraphvizArgs {
+    /// Path to the shapes file
+    #[arg(short, long, value_name = "FILE")]
+    shapes_file: PathBuf,
+
+    /// Path to the data file
+    #[arg(short, long, value_name = "FILE")]
+    data_file: PathBuf,
+}
+
+#[derive(Parser)]
+struct PdfArgs {
+    /// Path to the shapes file
+    #[arg(short, long, value_name = "FILE")]
+    shapes_file: PathBuf,
+
+    /// Path to the data file
+    #[arg(short, long, value_name = "FILE")]
+    data_file: PathBuf,
+
+    /// Path to the output PDF file
+    #[arg(short, long, value_name = "FILE")]
+    output_file: PathBuf,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Output the Graphviz DOT string of the shape graph
+    Graphviz(GraphvizArgs),
+    /// Generate a PDF of the shape graph using Graphviz
+    Pdf(PdfArgs),
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Graphviz(args) => {
+            let ctx = ValidationContext::from_files(
+                args.shapes_file.to_str().ok_or_else(|| "Invalid shapes file path")?,
+                args.data_file.to_str().ok_or_else(|| "Invalid data file path")?,
+            )
+            .map_err(|e| format!("Error loading files: {}", e))?;
+            let dot_string = ctx.graphviz();
+            println!("{}", dot_string);
+        }
+        Commands::Pdf(args) => {
+            let ctx = ValidationContext::from_files(
+                args.shapes_file.to_str().ok_or_else(|| "Invalid shapes file path")?,
+                args.data_file.to_str().ok_or_else(|| "Invalid data file path")?,
+            )
+            .map_err(|e| format!("Error loading files: {}", e))?;
+            let dot_string = ctx.graphviz();
+
+            let output_format = Format::Pdf;
+            let output_file_path_str = args.output_file.to_str().ok_or("Invalid output file path")?;
+            
+            let cmd_args = vec![
+                CommandArg::Format(output_format),
+                CommandArg::Output(output_file_path_str.to_string()),
+            ];
+
+            exec_dot(dot_string, cmd_args)
+                .map_err(|e| format!("Graphviz execution error: {}", e))?;
+
+            println!("PDF generated at: {}", args.output_file.display());
+        }
     }
-
-    let shapes_file = &args[1];
-    let data_file = &args[2];
-
-    let ctx = ValidationContext::from_files(shapes_file, data_file).unwrap_or_else(|e| {
-        eprintln!("Error loading files: {}", e);
-        std::process::exit(1);
-    });
-
-    ctx.graphviz();
+    Ok(())
 }

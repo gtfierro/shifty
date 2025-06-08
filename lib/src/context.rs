@@ -124,9 +124,10 @@ impl ValidationContext {
         }
     }
 
-    pub fn graphviz(&self) {
+    pub fn graphviz(&self) -> String {
+        let mut dot_string = String::new();
         // print all node shapes
-        println!("digraph {{");
+        dot_string.push_str("digraph {\n");
         for shape in self.node_shapes.values() {
             let name = self
                 .nodeshape_id_lookup
@@ -137,13 +138,13 @@ impl ValidationContext {
                 .clone();
             // 'name' here is the Term identifier of the NodeShape
             let name_label = format_term_for_label(&name);
-            println!(
-                "{} [label=\"NodeShape\\n{}\"];",
+            dot_string.push_str(&format!(
+                "  {} [label=\"NodeShape\\n{}\"];\n",
                 shape.identifier().to_graphviz_id(),
                 name_label
-            );
+            ));
             for comp in shape.constraints() {
-                println!("    {} -> {};", shape.identifier().to_graphviz_id(), comp.to_graphviz_id());
+                dot_string.push_str(&format!("    {} -> {};\n", shape.identifier().to_graphviz_id(), comp.to_graphviz_id()));
             }
         }
         for pshape in self.prop_shapes.values() {
@@ -159,21 +160,22 @@ impl ValidationContext {
             
             let path_term = pshape.path_term(); // Get the Term of the path
             let path_label = format_term_for_label(path_term); // Format it
-            println!(
-                "    {} [label=\"PropertyShape\\nPath: {}\"];",
+            dot_string.push_str(&format!(
+                "  {} [label=\"PropertyShape\\nPath: {}\"];\n",
                 pshape.identifier().to_graphviz_id(),
                 path_label
-            );
+            ));
             for comp in pshape.constraints() {
-                println!("    {} -> {};", pshape.identifier().to_graphviz_id(), comp.to_graphviz_id());
+                dot_string.push_str(&format!("    {} -> {};\n", pshape.identifier().to_graphviz_id(), comp.to_graphviz_id()));
             }
         }
         for (ident, comp) in self.components.iter() {
             comp.to_graphviz_string(*ident, self)
                 .lines()
-                .for_each(|line| println!("    {}", line));
+                .for_each(|line| dot_string.push_str(&format!("    {}\n", line)));
         }
-        println!("}}")
+        dot_string.push_str("}\n");
+        dot_string
     }
 
     // Loads triples from a file into the specified named graph of the given store.
