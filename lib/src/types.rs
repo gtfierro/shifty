@@ -1,7 +1,7 @@
 use crate::named_nodes::SHACL;
 use crate::context::{ValidationContext, Context};
 use oxigraph::model::{NamedNodeRef, Term, TermRef, Variable};
-use oxigraph::sparql::{QueryResults, QueryOptions};
+use oxigraph::sparql::{Query, QueryResults, QueryOptions}; // Added Query
 use std::fmt; // Added for Display trait
 use std::hash::Hash; // Added Hash for derived traits
 
@@ -105,37 +105,63 @@ impl Target {
             Target::Class(c) => {
                 let query_str = "SELECT DISTINCT ?inst WHERE { ?inst rdf:type/rdfs:subClassOf* ?target_class . }";
                 let target_class_var = Variable::new_unchecked("target_class");
-                match context.store().query_opt_with_substituted_variables(
-                    query_str,
-                    QueryOptions::default(),
-                    [(target_class_var, c.clone())],
-                ) {
-                    Ok(QueryResults::Solutions(solutions)) => solutions
-                        .filter_map(|solution_result| {
-                            solution_result.ok().and_then(|solution| {
-                                solution.get("inst").map(|term_ref| {
-                                    Context::new(term_ref.to_owned(), None, None)
+
+                match Query::parse(query_str, None) {
+                    Ok(mut parsed_query) => {
+                        parsed_query.dataset_mut().set_default_graph_as_union();
+                        // NOTE: The following method call 'execute_parsed_query_with_substitutions' is hypothetical.
+                        // It assumes that 'context.store()' provides a way to execute a pre-parsed 'Query' object
+                        // with variable substitutions, and that it respects the dataset configuration
+                        // set on the 'parsed_query' object.
+                        match context.store().execute_parsed_query_with_substitutions(
+                            &parsed_query,
+                            QueryOptions::default(), // Base options, assuming dataset config is from parsed_query
+                            [(target_class_var, c.clone())],
+                        ) {
+                            Ok(QueryResults::Solutions(solutions)) => solutions
+                                .filter_map(|solution_result| {
+                                    solution_result.ok().and_then(|solution| {
+                                        solution.get("inst").map(|term_ref| {
+                                            Context::new(term_ref.to_owned(), None, None)
+                                        })
+                                    })
                                 })
-                            })
-                        })
-                        .collect(),
-                    _ => vec![], // Handles query errors or unexpected result types
+                                .collect(),
+                            _ => vec![], // Handles query errors or unexpected result types
+                        }
+                    }
+                    Err(_) => {
+                        // eprintln!("SPARQL parse error for Target::Class: {}", query_str); // Optional: log error
+                        vec![] // Handle SPARQL parse error
+                    }
                 }
             }
             Target::SubjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
                     let query_str = format!("SELECT DISTINCT ?s WHERE {{ ?s <{}> ?any . }}", predicate_node.as_str());
-                    match context.store().query(&query_str) {
-                        Ok(QueryResults::Solutions(solutions)) => solutions
-                            .filter_map(|solution_result| {
-                                solution_result.ok().and_then(|solution| {
-                                    solution.get("s").map(|term_ref| {
-                                        Context::new(term_ref.to_owned(), None, None)
+                    match Query::parse(&query_str, None) {
+                        Ok(mut parsed_query) => {
+                            parsed_query.dataset_mut().set_default_graph_as_union();
+                            // NOTE: The following method call 'execute_parsed_query' is hypothetical.
+                            // It assumes that 'context.store()' provides a way to execute a pre-parsed 'Query' object
+                            // and that it respects the dataset configuration set on the 'parsed_query' object.
+                            match context.store().execute_parsed_query(&parsed_query, QueryOptions::default()) {
+                                Ok(QueryResults::Solutions(solutions)) => solutions
+                                    .filter_map(|solution_result| {
+                                        solution_result.ok().and_then(|solution| {
+                                            solution.get("s").map(|term_ref| {
+                                                Context::new(term_ref.to_owned(), None, None)
+                                            })
+                                        })
                                     })
-                                })
-                            })
-                            .collect(),
-                        _ => vec![], // Handles query errors or unexpected result types
+                                    .collect(),
+                                _ => vec![], // Handles query errors or unexpected result types
+                            }
+                        }
+                        Err(_) => {
+                            // eprintln!("SPARQL parse error for Target::SubjectsOf: {}", query_str); // Optional: log error
+                            vec![] // Handle SPARQL parse error
+                        }
                     }
                 } else {
                     vec![] // Predicate for SubjectsOf must be an IRI
@@ -144,17 +170,28 @@ impl Target {
             Target::ObjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
                     let query_str = format!("SELECT DISTINCT ?o WHERE {{ ?any <{}> ?o . }}", predicate_node.as_str());
-                    match context.store().query(&query_str) {
-                        Ok(QueryResults::Solutions(solutions)) => solutions
-                            .filter_map(|solution_result| {
-                                solution_result.ok().and_then(|solution| {
-                                    solution.get("o").map(|term_ref| {
-                                        Context::new(term_ref.to_owned(), None, None)
+                    match Query::parse(&query_str, None) {
+                        Ok(mut parsed_query) => {
+                            parsed_query.dataset_mut().set_default_graph_as_union();
+                            // NOTE: The following method call 'execute_parsed_query' is hypothetical.
+                            // See note in Target::SubjectsOf.
+                            match context.store().execute_parsed_query(&parsed_query, QueryOptions::default()) {
+                                Ok(QueryResults::Solutions(solutions)) => solutions
+                                    .filter_map(|solution_result| {
+                                        solution_result.ok().and_then(|solution| {
+                                            solution.get("o").map(|term_ref| {
+                                                Context::new(term_ref.to_owned(), None, None)
+                                            })
+                                        })
                                     })
-                                })
-                            })
-                            .collect(),
-                        _ => vec![], // Handles query errors or unexpected result types
+                                    .collect(),
+                                _ => vec![], // Handles query errors or unexpected result types
+                            }
+                        }
+                        Err(_) => {
+                            // eprintln!("SPARQL parse error for Target::ObjectsOf: {}", query_str); // Optional: log error
+                            vec![] // Handle SPARQL parse error
+                        }
                     }
                 } else {
                     vec![] // Predicate for ObjectsOf must be an IRI
