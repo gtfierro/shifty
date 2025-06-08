@@ -113,8 +113,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok_or_else(|| "Invalid data file path")?,
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
-            ctx.validate();
+            let b = ctx.validate();
             println!("Validation completed successfully.");
+            b.dump();
         }
     }
     Ok(())

@@ -79,8 +79,6 @@ impl PropertyShape {
     ) -> Result<(), String> {
         // The loop is removed as we now operate on a single focus_context.
         // to get the set of value nodes.
-        println!("Validating PropertyShape with identifier: {}", self.identifier());
-        println!("Path: {:?}", self.sparql_path());
 
         let focus_node_term = focus_context.focus_node();
         let sparql_path = self.sparql_path();
@@ -89,7 +87,6 @@ impl PropertyShape {
             "SELECT ?valueNode WHERE {{ {} {} ?valueNode . }}",
             focus_node_term.to_string(), sparql_path
         );
-        println!("Executing query: {}", query_str);
 
         let query = match Query::parse(&query_str, None) {
             Ok(q) => q,
@@ -134,6 +131,11 @@ impl PropertyShape {
                 ));
             }
         };
+
+        if value_nodes_vec.len() > 0 {
+            println!("Validating PropertyShape with identifier: {}", self.identifier());
+            println!("Path: {:?}", self.sparql_path());
+        }
 
         let value_nodes_opt = if value_nodes_vec.is_empty() { // Renamed to avoid conflict
             None

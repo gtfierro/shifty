@@ -140,7 +140,7 @@ impl ValidationContext {
         map.get(&hash).cloned()
     }
 
-    pub fn validate(&self) {
+    pub fn validate(&self) -> ValidationReportBuilder {
         let mut b = ValidationReportBuilder::new();
         for node_shape in self.node_shapes.values() {
             // Validate each NodeShape
@@ -152,6 +152,7 @@ impl ValidationContext {
                 );
             }
         }
+        b
     }
 
     pub fn dump(&self) {
