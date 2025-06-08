@@ -6,6 +6,14 @@ use oxigraph::model::{NamedNode, SubjectRef, Term, TermRef}; // Removed TripleRe
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable}; // Added Query
 use std::collections::HashMap;
 
+pub enum ComponentValidationResult {
+    Pass(ComponentID),
+    Fail(ComponentID, ValidationFailReason),
+}
+
+pub enum ValidationFailReason {
+}
+
 pub trait ToSubjectRef {
     fn to_subject_ref(&self) -> SubjectRef;
 }
@@ -536,10 +544,9 @@ pub trait GraphvizOutput {
 pub trait ValidateComponent {
     fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
+        c: &Context,
         context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String>;
+    ) -> Result<ComponentValidationResult, String>;
 }
 
 #[derive(Debug)]
