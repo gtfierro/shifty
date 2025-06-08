@@ -544,6 +544,7 @@ pub trait GraphvizOutput {
 pub trait ValidateComponent {
     fn validate(
         &self,
+        component_id: ComponentID,
         c: &Context,
         context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String>;
@@ -675,39 +676,40 @@ impl Component {
 
     pub fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
+        component_id: ComponentID,
+        c: &Context, 
         context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
+    ) -> Result<ComponentValidationResult, String> {
         match self {
-            Component::ClassConstraint(comp) => comp.validate(c, context, rb),
-            //Component::NodeConstraint(c) => c.validate(c, context, rb),
-            Component::PropertyConstraint(comp) => comp.validate(c, context, rb),
-            //Component::QualifiedValueShape(c) => c.validate(c, context, rb),
-            Component::DatatypeConstraint(comp) => comp.validate(c, context, rb),
-            Component::NodeKindConstraint(comp) => comp.validate(c, context, rb),
-            Component::MinCount(comp) => comp.validate(c, context, rb),
-            Component::MaxCount(comp) => comp.validate(c, context, rb),
-            //Component::MinExclusiveConstraint(c) => c.validate(c, context, rb),
-            //Component::MinInclusiveConstraint(c) => c.validate(c, context, rb),
-            //Component::MaxExclusiveConstraint(c) => c.validate(c, context, rb),
-            //Component::MaxInclusiveConstraint(c) => c.validate(c, context, rb),
-            //Component::MinLengthConstraint(c) => c.validate(c, context, rb),
-            //Component::MaxLengthConstraint(c) => c.validate(c, context, rb),
-            //Component::PatternConstraint(c) => c.validate(c, context, rb),
-            //Component::LanguageInConstraint(c) => c.validate(c, context, rb),
-            //Component::UniqueLangConstraint(c) => c.validate(c, context, rb),
-            //Component::EqualsConstraint(c) => c.validate(c, context, rb),
-            //Component::DisjointConstraint(c) => c.validate(c, context, rb),
-            //Component::LessThanConstraint(c) => c.validate(c, context, rb),
-            //Component::LessThanOrEqualsConstraint(c) => c.validate(c, context, rb),
-            //Component::NotConstraint(c) => c.validate(c, context, rb),
-            //Component::AndConstraint(c) => c.validate(c, context, rb),
-            //Component::OrConstraint(c) => c.validate(c, context, rb),
-            //Component::XoneConstraint(c) => c.validate(c, context, rb),
-            //Component::ClosedConstraint(_) | 
+            Component::ClassConstraint(comp) => comp.validate(component_id, c, context),
+            //Component::NodeConstraint(c) => c.validate(component_id, c, context),
+            Component::PropertyConstraint(comp) => comp.validate(component_id, c, context),
+            //Component::QualifiedValueShape(c) => c.validate(component_id, c, context),
+            Component::DatatypeConstraint(comp) => comp.validate(component_id, c, context),
+            Component::NodeKindConstraint(comp) => comp.validate(component_id, c, context),
+            Component::MinCount(comp) => comp.validate(component_id, c, context),
+            Component::MaxCount(comp) => comp.validate(component_id, c, context),
+            //Component::MinExclusiveConstraint(c) => c.validate(component_id, c, context),
+            //Component::MinInclusiveConstraint(c) => c.validate(component_id, c, context),
+            //Component::MaxExclusiveConstraint(c) => c.validate(component_id, c, context),
+            //Component::MaxInclusiveConstraint(c) => c.validate(component_id, c, context),
+            //Component::MinLengthConstraint(c) => c.validate(component_id, c, context),
+            //Component::MaxLengthConstraint(c) => c.validate(component_id, c, context),
+            //Component::PatternConstraint(c) => c.validate(component_id, c, context),
+            //Component::LanguageInConstraint(c) => c.validate(component_id, c, context),
+            //Component::UniqueLangConstraint(c) => c.validate(component_id, c, context),
+            //Component::EqualsConstraint(c) => c.validate(component_id, c, context),
+            //Component::DisjointConstraint(c) => c.validate(component_id, c, context),
+            //Component::LessThanConstraint(c) => c.validate(component_id, c, context),
+            //Component::LessThanOrEqualsConstraint(c) => c.validate(component_id, c, context),
+            //Component::NotConstraint(c) => c.validate(component_id, c, context),
+            //Component::AndConstraint(c) => c.validate(component_id, c, context),
+            //Component::OrConstraint(c) => c.validate(component_id, c, context),
+            //Component::XoneConstraint(c) => c.validate(component_id, c, context),
+            //Component::ClosedConstraint(_) |
                 // Other components that do not have validate method
-                _ => Ok(()), // No validation logic for these components
+                // For components without specific validation logic, or structural ones, consider them as passing.
+                _ => Ok(ComponentValidationResult::Pass(component_id)),
         }
     }
 }
@@ -760,14 +762,13 @@ impl GraphvizOutput for ClassConstraintComponent {
 impl ValidateComponent for ClassConstraintComponent {
     fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
+        component_id: ComponentID,
+        c: &Context,
         context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
+    ) -> Result<ComponentValidationResult, String> {
         let cc_var = Variable::new("value_node").unwrap();
-        // Loop removed, operating on single 'c'
         if c.value_nodes().is_none() {
-            return Ok(()); // No value nodes to validate
+            return Ok(ComponentValidationResult::Pass(component_id)); // No value nodes to validate
         }
         let vns = c.value_nodes().unwrap();
         for vn in vns.iter() {
@@ -778,9 +779,10 @@ impl ValidateComponent for ClassConstraintComponent {
             ) {
                 Ok(QueryResults::Boolean(result)) => {
                     if !result {
-                        rb.add_error(c, // Use c directly
-                            format!("Value does not conform to class constraint: {}", self.class),
-                        );
+                        return Err(format!(
+                            "Value {:?} does not conform to class constraint: {}",
+                            vn, self.class
+                        ));
                     }
                 },
                 Ok(_) => {
@@ -794,7 +796,7 @@ impl ValidateComponent for ClassConstraintComponent {
                 },
             }
         }
-        Ok(())
+        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 
@@ -806,42 +808,38 @@ pub struct DatatypeConstraintComponent {
 impl ValidateComponent for DatatypeConstraintComponent {
     fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
+        component_id: ComponentID,
+        c: &Context,
         _context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
+    ) -> Result<ComponentValidationResult, String> {
         let target_datatype_iri = match self.datatype.as_ref() {
             TermRef::NamedNode(nn) => nn,
             _ => return Err("sh:datatype must be an IRI".to_string()),
         };
 
-        // Loop removed, operating on single 'c' (renamed from context_instance)
         if let Some(value_nodes) = c.value_nodes() {
             for value_node in value_nodes {
                 match value_node.as_ref() {
                     TermRef::Literal(lit) => {
                         if lit.datatype() != target_datatype_iri {
                             // TODO: Consider ill-typed literals if required by spec for specific datatypes
-                            rb.add_error(
-                                c, // Use c directly
-                                format!(
-                                    "Value {:?} does not have datatype {}",
-                                    value_node, self.datatype
-                                ),
-                            );
+                            return Err(format!(
+                                "Value {:?} does not have datatype {}",
+                                value_node, self.datatype
+                            ));
                         }
                     }
                     _ => {
                         // Not a literal, so it cannot conform to a datatype constraint
-                        rb.add_error(
-                            c, // Use c directly
-                            format!("Value {:?} is not a literal, expected datatype {}", value_node, self.datatype),
-                        );
+                        return Err(format!(
+                            "Value {:?} is not a literal, expected datatype {}",
+                            value_node, self.datatype
+                        ));
                     }
                 }
             }
         }
-        Ok(())
+        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 
@@ -868,14 +866,13 @@ pub struct NodeKindConstraintComponent {
 impl ValidateComponent for NodeKindConstraintComponent {
     fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
+        component_id: ComponentID,
+        c: &Context,
         _context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
+    ) -> Result<ComponentValidationResult, String> {
         let sh = SHACL::new();
         let expected_node_kind_term = self.node_kind.as_ref();
 
-        // Loop removed, operating on single 'c' (renamed from context_instance)
         if let Some(value_nodes) = c.value_nodes() {
             for value_node in value_nodes {
                 let matches = match value_node.as_ref() {
@@ -898,17 +895,14 @@ impl ValidateComponent for NodeKindConstraintComponent {
                 };
 
                 if !matches {
-                    rb.add_error(
-                        c, // Use c directly
-                        format!(
-                            "Value {:?} does not match nodeKind {}",
-                            value_node, self.node_kind
-                        ),
-                    );
+                    return Err(format!(
+                        "Value {:?} does not match nodeKind {}",
+                        value_node, self.node_kind
+                    ));
                 }
             }
         }
-        Ok(())
+        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 
@@ -957,6 +951,12 @@ pub struct PropertyConstraintComponent {
     shape: PropShapeID,
 }
 
+impl PropertyConstraintComponent {
+    pub fn shape(&self) -> &PropShapeID {
+        &self.shape
+    }
+}
+
 impl GraphvizOutput for PropertyConstraintComponent {
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let shape_term_str = context
@@ -980,15 +980,22 @@ impl GraphvizOutput for PropertyConstraintComponent {
 impl ValidateComponent for PropertyConstraintComponent {
     fn validate(
         &self,
-        c: &Context,
-        context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
-        let prop_shape = context
-            .get_prop_shape_by_id(&self.shape)
-            .ok_or_else(|| format!("Property shape not found for ID: {}", self.shape))?;
-        // prop_shape.validate now expects a single &Context.
-        prop_shape.validate(c, context, rb)
+        component_id: ComponentID,
+        _c: &Context, // Context may not be directly used here if PSS::validate is called elsewhere
+        context: &ValidationContext, // May be used to check existence of self.shape
+    ) -> Result<ComponentValidationResult, String> {
+        // Ensure the referenced property shape exists.
+        // The actual validation via PropertyShape::validate (which uses an RB)
+        // is assumed to be handled by the caller of Component::validate (e.g. NodeShape::validate).
+        // This component's validation, under the new trait, primarily confirms its own structural validity
+        // or delegates checks that don't involve the RB directly.
+        if context.get_prop_shape_by_id(&self.shape).is_none() {
+            return Err(format!(
+                "Referenced property shape not found for ID: {}",
+                self.shape
+            ));
+        }
+        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 
@@ -1052,22 +1059,18 @@ impl GraphvizOutput for MinCountConstraintComponent {
 impl ValidateComponent for MinCountConstraintComponent {
     fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
-        context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
-        // check the number of value_nodes
-        // Loop removed, operating on single 'c' (renamed from cc)
+        component_id: ComponentID,
+        c: &Context,
+        _context: &ValidationContext, // context is not used
+    ) -> Result<ComponentValidationResult, String> {
         if c.value_nodes().map_or(0, |v| v.len()) < self.min_count as usize {
-            rb.add_error(
-                c, // Use c directly
-                format!(
-                    "Value count does not meet minimum requirement: {}",
-                    self.min_count
-                ),
-            );
+            return Err(format!(
+                "Value count ({}) does not meet minimum requirement: {}",
+                c.value_nodes().map_or(0, |v| v.len()),
+                self.min_count
+            ));
         }
-        Ok(())
+        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 
@@ -1093,22 +1096,18 @@ impl GraphvizOutput for MaxCountConstraintComponent {
 impl ValidateComponent for MaxCountConstraintComponent {
     fn validate(
         &self,
-        c: &Context, // Changed from &[&Context]
-        context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
-        // check the number of value_nodes
-        // Loop removed, operating on single 'c' (renamed from cc)
+        component_id: ComponentID,
+        c: &Context,
+        _context: &ValidationContext, // context is not used
+    ) -> Result<ComponentValidationResult, String> {
         if c.value_nodes().map_or(0, |v| v.len()) > self.max_count as usize {
-            rb.add_error(
-                c, // Use c directly
-                format!(
-                    "Value count does not meet maximum requirement: {}",
-                    self.max_count
-                ),
-            );
+            return Err(format!(
+                "Value count ({}) does not meet maximum requirement: {}",
+                c.value_nodes().map_or(0, |v| v.len()),
+                self.max_count
+            ));
         }
-        Ok(())
+        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 

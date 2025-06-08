@@ -41,10 +41,10 @@ impl ValidateShape for NodeShape {
                         // The PropertyConstraintComponent's validate method itself no longer does this.
                         if let crate::components::Component::PropertyConstraint(pc_comp) = comp {
                             let prop_shape = context
-                                .get_prop_shape_by_id(&pc_comp.shape) // pc_comp.shape is PropShapeID
+                                .get_prop_shape_by_id(pc_comp.shape()) // Use accessor
                                 .ok_or_else(|| {
                                     // This case should ideally be caught by pc_comp.validate if it checks existence
-                                    format!("Property shape not found for ID: {}", pc_comp.shape)
+                                    format!("Property shape not found for ID: {}", pc_comp.shape()) // Use accessor
                                 })?;
                             
                             // PropertyShape::validate takes &Context, &ValidationContext, &mut ValidationReportBuilder
