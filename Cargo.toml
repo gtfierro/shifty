@@ -14,3 +14,5 @@ edition = "2021"
 [workspace.dependencies]
 oxigraph = "0.4.11"
 shacl = { version = "0.1.0", path = "lib" }
+clap = { version = "4.5.39", features = ["derive"] }
+graphviz-rust = "0.9.5"
