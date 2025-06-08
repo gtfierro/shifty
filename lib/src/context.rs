@@ -195,6 +195,7 @@ impl ValidationContext {
             .with_default_graph(target_graph_name.into_owned()); // Load into the specified graph
 
         store
+            .bulk_loader()
             .load_from_reader(parser, reader)
             .map_err(|e| Box::new(e) as Box<dyn Error>)?;
         Ok(())
