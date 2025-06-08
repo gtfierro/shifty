@@ -977,13 +977,14 @@ impl GraphvizOutput for PropertyConstraintComponent {
 impl ValidateComponent for PropertyConstraintComponent {
     fn validate(
         &self,
-        c: &[&Context],
+        c: &Context,
         context: &ValidationContext,
         rb: &mut ValidationReportBuilder,
     ) -> Result<(), String> {
         let prop_shape = context
             .get_prop_shape_by_id(&self.shape)
             .ok_or_else(|| format!("Property shape not found for ID: {}", self.shape))?;
+        // prop_shape.validate now expects a single &Context.
         prop_shape.validate(c, context, rb)
     }
 }
