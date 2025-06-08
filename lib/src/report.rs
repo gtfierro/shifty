@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use oxigraph::model::Term; // For using Term as a HashMap key
 
 pub struct ValidationReportBuilder {
-    results: Vec<(Context, String)>,
+    pub(crate) results: Vec<(Context, String)>, // Made pub(crate)
 }
 
 impl ValidationReportBuilder {
