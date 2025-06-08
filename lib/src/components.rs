@@ -678,8 +678,8 @@ impl Component {
             //Component::NodeConstraint(c) => c.validate(c, context, rb),
             Component::PropertyConstraint(comp) => comp.validate(c, context, rb),
             //Component::QualifiedValueShape(c) => c.validate(c, context, rb),
-            //Component::DatatypeConstraint(c) => c.validate(c, context, rb),
-            //Component::NodeKindConstraint(c) => c.validate(c, context, rb),
+            Component::DatatypeConstraint(comp) => comp.validate(c, context, rb),
+            Component::NodeKindConstraint(comp) => comp.validate(c, context, rb),
             Component::MinCount(comp) => comp.validate(c, context, rb),
             //Component::MaxCount(c) => c.validate(c, context, rb),
             //Component::MinExclusiveConstraint(c) => c.validate(c, context, rb),
@@ -799,6 +799,49 @@ pub struct DatatypeConstraintComponent {
     datatype: Term,
 }
 
+impl ValidateComponent for DatatypeConstraintComponent {
+    fn validate(
+        &self,
+        c: &[&Context],
+        _context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        let target_datatype_iri = match self.datatype.as_ref() {
+            TermRef::NamedNode(nn) => nn,
+            _ => return Err("sh:datatype must be an IRI".to_string()),
+        };
+
+        for context_instance in c {
+            if let Some(value_nodes) = context_instance.value_nodes() {
+                for value_node in value_nodes {
+                    match value_node.as_ref() {
+                        TermRef::Literal(lit) => {
+                            if lit.datatype() != target_datatype_iri {
+                                // TODO: Consider ill-typed literals if required by spec for specific datatypes
+                                rb.add_error(
+                                    context_instance,
+                                    format!(
+                                        "Value {:?} does not have datatype {}",
+                                        value_node, self.datatype
+                                    ),
+                                );
+                            }
+                        }
+                        _ => {
+                            // Not a literal, so it cannot conform to a datatype constraint
+                            rb.add_error(
+                                context_instance,
+                                format!("Value {:?} is not a literal, expected datatype {}", value_node, self.datatype),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl GraphvizOutput for DatatypeConstraintComponent {
     fn to_graphviz_string(
         &self,
@@ -817,6 +860,54 @@ impl GraphvizOutput for DatatypeConstraintComponent {
 #[derive(Debug)]
 pub struct NodeKindConstraintComponent {
     node_kind: Term,
+}
+
+impl ValidateComponent for NodeKindConstraintComponent {
+    fn validate(
+        &self,
+        c: &[&Context],
+        _context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        let sh = SHACL::new();
+        let expected_node_kind_term = self.node_kind.as_ref();
+
+        for context_instance in c {
+            if let Some(value_nodes) = context_instance.value_nodes() {
+                for value_node in value_nodes {
+                    let matches = match value_node.as_ref() {
+                        TermRef::NamedNode(_) => {
+                            expected_node_kind_term == sh.IRI.as_ref()
+                                || expected_node_kind_term == sh.BlankNodeOrIRI.as_ref()
+                                || expected_node_kind_term == sh.IRIOrLiteral.as_ref()
+                        }
+                        TermRef::BlankNode(_) => {
+                            expected_node_kind_term == sh.BlankNode.as_ref()
+                                || expected_node_kind_term == sh.BlankNodeOrIRI.as_ref()
+                                || expected_node_kind_term == sh.BlankNodeOrLiteral.as_ref()
+                        }
+                        TermRef::Literal(_) => {
+                            expected_node_kind_term == sh.Literal.as_ref()
+                                || expected_node_kind_term == sh.BlankNodeOrLiteral.as_ref()
+                                || expected_node_kind_term == sh.IRIOrLiteral.as_ref()
+                        }
+                        _ => false, // Triple, GraphName - should not occur as value nodes
+                    };
+
+                    if !matches {
+                        rb.add_error(
+                            context_instance,
+                            format!(
+                                "Value {:?} does not match nodeKind {}",
+                                value_node, self.node_kind
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl GraphvizOutput for NodeKindConstraintComponent {
