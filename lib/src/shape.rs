@@ -69,16 +69,12 @@ impl PropertyShape {
     pub fn identifier(&self) -> &PropShapeID {
         &self.identifier
     }
-    pub fn path(&self) -> String {
-        match &self.path {
-            Path::Simple(t) => format!("{}", t),
-        }
+    pub fn sparql_path(&self) -> String {
+        self.path.to_sparql_path().unwrap()
     }
 
-    pub fn path_term(&self) -> &oxigraph::model::Term {
-        match &self.path {
-            Path::Simple(t) => t,
-        }
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn constraints(&self) -> &[ComponentID] {

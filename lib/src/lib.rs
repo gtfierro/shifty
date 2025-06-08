@@ -3,6 +3,7 @@ mod components;
 pub mod context;
 mod named_nodes;
 mod report;
+mod validate;
 mod shape;
 mod types;
 

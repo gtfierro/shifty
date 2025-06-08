@@ -676,11 +676,11 @@ impl Component {
         match self {
             Component::ClassConstraint(comp) => comp.validate(c, context, rb),
             //Component::NodeConstraint(c) => c.validate(c, context, rb),
-            //Component::PropertyConstraint(c) => c.validate(c, context, rb),
+            Component::PropertyConstraint(comp) => comp.validate(c, context, rb),
             //Component::QualifiedValueShape(c) => c.validate(c, context, rb),
             //Component::DatatypeConstraint(c) => c.validate(c, context, rb),
             //Component::NodeKindConstraint(c) => c.validate(c, context, rb),
-            //Component::MinCount(c) => c.validate(c, context, rb),
+            Component::MinCount(comp) => comp.validate(c, context, rb),
             //Component::MaxCount(c) => c.validate(c, context, rb),
             //Component::MinExclusiveConstraint(c) => c.validate(c, context, rb),
             //Component::MinInclusiveConstraint(c) => c.validate(c, context, rb),
@@ -719,7 +719,7 @@ impl ClassConstraintComponent {
         let query_str = format!("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         ASK {{
-            ?value_node rdf:type/rdfs:subClassOf* <{}> .
+            ?value_node rdf:type/rdfs:subClassOf* {} .
         }}",
             class_term.to_string()
         );
@@ -952,6 +952,29 @@ impl GraphvizOutput for MinCountConstraintComponent {
             component_id.to_graphviz_id(),
             self.min_count
         )
+    }
+}
+
+impl ValidateComponent for MinCountConstraintComponent {
+    fn validate(
+        &self,
+        c: &[&Context],
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        // check the number of value_nodes
+        for cc in c {
+            if cc.value_nodes().map_or(0, |v| v.len()) < self.min_count as usize {
+                rb.add_error(
+                    cc,
+                    format!(
+                        "Value count does not meet minimum requirement: {}",
+                        self.min_count
+                    ),
+                );
+            }
+        }
+        Ok(())
     }
 }
 

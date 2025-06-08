@@ -528,27 +528,6 @@ impl ValidationContext {
             return Ok(PShapePath::Alternative(alt_paths?));
         }
 
-        // Check for sh:sequencePath (RDF list)
-        if let Some(seq_list_head) = self
-            .store
-            .quads_for_pattern(
-                Some(path_term_ref.to_subject_ref()),
-                Some(shacl.sequence_path),
-                None,
-                Some(shape_graph_name_ref),
-            )
-            .filter_map(Result::ok)
-            .map(|q| q.object)
-            .next()
-        {
-            let seq_paths_terms = self.parse_rdf_list(seq_list_head);
-            let seq_paths: Result<Vec<PShapePath>, String> = seq_paths_terms
-                .iter()
-                .map(|term| self.parse_shacl_path_recursive(term.as_ref()))
-                .collect();
-            return Ok(PShapePath::Sequence(seq_paths?));
-        }
-        
         // Check for sh:zeroOrMorePath
         if let Some(zom_path_obj) = self
             .store
@@ -599,6 +578,16 @@ impl ValidationContext {
             let inner_path = self.parse_shacl_path_recursive(zoo_path_obj.as_ref())?;
             return Ok(PShapePath::ZeroOrOne(Box::new(inner_path)));
         }
+
+        let seq_paths_terms = self.parse_rdf_list(path_term_ref.into_owned());
+        if seq_paths_terms.len() > 0 {
+            let seq_paths: Result<Vec<PShapePath>, String> = seq_paths_terms
+                .iter()
+                .map(|term| self.parse_shacl_path_recursive(term.as_ref()))
+                .collect();
+            return Ok(PShapePath::Sequence(seq_paths?));
+        }
+        
 
         // If it's not a complex path node, it must be a simple path (an IRI)
         match path_term_ref {

@@ -89,7 +89,7 @@ impl Path {
         match self {
             Path::Simple(term) => match term {
                 Term::NamedNode(nn) => Ok(Self::format_named_node_for_sparql(nn)),
-                _ => Err("Simple path must be an IRI".to_string()),
+                _ => Err(format!("Simple path must be an IRI {:?}", self).to_string()),
             },
             Path::Inverse(inner_path) => {
                 let inner_sparql = inner_path.to_sparql_path()?;
