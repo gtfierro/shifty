@@ -455,7 +455,7 @@ impl ValidationContext {
         let subject: SubjectRef = pshape.to_subject_ref();
         let shape_graph_name_ref = GraphNameRef::NamedNode(self.shape_graph_iri.as_ref());
 
-        let path_head_term: Term = self
+        let path_object_term: Term = self
             .store
             .quads_for_pattern(
                 Some(subject),
@@ -466,8 +466,11 @@ impl ValidationContext {
             .filter_map(Result::ok)
             .map(|quad| quad.object)
             .next()
-            .unwrap(); // Assuming path is always present and valid
-        let path = PShapePath::Simple(path_head_term);
+            .expect("Property shape must have a sh:path"); // Expect path to be present
+
+        let path = self.parse_shacl_path_recursive(path_object_term.as_ref())
+            .expect("Failed to parse sh:path");
+
         // get constraint components
         // parse_components will internally use context.store() and context.shape_graph_iri_ref()
         let constraints = parse_components(pshape, self);
@@ -480,6 +483,130 @@ impl ValidationContext {
         self.prop_shapes.insert(id, prop_shape);
         id
     }
+
+    // Helper function to recursively parse SHACL paths
+    fn parse_shacl_path_recursive(&self, path_term_ref: TermRef) -> Result<PShapePath, String> {
+        let shacl = SHACL::new();
+        let rdf = RDF::new();
+        let shape_graph_name_ref = self.shape_graph_iri_ref();
+
+        // Check for sh:inversePath
+        if let Some(inverse_path_obj) = self
+            .store
+            .quads_for_pattern(
+                Some(path_term_ref.to_subject_ref()),
+                Some(shacl.inverse_path),
+                None,
+                Some(shape_graph_name_ref),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next()
+        {
+            let inner_path = self.parse_shacl_path_recursive(inverse_path_obj.as_ref())?;
+            return Ok(PShapePath::Inverse(Box::new(inner_path)));
+        }
+
+        // Check for sh:alternativePath (RDF list)
+        if let Some(alt_list_head) = self
+            .store
+            .quads_for_pattern(
+                Some(path_term_ref.to_subject_ref()),
+                Some(shacl.alternative_path),
+                None,
+                Some(shape_graph_name_ref),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next()
+        {
+            let alt_paths_terms = self.parse_rdf_list(alt_list_head);
+            let alt_paths: Result<Vec<PShapePath>, String> = alt_paths_terms
+                .iter()
+                .map(|term| self.parse_shacl_path_recursive(term.as_ref()))
+                .collect();
+            return Ok(PShapePath::Alternative(alt_paths?));
+        }
+
+        // Check for sh:sequencePath (RDF list)
+        if let Some(seq_list_head) = self
+            .store
+            .quads_for_pattern(
+                Some(path_term_ref.to_subject_ref()),
+                Some(shacl.sequence_path),
+                None,
+                Some(shape_graph_name_ref),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next()
+        {
+            let seq_paths_terms = self.parse_rdf_list(seq_list_head);
+            let seq_paths: Result<Vec<PShapePath>, String> = seq_paths_terms
+                .iter()
+                .map(|term| self.parse_shacl_path_recursive(term.as_ref()))
+                .collect();
+            return Ok(PShapePath::Sequence(seq_paths?));
+        }
+        
+        // Check for sh:zeroOrMorePath
+        if let Some(zom_path_obj) = self
+            .store
+            .quads_for_pattern(
+                Some(path_term_ref.to_subject_ref()),
+                Some(shacl.zero_or_more_path),
+                None,
+                Some(shape_graph_name_ref),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next()
+        {
+            let inner_path = self.parse_shacl_path_recursive(zom_path_obj.as_ref())?;
+            return Ok(PShapePath::ZeroOrMore(Box::new(inner_path)));
+        }
+
+        // Check for sh:oneOrMorePath
+        if let Some(oom_path_obj) = self
+            .store
+            .quads_for_pattern(
+                Some(path_term_ref.to_subject_ref()),
+                Some(shacl.one_or_more_path),
+                None,
+                Some(shape_graph_name_ref),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next()
+        {
+            let inner_path = self.parse_shacl_path_recursive(oom_path_obj.as_ref())?;
+            return Ok(PShapePath::OneOrMore(Box::new(inner_path)));
+        }
+
+        // Check for sh:zeroOrOnePath
+        if let Some(zoo_path_obj) = self
+            .store
+            .quads_for_pattern(
+                Some(path_term_ref.to_subject_ref()),
+                Some(shacl.zero_or_one_path),
+                None,
+                Some(shape_graph_name_ref),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next()
+        {
+            let inner_path = self.parse_shacl_path_recursive(zoo_path_obj.as_ref())?;
+            return Ok(PShapePath::ZeroOrOne(Box::new(inner_path)));
+        }
+
+        // If it's not a complex path node, it must be a simple path (an IRI)
+        match path_term_ref {
+            TermRef::NamedNode(_) => Ok(PShapePath::Simple(path_term_ref.into_owned())),
+            _ => Err(format!("Expected an IRI for a simple path or a blank node for a complex path, found: {:?}", path_term_ref)),
+        }
+    }
+
 
     // Parses an RDF list starting from list_head_term (owned Term) and returns a Vec of owned Terms.
     pub fn parse_rdf_list(&self, list_head_term: Term) -> Vec<Term> {
