@@ -1,7 +1,6 @@
 use crate::context::Context;
 
-pub struct ValidationReportBuilder {
-}
+pub struct ValidationReportBuilder {}
 
 impl ValidationReportBuilder {
     pub fn new() -> Self {

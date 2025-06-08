@@ -2,8 +2,8 @@
 mod components;
 pub mod context;
 mod named_nodes;
-mod shape;
 mod report;
+mod shape;
 mod types;
 
 use components::Component;

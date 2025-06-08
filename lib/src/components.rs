@@ -1,7 +1,7 @@
-use crate::context::{format_term_for_label, sanitize_graphviz_string, ValidationContext, Context};
+use crate::context::{format_term_for_label, sanitize_graphviz_string, Context, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::report::ValidationReportBuilder;
-use crate::types::{ComponentID, ID, PropShapeID};
+use crate::types::{ComponentID, PropShapeID, ID};
 use oxigraph::model::{NamedNode, SubjectRef, Term, TermRef}; // Removed TripleRef
 use std::collections::HashMap;
 
@@ -56,7 +56,8 @@ pub fn parse_components(
 
     // value type
     if let Some(class_terms) = pred_obj_pairs.get(&shacl.class.into_owned()) {
-        for class_term in class_terms { // class_term is &Term
+        for class_term in class_terms {
+            // class_term is &Term
             let component = Component::ClassConstraint(ClassConstraintComponent {
                 class: class_term.clone(),
             });
@@ -66,7 +67,8 @@ pub fn parse_components(
     }
 
     if let Some(datatype_terms) = pred_obj_pairs.get(&shacl.datatype.into_owned()) {
-        for datatype_term in datatype_terms { // datatype_term is &Term
+        for datatype_term in datatype_terms {
+            // datatype_term is &Term
             let component = Component::DatatypeConstraint(DatatypeConstraintComponent {
                 datatype: datatype_term.clone(),
             });
@@ -76,7 +78,8 @@ pub fn parse_components(
     }
 
     if let Some(node_kind_terms) = pred_obj_pairs.get(&shacl.node_kind.into_owned()) {
-        for node_kind_term in node_kind_terms { // node_kind_term is &Term
+        for node_kind_term in node_kind_terms {
+            // node_kind_term is &Term
             let component = Component::NodeKindConstraint(NodeKindConstraintComponent {
                 node_kind: node_kind_term.clone(),
             });
@@ -87,7 +90,8 @@ pub fn parse_components(
 
     // node constraint component
     if let Some(node_terms) = pred_obj_pairs.get(&shacl.node.into_owned()) {
-        for node_term in node_terms { // node_term is &Term
+        for node_term in node_terms {
+            // node_term is &Term
             let target_shape_id = context.get_or_create_node_id(node_term.clone());
             let component = Component::NodeConstraint(NodeConstraintComponent {
                 shape: target_shape_id,
@@ -99,7 +103,8 @@ pub fn parse_components(
 
     // property constraints
     if let Some(property_terms) = pred_obj_pairs.get(&shacl.property.into_owned()) {
-        for property_term in property_terms { // property_term is &Term
+        for property_term in property_terms {
+            // property_term is &Term
             let target_shape_id = context.get_or_create_prop_id(property_term.clone());
             let component = Component::PropertyConstraint(PropertyConstraintComponent {
                 shape: target_shape_id,
@@ -111,14 +116,14 @@ pub fn parse_components(
 
     // cardinality
     if let Some(min_count_terms) = pred_obj_pairs.get(&shacl.min_count.into_owned()) {
-        for min_count_term in min_count_terms { // min_count_term is &Term
+        for min_count_term in min_count_terms {
+            // min_count_term is &Term
             if let Term::Literal(lit) = min_count_term {
                 if let Ok(min_count_val) = lit.value().parse::<u64>() {
                     let component = Component::MinCount(MinCountConstraintComponent {
                         min_count: min_count_val,
                     });
-                    let component_id =
-                        context.get_or_create_component_id(min_count_term.clone());
+                    let component_id = context.get_or_create_component_id(min_count_term.clone());
                     new_components.insert(component_id, component);
                 }
             }
@@ -126,14 +131,14 @@ pub fn parse_components(
     }
 
     if let Some(max_count_terms) = pred_obj_pairs.get(&shacl.max_count.into_owned()) {
-        for max_count_term in max_count_terms { // max_count_term is &Term
+        for max_count_term in max_count_terms {
+            // max_count_term is &Term
             if let Term::Literal(lit) = max_count_term {
                 if let Ok(max_count_val) = lit.value().parse::<u64>() {
                     let component = Component::MaxCount(MaxCountConstraintComponent {
                         max_count: max_count_val,
                     });
-                    let component_id =
-                        context.get_or_create_component_id(max_count_term.clone());
+                    let component_id = context.get_or_create_component_id(max_count_term.clone());
                     new_components.insert(component_id, component);
                 }
             }
@@ -142,56 +147,56 @@ pub fn parse_components(
 
     // value range
     if let Some(min_exclusive_terms) = pred_obj_pairs.get(&shacl.min_exclusive.into_owned()) {
-        for min_exclusive_term in min_exclusive_terms { // min_exclusive_term is &Term
+        for min_exclusive_term in min_exclusive_terms {
+            // min_exclusive_term is &Term
             if let Term::Literal(_lit) = min_exclusive_term {
                 let component =
                     Component::MinExclusiveConstraint(MinExclusiveConstraintComponent {
                         min_exclusive: min_exclusive_term.clone(),
                     });
-                let component_id =
-                    context.get_or_create_component_id(min_exclusive_term.clone());
+                let component_id = context.get_or_create_component_id(min_exclusive_term.clone());
                 new_components.insert(component_id, component);
             }
         }
     }
 
     if let Some(min_inclusive_terms) = pred_obj_pairs.get(&shacl.min_inclusive.into_owned()) {
-        for min_inclusive_term in min_inclusive_terms { // min_inclusive_term is &Term
+        for min_inclusive_term in min_inclusive_terms {
+            // min_inclusive_term is &Term
             if let Term::Literal(_lit) = min_inclusive_term {
                 let component =
                     Component::MinInclusiveConstraint(MinInclusiveConstraintComponent {
                         min_inclusive: min_inclusive_term.clone(),
                     });
-                let component_id =
-                    context.get_or_create_component_id(min_inclusive_term.clone());
+                let component_id = context.get_or_create_component_id(min_inclusive_term.clone());
                 new_components.insert(component_id, component);
             }
         }
     }
 
     if let Some(max_exclusive_terms) = pred_obj_pairs.get(&shacl.max_exclusive.into_owned()) {
-        for max_exclusive_term in max_exclusive_terms { // max_exclusive_term is &Term
+        for max_exclusive_term in max_exclusive_terms {
+            // max_exclusive_term is &Term
             if let Term::Literal(_lit) = max_exclusive_term {
                 let component =
                     Component::MaxExclusiveConstraint(MaxExclusiveConstraintComponent {
                         max_exclusive: max_exclusive_term.clone(),
                     });
-                let component_id =
-                    context.get_or_create_component_id(max_exclusive_term.clone());
+                let component_id = context.get_or_create_component_id(max_exclusive_term.clone());
                 new_components.insert(component_id, component);
             }
         }
     }
 
     if let Some(max_inclusive_terms) = pred_obj_pairs.get(&shacl.max_inclusive.into_owned()) {
-        for max_inclusive_term in max_inclusive_terms { // max_inclusive_term is &Term
+        for max_inclusive_term in max_inclusive_terms {
+            // max_inclusive_term is &Term
             if let Term::Literal(_lit) = max_inclusive_term {
                 let component =
                     Component::MaxInclusiveConstraint(MaxInclusiveConstraintComponent {
                         max_inclusive: max_inclusive_term.clone(),
                     });
-                let component_id =
-                    context.get_or_create_component_id(max_inclusive_term.clone());
+                let component_id = context.get_or_create_component_id(max_inclusive_term.clone());
                 new_components.insert(component_id, component);
             }
         }
@@ -199,14 +204,14 @@ pub fn parse_components(
 
     // string-based constraints
     if let Some(min_length_terms) = pred_obj_pairs.get(&shacl.min_length.into_owned()) {
-        for min_length_term in min_length_terms { // min_length_term is &Term
+        for min_length_term in min_length_terms {
+            // min_length_term is &Term
             if let Term::Literal(lit) = min_length_term {
                 if let Ok(min_length_val) = lit.value().parse::<u64>() {
                     let component = Component::MinLengthConstraint(MinLengthConstraintComponent {
                         min_length: min_length_val,
                     });
-                    let component_id =
-                        context.get_or_create_component_id(min_length_term.clone());
+                    let component_id = context.get_or_create_component_id(min_length_term.clone());
                     new_components.insert(component_id, component);
                 }
             }
@@ -214,14 +219,14 @@ pub fn parse_components(
     }
 
     if let Some(max_length_terms) = pred_obj_pairs.get(&shacl.max_length.into_owned()) {
-        for max_length_term in max_length_terms { // max_length_term is &Term
+        for max_length_term in max_length_terms {
+            // max_length_term is &Term
             if let Term::Literal(lit) = max_length_term {
                 if let Ok(max_length_val) = lit.value().parse::<u64>() {
                     let component = Component::MaxLengthConstraint(MaxLengthConstraintComponent {
                         max_length: max_length_val,
                     });
-                    let component_id =
-                        context.get_or_create_component_id(max_length_term.clone());
+                    let component_id = context.get_or_create_component_id(max_length_term.clone());
                     new_components.insert(component_id, component);
                 }
             }
@@ -229,12 +234,14 @@ pub fn parse_components(
     }
 
     if let Some(pattern_terms) = pred_obj_pairs.get(&shacl.pattern.into_owned()) {
-        if let Some(pattern_term @ Term::Literal(pattern_lit)) = pattern_terms.first() { // pattern_term is &Term
+        if let Some(pattern_term @ Term::Literal(pattern_lit)) = pattern_terms.first() {
+            // pattern_term is &Term
             let pattern_str = pattern_lit.value().to_string();
             let flags_str = pred_obj_pairs
                 .get(&shacl.flags.into_owned())
                 .and_then(|flags_terms| flags_terms.first())
-                .and_then(|flag_term| { // flag_term is &Term
+                .and_then(|flag_term| {
+                    // flag_term is &Term
                     if let Term::Literal(flag_lit) = flag_term {
                         Some(flag_lit.value().to_string())
                     } else {
@@ -251,11 +258,13 @@ pub fn parse_components(
     }
 
     if let Some(language_in_terms) = pred_obj_pairs.get(&shacl.language_in.into_owned()) {
-        if let Some(list_head_term) = language_in_terms.first() { // list_head_term is &Term
+        if let Some(list_head_term) = language_in_terms.first() {
+            // list_head_term is &Term
             let list_items = context.parse_rdf_list(list_head_term.clone()); // parse_rdf_list takes Term, returns Vec<Term>
             let languages: Vec<String> = list_items
                 .into_iter() // Iterates over Term
-                .filter_map(|term| { // term is Term
+                .filter_map(|term| {
+                    // term is Term
                     if let Term::Literal(lit) = term {
                         Some(lit.value().to_string())
                     } else {
@@ -272,15 +281,15 @@ pub fn parse_components(
     }
 
     if let Some(unique_lang_terms) = pred_obj_pairs.get(&shacl.unique_lang.into_owned()) {
-        for unique_lang_term in unique_lang_terms { // unique_lang_term is &Term
+        for unique_lang_term in unique_lang_terms {
+            // unique_lang_term is &Term
             if let Term::Literal(lit) = unique_lang_term {
                 if let Ok(unique_lang_val) = lit.value().parse::<bool>() {
                     let component =
                         Component::UniqueLangConstraint(UniqueLangConstraintComponent {
                             unique_lang: unique_lang_val,
                         });
-                    let component_id =
-                        context.get_or_create_component_id(unique_lang_term.clone());
+                    let component_id = context.get_or_create_component_id(unique_lang_term.clone());
                     new_components.insert(component_id, component);
                 }
             }
@@ -289,39 +298,39 @@ pub fn parse_components(
 
     // property pair constraints
     if let Some(equals_terms) = pred_obj_pairs.get(&shacl.equals.into_owned()) {
-        for equals_term in equals_terms { // equals_term is &Term
+        for equals_term in equals_terms {
+            // equals_term is &Term
             if let Term::NamedNode(_nn) = equals_term {
                 let component = Component::EqualsConstraint(EqualsConstraintComponent {
                     property: equals_term.clone(),
                 });
-                let component_id =
-                    context.get_or_create_component_id(equals_term.clone());
+                let component_id = context.get_or_create_component_id(equals_term.clone());
                 new_components.insert(component_id, component);
             }
         }
     }
 
     if let Some(disjoint_terms) = pred_obj_pairs.get(&shacl.disjoint.into_owned()) {
-        for disjoint_term in disjoint_terms { // disjoint_term is &Term
+        for disjoint_term in disjoint_terms {
+            // disjoint_term is &Term
             if let Term::NamedNode(_nn) = disjoint_term {
                 let component = Component::DisjointConstraint(DisjointConstraintComponent {
                     property: disjoint_term.clone(),
                 });
-                let component_id =
-                    context.get_or_create_component_id(disjoint_term.clone());
+                let component_id = context.get_or_create_component_id(disjoint_term.clone());
                 new_components.insert(component_id, component);
             }
         }
     }
 
     if let Some(less_than_terms) = pred_obj_pairs.get(&shacl.less_than.into_owned()) {
-        for less_than_term in less_than_terms { // less_than_term is &Term
+        for less_than_term in less_than_terms {
+            // less_than_term is &Term
             if let Term::NamedNode(_nn) = less_than_term {
                 let component = Component::LessThanConstraint(LessThanConstraintComponent {
                     property: less_than_term.clone(),
                 });
-                let component_id =
-                    context.get_or_create_component_id(less_than_term.clone());
+                let component_id = context.get_or_create_component_id(less_than_term.clone());
                 new_components.insert(component_id, component);
             }
         }
@@ -330,7 +339,8 @@ pub fn parse_components(
     if let Some(less_than_or_equals_terms) =
         pred_obj_pairs.get(&shacl.less_than_or_equals.into_owned())
     {
-        for less_than_or_equals_term in less_than_or_equals_terms { // less_than_or_equals_term is &Term
+        for less_than_or_equals_term in less_than_or_equals_terms {
+            // less_than_or_equals_term is &Term
             if let Term::NamedNode(_nn) = less_than_or_equals_term {
                 let component =
                     Component::LessThanOrEqualsConstraint(LessThanOrEqualsConstraintComponent {
@@ -345,7 +355,8 @@ pub fn parse_components(
 
     // logical constraints
     if let Some(not_terms) = pred_obj_pairs.get(&shacl.not.into_owned()) {
-        for not_term in not_terms { // not_term is &Term
+        for not_term in not_terms {
+            // not_term is &Term
             let negated_shape_id = context.get_or_create_node_id(not_term.clone());
             let component = Component::NotConstraint(NotConstraintComponent {
                 shape: negated_shape_id,
@@ -356,7 +367,8 @@ pub fn parse_components(
     }
 
     if let Some(and_terms) = pred_obj_pairs.get(&shacl.and_.into_owned()) {
-        if let Some(list_head_term) = and_terms.first() { // list_head_term is &Term
+        if let Some(list_head_term) = and_terms.first() {
+            // list_head_term is &Term
             let shape_list_terms = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
             let shape_ids: Vec<ID> = shape_list_terms
                 .iter() // Iterates over &Term
@@ -369,7 +381,8 @@ pub fn parse_components(
     }
 
     if let Some(or_terms) = pred_obj_pairs.get(&shacl.or_.into_owned()) {
-        if let Some(list_head_term) = or_terms.first() { // list_head_term is &Term
+        if let Some(list_head_term) = or_terms.first() {
+            // list_head_term is &Term
             let shape_list_terms = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
             let shape_ids: Vec<ID> = shape_list_terms
                 .iter()
@@ -382,13 +395,15 @@ pub fn parse_components(
     }
 
     if let Some(xone_terms) = pred_obj_pairs.get(&shacl.xone.into_owned()) {
-        if let Some(list_head_term) = xone_terms.first() { // list_head_term is &Term
+        if let Some(list_head_term) = xone_terms.first() {
+            // list_head_term is &Term
             let shape_list_terms = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
             let shape_ids: Vec<ID> = shape_list_terms
                 .iter()
                 .map(|term| context.get_or_create_node_id(term.clone()))
                 .collect();
-            let component = Component::XoneConstraint(XoneConstraintComponent { shapes: shape_ids });
+            let component =
+                Component::XoneConstraint(XoneConstraintComponent { shapes: shape_ids });
             let component_id = context.get_or_create_component_id(list_head_term.clone());
             new_components.insert(component_id, component);
         }
@@ -399,11 +414,13 @@ pub fn parse_components(
         .get(&shacl.qualified_value_shape.into_owned())
         .and_then(|terms| terms.first().cloned()); // qvs_term_opt is Option<Term>
 
-    if let Some(qvs_term) = qvs_term_opt { // qvs_term is Term
+    if let Some(qvs_term) = qvs_term_opt {
+        // qvs_term is Term
         let q_min_count_opt = pred_obj_pairs
             .get(&shacl.qualified_min_count.into_owned())
             .and_then(|terms| terms.first()) // &Term
-            .and_then(|term_ref_val| { // term_ref_val is &Term
+            .and_then(|term_ref_val| {
+                // term_ref_val is &Term
                 if let Term::Literal(lit) = term_ref_val {
                     lit.value().parse::<u64>().ok()
                 } else {
@@ -414,7 +431,8 @@ pub fn parse_components(
         let q_max_count_opt = pred_obj_pairs
             .get(&shacl.qualified_max_count.into_owned())
             .and_then(|terms| terms.first()) // &Term
-            .and_then(|term_ref_val| { // term_ref_val is &Term
+            .and_then(|term_ref_val| {
+                // term_ref_val is &Term
                 if let Term::Literal(lit) = term_ref_val {
                     lit.value().parse::<u64>().ok()
                 } else {
@@ -425,7 +443,8 @@ pub fn parse_components(
         let q_disjoint_opt = pred_obj_pairs
             .get(&shacl.qualified_value_shapes_disjoint.into_owned())
             .and_then(|terms| terms.first()) // &Term
-            .and_then(|term_ref_val| { // term_ref_val is &Term
+            .and_then(|term_ref_val| {
+                // term_ref_val is &Term
                 if let Term::Literal(lit) = term_ref_val {
                     lit.value().parse::<bool>().ok()
                 } else {
@@ -448,7 +467,8 @@ pub fn parse_components(
 
     // sh:closed / sh:ignoredProperties
     if let Some(closed_terms) = pred_obj_pairs.get(&shacl.closed.into_owned()) {
-        for closed_term in closed_terms { // closed_term is &Term
+        for closed_term in closed_terms {
+            // closed_term is &Term
             if let Term::Literal(lit) = closed_term {
                 if let Ok(closed_val) = lit.value().parse::<bool>() {
                     let ignored_properties_list_opt = pred_obj_pairs
@@ -456,7 +476,8 @@ pub fn parse_components(
                         .and_then(|terms| terms.first().cloned()); // Option<Term>
 
                     let ignored_properties_terms: Vec<Term> =
-                        if let Some(list_head) = ignored_properties_list_opt { // list_head is Term
+                        if let Some(list_head) = ignored_properties_list_opt {
+                            // list_head is Term
                             context
                                 .parse_rdf_list(list_head) // parse_rdf_list takes Term, returns Vec<Term>
                                 .into_iter() // Iterates Term
@@ -466,17 +487,15 @@ pub fn parse_components(
                             Vec::new()
                         };
 
-                    let component =
-                        Component::ClosedConstraint(ClosedConstraintComponent {
-                            closed: closed_val,
-                            ignored_properties: if ignored_properties_terms.is_empty() {
-                                None
-                            } else {
-                                Some(ignored_properties_terms)
-                            },
-                        });
-                    let component_id =
-                        context.get_or_create_component_id(closed_term.clone());
+                    let component = Component::ClosedConstraint(ClosedConstraintComponent {
+                        closed: closed_val,
+                        ignored_properties: if ignored_properties_terms.is_empty() {
+                            None
+                        } else {
+                            Some(ignored_properties_terms)
+                        },
+                    });
+                    let component_id = context.get_or_create_component_id(closed_term.clone());
                     new_components.insert(component_id, component);
                 }
             }
@@ -485,25 +504,25 @@ pub fn parse_components(
 
     // sh:hasValue
     if let Some(has_value_terms) = pred_obj_pairs.get(&shacl.has_value.into_owned()) {
-        for has_value_term in has_value_terms { // has_value_term is &Term
+        for has_value_term in has_value_terms {
+            // has_value_term is &Term
             let component = Component::HasValueConstraint(HasValueConstraintComponent {
                 value: has_value_term.clone(),
             });
-            let component_id =
-                context.get_or_create_component_id(has_value_term.clone());
+            let component_id = context.get_or_create_component_id(has_value_term.clone());
             new_components.insert(component_id, component);
         }
     }
 
     // sh:in
     if let Some(in_terms) = pred_obj_pairs.get(&shacl.in_.into_owned()) {
-        if let Some(list_head_term) = in_terms.first() { // list_head_term is &Term
+        if let Some(list_head_term) = in_terms.first() {
+            // list_head_term is &Term
             let list_items = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
             let values: Vec<Term> = list_items.into_iter().collect(); // Already Vec<Term>
 
             let component = Component::InConstraint(InConstraintComponent { values });
-            let component_id =
-                context.get_or_create_component_id(list_head_term.clone());
+            let component_id = context.get_or_create_component_id(list_head_term.clone());
             new_components.insert(component_id, component);
         }
     }
@@ -516,7 +535,12 @@ pub trait GraphvizOutput {
 }
 
 pub trait ValidateComponent {
-    fn validate(&self, c: &[Context], context: &ValidationContext, rb: &mut ValidationReportBuilder) -> Result<(), String>;
+    fn validate(
+        &self,
+        c: &[Context],
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String>;
 }
 
 #[derive(Debug)]
@@ -606,7 +630,11 @@ impl Component {
         }
     }
 
-    pub fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
+    pub fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        context: &ValidationContext,
+    ) -> String {
         match self {
             Component::NodeConstraint(c) => c.to_graphviz_string(component_id, context),
             Component::PropertyConstraint(c) => c.to_graphviz_string(component_id, context),
@@ -647,9 +675,17 @@ pub struct ClassConstraintComponent {
 }
 
 impl GraphvizOutput for ClassConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let class_name = format_term_for_label(&self.class);
-        format!("{} [label=\"Class: {}\"];", component_id.to_graphviz_id(), class_name)
+        format!(
+            "{} [label=\"Class: {}\"];",
+            component_id.to_graphviz_id(),
+            class_name
+        )
     }
 }
 
@@ -659,9 +695,17 @@ pub struct DatatypeConstraintComponent {
 }
 
 impl GraphvizOutput for DatatypeConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let datatype_name = format_term_for_label(&self.datatype);
-        format!("{} [label=\"Datatype: {}\"];", component_id.to_graphviz_id(), datatype_name)
+        format!(
+            "{} [label=\"Datatype: {}\"];",
+            component_id.to_graphviz_id(),
+            datatype_name
+        )
     }
 }
 
@@ -671,9 +715,17 @@ pub struct NodeKindConstraintComponent {
 }
 
 impl GraphvizOutput for NodeKindConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let node_kind_name = format_term_for_label(&self.node_kind);
-        format!("{} [label=\"NodeKind: {}\"];", component_id.to_graphviz_id(), node_kind_name)
+        format!(
+            "{} [label=\"NodeKind: {}\"];",
+            component_id.to_graphviz_id(),
+            node_kind_name
+        )
     }
 }
 
@@ -695,7 +747,9 @@ impl GraphvizOutput for NodeConstraintComponent {
         let label = format!("NodeConstraint\\n({})", shape_term_str);
         format!(
             "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"validates\"];",
-            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
+            component_id.to_graphviz_id(),
+            label,
+            self.shape.to_graphviz_id()
         )
     }
 }
@@ -718,7 +772,9 @@ impl GraphvizOutput for PropertyConstraintComponent {
         let label = format!("PropertyConstraint\\n({})", shape_term_str);
         format!(
             "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"validates\"];",
-            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
+            component_id.to_graphviz_id(),
+            label,
+            self.shape.to_graphviz_id()
         )
     }
 }
@@ -754,7 +810,9 @@ impl GraphvizOutput for QualifiedValueShapeComponent {
         let label = label_parts.join("\\n");
         format!(
             "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"qualifies\"];",
-            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
+            component_id.to_graphviz_id(),
+            label,
+            self.shape.to_graphviz_id()
         )
     }
 }
@@ -765,8 +823,16 @@ pub struct MinCountConstraintComponent {
 }
 
 impl GraphvizOutput for MinCountConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("{} [label=\"MinCount: {}\"];", component_id.to_graphviz_id(), self.min_count)
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
+        format!(
+            "{} [label=\"MinCount: {}\"];",
+            component_id.to_graphviz_id(),
+            self.min_count
+        )
     }
 }
 
@@ -776,8 +842,16 @@ pub struct MaxCountConstraintComponent {
 }
 
 impl GraphvizOutput for MaxCountConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("{} [label=\"MaxCount: {}\"];", component_id.to_graphviz_id(), self.max_count)
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
+        format!(
+            "{} [label=\"MaxCount: {}\"];",
+            component_id.to_graphviz_id(),
+            self.max_count
+        )
     }
 }
 
@@ -788,7 +862,11 @@ pub struct MinExclusiveConstraintComponent {
 }
 
 impl GraphvizOutput for MinExclusiveConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         format!(
             "{} [label=\"MinExclusive: {}\"];",
             component_id.to_graphviz_id(),
@@ -803,7 +881,11 @@ pub struct MinInclusiveConstraintComponent {
 }
 
 impl GraphvizOutput for MinInclusiveConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         format!(
             "{} [label=\"MinInclusive: {}\"];",
             component_id.to_graphviz_id(),
@@ -818,7 +900,11 @@ pub struct MaxExclusiveConstraintComponent {
 }
 
 impl GraphvizOutput for MaxExclusiveConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         format!(
             "{} [label=\"MaxExclusive: {}\"];",
             component_id.to_graphviz_id(),
@@ -833,7 +919,11 @@ pub struct MaxInclusiveConstraintComponent {
 }
 
 impl GraphvizOutput for MaxInclusiveConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         format!(
             "{} [label=\"MaxInclusive: {}\"];",
             component_id.to_graphviz_id(),
@@ -849,8 +939,16 @@ pub struct MinLengthConstraintComponent {
 }
 
 impl GraphvizOutput for MinLengthConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("{} [label=\"MinLength: {}\"];", component_id.to_graphviz_id(), self.min_length)
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
+        format!(
+            "{} [label=\"MinLength: {}\"];",
+            component_id.to_graphviz_id(),
+            self.min_length
+        )
     }
 }
 
@@ -860,8 +958,16 @@ pub struct MaxLengthConstraintComponent {
 }
 
 impl GraphvizOutput for MaxLengthConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("{} [label=\"MaxLength: {}\"];", component_id.to_graphviz_id(), self.max_length)
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
+        format!(
+            "{} [label=\"MaxLength: {}\"];",
+            component_id.to_graphviz_id(),
+            self.max_length
+        )
     }
 }
 
@@ -872,7 +978,11 @@ pub struct PatternConstraintComponent {
 }
 
 impl GraphvizOutput for PatternConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let flags_str = self.flags.as_deref().unwrap_or("");
         format!(
             "{} [label=\"Pattern: {}\\nFlags: {}\"];",
@@ -889,7 +999,11 @@ pub struct LanguageInConstraintComponent {
 }
 
 impl GraphvizOutput for LanguageInConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         format!(
             "{} [label=\"LanguageIn: [{}]\"];",
             component_id.to_graphviz_id(),
@@ -904,8 +1018,16 @@ pub struct UniqueLangConstraintComponent {
 }
 
 impl GraphvizOutput for UniqueLangConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
-        format!("{} [label=\"UniqueLang: {}\"];", component_id.to_graphviz_id(), self.unique_lang)
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
+        format!(
+            "{} [label=\"UniqueLang: {}\"];",
+            component_id.to_graphviz_id(),
+            self.unique_lang
+        )
     }
 }
 
@@ -916,11 +1038,16 @@ pub struct EqualsConstraintComponent {
 }
 
 impl GraphvizOutput for EqualsConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
             "{} [label=\"Equals: {}\"];",
-            component_id.to_graphviz_id(), property_name
+            component_id.to_graphviz_id(),
+            property_name
         )
     }
 }
@@ -931,11 +1058,16 @@ pub struct DisjointConstraintComponent {
 }
 
 impl GraphvizOutput for DisjointConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
             "{} [label=\"Disjoint: {}\"];",
-            component_id.to_graphviz_id(), property_name
+            component_id.to_graphviz_id(),
+            property_name
         )
     }
 }
@@ -946,11 +1078,16 @@ pub struct LessThanConstraintComponent {
 }
 
 impl GraphvizOutput for LessThanConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
             "{} [label=\"LessThan: {}\"];",
-            component_id.to_graphviz_id(), property_name
+            component_id.to_graphviz_id(),
+            property_name
         )
     }
 }
@@ -961,11 +1098,16 @@ pub struct LessThanOrEqualsConstraintComponent {
 }
 
 impl GraphvizOutput for LessThanOrEqualsConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let property_name = format_term_for_label(&self.property);
         format!(
             "{} [label=\"LessThanOrEquals: {}\"];",
-            component_id.to_graphviz_id(), property_name
+            component_id.to_graphviz_id(),
+            property_name
         )
     }
 }
@@ -989,7 +1131,9 @@ impl GraphvizOutput for NotConstraintComponent {
         let label = format!("Not\\n({})", shape_term_str);
         format!(
             "{0} [label=\"{1}\"];\n    {0} -> {2} [style=dashed, label=\"negates\"];",
-            component_id.to_graphviz_id(), label, self.shape.to_graphviz_id()
+            component_id.to_graphviz_id(),
+            label,
+            self.shape.to_graphviz_id()
         )
     }
 }
@@ -1005,10 +1149,15 @@ impl GraphvizOutput for AndConstraintComponent {
         for shape_id in &self.shapes {
             edges.push_str(&format!(
                 "    {} -> {} [style=dashed, label=\"conjunct\"];\n",
-                component_id.to_graphviz_id(), shape_id.to_graphviz_id()
+                component_id.to_graphviz_id(),
+                shape_id.to_graphviz_id()
             ));
         }
-        format!("{} [label=\"And\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
+        format!(
+            "{} [label=\"And\"];\n{}",
+            component_id.to_graphviz_id(),
+            edges.trim_end()
+        )
     }
 }
 
@@ -1023,10 +1172,15 @@ impl GraphvizOutput for OrConstraintComponent {
         for shape_id in &self.shapes {
             edges.push_str(&format!(
                 "    {} -> {} [style=dashed, label=\"disjunct\"];\n",
-                component_id.to_graphviz_id(), shape_id.to_graphviz_id()
+                component_id.to_graphviz_id(),
+                shape_id.to_graphviz_id()
             ));
         }
-        format!("{} [label=\"Or\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
+        format!(
+            "{} [label=\"Or\"];\n{}",
+            component_id.to_graphviz_id(),
+            edges.trim_end()
+        )
     }
 }
 
@@ -1041,10 +1195,15 @@ impl GraphvizOutput for XoneConstraintComponent {
         for shape_id in &self.shapes {
             edges.push_str(&format!(
                 "    {} -> {} [style=dashed, label=\"xone_option\"];\n",
-                component_id.to_graphviz_id(), shape_id.to_graphviz_id()
+                component_id.to_graphviz_id(),
+                shape_id.to_graphviz_id()
             ));
         }
-        format!("{} [label=\"Xone\"];\n{}", component_id.to_graphviz_id(), edges.trim_end())
+        format!(
+            "{} [label=\"Xone\"];\n{}",
+            component_id.to_graphviz_id(),
+            edges.trim_end()
+        )
     }
 }
 
@@ -1056,7 +1215,11 @@ pub struct ClosedConstraintComponent {
 }
 
 impl GraphvizOutput for ClosedConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let mut label_parts = vec![format!("Closed: {}", self.closed)];
         if let Some(ignored) = &self.ignored_properties {
             if !ignored.is_empty() {
@@ -1068,7 +1231,11 @@ impl GraphvizOutput for ClosedConstraintComponent {
                 label_parts.push(format!("Ignored: [{}]", ignored_str));
             }
         }
-        format!("{} [label=\"{}\"];", component_id.to_graphviz_id(), label_parts.join("\\n"))
+        format!(
+            "{} [label=\"{}\"];",
+            component_id.to_graphviz_id(),
+            label_parts.join("\\n")
+        )
     }
 }
 
@@ -1078,7 +1245,11 @@ pub struct HasValueConstraintComponent {
 }
 
 impl GraphvizOutput for HasValueConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         format!(
             "{} [label=\"HasValue: {}\"];",
             component_id.to_graphviz_id(),
@@ -1093,13 +1264,21 @@ pub struct InConstraintComponent {
 }
 
 impl GraphvizOutput for InConstraintComponent {
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let values_str = self
             .values
             .iter()
             .map(format_term_for_label)
             .collect::<Vec<String>>()
             .join(", ");
-        format!("{} [label=\"In: [{}]\"];", component_id.to_graphviz_id(), values_str)
+        format!(
+            "{} [label=\"In: [{}]\"];",
+            component_id.to_graphviz_id(),
+            values_str
+        )
     }
 }

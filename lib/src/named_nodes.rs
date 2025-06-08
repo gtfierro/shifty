@@ -56,14 +56,10 @@ impl SHACL {
                 "http://www.w3.org/ns/shacl#qualifiedValueShape",
             )
             .unwrap(),
-            qualified_min_count: NamedNodeRef::new(
-                "http://www.w3.org/ns/shacl#qualifiedMinCount",
-            )
-            .unwrap(),
-            qualified_max_count: NamedNodeRef::new(
-                "http://www.w3.org/ns/shacl#qualifiedMaxCount",
-            )
-            .unwrap(),
+            qualified_min_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedMinCount")
+                .unwrap(),
+            qualified_max_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#qualifiedMaxCount")
+                .unwrap(),
             min_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#minCount").unwrap(),
             max_count: NamedNodeRef::new("http://www.w3.org/ns/shacl#maxCount").unwrap(),
             qualified_value_shapes_disjoint: NamedNodeRef::new(
@@ -100,10 +96,8 @@ impl SHACL {
             equals: NamedNodeRef::new("http://www.w3.org/ns/shacl#equals").unwrap(),
             disjoint: NamedNodeRef::new("http://www.w3.org/ns/shacl#disjoint").unwrap(),
             less_than: NamedNodeRef::new("http://www.w3.org/ns/shacl#lessThan").unwrap(),
-            less_than_or_equals: NamedNodeRef::new(
-                "http://www.w3.org/ns/shacl#lessThanOrEquals",
-            )
-            .unwrap(),
+            less_than_or_equals: NamedNodeRef::new("http://www.w3.org/ns/shacl#lessThanOrEquals")
+                .unwrap(),
 
             closed: NamedNodeRef::new("http://www.w3.org/ns/shacl#closed").unwrap(),
             ignored_properties: NamedNodeRef::new("http://www.w3.org/ns/shacl#ignoredProperties")

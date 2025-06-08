@@ -48,7 +48,7 @@ pub(crate) fn format_term_for_label(term: &Term) -> String {
         }
         Term::BlankNode(_bn) => "bnode".to_string(),
         Term::Literal(lit) => lit.value().to_string().replace('"', "\\\""), // Escape quotes for DOT language
-        Term::Triple(_t) => "rdf_triple".to_string(), // Handle Triple case
+        Term::Triple(_t) => "rdf_triple".to_string(),                       // Handle Triple case
     }
 }
 
@@ -123,7 +123,11 @@ impl ValidationContext {
         for node_shape in self.node_shapes.values() {
             // Validate each NodeShape
             if let Err(e) = node_shape.validate(self, &mut b) {
-                eprintln!("Error validating NodeShape {}: {}", node_shape.identifier(), e);
+                eprintln!(
+                    "Error validating NodeShape {}: {}",
+                    node_shape.identifier(),
+                    e
+                );
             }
         }
     }
@@ -155,7 +159,11 @@ impl ValidationContext {
                 name_label
             ));
             for comp in shape.constraints() {
-                dot_string.push_str(&format!("    {} -> {};\n", shape.identifier().to_graphviz_id(), comp.to_graphviz_id()));
+                dot_string.push_str(&format!(
+                    "    {} -> {};\n",
+                    shape.identifier().to_graphviz_id(),
+                    comp.to_graphviz_id()
+                ));
             }
         }
         for pshape in self.prop_shapes.values() {
@@ -177,7 +185,11 @@ impl ValidationContext {
                 path_label
             ));
             for comp in pshape.constraints() {
-                dot_string.push_str(&format!("    {} -> {};\n", pshape.identifier().to_graphviz_id(), comp.to_graphviz_id()));
+                dot_string.push_str(&format!(
+                    "    {} -> {};\n",
+                    pshape.identifier().to_graphviz_id(),
+                    comp.to_graphviz_id()
+                ));
             }
         }
         for (ident, comp) in self.components.iter() {
@@ -196,8 +208,8 @@ impl ValidationContext {
         target_graph_name: GraphNameRef,
     ) -> Result<(), Box<dyn Error>> {
         let path = Path::new(file_path);
-        let file = File::open(path)
-            .map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
+        let file =
+            File::open(path).map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
         let reader = BufReader::new(file);
 
         // Assuming Turtle format for simplicity, adjust RdfFormat::Turtle if other formats are expected.
@@ -220,8 +232,8 @@ impl ValidationContext {
 
         let shape_graph_named_node = NamedNode::new(SHAPE_GRAPH_IRI)
             .map_err(|e| format!("Invalid shape graph IRI: {}", e))?;
-        let data_graph_named_node = NamedNode::new(DATA_GRAPH_IRI)
-            .map_err(|e| format!("Invalid data graph IRI: {}", e))?;
+        let data_graph_named_node =
+            NamedNode::new(DATA_GRAPH_IRI).map_err(|e| format!("Invalid data graph IRI: {}", e))?;
 
         Self::load_graph_into_store(
             &store,
@@ -277,12 +289,10 @@ impl ValidationContext {
         }
 
         // - ? sh:property <pshape>
-        for quad_res in self.store.quads_for_pattern(
-            None,
-            Some(sh.property),
-            None,
-            Some(shape_graph_name_ref),
-        ) {
+        for quad_res in
+            self.store
+                .quads_for_pattern(None, Some(sh.property), None, Some(shape_graph_name_ref))
+        {
             if let Ok(quad) = quad_res {
                 prop_shapes.insert(quad.object); // quad.object is Term
             }
@@ -320,12 +330,10 @@ impl ValidationContext {
         }
 
         // ? sh:node <shape>
-        for quad_res in self.store.quads_for_pattern(
-            None,
-            Some(shacl.node),
-            None,
-            Some(shape_graph_name_ref),
-        ) {
+        for quad_res in
+            self.store
+                .quads_for_pattern(None, Some(shacl.node), None, Some(shape_graph_name_ref))
+        {
             if let Ok(quad) = quad_res {
                 node_shapes.insert(quad.object);
             }
@@ -344,12 +352,10 @@ impl ValidationContext {
         }
 
         // ? sh:not <shape>
-        for quad_res in self.store.quads_for_pattern(
-            None,
-            Some(shacl.not),
-            None,
-            Some(shape_graph_name_ref),
-        ) {
+        for quad_res in
+            self.store
+                .quads_for_pattern(None, Some(shacl.not), None, Some(shape_graph_name_ref))
+        {
             if let Ok(quad) = quad_res {
                 node_shapes.insert(quad.object);
             }
@@ -365,7 +371,7 @@ impl ValidationContext {
             ) {
                 if let Ok(quad) = quad_res {
                     let list_head_term = quad.object; // This is Term
-                    // parse_rdf_list will also use shape_graph_name_ref internally
+                                                      // parse_rdf_list will also use shape_graph_name_ref internally
                     for item_term in self.parse_rdf_list(list_head_term) {
                         node_shapes.insert(item_term);
                     }
@@ -427,8 +433,13 @@ impl ValidationContext {
         }
 
         let _property_shapes: Vec<PropShapeID> = self // This seems to be about sh:property linking to PropertyShapes.
-            .store                                     // It was collected but not used in NodeShape::new.
-            .quads_for_pattern(Some(subject), Some(sh.property), None, Some(shape_graph_name.as_ref()))
+            .store // It was collected but not used in NodeShape::new.
+            .quads_for_pattern(
+                Some(subject),
+                Some(sh.property),
+                None,
+                Some(shape_graph_name.as_ref()),
+            )
             .filter_map(Result::ok)
             .filter_map(|quad| self.propshape_id_lookup.borrow().get(&quad.object))
             .collect();
@@ -447,7 +458,12 @@ impl ValidationContext {
 
         let path_head_term: Term = self
             .store
-            .quads_for_pattern(Some(subject), Some(shacl.path), None, Some(shape_graph_name_ref))
+            .quads_for_pattern(
+                Some(subject),
+                Some(shacl.path),
+                None,
+                Some(shape_graph_name_ref),
+            )
             .filter_map(Result::ok)
             .map(|quad| quad.object)
             .next()
@@ -483,7 +499,12 @@ impl ValidationContext {
 
             let first_val_opt: Option<Term> = self
                 .store
-                .quads_for_pattern(Some(subject_ref), Some(rdf.first), None, Some(shape_graph_name_ref))
+                .quads_for_pattern(
+                    Some(subject_ref),
+                    Some(rdf.first),
+                    None,
+                    Some(shape_graph_name_ref),
+                )
                 .filter_map(Result::ok)
                 .map(|q| q.object)
                 .next();
@@ -496,7 +517,12 @@ impl ValidationContext {
 
             let rest_node_opt: Option<Term> = self
                 .store
-                .quads_for_pattern(Some(subject_ref), Some(rdf.rest), None, Some(shape_graph_name_ref))
+                .quads_for_pattern(
+                    Some(subject_ref),
+                    Some(rdf.rest),
+                    None,
+                    Some(shape_graph_name_ref),
+                )
                 .filter_map(Result::ok)
                 .map(|q| q.object)
                 .next();

@@ -1,7 +1,7 @@
+use crate::context::{Context, ValidationContext};
 use crate::named_nodes::SHACL;
-use crate::context::{ValidationContext, Context};
 use oxigraph::model::{NamedNodeRef, Term, TermRef, Variable};
-use oxigraph::sparql::{Query, QueryResults, QueryOptions}; // Added Query
+use oxigraph::sparql::{Query, QueryOptions, QueryResults}; // Added Query
 use std::fmt; // Added for Display trait
 use std::hash::Hash; // Added Hash for derived traits
 
@@ -126,28 +126,43 @@ impl Target {
                                 })
                                 .collect(),
                             Err(e) => {
-                                eprintln!("SPARQL query error for Target::Class: {} {:?}", query_str, e); // Optional: log error
+                                eprintln!(
+                                    "SPARQL query error for Target::Class: {} {:?}",
+                                    query_str, e
+                                ); // Optional: log error
                                 vec![] // Handle query error
-                            },
+                            }
                             _ => {
-                                eprintln!("Unexpected result type for Target::Class: {}", query_str); // Optional: log unexpected result type
+                                eprintln!(
+                                    "Unexpected result type for Target::Class: {}",
+                                    query_str
+                                ); // Optional: log unexpected result type
                                 vec![] // Handle unexpected result type
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("SPARQL parse error for Target::Class: {} {:?}", query_str, e); // Optional: log error
+                        eprintln!(
+                            "SPARQL parse error for Target::Class: {} {:?}",
+                            query_str, e
+                        ); // Optional: log error
                         vec![] // Handle SPARQL parse error
                     }
                 }
             }
             Target::SubjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
-                    let query_str = format!("SELECT DISTINCT ?s WHERE {{ ?s <{}> ?any . }}", predicate_node.as_str());
+                    let query_str = format!(
+                        "SELECT DISTINCT ?s WHERE {{ ?s <{}> ?any . }}",
+                        predicate_node.as_str()
+                    );
                     match Query::parse(&query_str, None) {
                         Ok(mut parsed_query) => {
                             parsed_query.dataset_mut().set_default_graph_as_union();
-                            match context.store().query_opt(parsed_query, QueryOptions::default()) {
+                            match context
+                                .store()
+                                .query_opt(parsed_query, QueryOptions::default())
+                            {
                                 Ok(QueryResults::Solutions(solutions)) => solutions
                                     .filter_map(|solution_result| {
                                         solution_result.ok().and_then(|solution| {
@@ -171,11 +186,17 @@ impl Target {
             }
             Target::ObjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
-                    let query_str = format!("SELECT DISTINCT ?o WHERE {{ ?any <{}> ?o . }}", predicate_node.as_str());
+                    let query_str = format!(
+                        "SELECT DISTINCT ?o WHERE {{ ?any <{}> ?o . }}",
+                        predicate_node.as_str()
+                    );
                     match Query::parse(&query_str, None) {
                         Ok(mut parsed_query) => {
                             parsed_query.dataset_mut().set_default_graph_as_union();
-                            match context.store().query_opt(parsed_query, QueryOptions::default()) {
+                            match context
+                                .store()
+                                .query_opt(parsed_query, QueryOptions::default())
+                            {
                                 Ok(QueryResults::Solutions(solutions)) => solutions
                                     .filter_map(|solution_result| {
                                         solution_result.ok().and_then(|solution| {

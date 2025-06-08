@@ -1,11 +1,15 @@
+use crate::context::{Context, ValidationContext};
+use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, ID};
 use crate::types::{Path, Target};
-use crate::context::{ValidationContext, Context};
-use crate::report::ValidationReportBuilder;
 // SHACL, Term, NamedNode, TermRef were unused
 
 pub trait ValidateShape {
-    fn validate(&self, context: &ValidationContext, rb: &mut ValidationReportBuilder) -> Result<(), String>;
+    fn validate(
+        &self,
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String>;
 }
 
 #[derive(Debug)]
@@ -24,11 +28,7 @@ pub struct NodeShape {
 }
 
 impl NodeShape {
-    pub fn new(
-        identifier: ID,
-        targets: Vec<Target>,
-        constraints: Vec<ComponentID>,
-    ) -> Self {
+    pub fn new(identifier: ID, targets: Vec<Target>, constraints: Vec<ComponentID>) -> Self {
         NodeShape {
             identifier,
             targets,
@@ -46,11 +46,19 @@ impl NodeShape {
 }
 
 impl ValidateShape for NodeShape {
-    fn validate(&self, context: &ValidationContext, rb: &mut ValidationReportBuilder) -> Result<(), String> {
+    fn validate(
+        &self,
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
         println!("Validating NodeShape with identifier: {}", self.identifier);
         // first gather all of the targets
         println!("targets: {:?}", self.targets);
-        let target_contexts = self.targets.iter().map(|t| t.get_target_nodes(context)).flatten();
+        let target_contexts = self
+            .targets
+            .iter()
+            .map(|t| t.get_target_nodes(context))
+            .flatten();
         let target_contexts: Vec<_> = target_contexts.collect();
 
         if target_contexts.len() > 0 {
