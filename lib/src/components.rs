@@ -1,8 +1,10 @@
 use crate::context::{format_term_for_label, sanitize_graphviz_string, Context, ValidationContext};
+use crate::shape::ValidateShape;
 use crate::named_nodes::SHACL;
 use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, ID};
 use oxigraph::model::{NamedNode, SubjectRef, Term, TermRef}; // Removed TripleRef
+use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable}; // Added Query
 use std::collections::HashMap;
 
 pub trait ToSubjectRef {
@@ -58,9 +60,7 @@ pub fn parse_components(
     if let Some(class_terms) = pred_obj_pairs.get(&shacl.class.into_owned()) {
         for class_term in class_terms {
             // class_term is &Term
-            let component = Component::ClassConstraint(ClassConstraintComponent {
-                class: class_term.clone(),
-            });
+            let component = Component::ClassConstraint(ClassConstraintComponent::new(class_term.clone()));
             let component_id = context.get_or_create_component_id(class_term.clone());
             new_components.insert(component_id, component);
         }
@@ -537,7 +537,7 @@ pub trait GraphvizOutput {
 pub trait ValidateComponent {
     fn validate(
         &self,
-        c: &[Context],
+        c: &[&Context],
         context: &ValidationContext,
         rb: &mut ValidationReportBuilder,
     ) -> Result<(), String>;
@@ -666,12 +666,74 @@ impl Component {
             Component::InConstraint(c) => c.to_graphviz_string(component_id, context),
         }
     }
+
+    pub fn validate(
+        &self,
+        c: &[&Context],
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        match self {
+            Component::ClassConstraint(comp) => comp.validate(c, context, rb),
+            //Component::NodeConstraint(c) => c.validate(c, context, rb),
+            //Component::PropertyConstraint(c) => c.validate(c, context, rb),
+            //Component::QualifiedValueShape(c) => c.validate(c, context, rb),
+            //Component::DatatypeConstraint(c) => c.validate(c, context, rb),
+            //Component::NodeKindConstraint(c) => c.validate(c, context, rb),
+            //Component::MinCount(c) => c.validate(c, context, rb),
+            //Component::MaxCount(c) => c.validate(c, context, rb),
+            //Component::MinExclusiveConstraint(c) => c.validate(c, context, rb),
+            //Component::MinInclusiveConstraint(c) => c.validate(c, context, rb),
+            //Component::MaxExclusiveConstraint(c) => c.validate(c, context, rb),
+            //Component::MaxInclusiveConstraint(c) => c.validate(c, context, rb),
+            //Component::MinLengthConstraint(c) => c.validate(c, context, rb),
+            //Component::MaxLengthConstraint(c) => c.validate(c, context, rb),
+            //Component::PatternConstraint(c) => c.validate(c, context, rb),
+            //Component::LanguageInConstraint(c) => c.validate(c, context, rb),
+            //Component::UniqueLangConstraint(c) => c.validate(c, context, rb),
+            //Component::EqualsConstraint(c) => c.validate(c, context, rb),
+            //Component::DisjointConstraint(c) => c.validate(c, context, rb),
+            //Component::LessThanConstraint(c) => c.validate(c, context, rb),
+            //Component::LessThanOrEqualsConstraint(c) => c.validate(c, context, rb),
+            //Component::NotConstraint(c) => c.validate(c, context, rb),
+            //Component::AndConstraint(c) => c.validate(c, context, rb),
+            //Component::OrConstraint(c) => c.validate(c, context, rb),
+            //Component::XoneConstraint(c) => c.validate(c, context, rb),
+            //Component::ClosedConstraint(_) | 
+                // Other components that do not have validate method
+                _ => Ok(()), // No validation logic for these components
+        }
+    }
 }
 
 // value type
 #[derive(Debug)]
 pub struct ClassConstraintComponent {
     class: Term,
+    query: Query, 
+}
+
+impl ClassConstraintComponent {
+    pub fn new(class: Term) -> Self {
+        let class_term = class.to_subject_ref();
+        let query_str = format!("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        ASK {{
+            ?value_node rdf:type/rdfs:subClassOf* <{}> .
+        }}",
+            class_term.to_string()
+        );
+        match Query::parse(&query_str, None) {
+            Ok(mut query) => {
+                query.dataset_mut().set_default_graph_as_union();
+                ClassConstraintComponent {
+                    class,
+                    query,
+                }
+            }
+            Err(e) => panic!("Failed to parse SPARQL query: {}", e),
+        }
+    }
 }
 
 impl GraphvizOutput for ClassConstraintComponent {
@@ -686,6 +748,49 @@ impl GraphvizOutput for ClassConstraintComponent {
             component_id.to_graphviz_id(),
             class_name
         )
+    }
+}
+
+impl ValidateComponent for ClassConstraintComponent {
+    fn validate(
+        &self,
+        c: &[&Context],
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        let cc_var = Variable::new("value_node").unwrap();
+        for cc in c {
+
+            if cc.value_nodes().is_none() {
+                continue; // Skip if value is None
+            }
+            let vns = cc.value_nodes().unwrap();
+            for vn in vns.iter() {
+                match context.store().query_opt_with_substituted_variables(
+                    self.query.clone(),
+                    QueryOptions::default(),
+                    [(cc_var.clone(), vn.clone())],
+                ) {
+                    Ok(QueryResults::Boolean(result)) => {
+                        if !result {
+                            rb.add_error(cc,
+                                format!("Value does not conform to class constraint: {}", self.class),
+                            );
+                        }
+                    },
+                    Ok(_) => {
+                        return Err("Expected a boolean result for class constraint query".to_string());
+                    },
+                    Err(e) => {
+                        return Err(format!(
+                            "Failed to execute class constraint query: {}",
+                            e
+                        ));
+                    },
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -776,6 +881,20 @@ impl GraphvizOutput for PropertyConstraintComponent {
             label,
             self.shape.to_graphviz_id()
         )
+    }
+}
+
+impl ValidateComponent for PropertyConstraintComponent {
+    fn validate(
+        &self,
+        c: &[&Context],
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        let prop_shape = context
+            .get_prop_shape_by_id(&self.shape)
+            .ok_or_else(|| format!("Property shape not found for ID: {}", self.shape))?;
+        prop_shape.validate(c, context, rb)
     }
 }
 

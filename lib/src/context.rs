@@ -570,6 +570,16 @@ impl ValidationContext {
     pub fn propshape_id_lookup(&self) -> &RefCell<IDLookupTable<PropShapeID>> {
         &self.propshape_id_lookup
     }
+
+    pub fn get_component_by_id(&self, id: &ComponentID) -> Option<&Component> {
+        // Returns a reference to the component by its ID
+        self.components.get(id)
+    }
+
+    pub fn get_prop_shape_by_id(&self, id: &PropShapeID) -> Option<&PropertyShape> {
+        // Returns a reference to the PropertyShape by its ID
+        self.prop_shapes.get(id)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -600,5 +610,13 @@ impl Context {
         } else {
             self.value_nodes = Some(value_nodes.to_vec());
         }
+    }
+
+    pub fn focus_node(&self) -> &Term {
+        &self.focus_node
+    }
+
+    pub fn value_nodes(&self) -> Option<&Vec<Term>> {
+        self.value_nodes.as_ref()
     }
 }
