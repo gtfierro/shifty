@@ -1,4 +1,5 @@
 use crate::named_nodes::SHACL;
+use crate::context::{ValidationContext, Context};
 use oxigraph::model::{NamedNodeRef, Term, TermRef}; // Removed NamedNode
 use std::fmt; // Added for Display trait
 use std::hash::Hash; // Added Hash for derived traits
@@ -92,6 +93,18 @@ impl Target {
             Some(Target::ObjectsOf(object.into_owned()))
         } else {
             None
+        }
+    }
+
+    pub fn get_target_nodes(&self, context: &ValidationContext) -> Vec<Context> {
+        match self {
+            Target::Node(t) => vec![
+                Context::new(t.clone(), None, None)
+            ],
+            Target::Class(c) => {
+                // query 'context' for all ?inst rdf:type/rdfs:subClassOf* c
+            },
+            _ => vec![]
         }
     }
 }
