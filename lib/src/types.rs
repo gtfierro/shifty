@@ -6,6 +6,9 @@ use std::fmt; // Added for Display trait
 use std::hash::Hash; // Added Hash for derived traits
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct TermID(pub u64);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ID(pub u64);
 
 impl From<u64> for ID {

@@ -2,7 +2,7 @@ use crate::components::{parse_components, Component, ToSubjectRef, ValidateCompo
 use crate::named_nodes::{RDF, SHACL};
 use crate::report::ValidationReportBuilder;
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Target, ID};
+use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Target, ID, TermID};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, SubjectRef, Term, TermRef}; // Removed TripleRef, Added NamedNode, GraphName, GraphNameRef
 use oxigraph::store::Store; // Added Store
@@ -13,6 +13,9 @@ use std::fs::File;
 use std::hash::Hash;
 use std::io::BufReader;
 use std::path::Path;
+use papaya::HashMap as FastMap;
+use xxhash_rust::xxh3::xxh3_64;
+
 
 const SHAPE_GRAPH_IRI: &str = "urn:shape_graph";
 const DATA_GRAPH_IRI: &str = "urn:data_graph";
@@ -101,6 +104,7 @@ pub struct ValidationContext {
     node_shapes: HashMap<ID, NodeShape>,
     prop_shapes: HashMap<PropShapeID, PropertyShape>,
     components: HashMap<ComponentID, Component>,
+    term_to_hash: FastMap<TermID, Term>,
 }
 
 impl ValidationContext {
@@ -115,7 +119,25 @@ impl ValidationContext {
             node_shapes: HashMap::new(),
             prop_shapes: HashMap::new(),
             components: HashMap::new(),
+            term_to_hash: FastMap::default(),
         }
+    }
+
+    // compute the hash and store hash -> term if it's not there yet
+    pub fn term_to_hash(&mut self, term: Term) -> TermID {
+        let map = self.term_to_hash.pin();
+        let hash = TermID(xxh3_64(term.to_string().as_bytes()));
+        if !map.contains_key(&hash) {
+            // If the hash is not already in the map, insert it
+            map.insert(hash, term.clone());
+        }
+        hash
+    }
+
+    pub fn hash_to_term(&self, hash: TermID) -> Option<Term> {
+        // Searches for a term with the given hash
+        let map = self.term_to_hash.pin();
+        map.get(&hash).cloned()
     }
 
     pub fn validate(&self) {

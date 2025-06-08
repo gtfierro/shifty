@@ -5,3 +5,5 @@ edition.workspace = true
 
 [dependencies]
 oxigraph.workspace = true
+papaya = "0.2.1"
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
