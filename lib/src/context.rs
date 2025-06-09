@@ -723,6 +723,10 @@ impl ValidationContext {
         // Returns a reference to the NodeShape by its ID
         self.node_shapes.get(id)
     }
+
+    pub fn node_shapes(&self) -> &HashMap<ID, NodeShape> {
+        &self.node_shapes
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -761,5 +765,9 @@ impl Context {
 
     pub fn value_nodes(&self) -> Option<&Vec<Term>> {
         self.value_nodes.as_ref()
+    }
+
+    pub fn source_shape(&self) -> Option<ID> {
+        self.source_shape
     }
 }
