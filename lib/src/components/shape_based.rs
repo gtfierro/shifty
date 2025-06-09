@@ -68,10 +68,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
 
         let mut sibling_target_node_shape_ids: std::collections::HashSet<ID> = std::collections::HashSet::new();
         if self.disjoint.unwrap_or(false) {
-            let source_property_shape_id = match c.source_shape() {
-                Some(id) => id, // This is PropShapeID
+            let source_id_from_context = match c.source_shape() { // c.source_shape() returns Option<ID>
+                Some(id) => id,
                 None => return Err("QualifiedValueShape: Context is missing source_shape, cannot determine siblings for disjoint check.".to_string()),
             };
+            // Assuming this ID from context actually represents the PropShapeID of the containing property shape.
+            let source_property_shape_id = PropShapeID(source_id_from_context.0);
 
             let mut all_qvs_targets_from_relevant_parents: std::collections::HashSet<ID> = std::collections::HashSet::new();
 
