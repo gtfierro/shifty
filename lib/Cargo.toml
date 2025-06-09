@@ -8,3 +8,4 @@ oxigraph.workspace = true
 oxsdatatypes = "0.2.2"
 papaya = "0.2.1"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+regex = { workspace = true }
