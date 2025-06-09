@@ -29,6 +29,49 @@ impl ToSubjectRef for Term {
     }
 }
 
+impl ValidateComponent for InConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &Context,
+        _validation_context: &ValidationContext,
+    ) -> Result<ComponentValidationResult, String> {
+        if self.values.is_empty() {
+            // According to SHACL spec, if sh:in has an empty list, no value nodes can conform.
+            // "The constraint sh:in specifies the condition that each value node is a member of a provided SHACL list."
+            // "If the SHACL list is empty, then no value nodes can satisfy the constraint."
+            return if c.value_nodes().map_or(true, |vns| vns.is_empty()) {
+                // If there are no value nodes, or the list of value nodes is empty, it passes.
+                Ok(ComponentValidationResult::Pass(component_id))
+            } else {
+                Err(format!(
+                    "sh:in constraint has an empty list, but value nodes {:?} exist.",
+                    c.value_nodes().unwrap_or(&Vec::new()) // Provide empty vec for formatting if None
+                ))
+            };
+        }
+
+        match c.value_nodes() {
+            Some(value_nodes) => {
+                for vn in value_nodes {
+                    if !self.values.contains(vn) {
+                        return Err(format!(
+                            "Value {:?} is not in the allowed list {:?}.",
+                            vn, self.values
+                        ));
+                    }
+                }
+                // All value nodes are in self.values
+                Ok(ComponentValidationResult::Pass(component_id))
+            }
+            None => {
+                // No value nodes to check, so the constraint is satisfied.
+                Ok(ComponentValidationResult::Pass(component_id))
+            }
+        }
+    }
+}
+
 impl<'a> ToSubjectRef for TermRef<'a> {
     fn to_subject_ref(&self) -> SubjectRef<'a> {
         match self {
@@ -708,6 +751,7 @@ impl Component {
             Component::OrConstraint(comp) => comp.validate(component_id, c, context),
             Component::XoneConstraint(comp) => comp.validate(component_id, c, context),
             Component::HasValueConstraint(comp) => comp.validate(component_id, c, context),
+            Component::InConstraint(comp) => comp.validate(component_id, c, context),
             //Component::ClosedConstraint(_) |
                 // Other components that do not have validate method
                 // For components without specific validation logic, or structural ones, consider them as passing.
