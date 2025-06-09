@@ -15,7 +15,7 @@ impl ValidateShape for NodeShape {
         let target_contexts = self
             .targets()
             .iter()
-            .map(|t| t.get_target_nodes(context))
+            .map(|t| t.get_target_nodes(context, *self.identifier()))
             .flatten();
         let target_contexts: Vec<_> = target_contexts.collect();
 
@@ -146,7 +146,8 @@ impl PropertyShape {
         let value_node_context = Context::new(
             focus_node_term.clone(),
             Some(self.path().clone()), // PShapePath from self.path()
-            value_nodes_opt // Use the renamed Option<Vec<Term>>
+            value_nodes_opt, // Use the renamed Option<Vec<Term>>
+            ID(self.identifier().0) // Source shape is this PropertyShape
         );
 
         for constraint_id in self.constraints() { // constraint_id is &ComponentID

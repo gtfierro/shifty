@@ -174,9 +174,9 @@ impl Target {
         }
     }
 
-    pub fn get_target_nodes(&self, context: &ValidationContext) -> Vec<Context> {
+    pub fn get_target_nodes(&self, context: &ValidationContext, source_shape_id: ID) -> Vec<Context> {
         match self {
-            Target::Node(t) => vec![Context::new(t.clone(), None, Some(vec![t.clone()]))],
+            Target::Node(t) => vec![Context::new(t.clone(), None, Some(vec![t.clone()]), source_shape_id)],
             Target::Class(c) => {
                 let query_str = "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
                 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -195,7 +195,7 @@ impl Target {
                                 .filter_map(|solution_result| {
                                     solution_result.ok().and_then(|solution| {
                                         solution.get("inst").map(|term_ref| {
-                                            Context::new(term_ref.to_owned(), None, Some(vec![term_ref.clone()]))
+                                            Context::new(term_ref.to_owned(), None, Some(vec![term_ref.clone()]), source_shape_id)
                                         })
                                     })
                                 })
@@ -242,7 +242,7 @@ impl Target {
                                     .filter_map(|solution_result| {
                                         solution_result.ok().and_then(|solution| {
                                             solution.get("s").map(|term_ref| {
-                                                Context::new(term_ref.to_owned(), None, Some(vec![term_ref.clone()]))
+                                                Context::new(term_ref.to_owned(), None, Some(vec![term_ref.clone()]), source_shape_id)
                                             })
                                         })
                                     })
@@ -276,7 +276,7 @@ impl Target {
                                     .filter_map(|solution_result| {
                                         solution_result.ok().and_then(|solution| {
                                             solution.get("o").map(|term_ref| {
-                                                Context::new(term_ref.to_owned(), None, Some(vec![term_ref.clone()]))
+                                                Context::new(term_ref.to_owned(), None, Some(vec![term_ref.clone()]), source_shape_id)
                                             })
                                         })
                                     })

@@ -68,12 +68,8 @@ impl ValidateComponent for QualifiedValueShapeComponent {
 
         let mut sibling_target_node_shape_ids: std::collections::HashSet<ID> = std::collections::HashSet::new();
         if self.disjoint.unwrap_or(false) {
-            let source_id_from_context = match c.source_shape() { // c.source_shape() returns Option<ID>
-                Some(id) => id,
-                None => return Err("QualifiedValueShape: Context is missing source_shape, cannot determine siblings for disjoint check.".to_string()),
-            };
-            // Assuming this ID from context actually represents the PropShapeID of the containing property shape.
-            let source_property_shape_id = PropShapeID(source_id_from_context.0);
+            // c.source_shape() now returns ID, which is the ID of the containing PropertyShape.
+            let source_property_shape_id = PropShapeID(c.source_shape().0);
 
             let mut all_qvs_targets_from_relevant_parents: std::collections::HashSet<ID> = std::collections::HashSet::new();
 
@@ -115,6 +111,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
+                self.shape // Source shape is the target_node_shape_for_self (self.shape)
             );
 
             match check_conformance_for_node(
@@ -127,8 +124,15 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                     if self.disjoint.unwrap_or(false) && !sibling_target_node_shape_ids.is_empty() {
                         for sibling_shape_id in &sibling_target_node_shape_ids {
                             if let Some(sibling_node_shape) = validation_context.get_node_shape_by_id(sibling_shape_id) {
+                                // Create a new context for checking against the sibling, with sibling's ID as source_shape
+                                let sibling_check_context = Context::new(
+                                    value_node_to_check.clone(),
+                                    None,
+                                    Some(vec![value_node_to_check.clone()]),
+                                    *sibling_shape_id // Source shape is the sibling shape
+                                );
                                 match check_conformance_for_node(
-                                    &value_node_as_context,
+                                    &sibling_check_context, // Use the new context
                                     sibling_node_shape,
                                     validation_context,
                                 ) {
@@ -203,6 +207,7 @@ impl ValidateComponent for NodeConstraintComponent {
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
+                *target_node_shape.identifier() // Source shape is the one being checked against
             );
 
             match check_conformance_for_node(

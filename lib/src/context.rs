@@ -734,21 +734,17 @@ pub struct Context {
     focus_node: Term,
     path: Option<PShapePath>,
     value_nodes: Option<Vec<Term>>,
-    source_shape: Option<ID>,
+    source_shape: ID,
 }
 
 impl Context {
-    pub fn new(focus_node: Term, path: Option<PShapePath>, value_nodes: Option<Vec<Term>>) -> Self {
+    pub fn new(focus_node: Term, path: Option<PShapePath>, value_nodes: Option<Vec<Term>>, source_shape: ID) -> Self {
         Context {
             focus_node,
             path,
             value_nodes,
-            source_shape: None,
+            source_shape,
         }
-    }
-
-    pub fn set_source_shape(&mut self, shape: ID) {
-        self.source_shape = Some(shape);
     }
 
     pub fn add_value_nodes(&mut self, value_nodes: &[Term]) {
@@ -767,7 +763,7 @@ impl Context {
         self.value_nodes.as_ref()
     }
 
-    pub fn source_shape(&self) -> Option<ID> {
+    pub fn source_shape(&self) -> ID {
         self.source_shape
     }
 }
