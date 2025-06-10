@@ -56,7 +56,7 @@ impl ValidateComponent for ClassConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let cc_var = Variable::new("value_node").unwrap();
@@ -108,7 +108,7 @@ impl ValidateComponent for DatatypeConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let target_datatype_iri = match self.datatype.as_ref() {
@@ -172,7 +172,7 @@ impl ValidateComponent for NodeKindConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let sh = SHACL::new();

@@ -554,7 +554,7 @@ pub trait ValidateComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String>;
 }
@@ -686,9 +686,10 @@ impl Component {
     pub fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context, 
+        c: &mut Context, // Changed to &mut Context
         context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
+        c.record_component_visit(component_id); // Record component visit (already added in a previous step, ensure it's here)
         match self {
             Component::ClassConstraint(comp) => comp.validate(component_id, c, context),
             Component::NodeConstraint(comp) => comp.validate(component_id, c, context),
@@ -728,15 +729,18 @@ impl Component {
 /// Checks if a given node (represented by `node_as_context`) conforms to the `shape_to_check_against`.
 /// Returns `Ok(true)` if it conforms, `Ok(false)` if it does not, or `Err(String)` for an internal error.
 pub(super) fn check_conformance_for_node(
-    node_as_context: &Context,
+    node_as_context: &mut Context, // Changed to &mut Context
     shape_to_check_against: &NodeShape,
     main_validation_context: &ValidationContext,
 ) -> Result<bool, String> {
+    node_as_context.record_node_shape_visit(*shape_to_check_against.identifier()); // Record node shape visit (already added)
+
     for constraint_id in shape_to_check_against.constraints() {
         let component = main_validation_context
             .get_component_by_id(constraint_id)
             .ok_or_else(|| format!("Logical check: Component not found: {}", constraint_id))?;
 
+        // Pass node_as_context mutably. Component::validate now expects &mut Context.
         match component.validate(*constraint_id, node_as_context, main_validation_context) {
             Ok(_validation_result) => {
                 // If the component is a PropertyConstraint, we need to further validate the property shape.
@@ -751,8 +755,9 @@ pub(super) fn check_conformance_for_node(
                         })?;
                     
                     // PropertyShape::validate is an inherent method in lib/src/validate.rs
-                    // It takes &Context, &ValidationContext, &mut ValidationReportBuilder
+                    // It now takes &mut Context.
                     let mut temp_rb = ValidationReportBuilder::new();
+                    // Pass node_as_context mutably.
                     if let Err(e) = prop_shape.validate(node_as_context, main_validation_context, &mut temp_rb) {
                         // Error during property shape validation itself (e.g., query parse error)
                         return Err(format!("Logical check: Error validating property shape {}: {}", pc_comp.shape(), e));

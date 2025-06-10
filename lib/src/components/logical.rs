@@ -39,7 +39,7 @@ impl ValidateComponent for NotConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context, // This is the context of the shape that has the sh:not constraint
+        c: &mut Context, // Changed to &mut Context
         validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let Some(value_nodes) = c.value_nodes() else {
@@ -55,7 +55,7 @@ impl ValidateComponent for NotConstraintComponent {
 
         for value_node_to_check in value_nodes {
             // Create a new context where the current value_node is the focus node.
-            let value_node_as_context = Context::new(
+            let mut value_node_as_context = Context::new( // Made mutable
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
@@ -63,7 +63,7 @@ impl ValidateComponent for NotConstraintComponent {
             );
 
             match check_conformance_for_node(
-                &value_node_as_context,
+                &mut value_node_as_context, // Pass mutably
                 negated_node_shape,
                 validation_context,
             ) {
@@ -126,7 +126,7 @@ impl ValidateComponent for AndConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let Some(value_nodes) = c.value_nodes() else {
@@ -137,7 +137,7 @@ impl ValidateComponent for AndConstraintComponent {
             // The source_shape for the context used in check_conformance_for_node
             // will be set to the specific conjunct_node_shape's ID.
             for conjunct_shape_id in &self.shapes {
-                let value_node_as_context = Context::new(
+                let mut value_node_as_context = Context::new( // Made mutable
                     value_node_to_check.clone(),
                     None,
                     Some(vec![value_node_to_check.clone()]),
@@ -151,7 +151,7 @@ impl ValidateComponent for AndConstraintComponent {
                 };
 
                 match check_conformance_for_node(
-                    &value_node_as_context,
+                    &mut value_node_as_context, // Pass mutably
                     conjunct_node_shape,
                     validation_context,
                 ) {
@@ -214,7 +214,7 @@ impl ValidateComponent for OrConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let Some(value_nodes) = c.value_nodes() else {
@@ -235,7 +235,7 @@ impl ValidateComponent for OrConstraintComponent {
             // The source_shape for the context used in check_conformance_for_node
             // will be set to the specific disjunct_node_shape's ID.
             for disjunct_shape_id in &self.shapes {
-                let value_node_as_context = Context::new(
+                let mut value_node_as_context = Context::new( // Made mutable
                     value_node_to_check.clone(),
                     None,
                     Some(vec![value_node_to_check.clone()]),
@@ -249,7 +249,7 @@ impl ValidateComponent for OrConstraintComponent {
                 };
 
                 match check_conformance_for_node(
-                    &value_node_as_context,
+                    &mut value_node_as_context, // Pass mutably
                     disjunct_node_shape,
                     validation_context,
                 ) {
@@ -317,7 +317,7 @@ impl ValidateComponent for XoneConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let Some(value_nodes) = c.value_nodes() else {
@@ -338,7 +338,7 @@ impl ValidateComponent for XoneConstraintComponent {
             // The source_shape for the context used in check_conformance_for_node
             // will be set to the specific xone_node_shape's ID.
             for xone_shape_id in &self.shapes {
-                let value_node_as_context = Context::new(
+                let mut value_node_as_context = Context::new( // Made mutable
                     value_node_to_check.clone(),
                     None,
                     Some(vec![value_node_to_check.clone()]),
@@ -352,7 +352,7 @@ impl ValidateComponent for XoneConstraintComponent {
                 };
 
                 match check_conformance_for_node(
-                    &value_node_as_context,
+                    &mut value_node_as_context, // Pass mutably
                     xone_node_shape,
                     validation_context,
                 ) {

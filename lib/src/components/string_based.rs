@@ -36,7 +36,7 @@ impl ValidateComponent for MinLengthConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         if let Some(value_nodes) = c.value_nodes() {
@@ -98,7 +98,7 @@ impl ValidateComponent for MaxLengthConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         if let Some(value_nodes) = c.value_nodes() {
@@ -163,7 +163,7 @@ impl ValidateComponent for PatternConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let mut pattern_builder = regex::RegexBuilder::new(&self.pattern);
@@ -271,7 +271,7 @@ impl ValidateComponent for LanguageInConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         if let Some(value_nodes) = c.value_nodes() {
@@ -342,7 +342,7 @@ impl ValidateComponent for UniqueLangConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         if !self.unique_lang {

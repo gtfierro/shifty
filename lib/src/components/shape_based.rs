@@ -39,7 +39,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let value_nodes = match c.value_nodes() {
@@ -107,7 +107,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
 
         let mut conforming_value_node_count = 0;
         for value_node_to_check in value_nodes {
-            let value_node_as_context = Context::new(
+            let mut value_node_as_context = Context::new( // Made mutable
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
@@ -115,7 +115,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             );
 
             match check_conformance_for_node(
-                &value_node_as_context,
+                &mut value_node_as_context, // Pass mutably
                 target_node_shape_for_self,
                 validation_context,
             ) {
@@ -125,14 +125,14 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                         for sibling_shape_id in &sibling_target_node_shape_ids {
                             if let Some(sibling_node_shape) = validation_context.get_node_shape_by_id(sibling_shape_id) {
                                 // Create a new context for checking against the sibling, with sibling's ID as source_shape
-                                let sibling_check_context = Context::new(
+                                let mut sibling_check_context = Context::new( // Made mutable
                                     value_node_to_check.clone(),
                                     None,
                                     Some(vec![value_node_to_check.clone()]),
                                     *sibling_shape_id // Source shape is the sibling shape
                                 );
                                 match check_conformance_for_node(
-                                    &sibling_check_context, // Use the new context
+                                    &mut sibling_check_context, // Pass mutably
                                     sibling_node_shape,
                                     validation_context,
                                 ) {
@@ -184,7 +184,7 @@ impl ValidateComponent for NodeConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context, // Context of the shape that has the sh:node constraint
+        c: &mut Context, // Changed to &mut Context
         validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         let Some(value_nodes) = c.value_nodes() else {
@@ -203,7 +203,7 @@ impl ValidateComponent for NodeConstraintComponent {
             // Create a new context where the current value_node is the focus node.
             // The path and other aspects of the original context 'c' are not directly relevant
             // for this specific conformance check of the value_node against target_node_shape.
-            let value_node_as_context = Context::new(
+            let mut value_node_as_context = Context::new( // Made mutable
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
@@ -211,7 +211,7 @@ impl ValidateComponent for NodeConstraintComponent {
             );
 
             match check_conformance_for_node(
-                &value_node_as_context,
+                &mut value_node_as_context, // Pass mutably
                 target_node_shape,
                 validation_context,
             ) {
@@ -281,7 +281,7 @@ impl ValidateComponent for PropertyConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        _c: &Context, // Context may not be directly used here if PSS::validate is called elsewhere
+        _c: &mut Context, // Changed to &mut Context
         context: &ValidationContext, // May be used to check existence of self.shape
     ) -> Result<ComponentValidationResult, String> {
         // Ensure the referenced property shape exists.

@@ -9,7 +9,7 @@ impl ValidateComponent for InConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         if self.values.is_empty() {
@@ -118,7 +118,7 @@ impl ValidateComponent for HasValueConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _validation_context: &ValidationContext,
     ) -> Result<ComponentValidationResult, String> {
         match c.value_nodes() {

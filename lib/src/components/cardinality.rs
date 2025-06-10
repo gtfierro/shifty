@@ -32,7 +32,7 @@ impl ValidateComponent for MinCountConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _context: &ValidationContext, // context is not used
     ) -> Result<ComponentValidationResult, String> {
         if c.value_nodes().map_or(0, |v| v.len()) < self.min_count as usize {
@@ -75,7 +75,7 @@ impl ValidateComponent for MaxCountConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &Context,
+        c: &mut Context, // Changed to &mut Context
         _context: &ValidationContext, // context is not used
     ) -> Result<ComponentValidationResult, String> {
         if c.value_nodes().map_or(0, |v| v.len()) > self.max_count as usize {
