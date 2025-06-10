@@ -18,9 +18,9 @@ impl ValidateShape for NodeShape {
             .iter()
             .map(|t| t.get_target_nodes(context, *self.identifier()))
             .flatten();
-        let mut target_contexts: Vec<_> = target_contexts.collect(); // Made mutable
+        let target_contexts: Vec<_> = target_contexts.collect(); // Made mutable
 
-        for target_context in target_contexts.iter_mut() { // Iterate mutably
+        for mut target_context in target_contexts.into_iter() { // Iterate mutably
             target_context.record_node_shape_visit(*self.identifier()); // Record NodeShape visit
             // for each target, validate the constraints
             for constraint_id in self.constraints() { // constraint_id is &ComponentID
@@ -31,7 +31,7 @@ impl ValidateShape for NodeShape {
                 // Call the component's own validation logic.
                 // It now takes component_id, &mut Context, &ValidationContext
                 // and returns Result<ComponentValidationResult, String>
-                match comp.validate(*constraint_id, target_context, context) { // Pass mutably
+                match comp.validate(*constraint_id, &mut target_context, context) { // Pass mutably
                     Ok(_validation_result) => {
                         // If the component is a PropertyConstraint, then we need to
                         // trigger the validation of the referenced PropertyShape.
@@ -46,9 +46,9 @@ impl ValidateShape for NodeShape {
                             
                             // PropertyShape::validate now takes &mut Context, &ValidationContext, &mut ValidationReportBuilder
                             // target_context is the correct context to pass here, mutably.
-                            if let Err(e) = prop_shape.validate(target_context, context, rb) { // Pass mutably
+                            if let Err(e) = prop_shape.validate(&mut target_context, context, rb) { // Pass mutably
                                 // Errors from PropertyShape::validate itself (e.g. query parsing, or its own components failing)
-                                rb.add_error(target_context, e);
+                                rb.add_error(&target_context, e);
                             }
                         }
                         // For other component types, if their .validate passed, no further action here.
@@ -57,7 +57,7 @@ impl ValidateShape for NodeShape {
                     Err(e) => {
                         // This error 'e' comes from the component's own validate method.
                         // NodeShape is responsible for adding this to the report builder.
-                        rb.add_error(target_context, e);
+                        rb.add_error(&target_context, e);
                     }
                 }
             }

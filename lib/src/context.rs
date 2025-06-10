@@ -287,6 +287,13 @@ impl ValidationContext {
             ))
         })?;
 
+        store.optimize().map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error optimizing store: {}", e),
+            ))
+        })?;
+
         let mut ctx = Self::new(store, shape_graph_named_node, data_graph_named_node);
         ctx.parse();
         Ok(ctx)
@@ -512,7 +519,7 @@ impl ValidationContext {
         let id = self.get_or_create_prop_id(pshape.into_owned());
         let shacl = SHACL::new();
         let subject: SubjectRef = pshape.to_subject_ref();
-        let shape_graph_name_ref = GraphNameRef::NamedNode(self.shape_graph_iri.as_ref());
+        let ps_shape_graph_name = GraphName::NamedNode(self.shape_graph_iri.clone());
 
         let path_object_term: Term = self
             .store
@@ -520,7 +527,7 @@ impl ValidationContext {
                 Some(subject),
                 Some(shacl.path),
                 None,
-                Some(shape_graph_name_ref),
+                Some(ps_shape_graph_name.as_ref()),
             )
             .filter_map(Result::ok)
             .map(|quad| quad.object)
@@ -543,7 +550,7 @@ impl ValidationContext {
             Some(subject),
             Some(shacl.severity),
             None,
-            Some(shape_graph_name_ref)
+            Some(ps_shape_graph_name.as_ref()),
         ).filter_map(Result::ok).map(|q| q.object).next();
 
         let severity = severity_term_opt.as_ref().and_then(Severity::from_term);

@@ -175,11 +175,11 @@ impl Severity {
     pub fn from_term(term: &Term) -> Option<Self> {
         let shacl = SHACL::new();
         if let Term::NamedNode(nn) = term {
-            if nn == shacl.info.as_ref() {
+            if *nn == shacl.info {
                 Some(Severity::Info)
-            } else if nn == shacl.warning.as_ref() {
+            } else if *nn == shacl.warning {
                 Some(Severity::Warning)
-            } else if nn == shacl.violation.as_ref() {
+            } else if *nn == shacl.violation {
                 Some(Severity::Violation)
             } else {
                 None // Or default to Violation if an unknown IRI is used?

@@ -17,3 +17,6 @@ shacl = { version = "0.1.0", path = "lib" }
 clap = { version = "4.5.39", features = ["derive"] }
 graphviz-rust = "0.9.5"
 regex = "1"
+
+[profile.release]
+debug = true

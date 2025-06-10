@@ -129,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("Error loading files: {}", e))?;
             let b = ctx.validate();
             println!("Validation completed successfully.");
-            b.dump(&ctx);
+            b.dump();
         }
         Commands::Heat(args) => {
             let ctx = ValidationContext::from_files(
