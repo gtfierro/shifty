@@ -729,12 +729,20 @@ impl ValidationContext {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TraceItem {
+    NodeShape(ID),
+    PropertyShape(PropShapeID),
+    Component(ComponentID),
+}
+
 #[derive(Debug, Clone)]
 pub struct Context {
     focus_node: Term,
     path: Option<PShapePath>,
     value_nodes: Option<Vec<Term>>,
     source_shape: ID,
+    execution_trace: Vec<TraceItem>,
 }
 
 impl Context {
@@ -744,6 +752,7 @@ impl Context {
             path,
             value_nodes,
             source_shape,
+            execution_trace: Vec::new(),
         }
     }
 
@@ -765,5 +774,21 @@ impl Context {
 
     pub fn source_shape(&self) -> ID {
         self.source_shape
+    }
+
+    pub fn record_node_shape_visit(&mut self, shape_id: ID) {
+        self.execution_trace.push(TraceItem::NodeShape(shape_id));
+    }
+
+    pub fn record_property_shape_visit(&mut self, shape_id: PropShapeID) {
+        self.execution_trace.push(TraceItem::PropertyShape(shape_id));
+    }
+
+    pub fn record_component_visit(&mut self, component_id: ComponentID) {
+        self.execution_trace.push(TraceItem::Component(component_id));
+    }
+
+    pub fn execution_trace(&self) -> &Vec<TraceItem> {
+        &self.execution_trace
     }
 }
