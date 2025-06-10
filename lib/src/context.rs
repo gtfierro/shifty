@@ -759,6 +759,16 @@ pub enum TraceItem {
     Component(ComponentID),
 }
 
+impl TraceItem {
+    pub fn to_string(&self) -> String {
+        match self {
+            TraceItem::NodeShape(id) => format!("NodeShape({})", id.to_graphviz_id()),
+            TraceItem::PropertyShape(id) => format!("PropertyShape({})", id.to_graphviz_id()),
+            TraceItem::Component(id) => format!("Component({})", id.to_graphviz_id()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Context {
     focus_node: Term,

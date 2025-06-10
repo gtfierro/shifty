@@ -20,6 +20,10 @@ impl ValidationReportBuilder {
         // The println! macro is removed as per the request to track errors instead of printing.
     }
 
+    pub fn results(&self) -> &[(Context, String)] {
+        &self.results
+    }
+
     pub fn dump(&self) {
         if self.results.is_empty() {
             println!("Validation report: No errors found.");
@@ -42,7 +46,8 @@ impl ValidationReportBuilder {
             println!("\nFocus Node: {}", focus_node);
             for (context, error) in context_error_pairs {
                 println!("  - Error: {}", error);
-                println!("    Context: {:?}", context);
+                println!("    From shape: {}", context.source_shape());
+                println!("    Trace: {:?}", context.execution_trace());
             }
         }
         println!("\n------------------");

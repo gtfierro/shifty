@@ -20,11 +20,6 @@ impl ValidateShape for NodeShape {
             .flatten();
         let mut target_contexts: Vec<_> = target_contexts.collect(); // Made mutable
 
-        if target_contexts.len() > 0 {
-            println!("Validating NodeShape with identifier: {}", self.identifier());
-            println!("Targets: {:?}", target_contexts.len());
-        }
-
         for target_context in target_contexts.iter_mut() { // Iterate mutably
             target_context.record_node_shape_visit(*self.identifier()); // Record NodeShape visit
             // for each target, validate the constraints

@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Label\tType\tInvocations");
             for (item, count) in sorted_frequencies {
                 let (label, item_type) = ctx.get_trace_item_label_and_type(&item);
-                println!("{}\t{}\t{}", label, item_type, count);
+                println!("{}\t{}\t{}\t{}", item.to_string(), label, item_type, count);
             }
         }
     }
