@@ -15,6 +15,10 @@ use std::hash::Hash;
 use std::io::BufReader;
 use std::path::Path;
 use xxhash_rust::xxh3::xxh3_64;
+use ontoenv::api::OntoEnv;
+use ontoenv::config::Config;
+use ontoenv::ontology::OntologyLocation;
+use std::path::PathBuf;
 
 const SHAPE_GRAPH_IRI: &str = "urn:shape_graph";
 const DATA_GRAPH_IRI: &str = "urn:data_graph";
@@ -104,10 +108,20 @@ pub struct ValidationContext {
     prop_shapes: HashMap<PropShapeID, PropertyShape>,
     components: HashMap<ComponentID, Component>,
     term_to_hash: FastMap<TermID, Term>,
+    env: OntoEnv,
 }
 
 impl ValidationContext {
     pub fn new(store: Store, shape_graph_iri: NamedNode, data_graph_iri: NamedNode) -> Self {
+        let locations: Option<dyn IntoIterator<Item = PathBuf>> = None;
+        let env = OntoEnv::init(Config::new_with_default_matches(
+                PathBuf::from("."),
+                locations, // no specific locations
+                true, // require ontology names
+                false, // strict
+                false, // offline
+                true, //temporary
+        ).unwrap(), false).unwrap();
         ValidationContext {
             nodeshape_id_lookup: RefCell::new(IDLookupTable::<ID>::new()),
             propshape_id_lookup: RefCell::new(IDLookupTable::<PropShapeID>::new()),
@@ -119,6 +133,7 @@ impl ValidationContext {
             prop_shapes: HashMap::new(),
             components: HashMap::new(),
             term_to_hash: FastMap::default(),
+            env,
         }
     }
 
