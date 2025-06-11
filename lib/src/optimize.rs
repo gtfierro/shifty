@@ -32,7 +32,7 @@ impl Optimizer {
             .map_err(|e| format!("SPARQL parse error: {} {:?}", TYPE_QUERY, e))?;
         parsed_query
             .dataset_mut()
-            .set_default_graph((&self.ctx.data_graph_iri).into());
+            .set_default_graph(vec![self.ctx.data_graph_iri.clone().into()]);
 
         let results = self
             .ctx

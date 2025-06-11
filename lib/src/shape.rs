@@ -2,7 +2,6 @@ use crate::context::ValidationContext;
 use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, Severity, ID};
 use crate::types::{Path, Target};
-// SHACL, Term, NamedNode, TermRef were unused
 
 pub trait ValidateShape {
     fn validate(
@@ -21,7 +20,7 @@ pub enum Shape {
 #[derive(Debug)]
 pub struct NodeShape {
     identifier: ID,
-    targets: Vec<Target>,
+    pub targets: Vec<Target>,
     constraints: Vec<ComponentID>,
     severity: Severity,
     // TODO message
@@ -48,10 +47,6 @@ impl NodeShape {
 
     pub fn constraints(&self) -> &[ComponentID] {
         &self.constraints
-    }
-
-    pub fn targets(&self) -> &[Target] {
-        &self.targets
     }
 
     pub fn severity(&self) -> Severity {
