@@ -35,14 +35,14 @@ impl ValidationReportBuilder {
         graph.insert(&Triple::new(
             report_node.clone(),
             rdf::TYPE,
-            sh.validation_report.into(),
+            Term::from(sh.validation_report),
         ));
 
         let conforms = self.results.is_empty();
         graph.insert(&Triple::new(
             report_node.clone(),
             sh.conforms,
-            Literal::from(conforms).into(),
+            Term::from(Literal::from(conforms)),
         ));
 
         if !conforms {
@@ -51,13 +51,13 @@ impl ValidationReportBuilder {
                 graph.insert(&Triple::new(
                     report_node.clone(),
                     sh.result,
-                    result_node.clone().into(),
+                    Term::from(result_node.clone()),
                 ));
 
                 graph.insert(&Triple::new(
                     result_node.clone(),
                     rdf::TYPE,
-                    sh.validation_result.into(),
+                    Term::from(sh.validation_result),
                 ));
 
                 // sh:focusNode
@@ -71,7 +71,7 @@ impl ValidationReportBuilder {
                 graph.insert(&Triple::new(
                     result_node.clone(),
                     sh.result_message,
-                    Literal::new_simple_literal(error_message).into(),
+                    Term::from(Literal::new_simple_literal(error_message)),
                 ));
 
                 // Extract info from trace
@@ -136,7 +136,7 @@ impl ValidationReportBuilder {
                 graph.insert(&Triple::new(
                     result_node.clone(),
                     sh.result_severity,
-                    sh.violation.into(),
+                    Term::from(sh.violation),
                 ));
 
                 if let Some(term) = source_constraint_component_term {
