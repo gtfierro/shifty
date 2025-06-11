@@ -1,9 +1,11 @@
 use crate::context::{Context, TraceItem, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::types::Path;
+use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{BlankNode, Graph, Literal, NamedOrBlankNode, Subject, Term, Triple};
 use std::collections::HashMap; // For using Term as a HashMap key
+use std::error::Error;
 
 pub struct ValidationReportBuilder {
     pub(crate) results: Vec<(Context, String)>, // Made pub(crate)
@@ -150,6 +152,25 @@ impl ValidationReportBuilder {
         }
 
         graph
+    }
+
+    pub fn to_turtle(
+        &self,
+        validation_context: &ValidationContext,
+    ) -> Result<String, Box<dyn Error>> {
+        let graph = self.to_graph(validation_context);
+        let mut writer = Vec::new();
+        let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
+            .with_prefix("sh", "http://www.w3.org/ns/shacl#")?
+            .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")?
+            .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")?
+            .for_writer(&mut writer);
+
+        for triple in graph.iter() {
+            serializer.serialize_triple(triple)?;
+        }
+        serializer.finish()?;
+        Ok(String::from_utf8(writer)?)
     }
 
     pub fn dump(&self) {
