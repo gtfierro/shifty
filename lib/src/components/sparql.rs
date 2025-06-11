@@ -31,7 +31,7 @@ impl GraphvizOutput for SPARQLConstraintComponent {
             .store()
             .quads_for_pattern(
                 Some(subject),
-                Some(shacl.select.as_ref()),
+                Some(shacl.select),
                 None,
                 Some(context.shape_graph_iri_ref()),
             )
@@ -72,7 +72,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .store()
             .quads_for_pattern(
                 Some(subject),
-                Some(shacl.deactivated.as_ref()),
+                Some(shacl.deactivated),
                 None,
                 Some(context.shape_graph_iri_ref()),
             )
@@ -90,7 +90,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .store()
             .quads_for_pattern(
                 Some(subject),
-                Some(shacl.select.as_ref()),
+                Some(shacl.select),
                 None,
                 Some(context.shape_graph_iri_ref()),
             )
@@ -178,7 +178,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     .store()
                     .quads_for_pattern(
                         Some(subject),
-                        Some(shacl.message.as_ref()),
+                        Some(shacl.message),
                         None,
                         Some(context.shape_graph_iri_ref()),
                     )
