@@ -17,7 +17,6 @@ use std::path::Path;
 use xxhash_rust::xxh3::xxh3_64;
 use ontoenv::api::OntoEnv;
 use ontoenv::config::Config;
-use ontoenv::ontology::OntologyLocation;
 use std::path::PathBuf;
 
 const SHAPE_GRAPH_IRI: &str = "urn:shape_graph";
@@ -113,7 +112,7 @@ pub struct ValidationContext {
 
 impl ValidationContext {
     pub fn new(store: Store, shape_graph_iri: NamedNode, data_graph_iri: NamedNode) -> Self {
-        let locations: Option<dyn IntoIterator<Item = PathBuf>> = None;
+        let locations: Option<Vec<PathBuf>> = None;
         let env = OntoEnv::init(Config::new_with_default_matches(
                 PathBuf::from("."),
                 locations, // no specific locations
