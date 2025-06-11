@@ -4,9 +4,9 @@ use std::collections::HashSet;
 
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::types::ID;
+use log::{debug, error, info};
 use oxigraph::model::Term;
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
-use log::{debug, error, info};
 
 impl ValidateShape for NodeShape {
     fn validate(
@@ -17,7 +17,11 @@ impl ValidateShape for NodeShape {
         // first gather all of the targets
         let mut target_contexts = HashSet::new();
         for target in self.targets.iter() {
-            info!("get targets from target: {:?} on shape {}", target, self.identifier());
+            info!(
+                "get targets from target: {:?} on shape {}",
+                target,
+                self.identifier()
+            );
             target_contexts.extend(target.get_target_nodes(context, *self.identifier())?);
         }
 

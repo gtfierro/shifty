@@ -165,10 +165,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                                         break;
                                     }
                                     Ok(false) => {} // Does not conform to this sibling, continue
-                                    Err(e) => return Err(format!(
+                                    Err(e) => {
+                                        return Err(format!(
                                         "Error checking conformance against sibling shape {:?}: {}",
                                         sibling_shape_id, e
-                                    )),
+                                    ))
+                                    }
                                 }
                             } else {
                                 return Err(format!("QualifiedValueShape: Sibling node shape {:?} for disjoint check not found", sibling_shape_id));
@@ -181,10 +183,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                     }
                 }
                 Ok(false) => {} // Does not conform to self.shape, so don't count.
-                Err(e) => return Err(format!(
+                Err(e) => {
+                    return Err(format!(
                     "Error checking conformance for sh:qualifiedValueShape target shape {:?}: {}",
                     self.shape, e
-                )),
+                ))
+                }
             }
         }
 

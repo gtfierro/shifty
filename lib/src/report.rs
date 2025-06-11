@@ -120,19 +120,11 @@ impl ValidationReportBuilder {
                 }
 
                 if let Some(term) = source_shape_term {
-                    graph.insert(&Triple::new(
-                        result_node.clone(),
-                        sh.source_shape,
-                        term,
-                    ));
+                    graph.insert(&Triple::new(result_node.clone(), sh.source_shape, term));
                 }
 
                 if let Some(term) = result_path_term {
-                    graph.insert(&Triple::new(
-                        result_node.clone(),
-                        sh.result_path,
-                        term,
-                    ));
+                    graph.insert(&Triple::new(result_node.clone(), sh.result_path, term));
                 }
 
                 graph.insert(&Triple::new(
@@ -235,11 +227,7 @@ fn path_to_rdf(path: &Path, graph: &mut Graph) -> Term {
         Path::ZeroOrMore(inner) => {
             let bn: Subject = BlankNode::default().into();
             let inner_term = path_to_rdf(inner, graph);
-            graph.insert(&Triple::new(
-                bn.clone(),
-                sh.zero_or_more_path,
-                inner_term,
-            ));
+            graph.insert(&Triple::new(bn.clone(), sh.zero_or_more_path, inner_term));
             bn.into()
         }
         Path::OneOrMore(inner) => {

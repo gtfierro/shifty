@@ -270,7 +270,7 @@ impl ValidationContext {
                 locations,          // no locations
                 true,               // require ontology names
                 false,              // strict parsing
-                true,              // not offline
+                true,               // not offline
                 true,               // in-memory
             )
             .unwrap(),
@@ -328,7 +328,6 @@ impl ValidationContext {
                 format!("Error optimizing store: {}", e),
             ))
         })?;
-
 
         let mut ctx = Self::new(store, env, shape_graph_iri, data_graph_iri);
         info!(

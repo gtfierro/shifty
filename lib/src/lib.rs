@@ -1,8 +1,8 @@
 #![allow(dead_code, unused_variables)]
 mod components;
-mod optimize;
 pub mod context;
 mod named_nodes;
+mod optimize;
 pub mod parser;
 mod report;
 mod shape;
