@@ -44,7 +44,7 @@ fn run_sht_tests() -> Result<(), Box<dyn Error>> {
             .ok_or("Invalid data graph path")?;
         let shapes_graph_path = test
             .shapes_graph_path
-            .as_deref()
+            .as_path()
             .unwrap_or(&test.data_graph_path)
             .to_str()
             .ok_or("Invalid shapes graph path")?;
