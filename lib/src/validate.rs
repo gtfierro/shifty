@@ -96,6 +96,11 @@ impl PropertyShape {
             sparql_path
         );
 
+        println!(
+            "Executing SPARQL query for PropertyShape {}: {}",
+            self.identifier(),
+            query_str
+        );
         let query = Query::parse(&query_str, None).map_err(|e| {
             format!(
                 "Failed to parse query for PropertyShape {}: {}",
@@ -104,6 +109,12 @@ impl PropertyShape {
             )
         })?;
 
+        
+        //println!("num triples in focus context: {}", context.store().len().unwrap());
+        // print out triples
+        //for triple in context.store().quads_for_pattern(None, None, None, None) {
+        //    println!("Triple: {:?}", triple);
+        //}
         let results = context
             .store()
             .query_opt(query, QueryOptions::default())
@@ -123,11 +134,26 @@ impl PropertyShape {
 
                 let mut nodes = Vec::new();
                 for solution_res in solutions {
+                    println!(
+                        "Processing solution for PropertyShape {}: {:?}",
+                        self.identifier(),
+                        solution_res
+                    );
                     let solution = solution_res.map_err(|e| e.to_string())?;
                     if let Some(term) = solution.get(&value_node_var) {
                         nodes.push(term.clone());
+                    } else {
+                        return Err(format!(
+                            "Missing valueNode in solution for PropertyShape {}",
+                            self.identifier()
+                        ));
                     }
                 }
+                println!(
+                    "Found {} value nodes for PropertyShape {}",
+                    nodes.len(),
+                    self.identifier()
+                );
                 nodes
             }
             QueryResults::Boolean(_) => {
