@@ -12,3 +12,4 @@ regex = { workspace = true }
 ontoenv = "0.2.2-a4"
 log = { workspace = true }
 url = { workspace = true }
+paste = "1.0.15"

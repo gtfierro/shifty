@@ -78,6 +78,10 @@ impl ValidateComponent for MaxCountConstraintComponent {
         c: &mut Context,              // Changed to &mut Context
         _context: &ValidationContext, // context is not used
     ) -> Result<ComponentValidationResult, String> {
+        println!(
+            "Validating MaxCountConstraintComponent with ID: {} value nodes: {:?}",
+            component_id.to_graphviz_id(), c.value_nodes()
+        );
         if c.value_nodes().map_or(0, |v| v.len()) > self.max_count as usize {
             return Err(format!(
                 "Value count ({}) does not meet maximum requirement: {}",

@@ -6,6 +6,7 @@ mod optimize;
 pub mod parser;
 mod report;
 mod shape;
+pub mod test_utils;
 mod types;
 mod validate;
 

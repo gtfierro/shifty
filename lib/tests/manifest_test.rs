@@ -34,6 +34,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
         let report = context.validate();
         let conforms = report.results().is_empty();
         let expects_conform = test.status == "conform" && test.expected_report.is_empty();
+        report.dump();
         assert_eq!(
             conforms, expects_conform,
             "Conformance mismatch for test: {}. Expected {}",

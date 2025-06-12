@@ -254,3 +254,41 @@ impl OWL {
         }
     }
 }
+
+pub struct MF {
+    pub manifest: NamedNodeRef<'static>,
+    pub entries: NamedNodeRef<'static>,
+    pub action: NamedNodeRef<'static>,
+    pub result: NamedNodeRef<'static>,
+    pub status: NamedNodeRef<'static>,
+    pub include: NamedNodeRef<'static>,
+}
+
+impl MF {
+    pub fn new() -> Self {
+        MF {
+            manifest: NamedNodeRef::new("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#Manifest").unwrap(),
+            entries: NamedNodeRef::new("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#entries").unwrap(),
+            action: NamedNodeRef::new("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#action").unwrap(),
+            result: NamedNodeRef::new("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#result").unwrap(),
+            status: NamedNodeRef::new("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#status").unwrap(),
+            include: NamedNodeRef::new("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#include").unwrap(),
+        }
+    }
+}
+
+pub struct SHT {
+    pub validate: NamedNodeRef<'static>,
+    pub data_graph: NamedNodeRef<'static>,
+    pub shapes_graph: NamedNodeRef<'static>,
+}
+
+impl SHT {
+    pub fn new() -> Self {
+        SHT {
+            validate: NamedNodeRef::new("http://www.w3.org/ns/shacl-test#Validate").unwrap(),
+            data_graph: NamedNodeRef::new("http://www.w3.org/ns/shacl-test#dataGraph").unwrap(),
+            shapes_graph: NamedNodeRef::new("http://www.w3.org/ns/shacl-test#shapesGraph").unwrap(),
+        }
+    }
+}
