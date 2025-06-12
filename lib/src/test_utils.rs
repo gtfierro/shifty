@@ -96,7 +96,7 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
         .map_err(|e| e.to_string())?;
     for quad in parser.for_reader(Cursor::new(manifest_content)) {
         let quad = quad.map_err(|e| e.to_string())?;
-        manifest_graph.insert(quad.into());
+        manifest_graph.insert(<oxigraph::model::Quad as Into<TripleRef>>::into(quad));
     }
 
     let mf = MF::new();
