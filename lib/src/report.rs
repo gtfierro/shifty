@@ -201,6 +201,10 @@ impl ValidationReportBuilder {
         }
         println!("\n------------------");
     }
+
+    pub fn merge(&mut self, other: ValidationReportBuilder) {
+        self.results.extend(other.results);
+    }
 }
 
 fn path_to_rdf(path: &Path, graph: &mut Graph) -> Term {
