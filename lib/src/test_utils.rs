@@ -1,4 +1,5 @@
 use crate::named_nodes::{MF, RDF, RDFS, SHACL, SHT};
+use crate::components::ToSubjectRef;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{Graph, SubjectRef, TermRef, TripleRef};
 use std::fs;
@@ -44,7 +45,7 @@ fn extract_path_graph(manifest_graph: &Graph, path_node: SubjectRef, report_grap
             || predicate_ref == sh.one_or_more_path
             || predicate_ref == sh.zero_or_one_path
         {
-            if let Ok(nested_path_node) = SubjectRef::try_from(triple.object) {
+            if let Ok(nested_path_node) = triple.object.to_subject_ref() {
                 extract_path_graph(manifest_graph, nested_path_node, report_graph);
             }
         }
@@ -63,16 +64,14 @@ fn extract_report_graph(manifest_graph: &Graph, result_node: SubjectRef) -> Grap
     // Add triples for each sh:result
     let results = manifest_graph.objects_for_subject_predicate(result_node, sh.result);
     for result in results {
-        if let Ok(s) = SubjectRef::try_from(result) {
-            for triple in manifest_graph.triples_for_subject(s) {
-                report_graph.insert(triple.into());
+        let s = result.to_subject_ref()
+        for triple in manifest_graph.triples_for_subject(s) {
+            report_graph.insert(triple.into());
 
-                // Recursively handle sh:resultPath if it's a blank node
-                if triple.predicate == sh.result_path {
-                    if let Ok(path_subject) = SubjectRef::try_from(triple.object) {
-                        extract_path_graph(manifest_graph, path_subject, &mut report_graph);
-                    }
-                }
+            // Recursively handle sh:resultPath if it's a blank node
+            if triple.predicate == sh.result_path {
+                let path_subject = triple.object.to_subject_ref();
+                extract_path_graph(manifest_graph, path_subject, &mut report_graph);
             }
         }
     }
@@ -110,12 +109,12 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
     if let Some(entries_list_head) =
         manifest_graph.object_for_subject_predicate(manifest_node, mf.entries)
     {
-        if let Ok(mut current_node) = SubjectRef::try_from(entries_list_head) {
+        if let Ok(mut current_node) = entries_list_head.to_subject_ref() {
             let nil_ref: SubjectRef = rdf.nil.into();
             while current_node != nil_ref {
                 let entry = manifest_graph
                     .object_for_subject_predicate(current_node, rdf.first)
-                    .and_then(|t| SubjectRef::try_from(t).ok())
+                    .and_then(|t| t.to_subject_ref())
                     .ok_or_else(|| "Invalid RDF list for mf:entries: missing rdf:first".to_string())?;
 
                 let is_validate_test =
@@ -140,7 +139,7 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
 
                     let action_node = manifest_graph
                         .object_for_subject_predicate(entry, mf.action)
-                        .and_then(|t| SubjectRef::try_from(t).ok())
+                        .and_then(|t| t.to_subject_ref())
                         .ok_or_else(|| format!("Test '{}' has no mf:action", name))?;
 
                     let data_graph_term = manifest_graph
@@ -153,7 +152,7 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
 
                     let result_node = manifest_graph
                         .object_for_subject_predicate(entry, mf.result)
-                        .and_then(|t| SubjectRef::try_from(t).ok())
+                        .and_then(|t| t.to_subject_ref())
                         .ok_or_else(|| format!("Test '{}' has no mf:result", name))?;
 
                     let data_graph_path_str = match data_graph_term {
@@ -191,7 +190,7 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
 
                 current_node = manifest_graph
                     .object_for_subject_predicate(current_node, rdf.rest)
-                    .and_then(|t| SubjectRef::try_from(t).ok())
+                    .and_then(|t| t.to_subject_ref())
                     .ok_or_else(|| "Invalid RDF list for mf:entries: missing rdf:rest".to_string())?;
             }
         }
