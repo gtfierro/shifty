@@ -54,6 +54,19 @@ pub struct GraphDiff {
     pub in_second: Graph,
 }
 
+impl GraphDiff {
+    pub fn dump(&self) {
+        println!("unique to first");
+        for triple in self.in_first.iter() {
+            println!("{:?}", triple);
+        }
+        println!("unique to second");
+        for triple in self.in_second.iter() {
+            println!("{:?}", triple);
+        }
+    }
+}
+
 /// Computes the difference between two graphs, considering blank node isomorphism.
 ///
 /// This function canonicalizes blank nodes in both graphs before comparing them.
