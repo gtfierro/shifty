@@ -659,6 +659,47 @@ impl Component {
         }
     }
 
+    pub fn component_type(&self) -> NamedNode {
+        match self {
+            Component::NodeConstraint(_) => SHACL::node_constraint(),
+            Component::PropertyConstraint(_) => SHACL::property_constraint(),
+            Component::QualifiedValueShape(_) => SHACL::qualified_value_shape(),
+
+            Component::ClassConstraint(_) => SHACL::class_constraint(),
+            Component::DatatypeConstraint(_) => SHACL::datatype_constraint(),
+            Component::NodeKindConstraint(_) => SHACL::node_kind_constraint(),
+
+            Component::MinCount(_) => SHACL::min_count(),
+            Component::MaxCount(_) => SHACL::max_count(),
+
+            Component::MinExclusiveConstraint(_) => SHACL::min_exclusive(),
+            Component::MinInclusiveConstraint(_) => SHACL::min_inclusive(),
+            Component::MaxExclusiveConstraint(_) => SHACL::max_exclusive(),
+            Component::MaxInclusiveConstraint(_) => SHACL::max_inclusive(),
+
+            Component::MinLengthConstraint(_) => SHACL::min_length(),
+            Component::MaxLengthConstraint(_) => SHACL::max_length(),
+            Component::PatternConstraint(_) => SHACL::pattern(),
+            Component::LanguageInConstraint(_) => SHACL::language_in(),
+            Component::UniqueLangConstraint(_) => SHACL::unique_lang(),
+
+            Component::EqualsConstraint(_) => SHACL::equals(),
+            Component::DisjointConstraint(_) => SHACL::disjoint(),
+            Component::LessThanConstraint(_) => SHACL::less_than(),
+            Component::LessThanOrEqualsConstraint(_) => SHACL::less_than_or_equals(),
+
+            Component::NotConstraint(_) => SHACL::not_(),
+            Component::AndConstraint(_) => SHACL::and_(),
+            Component::OrConstraint(_) => SHACL::or_(),
+            Component::XoneConstraint(_) => SHACL::xone(),
+
+            Component::ClosedConstraint(_) => SHACL::closed(),
+            Component::HasValueConstraint(_) => SHACL::has_value(),
+            Component::InConstraint(_) => SHACL::in_(),
+            Component::SPARQLConstraint(_) => SHACL.sparql(),
+        }
+    }
+
     pub fn to_graphviz_string(
         &self,
         component_id: ComponentID,
