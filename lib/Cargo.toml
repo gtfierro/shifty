@@ -13,3 +13,4 @@ ontoenv = "0.2.2-a4"
 log = { workspace = true }
 url = { workspace = true }
 paste = "1.0.15"
+petgraph = { version = "0.8.2", features = ["rayon"] }
