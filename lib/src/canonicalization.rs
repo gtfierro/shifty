@@ -32,6 +32,15 @@ pub fn oxigraph_to_petgraph(ox_graph: &Graph) -> DiGraph<Term, NamedNode> {
     pg_graph
 }
 
+fn node_equality(n1: &Term, n2: &Term) -> bool {
+    match (n1, n2) {
+        (Term::BlankNode(b1), Term::BlankNode(b2)) => true,
+        (Term::BlankNode(b1), Term::NamedNode(n2)) => false,
+        (Term::NamedNode(n1), Term::BlankNode(b2)) => false,
+        (n1, n2) => n1 == n2,
+    }
+}
+
 /// Checks if two `oxigraph::model::Graph`s are isomorphic.
 ///
 /// This is done by converting both graphs to `petgraph` directed graphs and then
@@ -40,7 +49,7 @@ pub fn are_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let pg1 = oxigraph_to_petgraph(g1);
     let pg2 = oxigraph_to_petgraph(g2);
 
-    is_isomorphic_matching(&pg1, &pg2, |n1, n2| n1 == n2, |e1, e2| e1 == e2)
+    is_isomorphic_matching(&pg1, &pg2, |n1, n2| node_equality(n1, n2), |e1, e2| e1 == e2)
 }
 
 /// Contains the results of a graph diff operation.
