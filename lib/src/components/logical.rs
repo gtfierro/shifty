@@ -1,5 +1,7 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::named_nodes::SHACL;
 use crate::types::{ComponentID, ID};
+use oxigraph::model::NamedNode;
 
 use super::{
     check_conformance_for_node, ComponentValidationResult, GraphvizOutput, ValidateComponent,
@@ -18,6 +20,10 @@ impl NotConstraintComponent {
 }
 
 impl GraphvizOutput for NotConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().not_constraint_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let shape_term_str = context
             .nodeshape_id_lookup()
@@ -108,6 +114,10 @@ impl AndConstraintComponent {
 }
 
 impl GraphvizOutput for AndConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().and_constraint_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
@@ -199,6 +209,10 @@ impl OrConstraintComponent {
 }
 
 impl GraphvizOutput for OrConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().or_constraint_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
@@ -308,6 +322,10 @@ impl XoneConstraintComponent {
 }
 
 impl GraphvizOutput for XoneConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().xone_constraint_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {

@@ -1,6 +1,7 @@
 use crate::context::{format_term_for_label, ValidationContext};
+use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
-use oxigraph::model::Term;
+use oxigraph::model::{NamedNode, Term};
 
 use super::GraphvizOutput;
 
@@ -17,6 +18,10 @@ impl EqualsConstraintComponent {
 }
 
 impl GraphvizOutput for EqualsConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().equals_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -43,6 +48,10 @@ impl DisjointConstraintComponent {
 }
 
 impl GraphvizOutput for DisjointConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().disjoint_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -69,6 +78,10 @@ impl LessThanConstraintComponent {
 }
 
 impl GraphvizOutput for LessThanConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().less_than_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -95,6 +108,10 @@ impl LessThanOrEqualsConstraintComponent {
 }
 
 impl GraphvizOutput for LessThanOrEqualsConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().less_than_or_equals_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,

@@ -558,6 +558,7 @@ pub fn parse_components(
 
 pub trait GraphvizOutput {
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String;
+    fn component_type(&self) -> NamedNode;
 }
 
 pub trait ValidateComponent {

@@ -1,6 +1,7 @@
 use crate::context::{sanitize_graphviz_string, Context, ValidationContext};
+use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
-use oxigraph::model::TermRef;
+use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
 use std::collections::HashSet;
 
@@ -19,6 +20,10 @@ impl MinLengthConstraintComponent {
 }
 
 impl GraphvizOutput for MinLengthConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().min_length_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -81,6 +86,10 @@ impl MaxLengthConstraintComponent {
 }
 
 impl GraphvizOutput for MaxLengthConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().max_length_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -144,6 +153,10 @@ impl PatternConstraintComponent {
 }
 
 impl GraphvizOutput for PatternConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().pattern_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -230,6 +243,10 @@ impl LanguageInConstraintComponent {
 }
 
 impl GraphvizOutput for LanguageInConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().language_in_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -329,6 +346,10 @@ impl UniqueLangConstraintComponent {
 }
 
 impl GraphvizOutput for UniqueLangConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().unique_lang_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,

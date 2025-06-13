@@ -2,7 +2,7 @@ use crate::components::ToSubjectRef;
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
-use oxigraph::model::{Term, TermRef};
+use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 
 use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent};
@@ -36,6 +36,10 @@ impl ClassConstraintComponent {
 }
 
 impl GraphvizOutput for ClassConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().class_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -138,6 +142,10 @@ impl ValidateComponent for DatatypeConstraintComponent {
 }
 
 impl GraphvizOutput for DatatypeConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().datatype_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,
@@ -207,6 +215,10 @@ impl ValidateComponent for NodeKindConstraintComponent {
 }
 
 impl GraphvizOutput for NodeKindConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().node_kind_constraint_component
+    }
+
     fn to_graphviz_string(
         &self,
         component_id: ComponentID,

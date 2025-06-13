@@ -1,6 +1,8 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::named_nodes::SHACL;
 use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, ID};
+use oxigraph::model::NamedNode;
 // Removed: use oxigraph::model::Term;
 
 use super::{
@@ -20,6 +22,10 @@ impl NodeConstraintComponent {
 }
 
 impl GraphvizOutput for NodeConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().node_constraint_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let shape_term_str = context
             .nodeshape_id_lookup()
@@ -321,6 +327,10 @@ impl ValidateComponent for PropertyConstraintComponent {
     }
 }
 impl GraphvizOutput for PropertyConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().property_shape_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, validation_context: &ValidationContext) -> String {
         let shape_term_str = validation_context
             .propshape_id_lookup()
@@ -361,6 +371,15 @@ impl QualifiedValueShapeComponent {
 }
 
 impl GraphvizOutput for QualifiedValueShapeComponent {
+    fn component_type(&self) -> NamedNode {
+        let shacl = SHACL::new();
+        if self.min_count.is_some() {
+            shacl.qualified_min_count_constraint_component
+        } else {
+            shacl.qualified_max_count_constraint_component
+        }
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let shape_term_str = context
             .nodeshape_id_lookup()

@@ -6,7 +6,7 @@ use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
 use ontoenv::api::ResolveTarget;
 use oxigraph::model::vocab::xsd;
-use oxigraph::model::{Literal, Term};
+use oxigraph::model::{Literal, NamedNode, Term};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 
 #[derive(Debug, Clone)]
@@ -42,6 +42,10 @@ impl SPARQLConstraintComponent {
 }
 
 impl GraphvizOutput for SPARQLConstraintComponent {
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().sparql_constraint_component
+    }
+
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
         let shacl = SHACL::new();
         let subject = self.constraint_node.to_subject_ref();
