@@ -1,4 +1,4 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{format_term_for_label, Context, ValidationContext, SourceShape};
 use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, ID};
 use oxigraph::model::NamedNode;
@@ -80,7 +80,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             std::collections::HashSet::new();
         if self.disjoint.unwrap_or(false) {
             // c.source_shape() now returns ID, which is the ID of the containing PropertyShape.
-            let source_property_shape_id = PropShapeID(c.source_shape().0);
+            let source_property_shape_id = c.source_shape().as_prop_id().unwrap().clone();
 
             let mut all_qvs_targets_from_relevant_parents: std::collections::HashSet<ID> =
                 std::collections::HashSet::new();
@@ -137,7 +137,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
-                self.shape, // Source shape is the target_node_shape_for_self (self.shape)
+                SourceShape::NodeShape(self.shape), // Source shape is the target_node_shape_for_self (self.shape)
             );
 
             match check_conformance_for_node(
@@ -159,7 +159,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                                     value_node_to_check.clone(),
                                     None,
                                     Some(vec![value_node_to_check.clone()]),
-                                    *sibling_shape_id, // Source shape is the sibling shape
+                                    SourceShape::NodeShape(*sibling_shape_id), // Source shape is the sibling shape
                                 );
                                 match check_conformance_for_node(
                                     &mut sibling_check_context, // Pass mutably
@@ -249,7 +249,7 @@ impl ValidateComponent for NodeConstraintComponent {
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
-                *target_node_shape.identifier(), // Source shape is the one being checked against
+                SourceShape::NodeShape(*target_node_shape.identifier()), // Source shape is the one being checked against
             );
 
             match check_conformance_for_node(

@@ -1,4 +1,5 @@
 use crate::components::Component;
+use std::fmt;
 use crate::optimize::Optimizer;
 use crate::parser;
 use crate::report::ValidationReportBuilder;
@@ -270,7 +271,7 @@ impl ValidationContext {
                 locations,          // no locations
                 true,               // require ontology names
                 false,              // strict parsing
-                true,               // not offline
+                true,               // offline
                 true,               // in-memory
             )
             .unwrap(),
@@ -441,6 +442,46 @@ impl ValidationContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum SourceShape {
+    NodeShape(ID),
+    PropertyShape(PropShapeID),
+}
+
+impl fmt::Display for SourceShape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SourceShape::NodeShape(id) => write!(f, "{}", id),
+            SourceShape::PropertyShape(id) => write!(f, "{}", id),
+        }
+    }
+}
+
+impl SourceShape  {
+    pub fn as_prop_id(&self) -> Option<&PropShapeID> {
+        match self {
+            SourceShape::PropertyShape(id) => Some(id),
+            _ => None,
+        }
+    }
+    pub fn as_node_id(&self) -> Option<&ID> {
+        match self {
+            SourceShape::NodeShape(id) => Some(id),
+            _ => None,
+        }
+    }
+    pub fn get_term(&self, ctx: &ValidationContext) -> Option<Term> {
+        match self {
+            SourceShape::NodeShape(id) => {
+                ctx.nodeshape_id_lookup().borrow().get_term(*id).map(|t| t.clone())
+            },
+            SourceShape::PropertyShape(id) => {
+                ctx.propshape_id_lookup().borrow().get_term(*id).map(|t| t.clone())
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraceItem {
     NodeShape(ID),
     PropertyShape(PropShapeID),
@@ -462,7 +503,7 @@ pub struct Context {
     focus_node: Term,
     pub(crate) result_path: Option<PShapePath>,
     value_nodes: Option<Vec<Term>>,
-    source_shape: ID,
+    source_shape: SourceShape,
     execution_trace: Vec<TraceItem>,
 }
 
@@ -471,7 +512,7 @@ impl Context {
         focus_node: Term,
         result_path: Option<PShapePath>,
         value_nodes: Option<Vec<Term>>,
-        source_shape: ID,
+        source_shape: SourceShape,
     ) -> Self {
         Context {
             focus_node,
@@ -502,8 +543,8 @@ impl Context {
         self.value_nodes.as_ref()
     }
 
-    pub fn source_shape(&self) -> ID {
-        self.source_shape
+    pub fn source_shape(&self) -> SourceShape {
+        self.source_shape.clone()
     }
 
     pub fn record_node_shape_visit(&mut self, shape_id: ID) {

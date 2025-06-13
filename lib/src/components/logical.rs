@@ -1,4 +1,4 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{format_term_for_label, Context, ValidationContext, SourceShape};
 use crate::types::{ComponentID, ID};
 use oxigraph::model::NamedNode;
 
@@ -67,7 +67,7 @@ impl ValidateComponent for NotConstraintComponent {
                 value_node_to_check.clone(),
                 None, // Path is not directly relevant for this sub-check's context
                 Some(vec![value_node_to_check.clone()]), // Value nodes for the sub-check
-                *negated_node_shape.identifier(), // Source shape is the one being checked against
+                SourceShape::NodeShape(*negated_node_shape.identifier()), // Source shape is the one being checked against
             );
 
             match check_conformance_for_node(
@@ -154,7 +154,7 @@ impl ValidateComponent for AndConstraintComponent {
                     value_node_to_check.clone(),
                     None,
                     Some(vec![value_node_to_check.clone()]),
-                    *conjunct_shape_id, // Source shape is the conjunct being checked
+                    SourceShape::NodeShape(*conjunct_shape_id), // Source shape is the conjunct being checked
                 );
                 let Some(conjunct_node_shape) =
                     validation_context.get_node_shape_by_id(conjunct_shape_id)
@@ -262,7 +262,7 @@ impl ValidateComponent for OrConstraintComponent {
                     value_node_to_check.clone(),
                     None,
                     Some(vec![value_node_to_check.clone()]),
-                    *disjunct_shape_id, // Source shape is the disjunct being checked
+                    SourceShape::NodeShape(*disjunct_shape_id), // Source shape is the disjunct being checked
                 );
                 let Some(disjunct_node_shape) =
                     validation_context.get_node_shape_by_id(disjunct_shape_id)
@@ -375,7 +375,7 @@ impl ValidateComponent for XoneConstraintComponent {
                     value_node_to_check.clone(),
                     None,
                     Some(vec![value_node_to_check.clone()]),
-                    *xone_shape_id, // Source shape is the xone option being checked
+                    SourceShape::NodeShape(*xone_shape_id), // Source shape is the xone option being checked
                 );
                 let Some(xone_node_shape) = validation_context.get_node_shape_by_id(xone_shape_id)
                 else {

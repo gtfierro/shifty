@@ -1,9 +1,9 @@
-use crate::context::{Context, ValidationContext};
+use crate::context::{Context, ValidationContext, SourceShape};
 use crate::report::ValidationReportBuilder;
 use std::collections::HashSet;
 
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
-use crate::types::ID;
+use crate::types::{ID, PropShapeID};
 use log::{info};
 use oxigraph::model::Term;
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
@@ -191,7 +191,7 @@ impl PropertyShape {
             focus_node_term.clone(),
             Some(self.path().clone()), // PShapePath from self.path()
             value_nodes_opt,           // Use the renamed Option<Vec<Term>>
-            ID(self.identifier().0),   // Source shape is this PropertyShape
+            SourceShape::PropertyShape(PropShapeID(self.identifier().0)),
         );
 
         for constraint_id in self.constraints() {

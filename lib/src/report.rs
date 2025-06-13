@@ -70,37 +70,23 @@ impl ValidationReportBuilder {
                 ));
 
                 // sh:resultMessage
-                graph.insert(&Triple::new(
-                    result_node.clone(),
-                    sh.result_message,
-                    Term::from(Literal::new_simple_literal(error_message)),
-                ));
+                // TODO: temporarily remove
+                // graph.insert(&Triple::new(
+                //     result_node.clone(),
+                //     sh.result_message,
+                //     Term::from(Literal::new_simple_literal(error_message)),
+                // ));
 
                 // Extract info from trace
-                let mut source_shape_term = None;
                 let result_path_term = context.result_path().map(|p| path_to_rdf(p, &mut graph));
                 let mut source_constraint_component_term = None;
 
+                // TODO: this could be property shape *OR* node shape
+                let source_shape_term = context.source_shape().get_term(&validation_context);
+
                 for item in context.execution_trace().iter().rev() {
+                    println!("trace item: {:?}", item);
                     match item {
-                        TraceItem::NodeShape(id) => {
-                            if source_shape_term.is_none() {
-                                source_shape_term = validation_context
-                                    .nodeshape_id_lookup
-                                    .borrow()
-                                    .get_term(*id)
-                                    .cloned();
-                            }
-                        }
-                        TraceItem::PropertyShape(id) => {
-                            if source_shape_term.is_none() {
-                                source_shape_term = validation_context
-                                    .propshape_id_lookup
-                                    .borrow()
-                                    .get_term(*id)
-                                    .cloned();
-                            }
-                        }
                         TraceItem::Component(id) => {
                             if source_constraint_component_term.is_none() {
                                 source_constraint_component_term = Some(validation_context
@@ -108,7 +94,9 @@ impl ValidationReportBuilder {
                                     .unwrap()
                                     .component_type());
                             }
-                        }
+                            break
+                        },
+                        _ => {},
                     }
                 }
 

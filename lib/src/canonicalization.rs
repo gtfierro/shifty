@@ -122,13 +122,13 @@ pub fn to_canonical_graph(graph: &Graph) -> Graph {
     for t in graph.iter() {
         let subject = match t.subject {
             SubjectRef::BlankNode(bn) => {
-                Subject::from(BlankNode::new_unchecked(bnode_labels.get(bn).unwrap()))
+                Subject::from(BlankNode::new_unchecked(bnode_labels.get(&bn.into_owned()).unwrap()))
             }
             _ => t.subject.into_owned(),
         };
         let object = match t.object {
             TermRef::BlankNode(bn) => {
-                Term::from(BlankNode::new_unchecked(bnode_labels.get(bn).unwrap()))
+                Term::from(BlankNode::new_unchecked(bnode_labels.get(&bn.into_owned()).unwrap()))
             }
             _ => t.object.into_owned(),
         };
@@ -146,15 +146,15 @@ struct TripleCanonicalizer<'a> {
 
 impl<'a> TripleCanonicalizer<'a> {
     fn new(graph: &'a Graph) -> Self {
-        let subjects = graph.iter().filter_map(|t| match t.subject {
-            SubjectRef::BlankNode(bn) => Some(bn.to_owned()),
+        let subjects: Vec<BlankNode> = graph.iter().filter_map(|t| match t.subject {
+            SubjectRef::BlankNode(bn) => Some(bn.into_owned()),
             _ => None,
-        });
-        let objects = graph.iter().filter_map(|t| match t.object {
-            TermRef::BlankNode(bn) => Some(bn.to_owned()),
+        }).collect();
+        let objects: Vec<BlankNode> = graph.iter().filter_map(|t| match t.object {
+            TermRef::BlankNode(bn) => Some(bn.into_owned()),
             _ => None,
-        });
-        let bnode_set: HashSet<BlankNode> = subjects.chain(objects).collect();
+        }).collect();
+        let bnode_set: HashSet<BlankNode> = subjects.into_iter().chain(objects).collect();
 
         let bnodes: Vec<BlankNode> = bnode_set.iter().cloned().collect();
 

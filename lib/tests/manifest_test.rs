@@ -1,9 +1,21 @@
 use shacl::context::ValidationContext;
+use shacl::canonicalization::{are_isomorphic, graph_diff};
+use oxigraph::io::{RdfFormat, RdfSerializer};
 use std::path::Path;
 use shacl::test_utils::{Manifest, load_manifest, TestCase};
 use std::error::Error;
 use std::path::PathBuf;
 
+
+fn graph_to_turtle(graph: &oxigraph::model::Graph) -> Result<String, Box<dyn Error>> {
+    let mut buffer = Vec::new();
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle).for_writer(&mut buffer);
+    for triple in graph.iter() {
+        serializer.serialize_triple(triple)?;
+    }
+    let turtle_string = String::from_utf8(buffer)?;
+    Ok(turtle_string)
+}
 
 fn parse_tests(tests: &[&str]) -> Result<Vec<TestCase>, Box<dyn Error>> {
     let mut all_tests = Vec::new();
@@ -34,11 +46,23 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
         let report = context.validate();
         let conforms = report.results().is_empty();
         let expects_conform = test.status == "conform" && test.expected_report.is_empty();
-        report.dump();
+        let report_graph = report.to_graph(&context);
+        let report_turtle = graph_to_turtle(&report_graph)
+            .map_err(|e| format!("Failed to convert report graph to Turtle for test '{}': {}", test_name, e))?;
+        let expected_turtle = graph_to_turtle(&test.expected_report)
+            .map_err(|e| format!("Failed to convert expected report graph to Turtle for test '{}': {}", test_name, e))?;
         assert_eq!(
             conforms, expects_conform,
             "Conformance mismatch for test: {}. Expected {}",
             test_name, expects_conform
+        );
+        //let diff = graph_diff(&report_graph, &test.expected_report);
+        //diff.dump();
+        assert!(are_isomorphic(
+            &report_graph,
+            &test.expected_report,
+        ), "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
+            test_name, expected_turtle, report_turtle
         );
     }
     Ok(())

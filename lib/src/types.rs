@@ -1,4 +1,4 @@
-use crate::context::{Context, ValidationContext};
+use crate::context::{Context, ValidationContext, SourceShape};
 use crate::named_nodes::SHACL;
 use oxigraph::model::{NamedNodeRef, Term, TermRef, Variable};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults}; // Added Query
@@ -217,7 +217,7 @@ impl Target {
                 t.clone(),
                 None,
                 Some(vec![t.clone()]),
-                source_shape_id,
+                SourceShape::NodeShape(source_shape_id)
             )]),
             Target::Class(c) => {
                 let query_str = "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -258,7 +258,7 @@ impl Target {
                                         term_ref.to_owned(),
                                         None,
                                         Some(vec![term_ref.clone()]),
-                                        source_shape_id,
+                                        SourceShape::NodeShape(source_shape_id)
                                     )
                                 })
                                 .ok_or_else(|| {
@@ -303,7 +303,7 @@ impl Target {
                                             term_ref.to_owned(),
                                             None,
                                             Some(vec![term_ref.clone()]),
-                                            source_shape_id,
+                                            SourceShape::NodeShape(source_shape_id)
                                         )
                                     })
                                     .ok_or_else(|| {
@@ -348,7 +348,7 @@ impl Target {
                                             term_ref.to_owned(),
                                             None,
                                             Some(vec![term_ref.clone()]),
-                                            source_shape_id,
+                                            SourceShape::NodeShape(source_shape_id)
                                         )
                                     })
                                     .ok_or_else(|| {
