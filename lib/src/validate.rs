@@ -96,11 +96,11 @@ impl PropertyShape {
             sparql_path
         );
 
-        println!(
-            "Executing SPARQL query for PropertyShape {}: {}",
-            self.identifier(),
-            query_str
-        );
+        //println!(
+        //    "Executing SPARQL query for PropertyShape {}: {}",
+        //    self.identifier(),
+        //    query_str
+        //);
         let mut query = Query::parse(&query_str, None).map_err(|e| {
             format!(
                 "Failed to parse query for PropertyShape {}: {}",
@@ -134,11 +134,6 @@ impl PropertyShape {
 
                 let mut nodes = Vec::new();
                 for solution_res in solutions {
-                    println!(
-                        "Processing solution for PropertyShape {}: {:?}",
-                        self.identifier(),
-                        solution_res
-                    );
                     let solution = solution_res.map_err(|e| e.to_string())?;
                     if let Some(term) = solution.get(&value_node_var) {
                         nodes.push(term.clone());
@@ -149,11 +144,6 @@ impl PropertyShape {
                         ));
                     }
                 }
-                println!(
-                    "Found {} value nodes for PropertyShape {}",
-                    nodes.len(),
-                    self.identifier()
-                );
                 nodes
             }
             QueryResults::Boolean(_) => {
@@ -170,13 +160,13 @@ impl PropertyShape {
             }
         };
 
-        if !value_nodes_vec.is_empty() {
-            println!(
-                "Validating PropertyShape with identifier: {}",
-                self.identifier()
-            );
-            println!("Path: {:?}", self.sparql_path());
-        }
+        //if !value_nodes_vec.is_empty() {
+        //    println!(
+        //        "Validating PropertyShape with identifier: {}",
+        //        self.identifier()
+        //    );
+        //    println!("Path: {:?}", self.sparql_path());
+        //}
 
         let value_nodes_opt = if value_nodes_vec.is_empty() {
             // Renamed to avoid conflict
