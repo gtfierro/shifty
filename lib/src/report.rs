@@ -109,11 +109,10 @@ impl ValidationReportBuilder {
                         }
                         TraceItem::Component(id) => {
                             if source_constraint_component_term.is_none() {
-                                source_constraint_component_term = validation_context
-                                    .component_id_lookup
-                                    .borrow()
-                                    .get_term(*id)
-                                    .cloned();
+                                source_constraint_component_term = Some(validation_context
+                                    .components.get(id)
+                                    .unwrap()
+                                    .component_type());
                             }
                         }
                     }
