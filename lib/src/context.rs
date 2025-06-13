@@ -460,7 +460,7 @@ impl TraceItem {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Context {
     focus_node: Term,
-    path: Option<PShapePath>,
+    pub(crate) result_path: Option<PShapePath>,
     value_nodes: Option<Vec<Term>>,
     source_shape: ID,
     execution_trace: Vec<TraceItem>,
@@ -469,13 +469,13 @@ pub struct Context {
 impl Context {
     pub fn new(
         focus_node: Term,
-        path: Option<PShapePath>,
+        result_path: Option<PShapePath>,
         value_nodes: Option<Vec<Term>>,
         source_shape: ID,
     ) -> Self {
         Context {
             focus_node,
-            path,
+            result_path,
             value_nodes,
             source_shape,
             execution_trace: Vec::new(),
@@ -494,8 +494,8 @@ impl Context {
         &self.focus_node
     }
 
-    pub fn path(&self) -> Option<&PShapePath> {
-        self.path.as_ref()
+    pub fn result_path(&self) -> Option<&PShapePath> {
+        self.result_path.as_ref()
     }
 
     pub fn value_nodes(&self) -> Option<&Vec<Term>> {

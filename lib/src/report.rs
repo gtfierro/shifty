@@ -78,7 +78,7 @@ impl ValidationReportBuilder {
 
                 // Extract info from trace
                 let mut source_shape_term = None;
-                let mut result_path_term = None;
+                let result_path_term = context.result_path().map(|p| path_to_rdf(p, &mut graph));
                 let mut source_constraint_component_term = None;
 
                 for item in context.execution_trace().iter().rev() {
@@ -99,12 +99,6 @@ impl ValidationReportBuilder {
                                     .borrow()
                                     .get_term(*id)
                                     .cloned();
-                                if let Some(shape) = validation_context.get_prop_shape_by_id(id) {
-                                    if result_path_term.is_none() {
-                                        result_path_term =
-                                            Some(path_to_rdf(shape.path(), &mut graph));
-                                    }
-                                }
                             }
                         }
                         TraceItem::Component(id) => {
