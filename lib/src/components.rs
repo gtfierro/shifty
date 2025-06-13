@@ -1,6 +1,5 @@
 use crate::context::{Context, ValidationContext}; // Removed format_term_for_label, sanitize_graphviz_string
 use crate::named_nodes::SHACL;
-use crate::report::ValidationReportBuilder;
 use crate::shape::NodeShape; // Removed PropertyShape
 use crate::types::{ComponentID, ID}; // Removed PropShapeID
 use oxigraph::model::{NamedNode, SubjectRef, Term, TermRef};

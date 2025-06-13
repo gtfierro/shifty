@@ -1,4 +1,4 @@
-use crate::context::{Context, ValidationContext};
+use crate::context::ValidationContext;
 use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, Severity, ID};
 use crate::types::{Path, Target};

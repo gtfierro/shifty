@@ -144,7 +144,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         query_str.insert_str(0, &self.get_sparql_prefixes(context)?);
 
         // 3. Substitute $PATH for property shapes
-        let final_query_str = if let Some(path) = c.path() {
+        let final_query_str = if let Some(path) = c.result_path() {
             let sparql_path = path.to_sparql_path()?;
             query_str.replace("$PATH", &sparql_path)
         } else {
