@@ -1,4 +1,5 @@
 #![allow(dead_code, unused_variables)]
+pub mod canonicalization;
 mod components;
 pub mod context;
 mod named_nodes;
