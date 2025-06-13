@@ -37,7 +37,7 @@ impl ClassConstraintComponent {
 
 impl GraphvizOutput for ClassConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().class_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#ClassConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -143,7 +143,7 @@ impl ValidateComponent for DatatypeConstraintComponent {
 
 impl GraphvizOutput for DatatypeConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().datatype_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#DatatypeConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -216,7 +216,7 @@ impl ValidateComponent for NodeKindConstraintComponent {
 
 impl GraphvizOutput for NodeKindConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().node_kind_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#NodeKindConstraintComponent")
     }
 
     fn to_graphviz_string(

@@ -1,5 +1,4 @@
 use crate::context::{Context, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
 use oxigraph::model::NamedNode;
 
@@ -18,7 +17,7 @@ impl MinCountConstraintComponent {
 
 impl GraphvizOutput for MinCountConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().min_count_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MinCountConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -65,7 +64,7 @@ impl MaxCountConstraintComponent {
 
 impl GraphvizOutput for MaxCountConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().max_count_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MaxCountConstraintComponent")
     }
 
     fn to_graphviz_string(

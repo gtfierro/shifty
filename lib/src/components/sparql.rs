@@ -43,7 +43,7 @@ impl SPARQLConstraintComponent {
 
 impl GraphvizOutput for SPARQLConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().sparql_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#SPARQLConstraintComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {

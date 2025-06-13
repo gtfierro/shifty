@@ -1,5 +1,4 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term};
 use std::vec::Vec;
@@ -67,7 +66,7 @@ impl ClosedConstraintComponent {
 
 impl GraphvizOutput for ClosedConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().closed_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#ClosedConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -107,7 +106,7 @@ impl HasValueConstraintComponent {
 
 impl GraphvizOutput for HasValueConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().has_value_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#HasValueConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -167,7 +166,7 @@ impl InConstraintComponent {
 
 impl GraphvizOutput for InConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().in_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#InConstraintComponent")
     }
 
     fn to_graphviz_string(

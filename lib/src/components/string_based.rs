@@ -1,5 +1,4 @@
 use crate::context::{sanitize_graphviz_string, Context, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
@@ -21,7 +20,7 @@ impl MinLengthConstraintComponent {
 
 impl GraphvizOutput for MinLengthConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().min_length_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MinLengthConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -87,7 +86,7 @@ impl MaxLengthConstraintComponent {
 
 impl GraphvizOutput for MaxLengthConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().max_length_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MaxLengthConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -154,7 +153,7 @@ impl PatternConstraintComponent {
 
 impl GraphvizOutput for PatternConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().pattern_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#PatternConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -244,7 +243,7 @@ impl LanguageInConstraintComponent {
 
 impl GraphvizOutput for LanguageInConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().language_in_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#LanguageInConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -347,7 +346,7 @@ impl UniqueLangConstraintComponent {
 
 impl GraphvizOutput for UniqueLangConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().unique_lang_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#UniqueLangConstraintComponent")
     }
 
     fn to_graphviz_string(

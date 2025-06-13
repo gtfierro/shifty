@@ -1,5 +1,4 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::{ComponentID, ID};
 use oxigraph::model::NamedNode;
 
@@ -21,7 +20,7 @@ impl NotConstraintComponent {
 
 impl GraphvizOutput for NotConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().not_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#NotConstraintComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
@@ -115,7 +114,7 @@ impl AndConstraintComponent {
 
 impl GraphvizOutput for AndConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().and_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#AndConstraintComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
@@ -210,7 +209,7 @@ impl OrConstraintComponent {
 
 impl GraphvizOutput for OrConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().or_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#OrConstraintComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
@@ -323,7 +322,7 @@ impl XoneConstraintComponent {
 
 impl GraphvizOutput for XoneConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().xone_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#XoneConstraintComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {

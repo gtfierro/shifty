@@ -1,5 +1,4 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::report::ValidationReportBuilder;
 use crate::types::{ComponentID, PropShapeID, ID};
 use oxigraph::model::NamedNode;
@@ -23,7 +22,7 @@ impl NodeConstraintComponent {
 
 impl GraphvizOutput for NodeConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().node_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#NodeConstraintComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
@@ -328,7 +327,7 @@ impl ValidateComponent for PropertyConstraintComponent {
 }
 impl GraphvizOutput for PropertyConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().property_shape_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#PropertyShapeComponent")
     }
 
     fn to_graphviz_string(&self, component_id: ComponentID, validation_context: &ValidationContext) -> String {
@@ -372,11 +371,14 @@ impl QualifiedValueShapeComponent {
 
 impl GraphvizOutput for QualifiedValueShapeComponent {
     fn component_type(&self) -> NamedNode {
-        let shacl = SHACL::new();
         if self.min_count.is_some() {
-            shacl.qualified_min_count_constraint_component
+            NamedNode::new_unchecked(
+                "http://www.w3.org/ns/shacl#QualifiedMinCountConstraintComponent",
+            )
         } else {
-            shacl.qualified_max_count_constraint_component
+            NamedNode::new_unchecked(
+                "http://www.w3.org/ns/shacl#QualifiedMaxCountConstraintComponent",
+            )
         }
     }
 

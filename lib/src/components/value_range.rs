@@ -1,5 +1,4 @@
 use crate::context::{format_term_for_label, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term};
 
@@ -19,7 +18,7 @@ impl MinExclusiveConstraintComponent {
 
 impl GraphvizOutput for MinExclusiveConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().min_exclusive_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MinExclusiveConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -48,7 +47,7 @@ impl MinInclusiveConstraintComponent {
 
 impl GraphvizOutput for MinInclusiveConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().min_inclusive_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MinInclusiveConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -77,7 +76,7 @@ impl MaxExclusiveConstraintComponent {
 
 impl GraphvizOutput for MaxExclusiveConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().max_exclusive_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MaxExclusiveConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -106,7 +105,7 @@ impl MaxInclusiveConstraintComponent {
 
 impl GraphvizOutput for MaxInclusiveConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().max_inclusive_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MaxInclusiveConstraintComponent")
     }
 
     fn to_graphviz_string(

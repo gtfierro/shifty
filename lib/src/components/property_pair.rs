@@ -1,5 +1,4 @@
 use crate::context::{format_term_for_label, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term};
 
@@ -19,7 +18,7 @@ impl EqualsConstraintComponent {
 
 impl GraphvizOutput for EqualsConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().equals_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#EqualsConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -49,7 +48,7 @@ impl DisjointConstraintComponent {
 
 impl GraphvizOutput for DisjointConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().disjoint_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#DisjointConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -79,7 +78,7 @@ impl LessThanConstraintComponent {
 
 impl GraphvizOutput for LessThanConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().less_than_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#LessThanConstraintComponent")
     }
 
     fn to_graphviz_string(
@@ -109,7 +108,7 @@ impl LessThanOrEqualsConstraintComponent {
 
 impl GraphvizOutput for LessThanOrEqualsConstraintComponent {
     fn component_type(&self) -> NamedNode {
-        SHACL::new().less_than_or_equals_constraint_component
+        NamedNode::new_unchecked("http://www.w3.org/ns/shacl#LessThanOrEqualsConstraintComponent")
     }
 
     fn to_graphviz_string(
