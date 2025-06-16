@@ -3,6 +3,7 @@ use petgraph::algo::is_isomorphic_matching;
 use petgraph::graph::{DiGraph, NodeIndex};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::TryFrom;
 
 /// Converts an `oxigraph::model::Graph` to a `petgraph::graph::DiGraph`.
 ///
@@ -228,7 +229,7 @@ impl<'a> TripleCanonicalizer<'a> {
     fn initial_color(&mut self, bnodes: &HashSet<BlankNode>) -> Vec<Partition> {
         let mut partitions = Vec::new();
         let mut bnode_terms: Vec<Term> = bnodes.iter().cloned().map(Term::from).collect();
-        bnode_terms.sort();
+        bnode_terms.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
         partitions.push(Partition {
             nodes: bnode_terms,
             hash: self.hash("initial"),
@@ -249,7 +250,7 @@ impl<'a> TripleCanonicalizer<'a> {
         }
 
         let mut sorted_non_bnodes: Vec<Term> = non_bnodes.into_iter().collect();
-        sorted_non_bnodes.sort();
+        sorted_non_bnodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
 
         for term in sorted_non_bnodes {
             partitions.push(Partition {
@@ -264,7 +265,7 @@ impl<'a> TripleCanonicalizer<'a> {
 
     fn refine(&mut self, mut coloring: Vec<Partition>) -> Vec<Partition> {
         let mut worklist = coloring.clone();
-        while let Some(w) = work_list.pop() {
+        while let Some(w) = worklist.pop() {
             let mut next_coloring = Vec::new();
             let mut changed = false;
             for c in &coloring {
@@ -279,7 +280,7 @@ impl<'a> TripleCanonicalizer<'a> {
                             next_coloring.push(p);
                         }
                     } else {
-                        next_coloring.push(c.clone());
+                        next_coloring.extend(new_partitions);
                     }
                 } else {
                     next_coloring.push(c.clone());
@@ -298,16 +299,21 @@ impl<'a> TripleCanonicalizer<'a> {
         for n in &c.nodes {
             let mut signature_parts = vec![c.hash.clone()];
             for w_node in &w.nodes {
-                if let SubjectRef::NamedNode(s_ref) = n.as_ref() {
-                    for t in self.graph.triples_for_subject(s_ref) {
+                // Case where n is a subject and w_node is an object
+                if let Ok(subject_ref) = SubjectRef::try_from(n.as_ref()) {
+                    for t in self.graph.triples_for_subject(subject_ref) {
                         if t.object == w_node.as_ref() {
                             signature_parts.push(format!("out:{}", t.predicate));
                         }
                     }
                 }
-                for t in self.graph.triples_for_object(n.as_ref()) {
-                    if t.subject == w_node.as_ref() {
-                        signature_parts.push(format!("in:{}", t.predicate));
+
+                // Case where w_node is a subject and n is an object
+                if let Ok(w_subject_ref) = SubjectRef::try_from(w_node.as_ref()) {
+                    for t in self.graph.triples_for_subject(w_subject_ref) {
+                        if t.object == n.as_ref() {
+                            signature_parts.push(format!("in:{}", t.predicate));
+                        }
                     }
                 }
             }
@@ -319,7 +325,7 @@ impl<'a> TripleCanonicalizer<'a> {
         new_hashes
             .into_iter()
             .map(|(hash, mut nodes)| {
-                nodes.sort();
+                nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
                 Partition { nodes, hash }
             })
             .collect()
@@ -335,7 +341,7 @@ impl<'a> TripleCanonicalizer<'a> {
 
         for (candidate_node, p_index) in candidates {
             let mut coloring_copy = coloring.clone();
-            let new_partition = self.individuate(&mut coloring_copy, &candidate_node, p_index);
+            let _new_partition = self.individuate(&mut coloring_copy, &candidate_node, p_index);
 
             let mut refined = self.refine(coloring_copy);
             if !self.is_discrete(&refined) {
