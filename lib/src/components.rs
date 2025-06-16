@@ -32,6 +32,12 @@ pub enum ComponentValidationResult {
 }
 
 #[derive(Debug, Clone)]
+pub enum ConformanceReport {
+    Conforms,
+    NonConforms(ValidationFailure),
+}
+
+#[derive(Debug, Clone)]
 pub struct ValidationFailure {
     pub component_id: ComponentID,
     pub failed_value_node: Option<Term>,
@@ -780,12 +786,13 @@ impl Component {
 }
 
 /// Checks if a given node (represented by `node_as_context`) conforms to the `shape_to_check_against`.
-/// Returns `Ok(true)` if it conforms, `Ok(false)` if it does not, or `Err(String)` for an internal error.
+/// Returns a `ConformanceReport` indicating success or detailing the first validation failure.
+/// Returns `Err(String)` for an internal processing error.
 pub(super) fn check_conformance_for_node(
     node_as_context: &mut Context,
     shape_to_check_against: &NodeShape,
     main_validation_context: &ValidationContext,
-) -> Result<bool, String> {
+) -> Result<ConformanceReport, String> {
     node_as_context.record_node_shape_visit(*shape_to_check_against.identifier());
 
     for constraint_id in shape_to_check_against.constraints() {
@@ -793,31 +800,32 @@ pub(super) fn check_conformance_for_node(
             .get_component_by_id(constraint_id)
             .ok_or_else(|| format!("Logical check: Component not found: {}", constraint_id))?;
 
-        // Pass node_as_context mutably. Component::validate now expects &mut Context.
         match component.validate(*constraint_id, node_as_context, main_validation_context) {
-            Ok(validation_result) => {
-                match validation_result {
-                    ComponentValidationResult::Pass(_) => {
-                        // Passed, continue to next constraint.
-                    }
-                    ComponentValidationResult::SubShape(results) => {
-                        if !results.is_empty() {
-                            // Sub-shape validation failed.
-                            return Ok(false); // Does not conform.
-                        }
-                        // Empty results means it passed.
-                    }
-                    ComponentValidationResult::Fail(_) => {
-                        // Fail means it does not conform.
-                        return Ok(false);
-                    }
+            Ok(validation_result) => match validation_result {
+                ComponentValidationResult::Pass(_) => {
+                    // Passed, continue to next constraint.
                 }
-            }
-            Err(_e) => {
-                // The component's validate method returned an Err, meaning a constraint violation.
-                return Ok(false); // Does not conform
+                ComponentValidationResult::SubShape(results) => {
+                    if let Some((ctx, msg)) = results.into_iter().next() {
+                        // Sub-shape validation failed.
+                        return Ok(ConformanceReport::NonConforms(ValidationFailure {
+                            component_id: *constraint_id,
+                            failed_value_node: ctx.value().cloned(),
+                            message: msg,
+                        }));
+                    }
+                    // Empty results means it passed.
+                }
+                ComponentValidationResult::Fail(failure) => {
+                    // Fail means it does not conform.
+                    return Ok(ConformanceReport::NonConforms(failure));
+                }
+            },
+            Err(e) => {
+                // The component's validate method returned an Err, meaning a processing error.
+                return Err(e);
             }
         }
     }
-    Ok(true) // All constraints passed for the node_as_context against shape_to_check_against
+    Ok(ConformanceReport::Conforms) // All constraints passed for the node_as_context against shape_to_check_against
 }
