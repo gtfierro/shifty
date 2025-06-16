@@ -476,7 +476,7 @@ pub fn skolemize(
         return Ok(()); // Nothing to do
     }
 
-    store.transaction(|transaction| {
+    store.transaction(|mut transaction| {
         for quad in &quads_to_remove {
             transaction.remove(quad.as_ref())?;
         }
