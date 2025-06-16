@@ -2,7 +2,7 @@ use oxigraph::model::{BlankNode, Graph, NamedNode, Subject, SubjectRef, Term, Te
 use petgraph::algo::is_isomorphic_matching;
 use petgraph::graph::{DiGraph, NodeIndex};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Converts an `oxigraph::model::Graph` to a `petgraph::graph::DiGraph`.
 ///
@@ -33,9 +33,9 @@ pub fn oxigraph_to_petgraph(ox_graph: &Graph) -> DiGraph<Term, NamedNode> {
 
 fn node_equality(n1: &Term, n2: &Term) -> bool {
     match (n1, n2) {
-        (Term::BlankNode(b1), Term::BlankNode(b2)) => true,
-        (Term::BlankNode(b1), Term::NamedNode(n2)) => false,
-        (Term::NamedNode(n1), Term::BlankNode(b2)) => false,
+        (Term::BlankNode(_), Term::BlankNode(_)) => true,
+        (Term::BlankNode(_), Term::NamedNode(_)) => false,
+        (Term::NamedNode(_), Term::BlankNode(_)) => false,
         (n1, n2) => n1 == n2,
     }
 }
@@ -81,9 +81,6 @@ impl GraphDiff {
 /// - `in_both`: triples present in both graphs.
 /// - `in_first`: triples present only in the first graph.
 /// - `in_second`: triples present only in the second graph.
-///
-/// Note: The canonicalization algorithm is based on iterative hashing and may not correctly
-/// handle all cases of graph symmetry. For most common graphs, it should be reliable.
 pub fn graph_diff(g1: &Graph, g2: &Graph) -> GraphDiff {
     let cg1 = to_canonical_graph(g1);
     let cg2 = to_canonical_graph(g2);
@@ -118,7 +115,7 @@ pub fn graph_diff(g1: &Graph, g2: &Graph) -> GraphDiff {
 ///
 /// This allows for meaningful comparison of graphs that contain blank nodes.
 pub fn to_canonical_graph(graph: &Graph) -> Graph {
-    let canonicalizer = TripleCanonicalizer::new(graph);
+    let mut canonicalizer = TripleCanonicalizer::new(graph);
     let bnode_labels = canonicalizer.get_bnode_labels();
 
     if bnode_labels.is_empty() {
@@ -128,15 +125,19 @@ pub fn to_canonical_graph(graph: &Graph) -> Graph {
     let mut canonical_graph = Graph::new();
     for t in graph.iter() {
         let subject = match t.subject {
-            SubjectRef::BlankNode(bn) => Subject::from(BlankNode::new_unchecked(
-                bnode_labels.get(&bn.into_owned()).unwrap(),
-            )),
+            SubjectRef::BlankNode(bn) => {
+                let owned_bn = bn.into_owned();
+                let label = bnode_labels.get(&owned_bn).unwrap();
+                Subject::from(BlankNode::new_unchecked(format!("cb{}", label)))
+            }
             _ => t.subject.into_owned(),
         };
         let object = match t.object {
-            TermRef::BlankNode(bn) => Term::from(BlankNode::new_unchecked(
-                bnode_labels.get(&bn.into_owned()).unwrap(),
-            )),
+            TermRef::BlankNode(bn) => {
+                let owned_bn = bn.into_owned();
+                let label = bnode_labels.get(&owned_bn).unwrap();
+                Term::from(BlankNode::new_unchecked(format!("cb{}", label)))
+            }
             _ => t.object.into_owned(),
         };
         canonical_graph.insert(Triple::new(subject, t.predicate.into_owned(), object).as_ref());
@@ -144,140 +145,246 @@ pub fn to_canonical_graph(graph: &Graph) -> Graph {
     canonical_graph
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Partition {
+    nodes: Vec<Term>,
+    hash: String,
+}
+
+impl Ord for Partition {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.hash
+            .cmp(&other.hash)
+            .then_with(|| self.nodes.len().cmp(&other.nodes.len()))
+    }
+}
+
+impl PartialOrd for Partition {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 struct TripleCanonicalizer<'a> {
     graph: &'a Graph,
-    bnodes: Vec<BlankNode>,
-    // Cache for neighbors to avoid re-querying the graph
-    bnode_neighbors: HashMap<BlankNode, Vec<(bool, NamedNode, Term)>>, // bool is is_outgoing
+    hash_cache: HashMap<String, String>,
 }
 
 impl<'a> TripleCanonicalizer<'a> {
     fn new(graph: &'a Graph) -> Self {
-        let subjects: Vec<BlankNode> = graph
-            .iter()
-            .filter_map(|t| match t.subject {
-                SubjectRef::BlankNode(bn) => Some(bn.into_owned()),
-                _ => None,
-            })
-            .collect();
-        let objects: Vec<BlankNode> = graph
-            .iter()
-            .filter_map(|t| match t.object {
-                TermRef::BlankNode(bn) => Some(bn.into_owned()),
-                _ => None,
-            })
-            .collect();
-        let bnode_set: HashSet<BlankNode> = subjects.into_iter().chain(objects).collect();
-
-        let bnodes: Vec<BlankNode> = bnode_set.iter().cloned().collect();
-
-        let mut bnode_neighbors = HashMap::new();
-        for bn in &bnodes {
-            let mut neighbors = Vec::new();
-            for t in graph.triples_for_subject(bn.as_ref()) {
-                neighbors.push((true, t.predicate.into_owned(), t.object.into_owned()));
-            }
-            for t in graph.triples_for_object(bn.as_ref()) {
-                neighbors.push((
-                    false,
-                    t.predicate.into_owned(),
-                    Term::from(t.subject.into_owned()),
-                ));
-            }
-            bnode_neighbors.insert(bn.clone(), neighbors);
-        }
-
         Self {
             graph,
-            bnodes,
-            bnode_neighbors,
+            hash_cache: HashMap::new(),
         }
     }
 
-    fn get_bnode_labels(&self) -> HashMap<BlankNode, String> {
-        if self.bnodes.is_empty() {
+    fn get_bnode_labels(&mut self) -> HashMap<BlankNode, String> {
+        let bnodes: HashSet<BlankNode> = self
+            .graph
+            .iter()
+            .flat_map(|t| {
+                let mut terms = vec![];
+                if let SubjectRef::BlankNode(bn) = t.subject {
+                    terms.push(bn.into_owned());
+                }
+                if let TermRef::BlankNode(bn) = t.object {
+                    terms.push(bn.into_owned());
+                }
+                terms
+            })
+            .collect();
+
+        if bnodes.is_empty() {
             return HashMap::new();
         }
 
-        // Initial coloring: all bnodes have the same color.
-        let mut bnode_colors: HashMap<BlankNode, String> = self
-            .bnodes
-            .iter()
-            .map(|bn| (bn.clone(), "initial".to_string()))
-            .collect();
+        let mut coloring = self.initial_color(&bnodes);
+        coloring = self.refine(coloring.clone());
 
-        // Iteratively refine colors.
-        loop {
-            let mut next_bnode_colors = HashMap::new();
-            let mut changed = false;
-
-            for bn in &self.bnodes {
-                let new_color = self.calculate_bnode_color(bn, &bnode_colors);
-                if new_color != *bnode_colors.get(bn).unwrap() {
-                    changed = true;
-                }
-                next_bnode_colors.insert(bn.clone(), new_color);
-            }
-
-            bnode_colors = next_bnode_colors;
-            if !changed {
-                break;
-            }
+        if !self.is_discrete(&coloring) {
+            coloring = self.traces(coloring);
         }
 
-        // Note: This implementation does not handle graphs with non-trivial automorphisms
-        // (symmetries) that lead to non-discrete partitions of blank nodes after refinement.
-        // A full canonicalization algorithm would require a backtracking search to break
-        // these symmetries, which is significantly more complex. For many common graphs,
-        // this refinement approach is sufficient.
-
         let mut bnode_labels = HashMap::new();
-        for (bn, color_hash) in bnode_colors {
-            bnode_labels.insert(bn, format!("cb{}", color_hash));
+        for partition in coloring {
+            if let Term::BlankNode(bn) = &partition.nodes[0] {
+                bnode_labels.insert(bn.clone(), partition.hash);
+            }
         }
         bnode_labels
     }
 
-    fn calculate_bnode_color(
-        &self,
-        bn: &BlankNode,
-        current_colors: &HashMap<BlankNode, String>,
-    ) -> String {
-        let mut color_components = Vec::new();
-
-        // 1. Start with the bnode's current color.
-        color_components.push(current_colors.get(bn).unwrap().clone());
-
-        // 2. Add info about neighbors.
-        if let Some(neighbors) = self.bnode_neighbors.get(bn) {
-            let mut neighbor_signatures = Vec::new();
-            for (is_outgoing, p, other_term) in neighbors {
-                let other_color = self.get_term_color(other_term, current_colors);
-                let direction = if *is_outgoing { "out" } else { "in" };
-                neighbor_signatures.push(format!("{}:{}:{}", direction, p.as_str(), other_color));
-            }
-            // Sort to make the signature canonical
-            neighbor_signatures.sort();
-            color_components.extend(neighbor_signatures);
+    fn hash(&mut self, data: &str) -> String {
+        if let Some(hash) = self.hash_cache.get(data) {
+            return hash.clone();
         }
-
-        // Hash the components to get the new color.
         let mut hasher = Sha256::new();
-        for component in color_components {
-            hasher.update(component.as_bytes());
-        }
-        format!("{:x}", hasher.finalize())
+        hasher.update(data.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        self.hash_cache.insert(data.to_string(), hash.clone());
+        hash
     }
 
-    fn get_term_color(&self, term: &Term, bnode_colors: &HashMap<BlankNode, String>) -> String {
-        match term {
-            Term::BlankNode(bn) => bnode_colors.get(bn).unwrap().clone(),
-            _ => {
-                // For non-bnodes, their "color" is a hash of their N-Triples representation.
-                let mut hasher = Sha256::new();
-                hasher.update(term.to_string().as_bytes());
-                format!("{:x}", hasher.finalize())
+    fn initial_color(&mut self, bnodes: &HashSet<BlankNode>) -> Vec<Partition> {
+        let mut partitions = Vec::new();
+        let mut bnode_terms: Vec<Term> = bnodes.iter().cloned().map(Term::from).collect();
+        bnode_terms.sort();
+        partitions.push(Partition {
+            nodes: bnode_terms,
+            hash: self.hash("initial"),
+        });
+
+        let mut non_bnodes = HashSet::new();
+        for bn in bnodes {
+            for t in self.graph.triples_for_subject(bn.as_ref()) {
+                if !matches!(t.object, TermRef::BlankNode(_)) {
+                    non_bnodes.insert(t.object.into_owned());
+                }
+            }
+            for t in self.graph.triples_for_object(bn.as_ref()) {
+                if !matches!(t.subject, SubjectRef::BlankNode(_)) {
+                    non_bnodes.insert(t.subject.into_owned().into());
+                }
             }
         }
+
+        let mut sorted_non_bnodes: Vec<Term> = non_bnodes.into_iter().collect();
+        sorted_non_bnodes.sort();
+
+        for term in sorted_non_bnodes {
+            partitions.push(Partition {
+                hash: self.hash(&term.to_string()),
+                nodes: vec![term],
+            });
+        }
+
+        partitions.sort();
+        partitions
+    }
+
+    fn refine(&mut self, mut coloring: Vec<Partition>) -> Vec<Partition> {
+        let mut worklist = coloring.clone();
+        while let Some(w) = work_list.pop() {
+            let mut next_coloring = Vec::new();
+            let mut changed = false;
+            for c in &coloring {
+                if c.nodes.len() > 1 {
+                    let new_partitions = self.distinguish(c, &w);
+                    if new_partitions.len() > 1 {
+                        changed = true;
+                        for p in new_partitions {
+                            if p.nodes.len() < c.nodes.len() {
+                                worklist.push(p.clone());
+                            }
+                            next_coloring.push(p);
+                        }
+                    } else {
+                        next_coloring.push(c.clone());
+                    }
+                } else {
+                    next_coloring.push(c.clone());
+                }
+            }
+            if changed {
+                next_coloring.sort();
+                coloring = next_coloring;
+            }
+        }
+        coloring
+    }
+
+    fn distinguish(&mut self, c: &Partition, w: &Partition) -> Vec<Partition> {
+        let mut new_hashes: BTreeMap<String, Vec<Term>> = BTreeMap::new();
+        for n in &c.nodes {
+            let mut signature_parts = vec![c.hash.clone()];
+            for w_node in &w.nodes {
+                if let SubjectRef::NamedNode(s_ref) = n.as_ref() {
+                    for t in self.graph.triples_for_subject(s_ref) {
+                        if t.object == w_node.as_ref() {
+                            signature_parts.push(format!("out:{}", t.predicate));
+                        }
+                    }
+                }
+                for t in self.graph.triples_for_object(n.as_ref()) {
+                    if t.subject == w_node.as_ref() {
+                        signature_parts.push(format!("in:{}", t.predicate));
+                    }
+                }
+            }
+            signature_parts.sort();
+            let new_hash = self.hash(&signature_parts.join(""));
+            new_hashes.entry(new_hash).or_default().push(n.clone());
+        }
+
+        new_hashes
+            .into_iter()
+            .map(|(hash, mut nodes)| {
+                nodes.sort();
+                Partition { nodes, hash }
+            })
+            .collect()
+    }
+
+    fn traces(&mut self, coloring: Vec<Partition>) -> Vec<Partition> {
+        if self.is_discrete(&coloring) {
+            return coloring;
+        }
+
+        let candidates = self.get_candidates(&coloring);
+        let mut best_coloring: Option<Vec<Partition>> = None;
+
+        for (candidate_node, p_index) in candidates {
+            let mut coloring_copy = coloring.clone();
+            let new_partition = self.individuate(&mut coloring_copy, &candidate_node, p_index);
+
+            let mut refined = self.refine(coloring_copy);
+            if !self.is_discrete(&refined) {
+                refined = self.traces(refined);
+            }
+
+            if let Some(best) = &best_coloring {
+                if refined > *best {
+                    best_coloring = Some(refined);
+                }
+            } else {
+                best_coloring = Some(refined);
+            }
+        }
+        best_coloring.unwrap()
+    }
+
+    fn individuate(
+        &mut self,
+        coloring: &mut Vec<Partition>,
+        node: &Term,
+        p_index: usize,
+    ) -> Partition {
+        let p = &mut coloring[p_index];
+        p.nodes.retain(|n| n != node);
+
+        let new_hash = self.hash(&format!("individual:{}", p.hash));
+        let new_partition = Partition {
+            nodes: vec![node.clone()],
+            hash: new_hash,
+        };
+        coloring.push(new_partition.clone());
+        coloring.sort();
+        new_partition
+    }
+
+    fn get_candidates(&self, coloring: &[Partition]) -> Vec<(Term, usize)> {
+        let mut candidates = Vec::new();
+        for (i, p) in coloring.iter().enumerate() {
+            if p.nodes.len() > 1 {
+                // To ensure determinism, we select the first node from the sorted list.
+                candidates.push((p.nodes[0].clone(), i));
+                break; // Only need to break one symmetry at a time.
+            }
+        }
+        candidates
+    }
+
+    fn is_discrete(&self, coloring: &[Partition]) -> bool {
+        coloring.iter().all(|p| p.nodes.len() <= 1)
     }
 }
