@@ -4,7 +4,7 @@ use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
 use std::collections::HashSet;
 
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent};
+use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 
 // string-based constraints
 #[derive(Debug)]
@@ -47,10 +47,14 @@ impl ValidateComponent for MinLengthConstraintComponent {
             for vn in value_nodes {
                 let len = match vn.as_ref() {
                     TermRef::BlankNode(_) => {
-                        return Err(format!(
-                            "Blank node {:?} found where string length constraints apply (minLength).",
-                            vn
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(vn.clone()),
+                            message: format!(
+                                "Blank node {:?} found where string length constraints apply (minLength).",
+                                vn
+                            ),
+                        }));
                     }
                     TermRef::NamedNode(nn) => nn.as_str().chars().count(),
                     TermRef::Literal(literal) => literal.value().chars().count(),
@@ -62,10 +66,14 @@ impl ValidateComponent for MinLengthConstraintComponent {
                     }
                 };
                 if len < self.min_length as usize {
-                    return Err(format!(
-                        "Value {:?} has length {} which is less than minLength {}.",
-                        vn, len, self.min_length
-                    ));
+                    return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(vn.clone()),
+                        message: format!(
+                            "Value {:?} has length {} which is less than minLength {}.",
+                            vn, len, self.min_length
+                        ),
+                    }));
                 }
             }
         }
@@ -113,10 +121,14 @@ impl ValidateComponent for MaxLengthConstraintComponent {
             for vn in value_nodes {
                 let len = match vn.as_ref() {
                     TermRef::BlankNode(_) => {
-                        return Err(format!(
-                            "Blank node {:?} found where string length constraints apply (maxLength).",
-                            vn
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(vn.clone()),
+                            message: format!(
+                                "Blank node {:?} found where string length constraints apply (maxLength).",
+                                vn
+                            ),
+                        }));
                     }
                     TermRef::NamedNode(nn) => nn.as_str().chars().count(),
                     TermRef::Literal(literal) => literal.value().chars().count(),
@@ -128,10 +140,14 @@ impl ValidateComponent for MaxLengthConstraintComponent {
                     }
                 };
                 if len > self.max_length as usize {
-                    return Err(format!(
-                        "Value {:?} has length {} which is greater than maxLength {}.",
-                        vn, len, self.max_length
-                    ));
+                    return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(vn.clone()),
+                        message: format!(
+                            "Value {:?} has length {} which is greater than maxLength {}.",
+                            vn, len, self.max_length
+                        ),
+                    }));
                 }
             }
         }
@@ -202,10 +218,14 @@ impl ValidateComponent for PatternConstraintComponent {
             for vn in value_nodes {
                 let value_str = match vn.as_ref() {
                     TermRef::BlankNode(_) => {
-                        return Err(format!(
-                            "Blank node {:?} cannot be matched against a pattern.",
-                            vn
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(vn.clone()),
+                            message: format!(
+                                "Blank node {:?} cannot be matched against a pattern.",
+                                vn
+                            ),
+                        }));
                     }
                     TermRef::NamedNode(nn) => nn.as_str().to_string(),
                     TermRef::Literal(literal) => literal.value().to_string(),
@@ -215,14 +235,18 @@ impl ValidateComponent for PatternConstraintComponent {
                 };
 
                 if !re.is_match(&value_str) {
-                    return Err(format!(
-                        "Value {:?} does not match pattern '{}'{}.",
-                        vn,
-                        self.pattern,
-                        self.flags
-                            .as_ref()
-                            .map_or("".to_string(), |f| format!(" with flags '{}'", f))
-                    ));
+                    return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(vn.clone()),
+                        message: format!(
+                            "Value {:?} does not match pattern '{}'{}.",
+                            vn,
+                            self.pattern,
+                            self.flags
+                                .as_ref()
+                                .map_or("".to_string(), |f| format!(" with flags '{}'", f))
+                        ),
+                    }));
                 }
             }
         }
@@ -303,28 +327,40 @@ impl ValidateComponent for LanguageInConstraintComponent {
                             // "If the SHACL list is empty, then no value nodes can satisfy the constraint."
                             // This implies any literal (tagged or not) fails if there are value nodes.
                             // If there are no value nodes, it passes (covered by outer Some(value_nodes)).
-                            return Err(format!(
-                                "Value {:?} fails sh:languageIn constraint because the list of allowed languages is empty.",
-                                vn
-                            ));
+                            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(vn.clone()),
+                                message: format!(
+                                    "Value {:?} fails sh:languageIn constraint because the list of allowed languages is empty.",
+                                    vn
+                                ),
+                            }));
                         }
                         let matched = self
                             .languages
                             .iter()
                             .any(|allowed_lang| lang_matches(lit_lang, allowed_lang));
                         if !matched {
-                            return Err(format!(
-                                "Language tag '{}' of value {:?} is not in the allowed list {:?}.",
-                                lit_lang, vn, self.languages
-                            ));
+                            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(vn.clone()),
+                                message: format!(
+                                    "Language tag '{}' of value {:?} is not in the allowed list {:?}.",
+                                    lit_lang, vn, self.languages
+                                ),
+                            }));
                         }
                     }
                     _ => {
                         // Not a literal, so it cannot conform to a languageIn constraint.
-                        return Err(format!(
-                            "Value {:?} is not a literal, but sh:languageIn applies to literals.",
-                            vn
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(vn.clone()),
+                            message: format!(
+                                "Value {:?} is not a literal, but sh:languageIn applies to literals.",
+                                vn
+                            ),
+                        }));
                     }
                 }
             }
@@ -392,13 +428,17 @@ impl ValidateComponent for UniqueLangConstraintComponent {
             }
 
             if !duplicated_tags.is_empty() {
-                return Err(format!(
-                    "Duplicate language tags found: {:?}. sh:uniqueLang is true.",
-                    duplicated_tags
-                        .into_iter()
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                ));
+                return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                    component_id,
+                    failed_value_node: None,
+                    message: format!(
+                        "Duplicate language tags found: {:?}. sh:uniqueLang is true.",
+                        duplicated_tags
+                            .into_iter()
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    ),
+                }));
             }
         }
         Ok(ComponentValidationResult::Pass(component_id))

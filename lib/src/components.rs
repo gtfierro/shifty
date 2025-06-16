@@ -27,11 +27,16 @@ pub use value_type::*;
 
 pub enum ComponentValidationResult {
     Pass(ComponentID),
-    Fail(ComponentID, ValidationFailReason),
+    Fail(ValidationFailure),
     SubShape(Vec<(crate::context::Context, String)>),
 }
 
-pub enum ValidationFailReason {}
+#[derive(Debug, Clone)]
+pub struct ValidationFailure {
+    pub component_id: ComponentID,
+    pub failed_value_node: Option<Term>,
+    pub message: String,
+}
 
 pub trait ToSubjectRef {
     fn to_subject_ref(&self) -> SubjectRef;
@@ -802,7 +807,7 @@ pub(super) fn check_conformance_for_node(
                         }
                         // Empty results means it passed.
                     }
-                    ComponentValidationResult::Fail(_, _) => {
+                    ComponentValidationResult::Fail(_) => {
                         // Fail means it does not conform.
                         return Ok(false);
                     }

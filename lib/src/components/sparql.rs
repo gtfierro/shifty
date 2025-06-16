@@ -1,5 +1,5 @@
 use crate::components::{
-    ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent,
+    ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
@@ -186,10 +186,14 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 // Check for failure
                 if let Some(Term::Literal(lit)) = first_solution.get("failure") {
                     if lit.datatype() == xsd::BOOLEAN && lit.value() == "true" {
-                        return Err(format!(
-                            "SPARQL constraint failure reported by query for constraint {:?}",
-                            self.constraint_node
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(c.focus_node().clone()),
+                            message: format!(
+                                "SPARQL constraint failure reported by query for constraint {:?}",
+                                self.constraint_node
+                            ),
+                        }));
                     }
                 }
 
@@ -226,7 +230,15 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 // NOTE: This implementation returns an error for the first violating solution.
                 // The SHACL spec says there should be a validation result for each solution.
                 // This would require changes to the validation architecture.
-                return Err(message);
+                let failed_node = first_solution
+                    .get("value")
+                    .cloned()
+                    .unwrap_or_else(|| c.focus_node().clone());
+                return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                    component_id,
+                    failed_value_node: Some(failed_node),
+                    message,
+                }));
             }
         } else {
             return Err(format!(

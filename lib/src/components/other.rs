@@ -3,7 +3,7 @@ use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term};
 use std::vec::Vec;
 
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent};
+use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 
 impl ValidateComponent for InConstraintComponent {
     fn validate(
@@ -20,10 +20,14 @@ impl ValidateComponent for InConstraintComponent {
                 // If there are no value nodes, or the list of value nodes is empty, it passes.
                 Ok(ComponentValidationResult::Pass(component_id))
             } else {
-                Err(format!(
-                    "sh:in constraint has an empty list, but value nodes {:?} exist.",
-                    c.value_nodes().unwrap_or(&Vec::new()) // Provide empty vec for formatting if None
-                ))
+                Ok(ComponentValidationResult::Fail(ValidationFailure {
+                    component_id,
+                    failed_value_node: None,
+                    message: format!(
+                        "sh:in constraint has an empty list, but value nodes {:?} exist.",
+                        c.value_nodes().unwrap_or(&Vec::new()) // Provide empty vec for formatting if None
+                    ),
+                }))
             };
         }
 
@@ -32,10 +36,14 @@ impl ValidateComponent for InConstraintComponent {
                 for vn in value_nodes {
                     if !self.values.contains(&vn) {
                         c.with_value(vn.clone());
-                        return Err(format!(
-                            "Value {:?} is not in the allowed list {:?}.",
-                            vn, self.values
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(vn.clone()),
+                            message: format!(
+                                "Value {:?} is not in the allowed list {:?}.",
+                                vn, self.values
+                            ),
+                        }));
                     }
                 }
                 // All value nodes are in self.values
@@ -137,18 +145,26 @@ impl ValidateComponent for HasValueConstraintComponent {
                     Ok(ComponentValidationResult::Pass(component_id))
                 } else {
                     // No value node is equal to self.value
-                    Err(format!(
-                        "None of the value nodes {:?} are equal to the required value {:?}",
-                        value_nodes, self.value
-                    ))
+                    Ok(ComponentValidationResult::Fail(ValidationFailure {
+                        component_id,
+                        failed_value_node: None,
+                        message: format!(
+                            "None of the value nodes {:?} are equal to the required value {:?}",
+                            value_nodes, self.value
+                        ),
+                    }))
                 }
             }
             None => {
                 // No value nodes present, so self.value cannot be among them.
-                Err(format!(
-                    "No value nodes found to check against required value {:?}",
-                    self.value
-                ))
+                Ok(ComponentValidationResult::Fail(ValidationFailure {
+                    component_id,
+                    failed_value_node: None,
+                    message: format!(
+                        "No value nodes found to check against required value {:?}",
+                        self.value
+                    ),
+                }))
             }
         }
     }
