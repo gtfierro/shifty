@@ -54,7 +54,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
             })?;
         let report = context.validate();
         let conforms = report.results().is_empty();
-        let expects_conform = test.status == "conform" && test.expected_report.is_empty();
+        let expects_conform = test.conforms;
         let report_graph = report.to_graph(&context);
         let report_turtle = graph_to_turtle(&report_graph).map_err(|e| {
             format!(
