@@ -2,8 +2,11 @@ use crate::components::ToSubjectRef;
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::types::ComponentID;
+use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
+use oxsdatatypes::*;
+use std::str::FromStr;
 
 use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 
@@ -134,24 +137,104 @@ impl ValidateComponent for DatatypeConstraintComponent {
                 let mut fail = false;
                 let mut message = String::new();
 
-                match value_node.as_ref() {
-                    TermRef::Literal(lit) => {
-                        if lit.datatype() != target_datatype_iri {
-                            // TODO: Consider ill-typed literals if required by spec for specific datatypes
+                if target_datatype_iri == rdf::LANG_STRING {
+                    match value_node.as_ref() {
+                        TermRef::Literal(lit) => {
+                            if lit.language().is_none() {
+                                fail = true;
+                                message = format!(
+                                    "Value {:?} is not a language-tagged string for datatype rdf:langString",
+                                    value_node
+                                );
+                            }
+                        }
+                        _ => {
                             fail = true;
                             message = format!(
-                                "Value {:?} does not have datatype {}",
-                                value_node, self.datatype
+                                "Value {:?} is not a literal for datatype rdf:langString",
+                                value_node
                             );
                         }
                     }
-                    _ => {
-                        // Not a literal, so it cannot conform to a datatype constraint
-                        fail = true;
-                        message = format!(
-                            "Value {:?} is not a literal, expected datatype {}",
-                            value_node, self.datatype
-                        );
+                } else {
+                    match value_node.as_ref() {
+                        TermRef::Literal(lit) => {
+                            let lit_datatype = lit.datatype();
+                            let mut datatype_matches = lit_datatype == target_datatype_iri;
+
+                            // Exception for xsd:integer being valid for xsd:decimal
+                            if !datatype_matches
+                                && target_datatype_iri == xsd::DECIMAL
+                                && lit_datatype == xsd::INTEGER
+                            {
+                                datatype_matches = true;
+                            }
+
+                            if datatype_matches {
+                                let literal_value = lit.value();
+                                let is_valid = if target_datatype_iri == xsd::STRING {
+                                    true
+                                } else if target_datatype_iri == xsd::BOOLEAN {
+                                    Boolean::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::DECIMAL {
+                                    Decimal::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::INTEGER {
+                                    Integer::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::DOUBLE {
+                                    Double::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::FLOAT {
+                                    Float::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::DATE {
+                                    Date::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::TIME {
+                                    Time::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::DATE_TIME {
+                                    DateTime::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::G_YEAR {
+                                    GYear::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::G_MONTH {
+                                    GMonth::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::G_DAY {
+                                    GDay::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::G_YEAR_MONTH {
+                                    GYearMonth::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::G_MONTH_DAY {
+                                    GMonthDay::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::DURATION {
+                                    Duration::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::YEAR_MONTH_DURATION {
+                                    YearMonthDuration::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::DAY_TIME_DURATION {
+                                    DayTimeDuration::from_str(literal_value).is_ok()
+                                } else {
+                                    // For unknown or unsupported datatypes, we assume the lexical form is valid
+                                    // as we can't check it. This preserves the old behavior of only checking the datatype IRI.
+                                    true
+                                };
+
+                                if !is_valid {
+                                    fail = true;
+                                    message = format!(
+                                        "Value {:?} has an invalid lexical form for datatype {}",
+                                        value_node, self.datatype
+                                    );
+                                }
+                            } else {
+                                fail = true;
+                                message = format!(
+                                    "Value {:?} does not have datatype {}",
+                                    value_node, self.datatype
+                                );
+                            }
+                        }
+                        _ => {
+                            // Not a literal, so it cannot conform to a datatype constraint
+                            fail = true;
+                            message = format!(
+                                "Value {:?} is not a literal, expected datatype {}",
+                                value_node, self.datatype
+                            );
+                        }
                     }
                 }
 
