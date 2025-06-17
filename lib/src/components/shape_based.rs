@@ -193,6 +193,10 @@ impl ValidateComponent for NodeConstraintComponent {
                 ConformanceReport::NonConforms(failure) => {
                     // Does not conform. This is a failure for the NodeConstraintComponent.
                     let mut error_context = c.clone();
+                    println!(
+                        "NodeConstraintComponent: Value {:?} does not conform to shape {:?}: {}",
+                        value_node_to_check, self.shape, failure.message
+                    );
                     error_context.with_value(value_node_to_check.clone());
                     let message = format!(
                         "Value {:?} does not conform to sh:node shape {:?}: {}",
