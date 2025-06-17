@@ -878,6 +878,7 @@ impl Component {
             Component::DisjointConstraint(comp) => comp.validate(component_id, c, context),
             Component::EqualsConstraint(comp) => comp.validate(component_id, c, context),
             Component::LessThanConstraint(comp) => comp.validate(component_id, c, context),
+            Component::LessThanOrEqualsConstraint(comp) => comp.validate(component_id, c, context),
             // For components without specific validation logic, or structural ones, consider them as passing.
             _ => Ok(vec![]),
         }
