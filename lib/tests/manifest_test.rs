@@ -172,6 +172,4 @@ generate_test_cases! {
     test_qualifiedValueShapesDisjoint_001: "tests/test-suite/core/property/qualifiedValueShapesDisjoint-001.ttl",
     test_uniqueLang_001: "tests/test-suite/core/property/uniqueLang-001.ttl",
     test_uniqueLang002: "tests/test-suite/core/property/uniqueLang-002.ttl",
-    test_uniqueLang002Data: "tests/test-suite/core/property/uniqueLang-002-data.ttl",
-    test_uniqueLang002Shapes: "tests/test-suite/core/property/uniqueLang-002-shapes.ttl",
 }
