@@ -37,21 +37,23 @@ impl ValidateComponent for MinCountConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &mut Context,              // Changed to &mut Context
-        _context: &ValidationContext, // context is not used
-    ) -> Result<ComponentValidationResult, String> {
+        c: &mut Context,
+        _context: &ValidationContext,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let count = c.value_nodes().map_or(0, |v| v.len());
         if count < self.min_count as usize {
-            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+            let failure = ValidationFailure {
                 component_id,
                 failed_value_node: None,
                 message: format!(
                     "Value count ({}) does not meet minimum requirement: {}",
                     count, self.min_count
                 ),
-            }));
+            };
+            Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
+        } else {
+            Ok(vec![])
         }
-        Ok(ComponentValidationResult::Pass(component_id))
     }
 }
 
@@ -88,20 +90,22 @@ impl ValidateComponent for MaxCountConstraintComponent {
     fn validate(
         &self,
         component_id: ComponentID,
-        c: &mut Context,              // Changed to &mut Context
-        _context: &ValidationContext, // context is not used
-    ) -> Result<ComponentValidationResult, String> {
+        c: &mut Context,
+        _context: &ValidationContext,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let count = c.value_nodes().map_or(0, |v| v.len());
         if count > self.max_count as usize {
-            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+            let failure = ValidationFailure {
                 component_id,
                 failed_value_node: None,
                 message: format!(
                     "Value count ({}) exceeds maximum requirement: {}",
                     count, self.max_count
                 ),
-            }));
+            };
+            Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
+        } else {
+            Ok(vec![])
         }
-        Ok(ComponentValidationResult::Pass(component_id))
     }
 }

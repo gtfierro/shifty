@@ -49,7 +49,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes = c.value_nodes().cloned().unwrap_or_default();
 
         let Some(target_node_shape) = validation_context.get_node_shape_by_id(&self.shape) else {
@@ -106,11 +106,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                                 );
                                 match check_conformance_for_node(&mut check_context, sibling_target_shape, validation_context)? {
                                     ConformanceReport::Conforms => {
-                                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                                        let failure = ValidationFailure {
                                             component_id,
                                             failed_value_node: Some(conforming_node.clone()),
                                             message: format!("Value {:?} conforms to both this sh:qualifiedValueShape and a sibling, but sh:qualifiedValueShapesDisjoint is true.", conforming_node),
-                                        }));
+                                        };
+                                        return Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)]);
                                     }
                                     ConformanceReport::NonConforms(_) => {}
                                 }
@@ -126,31 +127,33 @@ impl ValidateComponent for QualifiedValueShapeComponent {
 
         if let Some(min) = self.min_count {
             if count < min {
-                return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                let failure = ValidationFailure {
                     component_id,
                     failed_value_node: None,
                     message: format!(
                         "Found {} values that conform to the qualified value shape, but at least {} were required.",
                         count, min
                     ),
-                }));
+                };
+                return Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)]);
             }
         }
 
         if let Some(max) = self.max_count {
             if count > max {
-                return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                let failure = ValidationFailure {
                     component_id,
                     failed_value_node: None,
                     message: format!(
                         "Found {} values that conform to the qualified value shape, but at most {} were allowed.",
                         count, max
                     ),
-                }));
+                };
+                return Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)]);
             }
         }
 
-        Ok(ComponentValidationResult::Pass(component_id))
+        Ok(vec![])
     }
 }
 
@@ -160,16 +163,16 @@ impl ValidateComponent for NodeConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
-            return Ok(ComponentValidationResult::Pass(component_id));
+            return Ok(vec![]);
         };
 
         let Some(target_node_shape) = validation_context.get_node_shape_by_id(&self.shape) else {
             return Err(format!("sh:node referenced shape {:?} not found", self.shape));
         };
 
-        let mut validation_results = Vec::new();
+        let mut results = Vec::new();
 
         for value_node_to_check in value_nodes {
             let mut value_node_as_context = Context::new(
@@ -195,16 +198,17 @@ impl ValidateComponent for NodeConstraintComponent {
                         "Value {:?} does not conform to sh:node shape {:?}: {}",
                         value_node_to_check, self.shape, failure.message
                     );
-                    validation_results.push((error_context, message));
+                    let failure = ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node_to_check.clone()),
+                        message,
+                    };
+                    results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
             }
         }
 
-        if validation_results.is_empty() {
-            Ok(ComponentValidationResult::Pass(component_id))
-        } else {
-            Ok(ComponentValidationResult::SubShape(validation_results))
-        }
+        Ok(results)
     }
 }
 
@@ -228,18 +232,25 @@ impl PropertyConstraintComponent {
 impl ValidateComponent for PropertyConstraintComponent {
     fn validate(
         &self,
-        component_id: ComponentID,
+        _component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         if let Some(property_shape) = validation_context.get_prop_shape_by_id(&self.shape) {
-            let results = property_shape.validate(c, validation_context)?;
+            let validation_failures = property_shape.validate(c, validation_context)?;
 
-            if results.is_empty() {
-                Ok(ComponentValidationResult::Pass(component_id))
-            } else {
-                Ok(ComponentValidationResult::SubShape(results))
-            }
+            let results = validation_failures
+                .into_iter()
+                .map(|(ctx, msg)| {
+                    let failure = ValidationFailure {
+                        component_id: _component_id,
+                        failed_value_node: ctx.value().cloned(),
+                        message: msg,
+                    };
+                    ComponentValidationResult::Fail(ctx, failure)
+                })
+                .collect();
+            Ok(results)
         } else {
             Err(format!(
                 "Referenced property shape not found for ID: {:?}",

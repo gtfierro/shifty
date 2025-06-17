@@ -49,9 +49,9 @@ impl ValidateComponent for NotConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
-            return Ok(ComponentValidationResult::Pass(component_id)); // No value nodes to check
+            return Ok(vec![]); // No value nodes to check
         };
 
         let Some(negated_node_shape) = validation_context.get_node_shape_by_id(&self.shape) else {
@@ -61,7 +61,7 @@ impl ValidateComponent for NotConstraintComponent {
             ));
         };
 
-        let mut validation_results = Vec::new();
+        let mut results = Vec::new();
 
         for value_node_to_check in value_nodes {
             // Create a new context where the current value_node is the focus node.
@@ -86,7 +86,12 @@ impl ValidateComponent for NotConstraintComponent {
                         "Value {:?} conforms to sh:not shape {:?}, but should not.",
                         value_node_to_check, self.shape
                     );
-                    validation_results.push((error_context, message));
+                    let failure = ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node_to_check.clone()),
+                        message,
+                    };
+                    results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
                 ConformanceReport::NonConforms(_) => {
                     // value_node_to_check DOES NOT CONFORM to the negated_node_shape.
@@ -95,11 +100,7 @@ impl ValidateComponent for NotConstraintComponent {
             }
         }
 
-        if validation_results.is_empty() {
-            Ok(ComponentValidationResult::Pass(component_id))
-        } else {
-            Ok(ComponentValidationResult::SubShape(validation_results))
-        }
+        Ok(results)
     }
 }
 
@@ -142,12 +143,12 @@ impl ValidateComponent for AndConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
-            return Ok(ComponentValidationResult::Pass(component_id)); // No value nodes
+            return Ok(vec![]); // No value nodes
         };
         let value_nodes = value_nodes.clone();
-        let mut validation_results = Vec::new();
+        let mut results = Vec::new();
 
         for value_node_to_check in value_nodes {
             // The source_shape for the context used in check_conformance_for_node
@@ -185,7 +186,12 @@ impl ValidateComponent for AndConstraintComponent {
                             "Value {:?} does not conform to sh:and shape {:?}: {}",
                             value_node_to_check, conjunct_shape_id, failure.message
                         );
-                        validation_results.push((error_context, message));
+                        let failure = ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(value_node_to_check.clone()),
+                            message,
+                        };
+                        results.push(ComponentValidationResult::Fail(error_context, failure));
                         break; // Fails one, fails all for this value node.
                     }
                 }
@@ -193,11 +199,7 @@ impl ValidateComponent for AndConstraintComponent {
             // If loop completes, value_node_to_check conformed to all conjunct_node_shapes.
         }
 
-        if validation_results.is_empty() {
-            Ok(ComponentValidationResult::Pass(component_id))
-        } else {
-            Ok(ComponentValidationResult::SubShape(validation_results))
-        }
+        Ok(results)
     }
 }
 
@@ -240,25 +242,26 @@ impl ValidateComponent for OrConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
-            return Ok(ComponentValidationResult::Pass(component_id)); // No value nodes
+            return Ok(vec![]); // No value nodes
         };
 
         if self.shapes.is_empty() {
             // If sh:or list is empty, no value node can conform unless there are no value nodes.
             return if value_nodes.is_empty() {
-                Ok(ComponentValidationResult::Pass(component_id))
+                Ok(vec![])
             } else {
-                Ok(ComponentValidationResult::Fail(ValidationFailure {
+                let failure = ValidationFailure {
                     component_id,
                     failed_value_node: value_nodes.first().cloned(),
                     message: "sh:or with an empty list of shapes cannot be satisfied by any value node.".to_string(),
-                }))
+                };
+                Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
             };
         }
         let value_nodes = value_nodes.clone();
-        let mut validation_results = Vec::new();
+        let mut results = Vec::new();
 
         for value_node_to_check in value_nodes {
             let mut passed_at_least_one_disjunct = false;
@@ -304,16 +307,17 @@ impl ValidateComponent for OrConstraintComponent {
                     "Value {:?} does not conform to any sh:or shapes.",
                     value_node_to_check
                 );
-                validation_results.push((error_context, message));
+                let failure = ValidationFailure {
+                    component_id,
+                    failed_value_node: Some(value_node_to_check.clone()),
+                    message,
+                };
+                results.push(ComponentValidationResult::Fail(error_context, failure));
             }
             // If loop completes, value_node_to_check conformed to at least one disjunct.
         }
 
-        if validation_results.is_empty() {
-            Ok(ComponentValidationResult::Pass(component_id))
-        } else {
-            Ok(ComponentValidationResult::SubShape(validation_results))
-        }
+        Ok(results)
     }
 }
 
@@ -356,25 +360,26 @@ impl ValidateComponent for XoneConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
-            return Ok(ComponentValidationResult::Pass(component_id)); // No value nodes
+            return Ok(vec![]); // No value nodes
         };
 
         if self.shapes.is_empty() {
             // If sh:xone list is empty, no value node can conform unless there are no value nodes.
             return if value_nodes.is_empty() {
-                Ok(ComponentValidationResult::Pass(component_id))
+                Ok(vec![])
             } else {
-                Ok(ComponentValidationResult::Fail(ValidationFailure {
+                let failure = ValidationFailure {
                     component_id,
                     failed_value_node: value_nodes.first().cloned(),
                     message: "sh:xone with an empty list of shapes cannot be satisfied by any value node.".to_string(),
-                }))
+                };
+                Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
             };
         }
 
-        let mut validation_results = Vec::new();
+        let mut results = Vec::new();
         let value_nodes = value_nodes.clone();
 
         for value_node_to_check in value_nodes {
@@ -419,15 +424,16 @@ impl ValidateComponent for XoneConstraintComponent {
                     "Value {:?} conformed to {} sh:xone shapes, but expected exactly 1.",
                     value_node_to_check, conforming_shapes_count
                 );
-                validation_results.push((error_context, message));
+                let failure = ValidationFailure {
+                    component_id,
+                    failed_value_node: Some(value_node_to_check.clone()),
+                    message,
+                };
+                results.push(ComponentValidationResult::Fail(error_context, failure));
             }
             // If loop completes, value_node_to_check conformed to exactly one xone_shape.
         }
 
-        if validation_results.is_empty() {
-            Ok(ComponentValidationResult::Pass(component_id))
-        } else {
-            Ok(ComponentValidationResult::SubShape(validation_results))
-        }
+        Ok(results)
     }
 }

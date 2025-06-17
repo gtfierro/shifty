@@ -755,10 +755,10 @@ impl Component {
     pub fn validate(
         &self,
         component_id: ComponentID,
-        c: &mut Context, // Changed to &mut Context
+        c: &mut Context,
         context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
-        c.record_component_visit(component_id); // Record component visit (already added in a previous step, ensure it's here)
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        c.record_component_visit(component_id);
         match self {
             Component::ClassConstraint(comp) => comp.validate(component_id, c, context),
             Component::NodeConstraint(comp) => comp.validate(component_id, c, context),
@@ -768,19 +768,11 @@ impl Component {
             Component::NodeKindConstraint(comp) => comp.validate(component_id, c, context),
             Component::MinCount(comp) => comp.validate(component_id, c, context),
             Component::MaxCount(comp) => comp.validate(component_id, c, context),
-            //Component::MinExclusiveConstraint(c) => c.validate(component_id, c, context),
-            //Component::MinInclusiveConstraint(c) => c.validate(component_id, c, context),
-            //Component::MaxExclusiveConstraint(c) => c.validate(component_id, c, context),
-            //Component::MaxInclusiveConstraint(c) => c.validate(component_id, c, context),
             Component::MinLengthConstraint(comp) => comp.validate(component_id, c, context),
             Component::MaxLengthConstraint(comp) => comp.validate(component_id, c, context),
             Component::PatternConstraint(comp) => comp.validate(component_id, c, context),
             Component::LanguageInConstraint(comp) => comp.validate(component_id, c, context),
             Component::UniqueLangConstraint(comp) => comp.validate(component_id, c, context),
-            //Component::EqualsConstraint(comp) => comp.validate(component_id, c, context),
-            //Component::DisjointConstraint(c) => c.validate(component_id, c, context),
-            //Component::LessThanConstraint(c) => c.validate(component_id, c, context),
-            //Component::LessThanOrEqualsConstraint(c) => c.validate(component_id, c, context),
             Component::NotConstraint(comp) => comp.validate(component_id, c, context),
             Component::AndConstraint(comp) => comp.validate(component_id, c, context),
             Component::OrConstraint(comp) => comp.validate(component_id, c, context),
@@ -788,10 +780,8 @@ impl Component {
             Component::HasValueConstraint(comp) => comp.validate(component_id, c, context),
             Component::InConstraint(comp) => comp.validate(component_id, c, context),
             Component::SPARQLConstraint(comp) => comp.validate(component_id, c, context),
-            //Component::ClosedConstraint(_) |
-            // Other components that do not have validate method
             // For components without specific validation logic, or structural ones, consider them as passing.
-            _ => Ok(ComponentValidationResult::Pass(component_id)),
+            _ => Ok(vec![]),
         }
     }
 }
@@ -812,26 +802,17 @@ pub(super) fn check_conformance_for_node(
             .ok_or_else(|| format!("Logical check: Component not found: {}", constraint_id))?;
 
         match component.validate(*constraint_id, node_as_context, main_validation_context) {
-            Ok(validation_result) => match validation_result {
-                ComponentValidationResult::Pass(_) => {
-                    // Passed, continue to next constraint.
-                }
-                ComponentValidationResult::SubShape(results) => {
-                    if let Some((ctx, msg)) = results.into_iter().next() {
-                        // Sub-shape validation failed.
-                        return Ok(ConformanceReport::NonConforms(ValidationFailure {
-                            component_id: *constraint_id,
-                            failed_value_node: ctx.value().cloned(),
-                            message: msg,
-                        }));
-                    }
-                    // Empty results means it passed.
-                }
-                ComponentValidationResult::Fail(failure) => {
-                    // Fail means it does not conform.
+            Ok(validation_results) => {
+                // Find the first failure, if any.
+                if let Some(ComponentValidationResult::Fail(_ctx, failure)) = validation_results
+                    .into_iter()
+                    .find(|r| matches!(r, ComponentValidationResult::Fail(_, _)))
+                {
+                    // A failure was found. The node does not conform.
                     return Ok(ConformanceReport::NonConforms(failure));
                 }
-            },
+                // All results were Pass or the vec was empty, so continue to the next constraint.
+            }
             Err(e) => {
                 // The component's validate method returned an Err, meaning a processing error.
                 return Err(e);

@@ -85,7 +85,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         let shacl = SHACL::new();
         let subject = self.constraint_node.to_subject_ref();
 
@@ -102,7 +102,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         {
             if let Ok(quad) = quad_res {
                 if quad.object == Term::from(Literal::from(true)) {
-                    return Ok(ComponentValidationResult::Pass(component_id));
+                    return Ok(vec![]);
                 }
             }
         }
@@ -225,15 +225,17 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     .unwrap_or_else(|| c.focus_node().clone());
 
                 let mut error_context = c.clone();
-                error_context.with_value(failed_node);
-                validation_results.push((error_context, message));
+                error_context.with_value(failed_node.clone());
+
+                let failure = ValidationFailure {
+                    component_id,
+                    failed_value_node: Some(failed_node),
+                    message,
+                };
+                validation_results.push(ComponentValidationResult::Fail(error_context, failure));
             }
 
-            if validation_results.is_empty() {
-                return Ok(ComponentValidationResult::Pass(component_id));
-            } else {
-                return Ok(ComponentValidationResult::SubShape(validation_results));
-            }
+            return Ok(validation_results);
         } else {
             return Err(format!(
                 "Unexpected query result type for SPARQL constraint {:?}",

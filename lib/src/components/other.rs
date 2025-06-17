@@ -11,27 +11,28 @@ impl ValidateComponent for InConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         if self.values.is_empty() {
             // According to SHACL spec, if sh:in has an empty list, no value nodes can conform.
             // "The constraint sh:in specifies the condition that each value node is a member of a provided SHACL list."
             // "If the SHACL list is empty, then no value nodes can satisfy the constraint."
             return if c.value_nodes().map_or(true, |vns| vns.is_empty()) {
                 // If there are no value nodes, or the list of value nodes is empty, it passes.
-                Ok(ComponentValidationResult::Pass(component_id))
+                Ok(vec![])
             } else {
-                Ok(ComponentValidationResult::Fail(ValidationFailure {
+                let failure = ValidationFailure {
                     component_id,
                     failed_value_node: None,
                     message: format!(
                         "sh:in constraint has an empty list, but value nodes {:?} exist.",
                         c.value_nodes().unwrap_or(&Vec::new()) // Provide empty vec for formatting if None
                     ),
-                }))
+                };
+                Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
             };
         }
 
-        let mut validation_results = Vec::new();
+        let mut results = Vec::new();
         if let Some(value_nodes) = c.value_nodes().cloned() {
             for vn in value_nodes {
                 if !self.values.contains(&vn) {
@@ -41,16 +42,17 @@ impl ValidateComponent for InConstraintComponent {
                         "Value {:?} is not in the allowed list {:?}.",
                         vn, self.values
                     );
-                    validation_results.push((error_context, message));
+                    let failure = ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(vn.clone()),
+                        message,
+                    };
+                    results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
             }
         }
 
-        if validation_results.is_empty() {
-            Ok(ComponentValidationResult::Pass(component_id))
-        } else {
-            Ok(ComponentValidationResult::SubShape(validation_results))
-        }
+        Ok(results)
     }
 }
 
@@ -134,34 +136,36 @@ impl ValidateComponent for HasValueConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
-    ) -> Result<ComponentValidationResult, String> {
+    ) -> Result<Vec<ComponentValidationResult>, String> {
         match c.value_nodes() {
             Some(value_nodes) => {
                 if value_nodes.iter().any(|vn| vn == &self.value) {
                     // At least one value node is equal to self.value
-                    Ok(ComponentValidationResult::Pass(component_id))
+                    Ok(vec![])
                 } else {
                     // No value node is equal to self.value
-                    Ok(ComponentValidationResult::Fail(ValidationFailure {
+                    let failure = ValidationFailure {
                         component_id,
                         failed_value_node: None,
                         message: format!(
                             "None of the value nodes {:?} are equal to the required value {:?}",
                             value_nodes, self.value
                         ),
-                    }))
+                    };
+                    Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
                 }
             }
             None => {
                 // No value nodes present, so self.value cannot be among them.
-                Ok(ComponentValidationResult::Fail(ValidationFailure {
+                let failure = ValidationFailure {
                     component_id,
                     failed_value_node: None,
                     message: format!(
                         "No value nodes found to check against required value {:?}",
                         self.value
                     ),
-                }))
+                };
+                Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
             }
         }
     }
