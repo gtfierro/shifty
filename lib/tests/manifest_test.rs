@@ -70,8 +70,8 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
         })?;
         assert_eq!(
             conforms, expects_conform,
-            "Conformance mismatch for test: {}. Expected {}",
-            test_name, expects_conform
+            "Conformance mismatch for test: {}. Expected {}\n(expected report:\n {})\n(our report:\n {})",
+            test_name, expects_conform, expected_turtle, report_turtle
         );
         //let diff = graph_diff(&report_graph, &test.expected_report);
         //diff.dump();

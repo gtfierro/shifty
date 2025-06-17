@@ -582,6 +582,10 @@ impl Context {
         self.value_nodes.as_ref()
     }
 
+    pub fn num_value_nodes(&self) -> usize {
+        self.value_nodes.as_ref().map_or(0, |v| v.len())
+    }
+
     pub fn source_shape(&self) -> SourceShape {
         self.source_shape.clone()
     }
