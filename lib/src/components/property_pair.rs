@@ -1,8 +1,10 @@
-use crate::context::{format_term_for_label, ValidationContext};
+use super::{
+    ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
+};
+use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term};
-
-use super::GraphvizOutput;
+use std::collections::HashSet;
 
 // property pair constraints
 #[derive(Debug)]
@@ -62,6 +64,73 @@ impl GraphvizOutput for DisjointConstraintComponent {
             component_id.to_graphviz_id(),
             property_name
         )
+    }
+}
+
+impl ValidateComponent for DisjointConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &mut Context,
+        context: &ValidationContext,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        let value_nodes: Vec<Term> = match c.value_nodes() {
+            Some(nodes) => nodes.clone(),
+            None => vec![c.focus_node().clone()],
+        };
+
+        if value_nodes.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let focus_node = c.focus_node();
+        let disjoint_property = match &self.property {
+            Term::NamedNode(nn) => nn,
+            _ => {
+                return Err(format!(
+                    "sh:disjoint property must be an IRI, but got {:?}",
+                    self.property
+                ))
+            }
+        };
+
+        let other_values: HashSet<Term> = context
+            .store()
+            .quads_for_pattern(
+                Some(focus_node.try_to_subject_ref()?),
+                Some(disjoint_property.as_ref()),
+                None,
+                Some(context.data_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .collect();
+
+        if other_values.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results = Vec::new();
+        for value_node in &value_nodes {
+            if other_values.contains(value_node) {
+                let mut fail_context = c.clone();
+                fail_context.with_value(value_node.clone());
+                results.push(ComponentValidationResult::Fail(
+                    fail_context,
+                    ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node.clone()),
+                        message: format!(
+                            "Value {} is not disjoint with values of property <{}>",
+                            format_term_for_label(value_node),
+                            disjoint_property.as_str()
+                        ),
+                    },
+                ));
+            }
+        }
+
+        Ok(results)
     }
 }
 
