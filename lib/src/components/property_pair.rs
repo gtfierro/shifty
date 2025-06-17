@@ -75,17 +75,36 @@ impl ValidateComponent for EqualsConstraintComponent {
 
         let mut results = Vec::new();
 
-        for diff_node in value_nodes_set.symmetric_difference(&other_values_set) {
+        // For each value node that does not exist as a value of the property $equals at the focus node...
+        for value_node in value_nodes_set.difference(&other_values_set) {
             let mut fail_context = c.clone();
-            fail_context.with_value(diff_node.clone());
+            fail_context.with_value(value_node.clone());
             results.push(ComponentValidationResult::Fail(
                 fail_context,
                 ValidationFailure {
                     component_id,
-                    failed_value_node: Some(diff_node.clone()),
+                    failed_value_node: Some(value_node.clone()),
                     message: format!(
-                        "sh:equals failed: value {} is not shared between value nodes and values of property <{}>",
-                        format_term_for_label(diff_node),
+                        "Value node {} not found in values of property <{}>",
+                        format_term_for_label(value_node),
+                        equals_property.as_str()
+                    ),
+                },
+            ));
+        }
+
+        // For each value of the property $equals at the focus node that is not one of the value nodes...
+        for other_value in other_values_set.difference(&value_nodes_set) {
+            let mut fail_context = c.clone();
+            fail_context.with_value(other_value.clone());
+            results.push(ComponentValidationResult::Fail(
+                fail_context,
+                ValidationFailure {
+                    component_id,
+                    failed_value_node: Some(other_value.clone()),
+                    message: format!(
+                        "Value {} of property <{}> not found in value nodes",
+                        format_term_for_label(other_value),
                         equals_property.as_str()
                     ),
                 },
