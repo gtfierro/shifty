@@ -447,6 +447,8 @@ impl ValidateComponent for UniqueLangConstraintComponent {
             return Ok(vec![]);
         }
 
+        let mut results = Vec::new();
+
         if let Some(value_nodes) = c.value_nodes() {
             let mut lang_tags_seen = HashSet::new();
             let mut duplicated_tags = HashSet::new();
@@ -465,21 +467,18 @@ impl ValidateComponent for UniqueLangConstraintComponent {
                 }
             }
 
-            if !duplicated_tags.is_empty() {
+            for duplicated_tag in duplicated_tags {
                 let failure = ValidationFailure {
                     component_id,
-                    failed_value_node: None,
+                    failed_value_node: None, // sh:uniqueLang does not produce a sh:value
                     message: format!(
-                        "Duplicate language tags found: {:?}. sh:uniqueLang is true.",
-                        duplicated_tags
-                            .into_iter()
-                            .collect::<Vec<String>>()
-                            .join(", ")
+                        "Language tag '{}' is used by more than one value node, but sh:uniqueLang is true.",
+                        duplicated_tag
                     ),
                 };
-                return Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)]);
+                results.push(ComponentValidationResult::Fail(c.clone(), failure));
             }
         }
-        Ok(vec![])
+        Ok(results)
     }
 }
