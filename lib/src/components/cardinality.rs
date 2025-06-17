@@ -2,7 +2,7 @@ use crate::context::{Context, ValidationContext};
 use crate::types::ComponentID;
 use oxigraph::model::NamedNode;
 
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent};
+use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 
 #[derive(Debug)]
 pub struct MinCountConstraintComponent {
@@ -40,12 +40,16 @@ impl ValidateComponent for MinCountConstraintComponent {
         c: &mut Context,              // Changed to &mut Context
         _context: &ValidationContext, // context is not used
     ) -> Result<ComponentValidationResult, String> {
-        if c.value_nodes().map_or(0, |v| v.len()) < self.min_count as usize {
-            return Err(format!(
-                "Value count ({}) does not meet minimum requirement: {}",
-                c.value_nodes().map_or(0, |v| v.len()),
-                self.min_count
-            ));
+        let count = c.value_nodes().map_or(0, |v| v.len());
+        if count < self.min_count as usize {
+            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                component_id,
+                failed_value_node: None,
+                message: format!(
+                    "Value count ({}) does not meet minimum requirement: {}",
+                    count, self.min_count
+                ),
+            }));
         }
         Ok(ComponentValidationResult::Pass(component_id))
     }
@@ -87,17 +91,16 @@ impl ValidateComponent for MaxCountConstraintComponent {
         c: &mut Context,              // Changed to &mut Context
         _context: &ValidationContext, // context is not used
     ) -> Result<ComponentValidationResult, String> {
-        println!(
-            "Validating MaxCountConstraintComponent with ID: {} value nodes: {:?}",
-            component_id.to_graphviz_id(),
-            c.value_nodes()
-        );
-        if c.value_nodes().map_or(0, |v| v.len()) > self.max_count as usize {
-            return Err(format!(
-                "Value count ({}) does not meet maximum requirement: {}",
-                c.value_nodes().map_or(0, |v| v.len()),
-                self.max_count
-            ));
+        let count = c.value_nodes().map_or(0, |v| v.len());
+        if count > self.max_count as usize {
+            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                component_id,
+                failed_value_node: None,
+                message: format!(
+                    "Value count ({}) exceeds maximum requirement: {}",
+                    count, self.max_count
+                ),
+            }));
         }
         Ok(ComponentValidationResult::Pass(component_id))
     }

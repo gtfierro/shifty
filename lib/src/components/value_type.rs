@@ -5,7 +5,7 @@ use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent};
+use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 
 // value type
 #[derive(Debug)]
@@ -74,10 +74,15 @@ impl ValidateComponent for ClassConstraintComponent {
             ) {
                 Ok(QueryResults::Boolean(result)) => {
                     if !result {
-                        return Err(format!(
-                            "Value {:?} does not conform to class constraint: {}",
-                            vn, self.class
-                        ));
+                        c.with_value(vn.clone());
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(vn.clone()),
+                            message: format!(
+                                "Value {:?} does not conform to class constraint: {}",
+                                vn, self.class
+                            ),
+                        }));
                     }
                 }
                 Ok(_) => {
@@ -122,19 +127,27 @@ impl ValidateComponent for DatatypeConstraintComponent {
                         if lit.datatype() != target_datatype_iri {
                             // TODO: Consider ill-typed literals if required by spec for specific datatypes
                             c.with_value(value_node.clone());
-                            return Err(format!(
-                                "Value {:?} does not have datatype {}",
-                                value_node, self.datatype
-                            ));
+                            return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!(
+                                    "Value {:?} does not have datatype {}",
+                                    value_node, self.datatype
+                                ),
+                            }));
                         }
                     }
                     _ => {
                         // Not a literal, so it cannot conform to a datatype constraint
                         c.with_value(value_node.clone());
-                        return Err(format!(
-                            "Value {:?} is not a literal, expected datatype {}",
-                            value_node, self.datatype
-                        ));
+                        return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(value_node.clone()),
+                            message: format!(
+                                "Value {:?} is not a literal, expected datatype {}",
+                                value_node, self.datatype
+                            ),
+                        }));
                     }
                 }
             }
@@ -205,10 +218,15 @@ impl ValidateComponent for NodeKindConstraintComponent {
                 };
 
                 if !matches {
-                    return Err(format!(
-                        "Value {:?} does not match nodeKind {}",
-                        value_node, self.node_kind
-                    ));
+                    c.with_value(value_node.clone());
+                    return Ok(ComponentValidationResult::Fail(ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node.clone()),
+                        message: format!(
+                            "Value {:?} does not match nodeKind {}",
+                            value_node, self.node_kind
+                        ),
+                    }));
                 }
             }
         }
