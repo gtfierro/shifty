@@ -34,6 +34,56 @@ impl GraphvizOutput for MinExclusiveConstraintComponent {
     }
 }
 
+impl ValidateComponent for MinExclusiveConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &mut Context,
+        context: &ValidationContext,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        let value_nodes: Vec<Term> = match c.value_nodes() {
+            Some(nodes) => nodes.clone(),
+            None => vec![c.focus_node().clone()],
+        };
+
+        if value_nodes.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results = Vec::new();
+
+        for value_node in &value_nodes {
+            // For each value node v where the SPARQL expression $minExclusive < v does not return true, there is a validation result.
+            let query_str = format!("ASK {{ FILTER({} < {}) }}", self.min_exclusive, value_node);
+
+            let is_valid = match context.store().query(&query_str) {
+                Ok(QueryResults::Boolean(b)) => b,
+                Ok(_) => false, // Should not happen for ASK
+                Err(_) => false, // Incomparable values
+            };
+
+            if !is_valid {
+                let mut fail_context = c.clone();
+                fail_context.with_value(value_node.clone());
+                results.push(ComponentValidationResult::Fail(
+                    fail_context,
+                    ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node.clone()),
+                        message: format!(
+                            "Value {} is not exclusively greater than {}",
+                            format_term_for_label(value_node),
+                            format_term_for_label(&self.min_exclusive),
+                        ),
+                    },
+                ));
+            }
+        }
+
+        Ok(results)
+    }
+}
+
 #[derive(Debug)]
 pub struct MinInclusiveConstraintComponent {
     min_inclusive: Term,
@@ -60,6 +110,56 @@ impl GraphvizOutput for MinInclusiveConstraintComponent {
             component_id.to_graphviz_id(),
             format_term_for_label(&self.min_inclusive)
         )
+    }
+}
+
+impl ValidateComponent for MinInclusiveConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &mut Context,
+        context: &ValidationContext,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        let value_nodes: Vec<Term> = match c.value_nodes() {
+            Some(nodes) => nodes.clone(),
+            None => vec![c.focus_node().clone()],
+        };
+
+        if value_nodes.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results = Vec::new();
+
+        for value_node in &value_nodes {
+            // For each value node v where the SPARQL expression $minInclusive <= v does not return true, there is a validation result.
+            let query_str = format!("ASK {{ FILTER({} <= {}) }}", self.min_inclusive, value_node);
+
+            let is_valid = match context.store().query(&query_str) {
+                Ok(QueryResults::Boolean(b)) => b,
+                Ok(_) => false, // Should not happen for ASK
+                Err(_) => false, // Incomparable values
+            };
+
+            if !is_valid {
+                let mut fail_context = c.clone();
+                fail_context.with_value(value_node.clone());
+                results.push(ComponentValidationResult::Fail(
+                    fail_context,
+                    ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node.clone()),
+                        message: format!(
+                            "Value {} is not inclusively greater than or equal to {}",
+                            format_term_for_label(value_node),
+                            format_term_for_label(&self.min_inclusive),
+                        ),
+                    },
+                ));
+            }
+        }
+
+        Ok(results)
     }
 }
 
@@ -168,5 +268,55 @@ impl GraphvizOutput for MaxInclusiveConstraintComponent {
             component_id.to_graphviz_id(),
             format_term_for_label(&self.max_inclusive)
         )
+    }
+}
+
+impl ValidateComponent for MaxInclusiveConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &mut Context,
+        context: &ValidationContext,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        let value_nodes: Vec<Term> = match c.value_nodes() {
+            Some(nodes) => nodes.clone(),
+            None => vec![c.focus_node().clone()],
+        };
+
+        if value_nodes.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results = Vec::new();
+
+        for value_node in &value_nodes {
+            // For each value node v where the SPARQL expression $maxInclusive >= v does not return true, there is a validation result.
+            let query_str = format!("ASK {{ FILTER({} >= {}) }}", self.max_inclusive, value_node);
+
+            let is_valid = match context.store().query(&query_str) {
+                Ok(QueryResults::Boolean(b)) => b,
+                Ok(_) => false, // Should not happen for ASK
+                Err(_) => false, // Incomparable values
+            };
+
+            if !is_valid {
+                let mut fail_context = c.clone();
+                fail_context.with_value(value_node.clone());
+                results.push(ComponentValidationResult::Fail(
+                    fail_context,
+                    ValidationFailure {
+                        component_id,
+                        failed_value_node: Some(value_node.clone()),
+                        message: format!(
+                            "Value {} is not inclusively less than or equal to {}",
+                            format_term_for_label(value_node),
+                            format_term_for_label(&self.max_inclusive),
+                        ),
+                    },
+                ));
+            }
+        }
+
+        Ok(results)
     }
 }
