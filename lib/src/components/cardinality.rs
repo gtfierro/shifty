@@ -52,7 +52,7 @@ impl ValidateComponent for MinCountConstraintComponent {
             };
             Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
         } else {
-            Ok(vec![])
+            Ok(vec![ComponentValidationResult::Pass(c.clone())])
         }
     }
 }
