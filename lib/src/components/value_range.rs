@@ -41,9 +41,13 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        println!(
+            "Validating MinExclusiveConstraintComponent with component_id: {}",
+            component_id
+        );
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
-            None => vec![c.focus_node().clone()],
+            None => vec![],
         };
 
         if value_nodes.is_empty() {
@@ -120,6 +124,10 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        println!(
+            "Validating MinInclusiveConstraintComponent with component_id: {}",
+            component_id
+        );
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
             None => vec![c.focus_node().clone()],
@@ -199,6 +207,10 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        println!(
+            "Validating MaxExclusiveConstraintComponent with component_id: {}",
+            component_id
+        );
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
             None => vec![c.focus_node().clone()],
@@ -278,6 +290,10 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        println!(
+            "Validating MaxInclusiveConstraintComponent with component_id: {}",
+            component_id
+        );
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
             None => vec![c.focus_node().clone()],
@@ -290,7 +306,7 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
         let mut results = Vec::new();
 
         for value_node in &value_nodes {
-            // For each value node v where the SPARQL expression $maxInclusive >= v does not return true, there is a validation result.
+            // For each value node v where the SPARQL expression $maxInclusive > v does not return true, there is a validation result.
             let query_str = format!("ASK {{ FILTER({} >= {}) }}", self.max_inclusive, value_node);
 
             let is_valid = match context.store().query(&query_str) {
@@ -308,7 +324,7 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
                         component_id,
                         failed_value_node: Some(value_node.clone()),
                         message: format!(
-                            "Value {} is not inclusively less than or equal to {}",
+                            "Value {} is not inclusively less than {}",
                             format_term_for_label(value_node),
                             format_term_for_label(&self.max_inclusive),
                         ),
