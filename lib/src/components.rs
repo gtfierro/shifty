@@ -227,8 +227,8 @@ pub fn parse_components(
                     MinExclusiveConstraintComponent::new(min_exclusive_term.clone()),
                 );
                 let id_term = Term::Literal(Literal::new_simple_literal(format!(
-                    "MinExclusiveConstraint:{}",
-                    min_exclusive_term
+                    "MinExclusiveConstraint:{}:{}",
+                    start, min_exclusive_term
                 )));
                 let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
@@ -244,8 +244,8 @@ pub fn parse_components(
                     MinInclusiveConstraintComponent::new(min_inclusive_term.clone()),
                 );
                 let id_term = Term::Literal(Literal::new_simple_literal(format!(
-                    "MinInclusiveConstraint:{}",
-                    min_inclusive_term
+                    "MinInclusiveConstraint:{}:{}",
+                    start, min_inclusive_term
                 )));
                 let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
@@ -261,8 +261,8 @@ pub fn parse_components(
                     MaxExclusiveConstraintComponent::new(max_exclusive_term.clone()),
                 );
                 let id_term = Term::Literal(Literal::new_simple_literal(format!(
-                    "MaxExclusiveConstraint:{}",
-                    max_exclusive_term
+                    "MaxExclusiveConstraint:{}:{}",
+                    start, max_exclusive_term
                 )));
                 let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
@@ -278,8 +278,8 @@ pub fn parse_components(
                     MaxInclusiveConstraintComponent::new(max_inclusive_term.clone()),
                 );
                 let id_term = Term::Literal(Literal::new_simple_literal(format!(
-                    "MaxInclusiveConstraint:{}",
-                    max_inclusive_term
+                    "MaxInclusiveConstraint:{}:{}",
+                    start, max_inclusive_term
                 )));
                 let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
