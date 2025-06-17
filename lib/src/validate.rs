@@ -1,3 +1,4 @@
+use crate::components::ComponentValidationResult;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::report::ValidationReportBuilder;
 use std::collections::HashSet;
@@ -79,7 +80,7 @@ impl PropertyShape {
     ) -> Result<Vec<ComponentValidationResult>, String> {
         focus_context.record_property_shape_visit(*self.identifier()); // Record PropertyShape visit
 
-        let mut validation_results = Vec::new();
+        let mut validation_results: Vec<ComponentValidationResult> = Vec::new();
 
         // The loop is removed as we now operate on a single focus_context.
         // to get the set of value nodes.
@@ -191,19 +192,12 @@ impl PropertyShape {
             // and returns Result<ComponentValidationResult, String>
             match component.validate(*constraint_id, &mut value_node_context, context) {
                 Ok(results) => {
-                    use crate::components::ComponentValidationResult;
-                    validation_results.extend(results.into_iter().filter_map(|result| {
-                        if let ComponentValidationResult::Fail(ctx, failure) = result {
-                            Some((ctx, failure.message))
-                        } else {
-                            None
-                        }
-                    }));
+                    validation_results.extend(results);
                 }
                 Err(e) => {
                     // This error 'e' comes from the component's own validate method.
-                    // PropertyShape is responsible for adding this to the report builder.
-                    validation_results.push((value_node_context.clone(), e));
+                    // An internal error in a component validation should be propagated.
+                    return Err(e);
                 }
             }
         }
