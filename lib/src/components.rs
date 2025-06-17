@@ -2,7 +2,7 @@ use crate::context::{Context, ValidationContext}; // Removed format_term_for_lab
 use crate::named_nodes::SHACL;
 use crate::shape::NodeShape; // Removed PropertyShape
 use crate::types::{ComponentID, ID}; // Removed PropShapeID
-use oxigraph::model::{NamedNode, SubjectRef, Term, TermRef};
+use oxigraph::model::{Literal, NamedNode, SubjectRef, Term, TermRef};
 use std::collections::HashMap;
 
 mod cardinality;
@@ -110,7 +110,11 @@ pub fn parse_components(
             // class_term is &Term
             let component =
                 Component::ClassConstraint(ClassConstraintComponent::new(class_term.clone()));
-            let component_id = context.get_or_create_component_id(class_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "ClassConstraint:{}",
+                class_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -121,7 +125,11 @@ pub fn parse_components(
             let component = Component::DatatypeConstraint(DatatypeConstraintComponent::new(
                 datatype_term.clone(),
             ));
-            let component_id = context.get_or_create_component_id(datatype_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "DatatypeConstraint:{}",
+                datatype_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -132,7 +140,11 @@ pub fn parse_components(
             let component = Component::NodeKindConstraint(NodeKindConstraintComponent::new(
                 node_kind_term.clone(),
             ));
-            let component_id = context.get_or_create_component_id(node_kind_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "NodeKindConstraint:{}",
+                node_kind_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -144,7 +156,11 @@ pub fn parse_components(
             let target_shape_id = context.get_or_create_node_id(node_term.clone());
             let component =
                 Component::NodeConstraint(NodeConstraintComponent::new(target_shape_id));
-            let component_id = context.get_or_create_component_id(node_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "NodeConstraint:{}",
+                node_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -156,7 +172,11 @@ pub fn parse_components(
             let target_shape_id = context.get_or_create_prop_id(property_term.clone());
             let component =
                 Component::PropertyConstraint(PropertyConstraintComponent::new(target_shape_id));
-            let component_id = context.get_or_create_component_id(property_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "PropertyConstraint:{}",
+                property_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -169,7 +189,11 @@ pub fn parse_components(
                 if let Ok(min_count_val) = lit.value().parse::<u64>() {
                     let component =
                         Component::MinCount(MinCountConstraintComponent::new(min_count_val));
-                    let component_id = context.get_or_create_component_id(min_count_term.clone());
+                    let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                        "MinCountConstraint:{}",
+                        min_count_term
+                    )));
+                    let component_id = context.get_or_create_component_id(id_term);
                     new_components.insert(component_id, component);
                 }
             }
@@ -183,7 +207,11 @@ pub fn parse_components(
                 if let Ok(max_count_val) = lit.value().parse::<u64>() {
                     let component =
                         Component::MaxCount(MaxCountConstraintComponent::new(max_count_val));
-                    let component_id = context.get_or_create_component_id(max_count_term.clone());
+                    let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                        "MaxCountConstraint:{}",
+                        max_count_term
+                    )));
+                    let component_id = context.get_or_create_component_id(id_term);
                     new_components.insert(component_id, component);
                 }
             }
@@ -198,7 +226,11 @@ pub fn parse_components(
                 let component = Component::MinExclusiveConstraint(
                     MinExclusiveConstraintComponent::new(min_exclusive_term.clone()),
                 );
-                let component_id = context.get_or_create_component_id(min_exclusive_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "MinExclusiveConstraint:{}",
+                    min_exclusive_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -211,7 +243,11 @@ pub fn parse_components(
                 let component = Component::MinInclusiveConstraint(
                     MinInclusiveConstraintComponent::new(min_inclusive_term.clone()),
                 );
-                let component_id = context.get_or_create_component_id(min_inclusive_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "MinInclusiveConstraint:{}",
+                    min_inclusive_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -224,7 +260,11 @@ pub fn parse_components(
                 let component = Component::MaxExclusiveConstraint(
                     MaxExclusiveConstraintComponent::new(max_exclusive_term.clone()),
                 );
-                let component_id = context.get_or_create_component_id(max_exclusive_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "MaxExclusiveConstraint:{}",
+                    max_exclusive_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -237,7 +277,11 @@ pub fn parse_components(
                 let component = Component::MaxInclusiveConstraint(
                     MaxInclusiveConstraintComponent::new(max_inclusive_term.clone()),
                 );
-                let component_id = context.get_or_create_component_id(max_inclusive_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "MaxInclusiveConstraint:{}",
+                    max_inclusive_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -252,7 +296,11 @@ pub fn parse_components(
                     let component = Component::MinLengthConstraint(
                         MinLengthConstraintComponent::new(min_length_val),
                     );
-                    let component_id = context.get_or_create_component_id(min_length_term.clone());
+                    let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                        "MinLengthConstraint:{}",
+                        min_length_term
+                    )));
+                    let component_id = context.get_or_create_component_id(id_term);
                     new_components.insert(component_id, component);
                 }
             }
@@ -267,7 +315,11 @@ pub fn parse_components(
                     let component = Component::MaxLengthConstraint(
                         MaxLengthConstraintComponent::new(max_length_val),
                     );
-                    let component_id = context.get_or_create_component_id(max_length_term.clone());
+                    let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                        "MaxLengthConstraint:{}",
+                        max_length_term
+                    )));
+                    let component_id = context.get_or_create_component_id(id_term);
                     new_components.insert(component_id, component);
                 }
             }
@@ -290,10 +342,15 @@ pub fn parse_components(
                     }
                 });
             let component = Component::PatternConstraint(PatternConstraintComponent::new(
-                pattern_str,
-                flags_str,
+                pattern_str.clone(),
+                flags_str.clone(),
             ));
-            let component_id = context.get_or_create_component_id(pattern_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "PatternConstraint:{}:{}",
+                pattern_str,
+                flags_str.as_deref().unwrap_or("")
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -329,7 +386,11 @@ pub fn parse_components(
                     let component = Component::UniqueLangConstraint(
                         UniqueLangConstraintComponent::new(unique_lang_val),
                     );
-                    let component_id = context.get_or_create_component_id(unique_lang_term.clone());
+                    let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                        "UniqueLangConstraint:{}",
+                        unique_lang_term
+                    )));
+                    let component_id = context.get_or_create_component_id(id_term);
                     new_components.insert(component_id, component);
                 }
             }
@@ -344,7 +405,11 @@ pub fn parse_components(
                 let component = Component::EqualsConstraint(EqualsConstraintComponent::new(
                     equals_term.clone(),
                 ));
-                let component_id = context.get_or_create_component_id(equals_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "EqualsConstraint:{}",
+                    equals_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -357,7 +422,11 @@ pub fn parse_components(
                 let component = Component::DisjointConstraint(DisjointConstraintComponent::new(
                     disjoint_term.clone(),
                 ));
-                let component_id = context.get_or_create_component_id(disjoint_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "DisjointConstraint:{}",
+                    disjoint_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -370,7 +439,11 @@ pub fn parse_components(
                 let component = Component::LessThanConstraint(LessThanConstraintComponent::new(
                     less_than_term.clone(),
                 ));
-                let component_id = context.get_or_create_component_id(less_than_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "LessThanConstraint:{}",
+                    less_than_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -385,8 +458,11 @@ pub fn parse_components(
                 let component = Component::LessThanOrEqualsConstraint(
                     LessThanOrEqualsConstraintComponent::new(less_than_or_equals_term.clone()),
                 );
-                let component_id =
-                    context.get_or_create_component_id(less_than_or_equals_term.clone());
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "LessThanOrEqualsConstraint:{}",
+                    less_than_or_equals_term
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
                 new_components.insert(component_id, component);
             }
         }
@@ -398,7 +474,11 @@ pub fn parse_components(
             // not_term is &Term
             let negated_shape_id = context.get_or_create_node_id(not_term.clone());
             let component = Component::NotConstraint(NotConstraintComponent::new(negated_shape_id));
-            let component_id = context.get_or_create_component_id(not_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "NotConstraint:{}",
+                not_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
@@ -495,7 +575,14 @@ pub fn parse_components(
             q_max_count_opt,
             q_disjoint_opt,
         ));
-        let component_id = context.get_or_create_component_id(qvs_term); // qvs_term is Term
+        let id_term = Term::Literal(Literal::new_simple_literal(format!(
+            "QualifiedValueShape:{}:{}:{}:{}",
+            qvs_term,
+            q_min_count_opt.map(|v| v.to_string()).unwrap_or_default(),
+            q_max_count_opt.map(|v| v.to_string()).unwrap_or_default(),
+            q_disjoint_opt.map(|v| v.to_string()).unwrap_or_default()
+        )));
+        let component_id = context.get_or_create_component_id(id_term);
         new_components.insert(component_id, component);
     }
 
@@ -528,10 +615,14 @@ pub fn parse_components(
                         if ignored_properties_terms.is_empty() {
                             None
                         } else {
-                            Some(ignored_properties_terms)
+                            Some(ignored_properties_terms.clone())
                         },
                     ));
-                    let component_id = context.get_or_create_component_id(closed_term.clone());
+                    let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                        "ClosedConstraint:{}:{:?}",
+                        closed_val, ignored_properties_terms
+                    )));
+                    let component_id = context.get_or_create_component_id(id_term);
                     new_components.insert(component_id, component);
                 }
             }
@@ -545,7 +636,11 @@ pub fn parse_components(
             let component = Component::HasValueConstraint(HasValueConstraintComponent::new(
                 has_value_term.clone(),
             ));
-            let component_id = context.get_or_create_component_id(has_value_term.clone());
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "HasValueConstraint:{}",
+                has_value_term
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
         }
     }
