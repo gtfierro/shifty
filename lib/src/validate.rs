@@ -74,150 +74,136 @@ impl ValidateShape for NodeShape {
 impl PropertyShape {
     pub fn validate(
         &self,
-        // Changed to a single mutable Context reference
-        focus_context: &mut Context, // Changed to &mut Context
+        focus_context: &mut Context,
         context: &ValidationContext,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        focus_context.record_property_shape_visit(*self.identifier()); // Record PropertyShape visit
+        focus_context.record_property_shape_visit(*self.identifier());
 
-        let mut validation_results: Vec<ComponentValidationResult> = Vec::new();
+        let mut all_results: Vec<ComponentValidationResult> = Vec::new();
 
-        // The loop is removed as we now operate on a single focus_context.
-        // to get the set of value nodes.
+        // If the incoming context has value nodes, those are our focus nodes (for nested property shapes).
+        // Otherwise, the focus node of the incoming context is our single focus node (for top-level property shapes).
+        let focus_nodes_for_this_shape = if let Some(value_nodes) = focus_context.value_nodes() {
+            value_nodes.clone()
+        } else {
+            vec![focus_context.focus_node().clone()]
+        };
 
-        let focus_node_term = focus_context.focus_node();
-        let sparql_path = self.sparql_path();
+        for focus_node in focus_nodes_for_this_shape {
+            let sparql_path = self.sparql_path();
+            let query_str = format!(
+                "SELECT DISTINCT ?valueNode WHERE {{ {} {} ?valueNode . }}",
+                focus_node.to_string(),
+                sparql_path
+            );
 
-        let query_str = format!(
-            "SELECT DISTINCT ?valueNode WHERE {{ {} {} ?valueNode . }}",
-            focus_node_term.to_string(),
-            sparql_path
-        );
-
-        //println!(
-        //    "Executing SPARQL query for PropertyShape {}: {}",
-        //    self.identifier(),
-        //    query_str
-        //);
-        let mut query = Query::parse(&query_str, None).map_err(|e| {
-            format!(
-                "Failed to parse query for PropertyShape {}: {}",
-                self.identifier(),
-                e
-            )
-        })?;
-        query.dataset_mut().set_default_graph_as_union();
-        println!(
-            "Executing SPARQL query for PropertyShape {}: {}",
-            self.identifier(),
-            query
-        );
-
-        //println!("num triples in focus context: {}", context.store().len().unwrap());
-        // print out triples
-        //for triple in context.store().quads_for_pattern(None, None, None, None) {
-        //    println!("Triple: {:?}", triple);
-        //}
-        let results = context
-            .store()
-            .query_opt(query, QueryOptions::default())
-            .map_err(|e| {
+            let mut query = Query::parse(&query_str, None).map_err(|e| {
                 format!(
-                    "Failed to execute query for PropertyShape {}: {}",
+                    "Failed to parse query for PropertyShape {}: {}",
                     self.identifier(),
                     e
                 )
             })?;
-
-        let value_nodes_vec: Vec<Term> = match results {
-            // Renamed to avoid conflict
-            QueryResults::Solutions(solutions) => {
-                let value_node_var = Variable::new("valueNode")
-                    .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
-
-                let mut nodes = Vec::new();
-                for solution_res in solutions {
-                    let solution = solution_res.map_err(|e| e.to_string())?;
-                    if let Some(term) = solution.get(&value_node_var) {
-                        nodes.push(term.clone());
-                    } else {
-                        return Err(format!(
-                            "Missing valueNode in solution for PropertyShape {}",
-                            self.identifier()
-                        ));
-                    }
-                }
-                nodes
-            }
-            QueryResults::Boolean(_) => {
-                return Err(format!(
-                    "Unexpected boolean result for PropertyShape {} query",
-                    self.identifier()
-                ));
-            }
-            QueryResults::Graph(_) => {
-                return Err(format!(
-                    "Unexpected graph result for PropertyShape {} query",
-                    self.identifier()
-                ));
-            }
-        };
-
-        //if !value_nodes_vec.is_empty() {
-        //    println!(
-        //        "Validating PropertyShape with identifier: {}",
-        //        self.identifier()
-        //    );
-        //    println!("Path: {:?}", self.sparql_path());
-        //}
-
-        let value_nodes_opt = if value_nodes_vec.is_empty() {
-            // Renamed to avoid conflict
-            None
-        } else {
-            Some(value_nodes_vec)
-        };
-        println!(
-            "Found {} value nodes for PropertyShape {}",
-            value_nodes_opt.as_ref().map_or(0, |v| v.len()),
-            self.identifier()
-        );
-
-        let mut value_node_context = Context::new(
-            // Made mutable
-            focus_node_term.clone(),
-            Some(self.path().clone()), // PShapePath from self.path()
-            value_nodes_opt,           // Use the renamed Option<Vec<Term>>
-            SourceShape::PropertyShape(PropShapeID(self.identifier().0)),
-        );
-
-        for constraint_id in self.constraints() {
-            // constraint_id is &ComponentID
-            let component = context
-                .get_component_by_id(constraint_id)
-                .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
+            query.dataset_mut().set_default_graph_as_union();
             println!(
-                "Validating PropertyShape {} with component {} (label: {})\n value nodes: {:?}",
+                "Executing SPARQL query for PropertyShape {} on focus node {}: {}",
                 self.identifier(),
-                constraint_id,
-                component.label(),
-                value_node_context.value_nodes()
+                focus_node,
+                query
             );
 
-            // Call the component's own validation logic.
-            // It now takes component_id, &mut Context, &ValidationContext
-            // and returns Result<ComponentValidationResult, String>
-            match component.validate(*constraint_id, &mut value_node_context, context) {
-                Ok(results) => {
-                    validation_results.extend(results);
+            let results = context
+                .store()
+                .query_opt(query, QueryOptions::default())
+                .map_err(|e| {
+                    format!(
+                        "Failed to execute query for PropertyShape {}: {}",
+                        self.identifier(),
+                        e
+                    )
+                })?;
+
+            let value_nodes_vec: Vec<Term> = match results {
+                QueryResults::Solutions(solutions) => {
+                    let value_node_var = Variable::new("valueNode").map_err(|e| {
+                        format!("Internal error creating SPARQL variable: {}", e)
+                    })?;
+
+                    let mut nodes = Vec::new();
+                    for solution_res in solutions {
+                        let solution = solution_res.map_err(|e| e.to_string())?;
+                        if let Some(term) = solution.get(&value_node_var) {
+                            nodes.push(term.clone());
+                        } else {
+                            return Err(format!(
+                                "Missing valueNode in solution for PropertyShape {}",
+                                self.identifier()
+                            ));
+                        }
+                    }
+                    nodes
                 }
-                Err(e) => {
-                    // This error 'e' comes from the component's own validate method.
-                    // An internal error in a component validation should be propagated.
-                    return Err(e);
+                QueryResults::Boolean(_) => {
+                    return Err(format!(
+                        "Unexpected boolean result for PropertyShape {} query",
+                        self.identifier()
+                    ));
+                }
+                QueryResults::Graph(_) => {
+                    return Err(format!(
+                        "Unexpected graph result for PropertyShape {} query",
+                        self.identifier()
+                    ));
+                }
+            };
+
+            let value_nodes_opt = if value_nodes_vec.is_empty() {
+                None
+            } else {
+                Some(value_nodes_vec)
+            };
+            println!(
+                "Found {} value nodes for PropertyShape {} and focus node {}",
+                value_nodes_opt.as_ref().map_or(0, |v| v.len()),
+                self.identifier(),
+                focus_node
+            );
+
+            let mut constraint_validation_context = Context::new(
+                focus_node.clone(),
+                Some(self.path().clone()),
+                value_nodes_opt,
+                SourceShape::PropertyShape(PropShapeID(self.identifier().0)),
+            );
+
+            for constraint_id in self.constraints() {
+                let component = context
+                    .get_component_by_id(constraint_id)
+                    .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
+                println!(
+                    "Validating PropertyShape {} with component {} (label: {})\n on focus_node {} with value nodes: {:?}",
+                    self.identifier(),
+                    constraint_id,
+                    component.label(),
+                    focus_node,
+                    constraint_validation_context.value_nodes()
+                );
+
+                match component.validate(
+                    *constraint_id,
+                    &mut constraint_validation_context,
+                    context,
+                ) {
+                    Ok(results) => {
+                        all_results.extend(results);
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
             }
         }
-        Ok(validation_results)
+
+        Ok(all_results)
     }
 }
