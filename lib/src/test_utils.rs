@@ -71,7 +71,7 @@ fn extract_report_graph(manifest_graph: &Graph, result_node: SubjectRef) -> Grap
 
                 // Recursively handle sh:resultPath if it's a blank node
                 if triple.predicate == sh.result_path {
-                    if let TermRef::NamedNode(_) | TermRef::BlankNode(_) = triple.object {
+                    if let  TermRef::BlankNode(_) = triple.object {
                         let path_subject = triple.object.to_subject_ref();
                         extract_path_graph(manifest_graph, path_subject, &mut report_graph);
                     }

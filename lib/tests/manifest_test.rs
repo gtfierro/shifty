@@ -13,6 +13,12 @@ fn graph_to_turtle(graph: &oxigraph::model::Graph) -> Result<String, Box<dyn Err
         serializer.serialize_triple(triple)?;
     }
     let turtle_string = String::from_utf8(buffer)?;
+    // put a '.' at the end to make it a valid Turtle document
+    let turtle_string = if turtle_string.ends_with('.') {
+        turtle_string
+    } else {
+        format!("{}\n.", turtle_string)
+    };
     Ok(turtle_string)
 }
 
@@ -62,10 +68,30 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
                 test_name, e
             )
         })?;
+        // write to report.ttl
+        let report_path = PathBuf::from("report.ttl");
+        std::fs::write(&report_path, report_turtle.as_bytes()).map_err(|e| {
+            format!(
+                "Failed to write report to {} for test '{}': {}",
+                report_path.display(),
+                test_name,
+                e
+            )
+        })?;
         let expected_turtle = graph_to_turtle(&test.expected_report).map_err(|e| {
             format!(
                 "Failed to convert expected report graph to Turtle for test '{}': {}",
                 test_name, e
+            )
+        })?;
+        // write to expected.ttl
+        let expected_path = PathBuf::from("expected.ttl");
+        std::fs::write(&expected_path, expected_turtle.as_bytes()).map_err(|e| {
+            format!(
+                "Failed to write expected report to {} for test '{}': {}",
+                expected_path.display(),
+                test_name,
+                e
             )
         })?;
         assert_eq!(
