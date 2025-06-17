@@ -75,11 +75,13 @@ impl PropertyShape {
         // Changed to a single mutable Context reference
         focus_context: &mut Context, // Changed to &mut Context
         context: &ValidationContext,
-        rb: &mut ValidationReportBuilder,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<(Context, String)>, String> {
         focus_context.record_property_shape_visit(*self.identifier()); // Record PropertyShape visit
-                                                                       // The loop is removed as we now operate on a single focus_context.
-                                                                       // to get the set of value nodes.
+
+        let mut validation_results = Vec::new();
+
+        // The loop is removed as we now operate on a single focus_context.
+        // to get the set of value nodes.
 
         let focus_node_term = focus_context.focus_node();
         let sparql_path = self.sparql_path();
@@ -195,23 +197,22 @@ impl PropertyShape {
                         }
                         ComponentValidationResult::SubShape(results) => {
                             // A sub-shape validation produced results. Add them to the report.
-                            for (ctx, err) in results {
-                                rb.add_error(&ctx, err);
-                            }
+                            validation_results.extend(results);
                         }
                         ComponentValidationResult::Fail(failure) => {
                             // The component failed, add the failure message to the report.
-                            rb.add_error(&value_node_context, failure.message);
+                            validation_results
+                                .push((value_node_context.clone(), failure.message));
                         }
                     }
                 }
                 Err(e) => {
                     // This error 'e' comes from the component's own validate method.
                     // PropertyShape is responsible for adding this to the report builder.
-                    rb.add_error(&value_node_context, e);
+                    validation_results.push((value_node_context.clone(), e));
                 }
             }
         }
-        Ok(())
+        Ok(validation_results)
     }
 }
