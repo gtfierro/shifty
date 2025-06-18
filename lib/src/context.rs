@@ -386,11 +386,11 @@ impl ValidationContext {
         &self.env
     }
 
-    pub fn shape_graph_iri_ref(&self) -> GraphNameRef {
+    pub fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
         GraphNameRef::NamedNode(self.shape_graph_iri.as_ref())
     }
 
-    pub fn data_graph_iri_ref(&self) -> GraphNameRef {
+    pub fn data_graph_iri_ref(&self) -> GraphNameRef<'_> {
         GraphNameRef::NamedNode(self.data_graph_iri.as_ref())
     }
 

@@ -45,15 +45,15 @@ pub struct ValidationFailure {
 }
 
 pub trait ToSubjectRef {
-    fn to_subject_ref(&self) -> SubjectRef;
-    fn try_to_subject_ref(&self) -> Result<SubjectRef, String>;
+    fn to_subject_ref(&self) -> SubjectRef<'_>;
+    fn try_to_subject_ref(&self) -> Result<SubjectRef<'_>, String>;
 }
 
 impl ToSubjectRef for Term {
-    fn to_subject_ref(&self) -> SubjectRef {
+    fn to_subject_ref(&self) -> SubjectRef<'_> {
         self.try_to_subject_ref().expect("Invalid subject term")
     }
-    fn try_to_subject_ref(&self) -> Result<SubjectRef, String> {
+    fn try_to_subject_ref(&self) -> Result<SubjectRef<'_>, String> {
         match self {
             Term::NamedNode(n) => Ok(n.into()),
             Term::BlankNode(b) => Ok(b.into()),
