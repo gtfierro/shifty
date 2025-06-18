@@ -80,9 +80,9 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             }
         }
 
-        // Calculate C: the number of value nodes v where v conforms to $qualifiedValueShape
-        // and where v does not conform to any of the sibling shapes.
         let mut qualified_nodes_count = 0;
+        let mut validation_results = Vec::new();
+
         for value_node in &value_nodes {
             // Check conformance to target_node_shape
             let mut value_node_as_context = Context::new(
@@ -105,6 +105,8 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 continue;
             }
 
+            // At this point, value_node conforms to the target shape.
+
             // Check if it conforms to any sibling shape
             let mut conforms_to_sibling = false;
             for sibling_shape in &sibling_shapes {
@@ -121,7 +123,18 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 )? {
                     ConformanceReport::Conforms => {
                         conforms_to_sibling = true;
-                        break;
+
+                        // If disjoint is true, this is a failure.
+                        if self.disjoint.unwrap_or(false) {
+                            let failure = ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!("Value {:?} conforms to both this sh:qualifiedValueShape and a sibling, but sh:qualifiedValueShapesDisjoint is true.", value_node),
+                            };
+                            validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
+                        }
+
+                        break; // Found a conforming sibling, no need to check others for this value_node
                     }
                     ConformanceReport::NonConforms(_) => {}
                 }
@@ -131,8 +144,6 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 qualified_nodes_count += 1;
             }
         }
-
-        let mut validation_results = Vec::new();
 
         // Check min/max counts
         if let Some(min) = self.min_count {
@@ -160,54 +171,6 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                     ),
                 };
                 validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
-            }
-        }
-
-        // Check for sh:qualifiedValueShapesDisjoint
-        if self.disjoint.unwrap_or(false) {
-            for value_node in &value_nodes {
-                let mut value_node_as_context = Context::new(
-                    value_node.clone(),
-                    None,
-                    Some(vec![value_node.clone()]),
-                    SourceShape::NodeShape(*target_node_shape.identifier()),
-                );
-
-                let conforms_to_target = match check_conformance_for_node(
-                    &mut value_node_as_context,
-                    target_node_shape,
-                    validation_context,
-                )? {
-                    ConformanceReport::Conforms => true,
-                    ConformanceReport::NonConforms(_) => false,
-                };
-
-                if !conforms_to_target {
-                    continue;
-                }
-
-                // This node conforms to our shape. Now check if it conforms to any sibling.
-                for sibling_shape in &sibling_shapes {
-                    let mut sibling_check_context = Context::new(
-                        value_node.clone(),
-                        None,
-                        Some(vec![value_node.clone()]),
-                        SourceShape::NodeShape(*sibling_shape.identifier()),
-                    );
-                    if let ConformanceReport::Conforms = check_conformance_for_node(
-                        &mut sibling_check_context,
-                        sibling_shape,
-                        validation_context,
-                    )? {
-                        let failure = ValidationFailure {
-                            component_id,
-                            failed_value_node: Some(value_node.clone()),
-                            message: format!("Value {:?} conforms to both this sh:qualifiedValueShape and a sibling, but sh:qualifiedValueShapesDisjoint is true.", value_node),
-                        };
-                        validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
-                        break; // One violation is enough for this value node
-                    }
-                }
             }
         }
 
