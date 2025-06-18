@@ -39,20 +39,9 @@ impl ValidateShape for NodeShape {
                 // Call the component's own validation logic.
                 // It now takes component_id, &mut Context, &ValidationContext
                 // and returns Result<Vec<ComponentValidationResult>, String>
-                println!(
-                    "Validating NodeShape {} with component {} (label: {})",
-                    self.identifier(),
-                    constraint_id,
-                    comp.label()
-                );
                 match comp.validate(*constraint_id, &mut target_context, context) {
                     Ok(validation_results) => {
                         use crate::components::ComponentValidationResult;
-                        println!(
-                            "  Component {} returned {} validation results",
-                            constraint_id,
-                            validation_results.len()
-                        );
                         for result in validation_results {
                             if let ComponentValidationResult::Fail(ctx, failure) = result {
                                 rb.add_error(&ctx, failure.message);
@@ -105,12 +94,6 @@ impl PropertyShape {
                 )
             })?;
             query.dataset_mut().set_default_graph_as_union();
-            println!(
-                "Executing SPARQL query for PropertyShape {} on focus node {}: {}",
-                self.identifier(),
-                focus_node,
-                query
-            );
 
             let results = context
                 .store()
@@ -162,12 +145,6 @@ impl PropertyShape {
             } else {
                 Some(value_nodes_vec)
             };
-            println!(
-                "Found {} value nodes for PropertyShape {} and focus node {}",
-                value_nodes_opt.as_ref().map_or(0, |v| v.len()),
-                self.identifier(),
-                focus_node
-            );
 
             let mut constraint_validation_context = Context::new(
                 focus_node.clone(),
@@ -180,14 +157,6 @@ impl PropertyShape {
                 let component = context
                     .get_component_by_id(constraint_id)
                     .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
-                println!(
-                    "Validating PropertyShape {} with component {} (label: {})\n on focus_node {} with value nodes: {:?}",
-                    self.identifier(),
-                    constraint_id,
-                    component.label(),
-                    focus_node,
-                    constraint_validation_context.value_nodes()
-                );
 
                 match component.validate(
                     *constraint_id,
