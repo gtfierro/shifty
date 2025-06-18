@@ -254,7 +254,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             {
                 let current_prop_shape_id = if let SourceShape::PropertyShape(id) = c.source_shape()
                 {
-                    *id
+                    id
                 } else {
                     return Err(
                         "QualifiedValueShapeComponent must be attached to a PropertyShape"
