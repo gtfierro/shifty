@@ -138,7 +138,7 @@ impl ValidateComponent for ClosedConstraintComponent {
                 if let Some(component) = validation_context.get_component_by_id(constraint_com_id) {
                     if let Component::PropertyConstraint(pc) = component {
                         if let Some(prop_shape) =
-                            validation_context.get_prop_shape_by_id(&pc.shape)
+                            validation_context.get_prop_shape_by_id(pc.get_shape())
                         {
                             if let Path::Simple(Term::NamedNode(p)) = prop_shape.path() {
                                 allowed_properties.insert(p.clone());
