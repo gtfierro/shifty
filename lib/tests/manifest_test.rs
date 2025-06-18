@@ -1,9 +1,10 @@
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use shacl::canonicalization::are_isomorphic;
+use shacl::canonicalization::{are_isomorphic, deskolemize_graph};
 use shacl::context::ValidationContext;
 use shacl::test_utils::{load_manifest, TestCase};
 use std::error::Error;
 use std::path::PathBuf;
+use url::Url;
 
 fn graph_to_turtle(graph: &oxigraph::model::Graph) -> Result<String, Box<dyn Error>> {
     let mut buffer = Vec::new();
@@ -61,6 +62,13 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
         let conforms = report.results().is_empty();
         let expects_conform = test.conforms;
         let report_graph = report.to_graph(&context);
+
+        // Deskolemize the report graph before comparison
+        let base_iri = Url::from_file_path(test.data_graph_path.canonicalize()?)
+            .map_err(|()| "Failed to create file URL for data graph")?
+            .to_string();
+        let report_graph = deskolemize_graph(&report_graph, &base_iri);
+
         let report_turtle = graph_to_turtle(&report_graph).map_err(|e| {
             format!(
                 "Failed to convert report graph to Turtle for test '{}': {}",

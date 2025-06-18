@@ -586,3 +586,62 @@ pub fn deskolemize(
         Ok(())
     })
 }
+
+/// Replaces skolem IRIs in a graph with blank nodes (Deskolemization).
+///
+/// This is the reverse operation of `skolemize`. It looks for IRIs that start with
+/// a given `base_iri` and replaces them with blank nodes. The identifier for the
+/// new blank node is taken from the part of the IRI that follows the `base_iri`.
+///
+/// # Arguments
+///
+/// * `graph` - The `oxigraph::model::Graph` to perform deskolemization on.
+/// * `base_iri` - The base IRI that was used for generating skolem IRIs.
+///
+/// # Returns
+///
+/// A new `Graph` with skolem IRIs replaced by blank nodes.
+pub fn deskolemize_graph(graph: &Graph, base_iri: &str) -> Graph {
+    let mut skolem_iris_to_bnode = HashMap::<NamedNode, BlankNode>::new();
+    let mut new_graph = Graph::new();
+
+    for triple in graph.iter() {
+        let new_subject = if let SubjectRef::NamedNode(nn) = triple.subject {
+            if nn.as_str().starts_with(base_iri) {
+                let bnode = skolem_iris_to_bnode.entry(nn.into_owned()).or_insert_with(|| {
+                    let bnode_id = &nn.as_str()[base_iri.len()..];
+                    BlankNode::new_unchecked(bnode_id)
+                });
+                Subject::from(bnode.clone())
+            } else {
+                triple.subject.into_owned()
+            }
+        } else {
+            triple.subject.into_owned()
+        };
+
+        let new_object = if let TermRef::NamedNode(nn) = triple.object {
+            if nn.as_str().starts_with(base_iri) {
+                let bnode = skolem_iris_to_bnode.entry(nn.into_owned()).or_insert_with(|| {
+                    let bnode_id = &nn.as_str()[base_iri.len()..];
+                    BlankNode::new_unchecked(bnode_id)
+                });
+                Term::from(bnode.clone())
+            } else {
+                triple.object.into_owned()
+            }
+        } else {
+            triple.object.into_owned()
+        };
+
+        new_graph.insert(
+            Triple::new(
+                new_subject,
+                triple.predicate.into_owned(),
+                new_object,
+            )
+            .as_ref(),
+        );
+    }
+    new_graph
+}
