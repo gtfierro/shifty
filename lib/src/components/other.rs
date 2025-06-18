@@ -1,12 +1,11 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
-use crate::types::{ComponentID, Path};
+use crate::types::ComponentID;
 use oxigraph::model::{NamedNode, Term};
 use std::collections::HashSet;
 use std::vec::Vec;
 
 use super::{
-    Component, ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent,
-    ValidationFailure,
+    ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 
 impl ValidateComponent for InConstraintComponent {
