@@ -1,4 +1,5 @@
-use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext};
+use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext, TraceItem};
+use crate::shape::NodeShape;
 use crate::types::{ComponentID, PropShapeID, ID};
 use oxigraph::model::NamedNode;
 // Removed: use oxigraph::model::Term;
@@ -238,34 +239,60 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             return Err(format!("sh:qualifiedValueShape referenced shape {:?} not found", self.shape));
         };
 
-        // Get sibling QualifiedValueShape shapes
-        let mut sibling_shapes = Vec::new();
-        if let Some(source_prop_id) = c.source_shape().as_prop_id() {
-            if let Some(source_prop_shape) =
-                validation_context.get_prop_shape_by_id(source_prop_id)
-            {
-                for sibling_component_id in source_prop_shape.constraints() {
-                    if sibling_component_id == &component_id {
-                        continue;
-                    }
+        let mut sibling_shapes: Vec<&NodeShape> = Vec::new();
+        if self.disjoint.unwrap_or(false) {
+            // Per SHACL spec, sibling shapes are only considered for counting and disjointness
+            // if sh:qualifiedValueShapesDisjoint is true.
 
-                    if let Some(super::Component::QualifiedValueShape(sibling_qvs)) =
-                        validation_context.get_component_by_id(sibling_component_id)
+            // Find the parent NodeShape from the execution trace.
+            let parent_node_shape_id = c.execution_trace().iter().rev().find_map(|item| {
+                if let TraceItem::NodeShape(id) = item { Some(*id) } else { None }
+            }).ok_or_else(|| "Could not find parent node shape in execution trace for QualifiedValueShapeComponent".to_string())?;
+
+            if let Some(parent_node_shape) =
+                validation_context.get_node_shape_by_id(&parent_node_shape_id)
+            {
+                let current_prop_shape_id = if let SourceShape::PropertyShape(id) = c.source_shape()
+                {
+                    *id
+                } else {
+                    return Err(
+                        "QualifiedValueShapeComponent must be attached to a PropertyShape"
+                            .to_string(),
+                    );
+                };
+
+                // Iterate over the properties of the parent node shape to find sibling property shapes.
+                for constraint_id in parent_node_shape.constraints() {
+                    if let Some(super::Component::PropertyConstraint(prop_constraint)) =
+                        validation_context.get_component_by_id(constraint_id)
                     {
-                        if let Some(sibling_target_shape) =
-                            validation_context.get_node_shape_by_id(&sibling_qvs.shape)
+                        let sibling_prop_shape_id = prop_constraint.shape();
+
+                        if *sibling_prop_shape_id == current_prop_shape_id {
+                            continue;
+                        }
+
+                        // This is a sibling property shape. Get its qualified value shapes.
+                        if let Some(sibling_prop_shape) =
+                            validation_context.get_prop_shape_by_id(sibling_prop_shape_id)
                         {
-                            sibling_shapes.push(sibling_target_shape);
+                            for sibling_component_id in sibling_prop_shape.constraints() {
+                                if let Some(super::Component::QualifiedValueShape(qvs)) =
+                                    validation_context.get_component_by_id(sibling_component_id)
+                                {
+                                    if let Some(sibling_node_shape) =
+                                        validation_context.get_node_shape_by_id(&qvs.shape)
+                                    {
+                                        sibling_shapes.push(sibling_node_shape);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        println!(
-            "QualifiedValueShapeComponent: Found {} sibling shapes for component {:?}",
-            sibling_shapes.len(),
-            component_id
-        );
 
         let mut qualified_nodes_count = 0;
         let mut validation_results = Vec::new();
@@ -296,50 +323,42 @@ impl ValidateComponent for QualifiedValueShapeComponent {
 
             // Check if it conforms to any sibling shape
             let mut conforms_to_sibling = false;
-            for sibling_shape in &sibling_shapes {
-                let mut sibling_check_context = Context::new(
-                    value_node.clone(),
-                    None,
-                    Some(vec![value_node.clone()]),
-                    SourceShape::NodeShape(*sibling_shape.identifier()),
-                );
-                match check_conformance_for_node(
-                    &mut sibling_check_context,
-                    sibling_shape,
-                    validation_context,
-                )? {
-                    ConformanceReport::Conforms => {
-                        conforms_to_sibling = true;
+            if !sibling_shapes.is_empty() {
+                for sibling_shape in &sibling_shapes {
+                    let mut sibling_check_context = Context::new(
+                        value_node.clone(),
+                        None,
+                        Some(vec![value_node.clone()]),
+                        SourceShape::NodeShape(*sibling_shape.identifier()),
+                    );
+                    match check_conformance_for_node(
+                        &mut sibling_check_context,
+                        sibling_shape,
+                        validation_context,
+                    )? {
+                        ConformanceReport::Conforms => {
+                            conforms_to_sibling = true;
 
-                        // If disjoint is true, this is a failure.
-                        if self.disjoint.unwrap_or(false) {
+                            // If disjoint is true, this is a failure. We know it is because sibling_shapes is not empty.
                             let failure = ValidationFailure {
                                 component_id,
                                 failed_value_node: Some(value_node.clone()),
                                 message: format!("Value {:?} conforms to both this sh:qualifiedValueShape and a sibling, but sh:qualifiedValueShapesDisjoint is true.", value_node),
                             };
-                            validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
-                        }
+                            validation_results
+                                .push(ComponentValidationResult::Fail(c.clone(), failure));
 
-                        break; // Found a conforming sibling, no need to check others for this value_node
+                            break; // Found a conforming sibling, no need to check others for this value_node
+                        }
+                        ConformanceReport::NonConforms(_) => {}
                     }
-                    ConformanceReport::NonConforms(_) => {}
                 }
             }
 
             if !conforms_to_sibling {
-                println!(
-                    "QualifiedValueShapeComponent: Value {:?} conforms to shape {:?} and not to any sibling shapes.",
-                    value_node, self.shape
-                );
                 qualified_nodes_count += 1;
             }
         }
-
-        println!(
-            "QualifiedValueShapeComponent: Found {} qualified nodes for shape {:?} (min_count: {:?}, max_count: {:?}) (focus node: {:?})",
-            qualified_nodes_count, self.shape, self.min_count, self.max_count, c.focus_node()
-        );
 
         // Check min/max counts
         if let Some(min) = self.min_count {

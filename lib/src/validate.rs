@@ -152,6 +152,7 @@ impl PropertyShape {
                 value_nodes_opt,
                 SourceShape::PropertyShape(PropShapeID(self.identifier().0)),
             );
+            constraint_validation_context.execution_trace = focus_context.execution_trace.clone();
 
             for constraint_id in self.constraints() {
                 let component = context
