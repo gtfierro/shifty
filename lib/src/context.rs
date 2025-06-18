@@ -565,6 +565,10 @@ impl Context {
     pub fn with_value(&mut self, value: Term) {
         self.value = Some(value);
     }
+    
+    pub fn with_execution_trace(&mut self, trace: Vec<TraceItem>) {
+        self.execution_trace = trace;
+    }
 
     pub fn value(&self) -> Option<&Term> {
         self.value.as_ref()

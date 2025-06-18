@@ -338,16 +338,6 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                     )? {
                         ConformanceReport::Conforms => {
                             conforms_to_sibling = true;
-
-                            // If disjoint is true, this is a failure. We know it is because sibling_shapes is not empty.
-                            let failure = ValidationFailure {
-                                component_id,
-                                failed_value_node: Some(value_node.clone()),
-                                message: format!("Value {:?} conforms to both this sh:qualifiedValueShape and a sibling, but sh:qualifiedValueShapesDisjoint is true.", value_node),
-                            };
-                            validation_results
-                                .push(ComponentValidationResult::Fail(c.clone(), failure));
-
                             break; // Found a conforming sibling, no need to check others for this value_node
                         }
                         ConformanceReport::NonConforms(_) => {}
