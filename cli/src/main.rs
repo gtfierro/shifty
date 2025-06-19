@@ -3,7 +3,8 @@ use env_logger;
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use oxigraph::io::RdfFormat;
-use shacl::context::{TraceItem, ValidationContext};
+use shacl::context::ValidationContext;
+use shacl::report::ValidationReport;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -143,22 +144,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok_or_else(|| "Invalid data file path")?,
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
-            let report_builder = ctx.validate();
+            let report: ValidationReport = ctx.validate()?;
 
             match args.format {
                 ValidateOutputFormat::Turtle => {
-                    let report = report_builder.to_turtle(&ctx)?;
+                    let report = report.to_turtle()?;
                     println!("{}", report);
                 }
                 ValidateOutputFormat::Dump => {
-                    report_builder.dump();
+                    report.dump(&ctx);
                 }
                 ValidateOutputFormat::RdfXml => {
-                    let report = report_builder.to_rdf(&ctx, RdfFormat::RdfXml)?;
+                    let report = report.to_rdf(RdfFormat::RdfXml)?;
                     println!("{}", report);
                 }
                 ValidateOutputFormat::NTriples => {
-                    let report = report_builder.to_rdf(&ctx, RdfFormat::NTriples)?;
+                    let report = report.to_rdf(RdfFormat::NTriples)?;
                     println!("{}", report);
                 }
             }
@@ -174,22 +175,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
 
-            let report_builder = ctx.validate();
+            let report = ctx.validate()?;
 
-            let mut frequencies: HashMap<TraceItem, usize> = HashMap::new();
-            for (context, _) in report_builder.results() {
-                for item in context.execution_trace() {
-                    *frequencies.entry(item.clone()).or_insert(0) += 1;
-                }
-            }
+            let frequencies: HashMap<(String, String, String), usize> =
+                report.get_component_frequencies(&ctx);
 
-            let mut sorted_frequencies: Vec<(TraceItem, usize)> = frequencies.into_iter().collect();
+            let mut sorted_frequencies: Vec<_> = frequencies.into_iter().collect();
             sorted_frequencies.sort_by(|a, b| b.1.cmp(&a.1));
 
-            println!("Label\tType\tInvocations");
-            for (item, count) in sorted_frequencies {
-                let (label, item_type) = ctx.get_trace_item_label_and_type(&item);
-                println!("{}\t{}\t{}\t{}", item.to_string(), label, item_type, count);
+            println!("ID\tLabel\tType\tInvocations");
+            for ((id, label, item_type), count) in sorted_frequencies {
+                println!("{}\t{}\t{}\t{}", id, label, item_type, count);
             }
         }
     }
