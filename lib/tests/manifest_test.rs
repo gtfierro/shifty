@@ -1,7 +1,7 @@
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use shacl::canonicalization::{are_isomorphic, deskolemize_graph};
-use shacl::context::ValidationContext;
 use shacl::test_utils::{load_manifest, TestCase};
+use shacl::Validator;
 use std::error::Error;
 use std::path::PathBuf;
 use url::Url;
@@ -51,22 +51,25 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
             .shapes_graph_path
             .to_str()
             .ok_or("Invalid shapes graph path")?;
-        let context =
-            ValidationContext::from_files(shapes_graph_path, data_graph_path).map_err(|e| {
+        let validator =
+            Validator::from_files(shapes_graph_path, data_graph_path).map_err(|e| {
                 format!(
-                    "Failed to create ValidationContext for test '{}': {}",
+                    "Failed to create Validator for test '{}': {}",
                     test_name, e
                 )
             })?;
-        let report = context.validate();
-        let conforms = report.results().is_empty();
+        let report = validator.validate();
+        let conforms = report.conforms();
         let expects_conform = test.conforms;
-        let report_graph = report.to_graph(&context);
+        let report_graph = report.to_graph();
 
         // Deskolemize the report graph before comparison
-        let base_iri = Url::from_file_path(test.data_graph_path.canonicalize()?)
-            .map_err(|()| "Failed to create file URL for data graph")?
-            .to_string();
+        let data_graph_url = Url::from_file_path(test.data_graph_path.canonicalize()?)
+            .map_err(|()| "Failed to create file URL for data graph")?;
+        let base_iri = format!(
+            "{}/.well-known/skolem/",
+            data_graph_url.as_str().trim_end_matches('/')
+        );
         let report_graph = deskolemize_graph(&report_graph, &base_iri);
 
         let report_turtle = graph_to_turtle(&report_graph).map_err(|e| {
