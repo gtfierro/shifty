@@ -48,7 +48,15 @@ impl<'a> ValidationReport<'a> {
 
     /// Dumps a summary of the validation report to the console for debugging.
     pub fn dump(&self) {
-        self.builder.dump()
+        self.builder.dump(self.context)
+    }
+
+    /// Calculates the frequency of each component, node shape, and property shape invocation
+    /// across all validation failures.
+    ///
+    /// Returns a HashMap where the key is a tuple of (ID, Label, Type) and the value is the count.
+    pub fn get_component_frequencies(&self) -> HashMap<(String, String, String), usize> {
+        self.builder.get_component_frequencies(self.context)
     }
 }
 
@@ -72,6 +80,21 @@ impl ValidationReportBuilder {
 
     pub fn results(&self) -> &[(Context, String)] {
         &self.results
+    }
+
+    pub fn get_component_frequencies(
+        &self,
+        validation_context: &ValidationContext,
+    ) -> HashMap<(String, String, String), usize> {
+        let mut frequencies: HashMap<(String, String, String), usize> = HashMap::new();
+        for (context, _) in &self.results {
+            for item in context.execution_trace() {
+                let (label, item_type) = validation_context.get_trace_item_label_and_type(item);
+                let id = item.to_string();
+                *frequencies.entry((id, label, item_type)).or_insert(0) += 1;
+            }
+        }
+        frequencies
     }
 
     pub fn to_graph(&self, validation_context: &ValidationContext) -> Graph {
@@ -206,7 +229,7 @@ impl ValidationReportBuilder {
         self.to_rdf(validation_context, RdfFormat::Turtle)
     }
 
-    pub fn dump(&self) {
+    pub fn dump(&self, validation_context: &ValidationContext) {
         if self.results.is_empty() {
             println!("Validation report: No errors found.");
             return;
@@ -228,8 +251,18 @@ impl ValidationReportBuilder {
             println!("\nFocus Node: {}", focus_node);
             for (context, error) in context_error_pairs {
                 println!("  - Error: {}", error);
-                println!("    From shape: {}", context.source_shape());
-                println!("    Trace: {:?}", context.execution_trace());
+                if let Some(source_shape_term) = context.source_shape().get_term(validation_context)
+                {
+                    println!("    From shape: {}", source_shape_term);
+                } else {
+                    println!("    From shape: {}", context.source_shape());
+                }
+
+                println!("    Trace:");
+                for item in context.execution_trace() {
+                    let (label, item_type) = validation_context.get_trace_item_label_and_type(item);
+                    println!("      - {} ({}) - {}", item.to_string(), item_type, label);
+                }
             }
         }
         println!("\n------------------");
