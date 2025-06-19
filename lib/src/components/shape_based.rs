@@ -1,6 +1,6 @@
-use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext, TraceItem};
+use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext};
 use crate::shape::NodeShape;
-use crate::types::{ComponentID, PropShapeID, ID};
+use crate::types::{ComponentID, PropShapeID, TraceItem, ID};
 use oxigraph::model::NamedNode;
 // Removed: use oxigraph::model::Term;
 
