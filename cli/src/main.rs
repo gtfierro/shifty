@@ -3,8 +3,7 @@ use env_logger;
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use oxigraph::io::RdfFormat;
-use shacl::context::ValidationContext;
-use shacl::report::ValidationReport;
+use shacl::Validator;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -94,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Graphviz(args) => {
-            let ctx = ValidationContext::from_files(
+            let validator = Validator::from_files(
                 args.shapes_file
                     .to_str()
                     .ok_or_else(|| "Invalid shapes file path")?,
@@ -103,11 +102,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok_or_else(|| "Invalid data file path")?,
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
-            let dot_string = ctx.graphviz()?;
+            let dot_string = validator.to_graphviz()?;
             println!("{}", dot_string);
         }
         Commands::Pdf(args) => {
-            let ctx = ValidationContext::from_files(
+            let validator = Validator::from_files(
                 args.shapes_file
                     .to_str()
                     .ok_or_else(|| "Invalid shapes file path")?,
@@ -116,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok_or_else(|| "Invalid data file path")?,
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
-            let dot_string = ctx.graphviz()?;
+            let dot_string = validator.to_graphviz()?;
 
             let output_format = Format::Pdf;
             let output_file_path_str = args
@@ -135,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("PDF generated at: {}", args.output_file.display());
         }
         Commands::Validate(args) => {
-            let ctx = ValidationContext::from_files(
+            let validator = Validator::from_files(
                 args.shapes_file
                     .to_str()
                     .ok_or_else(|| "Invalid shapes file path")?,
@@ -144,28 +143,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok_or_else(|| "Invalid data file path")?,
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
-            let report: ValidationReport = ctx.validate();
+            let report = validator.validate();
 
             match args.format {
                 ValidateOutputFormat::Turtle => {
-                    let report = report.to_turtle()?;
-                    println!("{}", report);
+                    let report_str = report.to_turtle()?;
+                    println!("{}", report_str);
                 }
                 ValidateOutputFormat::Dump => {
                     report.dump();
                 }
                 ValidateOutputFormat::RdfXml => {
-                    let report = report.to_rdf(RdfFormat::RdfXml)?;
-                    println!("{}", report);
+                    let report_str = report.to_rdf(RdfFormat::RdfXml)?;
+                    println!("{}", report_str);
                 }
                 ValidateOutputFormat::NTriples => {
-                    let report = report.to_rdf(RdfFormat::NTriples)?;
-                    println!("{}", report);
+                    let report_str = report.to_rdf(RdfFormat::NTriples)?;
+                    println!("{}", report_str);
                 }
             }
         }
         Commands::Heat(args) => {
-            let ctx = ValidationContext::from_files(
+            let validator = Validator::from_files(
                 args.shapes_file
                     .to_str()
                     .ok_or_else(|| "Invalid shapes file path")?,
@@ -175,10 +174,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
 
-            let report = ctx.validate();
+            let report = validator.validate();
 
             let frequencies: HashMap<(String, String, String), usize> =
-                report.get_component_frequencies(&ctx);
+                report.get_component_frequencies();
 
             let mut sorted_frequencies: Vec<_> = frequencies.into_iter().collect();
             sorted_frequencies.sort_by(|a, b| b.1.cmp(&a.1));
