@@ -265,6 +265,117 @@ impl ValidationContext {
         Ok(dot_string)
     }
 
+    /// Generates a Graphviz DOT string representation of the shapes, with nodes colored by execution frequency.
+    pub(crate) fn graphviz_heatmap(&self) -> Result<String, String> {
+        let mut frequencies: HashMap<TraceItem, usize> = HashMap::new();
+        for trace in self.execution_traces.borrow().iter() {
+            for item in trace.iter() {
+                *frequencies.entry(item.clone()).or_insert(0) += 1;
+            }
+        }
+
+        let max_freq = frequencies.values().max().copied().unwrap_or(1) as f32;
+
+        let get_color = |count: usize| -> String {
+            if count == 0 {
+                return "#FFFFFF".to_string(); // white for not visited
+            }
+            let ratio = count as f32 / max_freq;
+            // from white (255,255,255) to dark red (139,0,0)
+            let r = (255.0 - (255.0 - 139.0) * ratio) as u8;
+            let g = (255.0 - (255.0 - 0.0) * ratio) as u8;
+            let b = (255.0 - (255.0 - 0.0) * ratio) as u8;
+            format!("#{:02X}{:02X}{:02X}", r, g, b)
+        };
+
+        let mut dot_string = String::new();
+        dot_string.push_str("digraph {\n");
+        dot_string.push_str("    node [style=filled];\n");
+
+        // Node Shapes
+        for shape in self.node_shapes.values() {
+            let trace_item = TraceItem::NodeShape(*shape.identifier());
+            let count = frequencies.get(&trace_item).copied().unwrap_or(0);
+            let color = get_color(count);
+
+            let name = self
+                .nodeshape_id_lookup
+                .borrow()
+                .id_to_term
+                .get(shape.identifier())
+                .ok_or_else(|| format!("Missing term for nodeshape ID: {:?}", shape.identifier()))?
+                .clone();
+            let name_label = format_term_for_label(&name);
+            dot_string.push_str(&format!(
+                "  {} [label=\"NodeShape\\n{}\", fillcolor=\"{}\"];\n",
+                shape.identifier().to_graphviz_id(),
+                name_label,
+                color
+            ));
+            for comp in shape.constraints() {
+                dot_string.push_str(&format!(
+                    "    {} -> {};\n",
+                    shape.identifier().to_graphviz_id(),
+                    comp.to_graphviz_id()
+                ));
+            }
+        }
+
+        // Property Shapes
+        for pshape in self.prop_shapes.values() {
+            let trace_item = TraceItem::PropertyShape(*pshape.identifier());
+            let count = frequencies.get(&trace_item).copied().unwrap_or(0);
+            let color = get_color(count);
+
+            let _name = self
+                .propshape_id_lookup
+                .borrow()
+                .id_to_term
+                .get(pshape.identifier())
+                .ok_or_else(|| {
+                    format!("Missing term for propshape ID: {:?}", pshape.identifier())
+                })?
+                .clone();
+
+            let path_label = pshape.sparql_path();
+            dot_string.push_str(&format!(
+                "  {} [label=\"PropertyShape\\nPath: {}\", fillcolor=\"{}\"];\n",
+                pshape.identifier().to_graphviz_id(),
+                path_label,
+                color
+            ));
+            for comp in pshape.constraints() {
+                dot_string.push_str(&format!(
+                    "    {} -> {};\n",
+                    pshape.identifier().to_graphviz_id(),
+                    comp.to_graphviz_id()
+                ));
+            }
+        }
+
+        // Components
+        for (ident, comp) in self.components.iter() {
+            let trace_item = TraceItem::Component(*ident);
+            let count = frequencies.get(&trace_item).copied().unwrap_or(0);
+            let color = get_color(count);
+
+            let comp_str = comp.to_graphviz_string(*ident, self);
+            for line in comp_str.lines() {
+                let mut modified_line = line.to_string();
+                if let Some(start_pos) = modified_line.find('[') {
+                    if modified_line.rfind(']').is_some() {
+                        let color_attr = format!("fillcolor=\"{}\", ", color);
+                        modified_line.insert_str(start_pos + 1, &color_attr);
+                    }
+                }
+                dot_string.push_str(&format!("    {}\n", modified_line.trim()));
+            }
+        }
+
+        dot_string.push_str("}\n");
+        Ok(dot_string)
+    }
+
     // Loads triples from a file into the specified named graph of the given store.
     fn load_graph_into_store(
         store: &Store,
