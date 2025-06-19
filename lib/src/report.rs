@@ -184,6 +184,10 @@ impl ValidationReportBuilder {
 
                 let traces = validation_context.execution_traces.borrow();
                 if let Some(trace) = traces.get(context.trace_index()) {
+                    println!("\n\n\nTrace for context: {:?}", context);
+                    for item in trace.iter().rev() {
+                        println!("trace item: {:?}", item.label(validation_context));
+                    }
                     for item in trace.iter().rev() {
                         println!("trace item: {:?}", item);
                         match item {
