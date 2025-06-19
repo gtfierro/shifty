@@ -220,7 +220,7 @@ impl ValidationReportBuilder {
                     graph.insert(&Triple::new(
                         result_node.clone(),
                         sh.source_constraint_component,
-                        term.into(),
+                        term,
                     ));
                 }
             }
