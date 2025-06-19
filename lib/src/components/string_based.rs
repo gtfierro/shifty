@@ -1,5 +1,5 @@
 use crate::context::{sanitize_graphviz_string, Context, ValidationContext};
-use crate::types::ComponentID;
+use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
 use std::collections::HashSet;
@@ -42,6 +42,7 @@ impl ValidateComponent for MinLengthConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut results = Vec::new();
         if let Some(value_nodes) = c.value_nodes() {
@@ -127,6 +128,7 @@ impl ValidateComponent for MaxLengthConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut results = Vec::new();
         if let Some(value_nodes) = c.value_nodes() {
@@ -215,6 +217,7 @@ impl ValidateComponent for PatternConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut pattern_builder = regex::RegexBuilder::new(&self.pattern);
         if let Some(flags) = &self.flags {
@@ -350,6 +353,7 @@ impl ValidateComponent for LanguageInConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut results = Vec::new();
         if let Some(value_nodes) = c.value_nodes() {
@@ -442,6 +446,7 @@ impl ValidateComponent for UniqueLangConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if !self.unique_lang {
             return Ok(vec![]);

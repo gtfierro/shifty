@@ -51,6 +51,7 @@ impl ValidateComponent for NodeConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]);
@@ -74,6 +75,7 @@ impl ValidateComponent for NodeConstraintComponent {
                 &mut value_node_as_context,
                 target_node_shape,
                 validation_context,
+                trace,
             )? {
                 ConformanceReport::Conforms => {
                     // Conforms, so this value node passes. Continue to the next.
@@ -119,11 +121,12 @@ impl ValidateComponent for PropertyConstraintComponent {
         _component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if let Some(property_shape) = validation_context.get_prop_shape_by_id(&self.shape) {
             // Per SHACL spec for sh:property, the validation results from the property shape
             // are the results of this constraint.
-            property_shape.validate(c, validation_context)
+            property_shape.validate(c, validation_context, trace)
         } else {
             Err(format!(
                 "Referenced property shape not found for ID: {:?}",
@@ -232,6 +235,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes = c.value_nodes().cloned().unwrap_or_default();
 
@@ -245,7 +249,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             // if sh:qualifiedValueShapesDisjoint is true.
 
             // Find the parent NodeShape from the execution trace.
-            let parent_node_shape_id = c.execution_trace().iter().rev().find_map(|item| {
+            let parent_node_shape_id = trace.iter().rev().find_map(|item| {
                 if let TraceItem::NodeShape(id) = item { Some(*id) } else { None }
             }).ok_or_else(|| "Could not find parent node shape in execution trace for QualifiedValueShapeComponent".to_string())?;
 
@@ -310,6 +314,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 &mut value_node_as_context,
                 target_node_shape,
                 validation_context,
+                trace,
             )? {
                 ConformanceReport::Conforms => true,
                 ConformanceReport::NonConforms(_) => false,
@@ -335,6 +340,7 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                         &mut sibling_check_context,
                         sibling_shape,
                         validation_context,
+                        trace,
                     )? {
                         ConformanceReport::Conforms => {
                             conforms_to_sibling = true;

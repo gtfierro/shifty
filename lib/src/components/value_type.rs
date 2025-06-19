@@ -1,7 +1,7 @@
 use crate::components::ToSubjectRef;
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
-use crate::types::ComponentID;
+use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
@@ -63,6 +63,7 @@ impl ValidateComponent for ClassConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let cc_var = Variable::new("value_node").unwrap();
         if c.value_nodes().is_none() {
@@ -124,6 +125,7 @@ impl ValidateComponent for DatatypeConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let target_datatype_iri = match self.datatype.as_ref() {
             TermRef::NamedNode(nn) => nn,
@@ -291,6 +293,7 @@ impl ValidateComponent for NodeKindConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let sh = SHACL::new();
         let expected_node_kind_term = self.node_kind.as_ref();

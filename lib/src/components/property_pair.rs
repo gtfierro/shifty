@@ -2,7 +2,7 @@ use super::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 use crate::context::{format_term_for_label, Context, ValidationContext};
-use crate::types::ComponentID;
+use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use oxigraph::sparql::QueryResults;
 use std::collections::HashSet;
@@ -44,6 +44,7 @@ impl ValidateComponent for EqualsConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -152,6 +153,7 @@ impl ValidateComponent for DisjointConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -249,6 +251,7 @@ impl ValidateComponent for LessThanConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -358,6 +361,7 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),

@@ -3,7 +3,7 @@ use crate::components::{
 };
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
-use crate::types::ComponentID;
+use crate::types::{ComponentID, TraceItem};
 use ontoenv::api::ResolveTarget;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{Literal, NamedNode, Term};
@@ -85,6 +85,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let shacl = SHACL::new();
         let subject = self.constraint_node.to_subject_ref();

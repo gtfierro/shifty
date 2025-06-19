@@ -1,7 +1,7 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::components::Component;
 use crate::types::Path;
-use crate::types::ComponentID;
+use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use std::collections::HashSet;
 use std::vec::Vec;
@@ -16,6 +16,7 @@ impl ValidateComponent for InConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if self.values.is_empty() {
             // According to SHACL spec, if sh:in has an empty list, no value nodes can conform.
@@ -112,6 +113,7 @@ impl ValidateComponent for ClosedConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if !self.closed {
             return Ok(vec![]);
@@ -236,6 +238,7 @@ impl ValidateComponent for HasValueConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         _validation_context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         match c.value_nodes() {
             Some(value_nodes) => {

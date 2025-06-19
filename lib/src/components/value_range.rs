@@ -1,6 +1,6 @@
 use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 use crate::context::{format_term_for_label, Context, ValidationContext};
-use crate::types::ComponentID;
+use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use oxigraph::sparql::QueryResults;
 
@@ -40,6 +40,7 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -119,6 +120,7 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -198,6 +200,7 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -277,6 +280,7 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
