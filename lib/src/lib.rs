@@ -55,16 +55,3 @@ impl Validator {
         self.context.graphviz()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        // This test is a placeholder. A real test would use from_files and validate.
-        // For example:
-        // let validator = Validator::from_files("shapes.ttl", "data.ttl").unwrap();
-        // let report = validator.validate();
-        // assert!(report.conforms());
-        assert_eq!(2 + 2, 4);
-    }
-}
