@@ -146,7 +146,7 @@ impl ValidationReportBuilder {
         ));
 
         if !conforms {
-            for (context, error_message) in &self.results {
+            for (context, _error_message) in &self.results {
                 let result_node: Subject = BlankNode::default().into();
                 graph.insert(&Triple::new(
                     report_node.clone(),
@@ -177,33 +177,23 @@ impl ValidationReportBuilder {
 
                 // Extract info from trace
                 let result_path_term = context.result_path().map(|p| path_to_rdf(p, &mut graph));
-                let mut source_constraint_component_term = None;
 
                 // TODO: this could be property shape *OR* node shape
                 let source_shape_term = context.source_shape().get_term(validation_context);
 
+                let mut source_constraint_component_term = None;
                 let traces = validation_context.execution_traces.borrow();
                 if let Some(trace) = traces.get(context.trace_index()) {
-                    println!("\n\n\nTrace for context: {:?}", context);
+                    // Iterate backwards to find the last component that was executed,
+                    // as this is the one that caused the validation failure.
                     for item in trace.iter().rev() {
-                        println!("trace item: {:?}", item.label(validation_context));
-                    }
-                    for item in trace.iter().rev() {
-                        println!("trace item: {:?}", item);
-                        match item {
-                            TraceItem::Component(id) => {
-                                if source_constraint_component_term.is_none() {
-                                    source_constraint_component_term = Some(
-                                        validation_context
-                                            .components
-                                            .get(id)
-                                            .unwrap()
-                                            .component_type(),
-                                    );
-                                }
-                                break;
-                            }
-                            _ => {}
+                        if let TraceItem::Component(id) = item {
+                            // The component type (e.g., sh:MinCountConstraintComponent) is the
+                            // value for sh:sourceConstraintComponent.
+                            source_constraint_component_term = validation_context
+                                .get_component_by_id(id)
+                                .map(|c| c.component_type());
+                            break;
                         }
                     }
                 }
@@ -230,7 +220,7 @@ impl ValidationReportBuilder {
                     graph.insert(&Triple::new(
                         result_node.clone(),
                         sh.source_constraint_component,
-                        term,
+                        term.into(),
                     ));
                 }
             }
