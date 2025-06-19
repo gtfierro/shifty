@@ -274,6 +274,7 @@ impl ValidationContext {
             }
         }
 
+        let total_freq = frequencies.values().sum::<usize>();
         let max_freq = frequencies.values().max().copied().unwrap_or(1) as f32;
 
         let get_color = |count: usize| -> String {
@@ -297,6 +298,11 @@ impl ValidationContext {
             let trace_item = TraceItem::NodeShape(*shape.identifier());
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
             let color = get_color(count);
+            let relative_freq = if total_freq > 0 {
+                (count as f32 / total_freq as f32) * 100.0
+            } else {
+                0.0
+            };
 
             let name = self
                 .nodeshape_id_lookup
@@ -307,9 +313,10 @@ impl ValidationContext {
                 .clone();
             let name_label = format_term_for_label(&name);
             dot_string.push_str(&format!(
-                "  {} [label=\"NodeShape\\n{}\", fillcolor=\"{}\"];\n",
+                "  {} [label=\"NodeShape\\n{}\\n({:.2}%)\", fillcolor=\"{}\"];\n",
                 shape.identifier().to_graphviz_id(),
                 name_label,
+                relative_freq,
                 color
             ));
             for comp in shape.constraints() {
@@ -326,6 +333,11 @@ impl ValidationContext {
             let trace_item = TraceItem::PropertyShape(*pshape.identifier());
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
             let color = get_color(count);
+            let relative_freq = if total_freq > 0 {
+                (count as f32 / total_freq as f32) * 100.0
+            } else {
+                0.0
+            };
 
             let _name = self
                 .propshape_id_lookup
@@ -339,9 +351,10 @@ impl ValidationContext {
 
             let path_label = pshape.sparql_path();
             dot_string.push_str(&format!(
-                "  {} [label=\"PropertyShape\\nPath: {}\", fillcolor=\"{}\"];\n",
+                "  {} [label=\"PropertyShape\\nPath: {}\\n({:.2}%)\", fillcolor=\"{}\"];\n",
                 pshape.identifier().to_graphviz_id(),
                 path_label,
+                relative_freq,
                 color
             ));
             for comp in pshape.constraints() {
@@ -358,14 +371,31 @@ impl ValidationContext {
             let trace_item = TraceItem::Component(*ident);
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
             let color = get_color(count);
+            let relative_freq = if total_freq > 0 {
+                (count as f32 / total_freq as f32) * 100.0
+            } else {
+                0.0
+            };
 
             let comp_str = comp.to_graphviz_string(*ident, self);
             for line in comp_str.lines() {
                 let mut modified_line = line.to_string();
                 if let Some(start_pos) = modified_line.find('[') {
-                    if modified_line.rfind(']').is_some() {
+                    if let Some(end_pos) = modified_line.rfind(']') {
                         let color_attr = format!("fillcolor=\"{}\", ", color);
                         modified_line.insert_str(start_pos + 1, &color_attr);
+
+                        // Augment label in the now-modified line
+                        if let Some(label_start) = modified_line.find("label=\"") {
+                            // The end of attributes is now at a new position
+                            let new_end_pos = end_pos + color_attr.len();
+                            if let Some(label_end) = modified_line[..new_end_pos].rfind('"') {
+                                if label_end > label_start {
+                                    let freq_text = format!("\\n({:.2}%)", relative_freq);
+                                    modified_line.insert_str(label_end, &freq_text);
+                                }
+                            }
+                        }
                     }
                 }
                 dot_string.push_str(&format!("    {}\n", modified_line.trim()));
