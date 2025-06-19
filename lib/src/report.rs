@@ -47,11 +47,34 @@ impl<'a> ValidationReport<'a> {
     }
 
     /// Dumps a summary of the validation report to the console for debugging.
+    ///
+    /// If the validation did not conform, this method prints each validation failure,
+    /// grouped by the focus node that was being validated. For each failure, it includes
+    /// the error message, the source shape that triggered the validation, and the
+    /// execution trace that led to the failure.
+    ///
+    /// The execution trace is a sequential log of the validation steps (`NodeShape`,
+    /// `PropertyShape`, and `Component` visitations) that occurred before the failure.
+    /// This is invaluable for debugging complex shapes.
     pub fn dump(&self) {
         self.builder.dump(self.context)
     }
 
     /// Prints all execution traces to the console for debugging.
+    ///
+    /// An execution trace is a sequential log of the validation steps performed. Each time
+    /// the validator starts checking a node against a shape, it creates a new trace. This
+    /// trace then records every `NodeShape`, `PropertyShape`, and `Component` that is
+    /// visited during that specific validation path.
+    ///
+    /// When a validation constraint is violated, the resulting failure report is linked to
+    /// the specific execution trace that led to it. This allows for precise debugging of
+    /// *why* a failure occurred.
+    ///
+    /// This method prints *all* traces that were generated during the validation process,
+    /// regardless of whether they resulted in a failure. This can be useful for
+    /// understanding the overall flow of the validation logic. To see only the traces
+    /// for failures, use the `dump()` method.
     pub fn print_traces(&self) {
         self.builder.print_traces(self.context);
     }
@@ -264,6 +287,15 @@ impl ValidationReportBuilder {
     }
 
     /// Dumps a summary of the validation report to the console for debugging.
+    ///
+    /// If the validation did not conform, this method prints each validation failure,
+    /// grouped by the focus node that was being validated. For each failure, it includes
+    /// the error message, the source shape that triggered the validation, and the
+    /// execution trace that led to the failure.
+    ///
+    /// The execution trace is a sequential log of the validation steps (`NodeShape`,
+    /// `PropertyShape`, and `Component` visitations) that occurred before the failure.
+    /// This is invaluable for debugging complex shapes.
     pub(crate) fn dump(&self, validation_context: &ValidationContext) {
         if self.results.is_empty() {
             println!("Validation report: No errors found.");
@@ -308,6 +340,20 @@ impl ValidationReportBuilder {
     }
 
     /// Prints all execution traces to the console for debugging.
+    ///
+    /// An execution trace is a sequential log of the validation steps performed. Each time
+    /// the validator starts checking a node against a shape, it creates a new trace. This
+    /// trace then records every `NodeShape`, `PropertyShape`, and `Component` that is
+    /// visited during that specific validation path.
+    ///
+    /// When a validation constraint is violated, the resulting failure report is linked to
+    /// the specific execution trace that led to it. This allows for precise debugging of
+    /// *why* a failure occurred.
+    ///
+    /// This method prints *all* traces that were generated during the validation process,
+    /// regardless of whether they resulted in a failure. This can be useful for
+    /// understanding the overall flow of the validation logic. To see only the traces
+    /// for failures, use the `dump()` method.
     pub(crate) fn print_traces(&self, validation_context: &ValidationContext) {
         println!("\nExecution Traces:");
         println!("-----------------");
