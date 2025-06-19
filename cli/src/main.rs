@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok_or_else(|| "Invalid data file path")?,
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
-            let report: ValidationReport = ctx.validate()?;
+            let report: ValidationReport = ctx.validate();
 
             match args.format {
                 ValidateOutputFormat::Turtle => {
@@ -152,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", report);
                 }
                 ValidateOutputFormat::Dump => {
-                    report.dump(&ctx);
+                    report.dump();
                 }
                 ValidateOutputFormat::RdfXml => {
                     let report = report.to_rdf(RdfFormat::RdfXml)?;
@@ -175,7 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .map_err(|e| format!("Error loading files: {}", e))?;
 
-            let report = ctx.validate()?;
+            let report = ctx.validate();
 
             let frequencies: HashMap<(String, String, String), usize> =
                 report.get_component_frequencies(&ctx);
