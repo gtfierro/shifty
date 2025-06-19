@@ -86,6 +86,21 @@ struct GraphvizHeatmapArgs {
     data_file: PathBuf,
 }
 
+#[derive(Parser)]
+struct PdfHeatmapArgs {
+    /// Path to the shapes file
+    #[arg(short, long, value_name = "FILE")]
+    shapes_file: PathBuf,
+
+    /// Path to the data file
+    #[arg(short, long, value_name = "FILE")]
+    data_file: PathBuf,
+
+    /// Path to the output PDF file
+    #[arg(short, long, value_name = "FILE")]
+    output_file: PathBuf,
+}
+
 #[derive(clap::Subcommand)]
 enum Commands {
     /// Output the Graphviz DOT string of the shape graph
@@ -97,6 +112,9 @@ enum Commands {
     /// Validate the data and output a graphviz heatmap of the shape graph
     #[command(name = "graphviz-heatmap")]
     GraphvizHeatmap(GraphvizHeatmapArgs),
+    /// Generate a PDF of the shape graph heatmap using Graphviz
+    #[command(name = "pdf-heatmap")]
+    PdfHeatmap(PdfHeatmapArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
 }
@@ -217,6 +235,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let dot_string = validator.to_graphviz_heatmap()?;
             println!("{}", dot_string);
+        }
+        Commands::PdfHeatmap(args) => {
+            let validator = Validator::from_files(
+                args.shapes_file
+                    .to_str()
+                    .ok_or_else(|| "Invalid shapes file path")?,
+                args.data_file
+                    .to_str()
+                    .ok_or_else(|| "Invalid data file path")?,
+            )
+            .map_err(|e| format!("Error loading files: {}", e))?;
+
+            // Run validation to populate execution traces
+            let _report = validator.validate();
+
+            let dot_string = validator.to_graphviz_heatmap()?;
+
+            let output_format = Format::Pdf;
+            let output_file_path_str = args
+                .output_file
+                .to_str()
+                .ok_or("Invalid output file path")?;
+
+            let cmd_args = vec![
+                CommandArg::Format(output_format),
+                CommandArg::Output(output_file_path_str.to_string()),
+            ];
+
+            exec_dot(dot_string, cmd_args)
+                .map_err(|e| format!("Graphviz execution error: {}", e))?;
+
+            println!("PDF heatmap generated at: {}", args.output_file.display());
         }
     }
     Ok(())
