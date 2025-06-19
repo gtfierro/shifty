@@ -1,5 +1,5 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::components::Component;
+use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
@@ -138,7 +138,8 @@ impl ValidateComponent for ClosedConstraintComponent {
 
         if let Some(node_shape) = validation_context.node_shapes.get(source_shape_id) {
             for constraint_com_id in node_shape.constraints() {
-                if let Some(component) = validation_context.get_component_by_id(constraint_com_id) {
+                if let Some(component) = validation_context.get_component_by_id(constraint_com_id)
+                {
                     if let Component::PropertyConstraint(pc) = component {
                         if let Some(prop_shape) =
                             validation_context.get_prop_shape_by_id(pc.shape())
@@ -182,7 +183,8 @@ impl ValidateComponent for ClosedConstraintComponent {
 
                     let object = quad.object.to_owned();
                     error_context.with_value(object.clone());
-                    error_context.with_result_path(oxigraph::model::Term::NamedNode(predicate.clone()));
+                    error_context
+                        .with_result_path(oxigraph::model::Term::NamedNode(predicate.clone()));
 
                     let message = format!(
                         "Focus node {:?} has value for property {:?} which is not allowed by sh:closed",

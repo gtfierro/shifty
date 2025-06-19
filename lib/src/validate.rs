@@ -1,10 +1,10 @@
 use crate::components::ComponentValidationResult;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::report::ValidationReportBuilder;
+use crate::types::{PropShapeID, TraceItem};
 use std::collections::HashSet;
 
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
-use crate::types::PropShapeID;
 use log::info;
 use oxigraph::model::Term;
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
@@ -27,9 +27,10 @@ impl ValidateShape for NodeShape {
         }
 
         for mut target_context in target_contexts.into_iter() {
-            // Iterate mutably
-            target_context.record_node_shape_visit(*self.identifier()); // Record NodeShape visit
-                                                                        // for each target, validate the constraints
+            let mut trace = Vec::new();
+            trace.push(TraceItem::NodeShape(*self.identifier())); // Record NodeShape visit
+
+            // for each target, validate the constraints
             for constraint_id in self.constraints() {
                 // constraint_id is &ComponentID
                 let comp = context
@@ -39,7 +40,7 @@ impl ValidateShape for NodeShape {
                 // Call the component's own validation logic.
                 // It now takes component_id, &mut Context, &ValidationContext
                 // and returns Result<Vec<ComponentValidationResult>, String>
-                match comp.validate(*constraint_id, &mut target_context, context) {
+                match comp.validate(*constraint_id, &mut target_context, context, &mut trace) {
                     Ok(validation_results) => {
                         use crate::components::ComponentValidationResult;
                         for result in validation_results {
@@ -55,6 +56,7 @@ impl ValidateShape for NodeShape {
                     }
                 }
             }
+            context.execution_traces.borrow_mut().push(trace);
         }
         Ok(())
     }
@@ -70,8 +72,9 @@ impl PropertyShape {
         &self,
         focus_context: &mut Context,
         context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        focus_context.record_property_shape_visit(*self.identifier());
+        trace.push(TraceItem::PropertyShape(*self.identifier()));
 
         let mut all_results: Vec<ComponentValidationResult> = Vec::new();
 
@@ -157,9 +160,6 @@ impl PropertyShape {
                 value_nodes_opt,
                 SourceShape::PropertyShape(PropShapeID(self.identifier().0)),
             );
-            constraint_validation_context.with_execution_trace(
-                focus_context.execution_trace().clone(),
-            );
 
             for constraint_id in self.constraints() {
                 let component = context
@@ -170,6 +170,7 @@ impl PropertyShape {
                     *constraint_id,
                     &mut constraint_validation_context,
                     context,
+                    trace,
                 ) {
                     Ok(results) => {
                         all_results.extend(results);

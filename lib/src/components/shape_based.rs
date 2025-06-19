@@ -44,7 +44,6 @@ impl GraphvizOutput for NodeConstraintComponent {
     }
 }
 
-
 impl ValidateComponent for NodeConstraintComponent {
     fn validate(
         &self,

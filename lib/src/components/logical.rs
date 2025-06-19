@@ -1,5 +1,5 @@
 use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext};
-use crate::types::{ComponentID, ID};
+use crate::types::{ComponentID, ID, TraceItem};
 use oxigraph::model::NamedNode;
 
 use super::{
@@ -49,6 +49,7 @@ impl ValidateComponent for NotConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes to check
@@ -76,6 +77,7 @@ impl ValidateComponent for NotConstraintComponent {
                 &mut value_node_as_context,
                 negated_node_shape,
                 validation_context,
+                trace,
             )? {
                 ConformanceReport::Conforms => {
                     // value_node_to_check CONFORMS to the negated_node_shape.
@@ -120,7 +122,7 @@ impl GraphvizOutput for AndConstraintComponent {
         NamedNode::new_unchecked("http://www.w3.org/ns/shacl#AndConstraintComponent")
     }
 
-    fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
+    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
@@ -143,6 +145,7 @@ impl ValidateComponent for AndConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes
@@ -173,6 +176,7 @@ impl ValidateComponent for AndConstraintComponent {
                     &mut value_node_as_context,
                     conjunct_node_shape,
                     validation_context,
+                    trace,
                 )? {
                     ConformanceReport::Conforms => {
                         // value_node_to_check CONFORMS to this conjunct_node_shape. Continue to next conjunct.
@@ -219,7 +223,7 @@ impl GraphvizOutput for OrConstraintComponent {
         NamedNode::new_unchecked("http://www.w3.org/ns/shacl#OrConstraintComponent")
     }
 
-    fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
+    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
@@ -242,6 +246,7 @@ impl ValidateComponent for OrConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes
@@ -287,6 +292,7 @@ impl ValidateComponent for OrConstraintComponent {
                     &mut value_node_as_context,
                     disjunct_node_shape,
                     validation_context,
+                    trace,
                 )? {
                     ConformanceReport::Conforms => {
                         // value_node_to_check CONFORMS to this disjunct_node_shape.
@@ -337,7 +343,7 @@ impl GraphvizOutput for XoneConstraintComponent {
         NamedNode::new_unchecked("http://www.w3.org/ns/shacl#XoneConstraintComponent")
     }
 
-    fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
+    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
@@ -360,6 +366,7 @@ impl ValidateComponent for XoneConstraintComponent {
         component_id: ComponentID,
         c: &mut Context,
         validation_context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes
@@ -405,6 +412,7 @@ impl ValidateComponent for XoneConstraintComponent {
                     &mut value_node_as_context,
                     xone_node_shape,
                     validation_context,
+                    trace,
                 )? {
                     ConformanceReport::Conforms => {
                         // value_node_to_check CONFORMS to this xone_node_shape.

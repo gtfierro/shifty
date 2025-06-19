@@ -132,6 +132,8 @@ pub(crate) struct ValidationContext {
     pub(crate) components: HashMap<ComponentID, Component>,
     term_to_hash: FastMap<TermID, Term>,
     env: OntoEnv,
+    /// A collection of all execution traces generated during validation.
+    pub(crate) execution_traces: RefCell<Vec<Vec<TraceItem>>>,
 }
 
 impl ValidationContext {
@@ -154,6 +156,7 @@ impl ValidationContext {
             components: HashMap::new(),
             term_to_hash: FastMap::default(),
             env,
+            execution_traces: RefCell::new(Vec::new()),
         }
     }
 
@@ -556,7 +559,7 @@ impl SourceShape {
 /// Represents the state of a validation process at a specific point.
 ///
 /// It contains the focus node, the path taken to reach the current value nodes,
-/// the value nodes themselves, and an execution trace for debugging.
+/// and the value nodes themselves.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct Context {
     focus_node: Term,
@@ -565,7 +568,6 @@ pub(crate) struct Context {
     value_nodes: Option<Vec<Term>>,
     value: Option<Term>, // something that violated a component
     source_shape: SourceShape,
-    execution_trace: Vec<TraceItem>,
 }
 
 impl Context {
@@ -582,7 +584,6 @@ impl Context {
             value_nodes,
             source_shape,
             value: None,
-            execution_trace: Vec::new(),
         }
     }
 
@@ -604,11 +605,6 @@ impl Context {
     pub(crate) fn with_result_path(&mut self, result_path: Term) {
         // In our implementation, we use a Simple path containing the given term.
         self.result_path = Some(crate::types::Path::Simple(result_path));
-    }
-
-    /// Sets the execution trace for the context.
-    pub(crate) fn with_execution_trace(&mut self, trace: Vec<TraceItem>) {
-        self.execution_trace = trace;
     }
 
     /// Returns the specific value that violated a constraint, if any.
@@ -639,27 +635,5 @@ impl Context {
     /// Returns the source shape that initiated this validation context.
     pub(crate) fn source_shape(&self) -> SourceShape {
         self.source_shape.clone()
-    }
-
-    /// Records that a `NodeShape` was visited in the execution trace.
-    pub(crate) fn record_node_shape_visit(&mut self, shape_id: ID) {
-        self.execution_trace.push(TraceItem::NodeShape(shape_id));
-    }
-
-    /// Records that a `PropertyShape` was visited in the execution trace.
-    pub(crate) fn record_property_shape_visit(&mut self, shape_id: PropShapeID) {
-        self.execution_trace
-            .push(TraceItem::PropertyShape(shape_id));
-    }
-
-    /// Records that a `Component` was validated in the execution trace.
-    pub(crate) fn record_component_visit(&mut self, component_id: ComponentID) {
-        self.execution_trace
-            .push(TraceItem::Component(component_id));
-    }
-
-    /// Returns the execution trace.
-    pub(crate) fn execution_trace(&self) -> &Vec<TraceItem> {
-        &self.execution_trace
     }
 }

@@ -1,7 +1,7 @@
 use crate::context::{Context, ValidationContext}; // Removed format_term_for_label, sanitize_graphviz_string
 use crate::named_nodes::SHACL;
 use crate::shape::NodeShape; // Removed PropertyShape
-use crate::types::{ComponentID, ID}; // Removed PropShapeID
+use crate::types::{ComponentID, ID, TraceItem}; // Removed PropShapeID
 use oxigraph::model::{Literal, NamedNode, SubjectRef, Term, TermRef};
 use std::collections::HashMap;
 
@@ -712,6 +712,7 @@ pub(crate) trait ValidateComponent {
     /// * `component_id` - The ID of this component instance.
     /// * `c` - The mutable `Context` for the current validation.
     /// * `context` - The overall `ValidationContext`.
+    /// * `trace` - A mutable reference to the execution trace.
     ///
     /// # Returns
     ///
@@ -722,6 +723,7 @@ pub(crate) trait ValidateComponent {
         component_id: ComponentID,
         c: &mut Context, // Changed to &mut Context
         context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String>;
 }
 
@@ -925,38 +927,49 @@ impl Component {
         component_id: ComponentID,
         c: &mut Context,
         context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        c.record_component_visit(component_id);
+        trace.push(TraceItem::Component(component_id));
         match self {
-            Component::ClassConstraint(comp) => comp.validate(component_id, c, context),
-            Component::NodeConstraint(comp) => comp.validate(component_id, c, context),
-            Component::PropertyConstraint(comp) => comp.validate(component_id, c, context),
-            Component::QualifiedValueShape(comp) => comp.validate(component_id, c, context),
-            Component::DatatypeConstraint(comp) => comp.validate(component_id, c, context),
-            Component::NodeKindConstraint(comp) => comp.validate(component_id, c, context),
-            Component::MinCount(comp) => comp.validate(component_id, c, context),
-            Component::MaxCount(comp) => comp.validate(component_id, c, context),
-            Component::MinLengthConstraint(comp) => comp.validate(component_id, c, context),
-            Component::MaxLengthConstraint(comp) => comp.validate(component_id, c, context),
-            Component::PatternConstraint(comp) => comp.validate(component_id, c, context),
-            Component::LanguageInConstraint(comp) => comp.validate(component_id, c, context),
-            Component::UniqueLangConstraint(comp) => comp.validate(component_id, c, context),
-            Component::NotConstraint(comp) => comp.validate(component_id, c, context),
-            Component::AndConstraint(comp) => comp.validate(component_id, c, context),
-            Component::OrConstraint(comp) => comp.validate(component_id, c, context),
-            Component::XoneConstraint(comp) => comp.validate(component_id, c, context),
-            Component::HasValueConstraint(comp) => comp.validate(component_id, c, context),
-            Component::InConstraint(comp) => comp.validate(component_id, c, context),
-            Component::SPARQLConstraint(comp) => comp.validate(component_id, c, context),
-            Component::DisjointConstraint(comp) => comp.validate(component_id, c, context),
-            Component::EqualsConstraint(comp) => comp.validate(component_id, c, context),
-            Component::LessThanConstraint(comp) => comp.validate(component_id, c, context),
-            Component::LessThanOrEqualsConstraint(comp) => comp.validate(component_id, c, context),
-            Component::MinExclusiveConstraint(comp) => comp.validate(component_id, c, context),
-            Component::MinInclusiveConstraint(comp) => comp.validate(component_id, c, context),
-            Component::MaxExclusiveConstraint(comp) => comp.validate(component_id, c, context),
-            Component::MaxInclusiveConstraint(comp) => comp.validate(component_id, c, context),
-            Component::ClosedConstraint(comp) => comp.validate(component_id, c, context),
+            Component::ClassConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::NodeConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::PropertyConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::QualifiedValueShape(comp) => comp.validate(component_id, c, context, trace),
+            Component::DatatypeConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::NodeKindConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::MinCount(comp) => comp.validate(component_id, c, context, trace),
+            Component::MaxCount(comp) => comp.validate(component_id, c, context, trace),
+            Component::MinLengthConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::MaxLengthConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::PatternConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::LanguageInConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::UniqueLangConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::NotConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::AndConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::OrConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::XoneConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::HasValueConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::InConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::SPARQLConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::DisjointConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::EqualsConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::LessThanConstraint(comp) => comp.validate(component_id, c, context, trace),
+            Component::LessThanOrEqualsConstraint(comp) => {
+                comp.validate(component_id, c, context, trace)
+            }
+            Component::MinExclusiveConstraint(comp) => {
+                comp.validate(component_id, c, context, trace)
+            }
+            Component::MinInclusiveConstraint(comp) => {
+                comp.validate(component_id, c, context, trace)
+            }
+            Component::MaxExclusiveConstraint(comp) => {
+                comp.validate(component_id, c, context, trace)
+            }
+            Component::MaxInclusiveConstraint(comp) => {
+                comp.validate(component_id, c, context, trace)
+            }
+            Component::ClosedConstraint(comp) => comp.validate(component_id, c, context, trace),
             // For components without specific validation logic, or structural ones, consider them as passing.
         }
     }
@@ -969,15 +982,21 @@ pub(crate) fn check_conformance_for_node(
     node_as_context: &mut Context,
     shape_to_check_against: &NodeShape,
     main_validation_context: &ValidationContext,
+    trace: &mut Vec<TraceItem>,
 ) -> Result<ConformanceReport, String> {
-    node_as_context.record_node_shape_visit(*shape_to_check_against.identifier());
+    trace.push(TraceItem::NodeShape(*shape_to_check_against.identifier()));
 
     for constraint_id in shape_to_check_against.constraints() {
         let component = main_validation_context
             .get_component_by_id(constraint_id)
             .ok_or_else(|| format!("Logical check: Component not found: {}", constraint_id))?;
 
-        match component.validate(*constraint_id, node_as_context, main_validation_context) {
+        match component.validate(
+            *constraint_id,
+            node_as_context,
+            main_validation_context,
+            trace,
+        ) {
             Ok(validation_results) => {
                 // Find the first failure, if any.
                 if let Some(ComponentValidationResult::Fail(_ctx, failure)) = validation_results
