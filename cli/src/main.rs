@@ -101,6 +101,17 @@ struct PdfHeatmapArgs {
     output_file: PathBuf,
 }
 
+#[derive(Parser)]
+struct TraceArgs {
+    /// Path to the shapes file
+    #[arg(short, long, value_name = "FILE")]
+    shapes_file: PathBuf,
+
+    /// Path to the data file
+    #[arg(short, long, value_name = "FILE")]
+    data_file: PathBuf,
+}
+
 #[derive(clap::Subcommand)]
 enum Commands {
     /// Output the Graphviz DOT string of the shape graph
@@ -117,6 +128,8 @@ enum Commands {
     PdfHeatmap(PdfHeatmapArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
+    /// Print the execution traces for debugging
+    Trace(TraceArgs),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -267,6 +280,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("Graphviz execution error: {}", e))?;
 
             println!("PDF heatmap generated at: {}", args.output_file.display());
+        }
+        Commands::Trace(args) => {
+            let validator = Validator::from_files(
+                args.shapes_file
+                    .to_str()
+                    .ok_or_else(|| "Invalid shapes file path")?,
+                args.data_file
+                    .to_str()
+                    .ok_or_else(|| "Invalid data file path")?,
+            )
+            .map_err(|e| format!("Error loading files: {}", e))?;
+
+            // Run validation to populate execution traces
+            let report = validator.validate();
+
+            report.print_traces();
         }
     }
     Ok(())
