@@ -74,12 +74,16 @@ impl ValidateComponent for NotConstraintComponent {
                 c.trace_index(),
             );
 
-            match check_conformance_for_node(
+            let trace_len_before = trace.len();
+            let result = check_conformance_for_node(
                 &mut value_node_as_context,
                 negated_node_shape,
                 validation_context,
                 trace,
-            )? {
+            )?;
+            trace.truncate(trace_len_before); // Truncate sub-trace details
+
+            match result {
                 ConformanceReport::Conforms => {
                     // value_node_to_check CONFORMS to the negated_node_shape.
                     // This means the sh:not constraint FAILS for this value_node.
@@ -157,7 +161,7 @@ impl ValidateComponent for AndConstraintComponent {
         for value_node_to_check in value_nodes {
             // The source_shape for the context used in check_conformance_for_node
             // will be set to the specific conjunct_node_shape's ID.
-            for conjunct_shape_id in &self.shapes {
+            'conjunct_loop: for conjunct_shape_id in &self.shapes {
                 let mut value_node_as_context = Context::new(
                     value_node_to_check.clone(),
                     None,
@@ -174,12 +178,16 @@ impl ValidateComponent for AndConstraintComponent {
                     ));
                 };
 
-                match check_conformance_for_node(
+                let trace_len_before = trace.len();
+                let result = check_conformance_for_node(
                     &mut value_node_as_context,
                     conjunct_node_shape,
                     validation_context,
                     trace,
-                )? {
+                )?;
+                trace.truncate(trace_len_before); // Truncate sub-trace details
+
+                match result {
                     ConformanceReport::Conforms => {
                         // value_node_to_check CONFORMS to this conjunct_node_shape. Continue to next conjunct.
                     }
@@ -198,7 +206,7 @@ impl ValidateComponent for AndConstraintComponent {
                             message,
                         };
                         results.push(ComponentValidationResult::Fail(error_context, failure));
-                        break; // Fails one, fails all for this value node.
+                        break 'conjunct_loop; // Fails one, fails all for this value node.
                     }
                 }
             }
@@ -291,12 +299,16 @@ impl ValidateComponent for OrConstraintComponent {
                     ));
                 };
 
-                match check_conformance_for_node(
+                let trace_len_before = trace.len();
+                let result = check_conformance_for_node(
                     &mut value_node_as_context,
                     disjunct_node_shape,
                     validation_context,
                     trace,
-                )? {
+                )?;
+                trace.truncate(trace_len_before); // Truncate sub-trace details
+
+                match result {
                     ConformanceReport::Conforms => {
                         // value_node_to_check CONFORMS to this disjunct_node_shape.
                         // For sh:or, this is enough for this value_node.
@@ -412,12 +424,16 @@ impl ValidateComponent for XoneConstraintComponent {
                     ));
                 };
 
-                match check_conformance_for_node(
+                let trace_len_before = trace.len();
+                let result = check_conformance_for_node(
                     &mut value_node_as_context,
                     xone_node_shape,
                     validation_context,
                     trace,
-                )? {
+                )?;
+                trace.truncate(trace_len_before); // Truncate sub-trace details
+
+                match result {
                     ConformanceReport::Conforms => {
                         // value_node_to_check CONFORMS to this xone_node_shape.
                         conforming_shapes_count += 1;
