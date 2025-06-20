@@ -83,6 +83,7 @@ pub(crate) struct SHACL {
     pub(crate) value: NamedNodeRef<'static>,
     pub(crate) result_path: NamedNodeRef<'static>,
     pub(crate) source_shape: NamedNodeRef<'static>,
+    pub(crate) source_constraint: NamedNodeRef<'static>,
     pub(crate) source_constraint_component: NamedNodeRef<'static>,
     pub(crate) result_message: NamedNodeRef<'static>,
     pub(crate) result_severity: NamedNodeRef<'static>,
@@ -193,6 +194,7 @@ impl SHACL {
             value: NamedNodeRef::new("http://www.w3.org/ns/shacl#value").unwrap(),
             result_path: NamedNodeRef::new("http://www.w3.org/ns/shacl#resultPath").unwrap(),
             source_shape: NamedNodeRef::new("http://www.w3.org/ns/shacl#sourceShape").unwrap(),
+            source_constraint: NamedNodeRef::new("http://www.w3.org/ns/shacl#sourceConstraint").unwrap(),
             source_constraint_component: NamedNodeRef::new(
                 "http://www.w3.org/ns/shacl#sourceConstraintComponent",
             )

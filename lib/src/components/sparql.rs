@@ -164,8 +164,9 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 "Failed to parse SPARQL constraint query for {:?}: {}",
                 self.constraint_node, e
             )
-        })?;
+        }).unwrap();
         query.dataset_mut().set_default_graph_as_union();
+        println!("Parsed SPARQL query: {:?}", query);
 
         // 5. Pre-bind variables
         let mut substitutions = vec![(Variable::new_unchecked("this"), c.focus_node().clone())];
@@ -179,6 +180,11 @@ impl ValidateComponent for SPARQLConstraintComponent {
             Variable::new_unchecked("shapesGraph"),
             context.shape_graph_iri.clone().into(),
         ));
+
+        println!(
+            "Substitutions for SPARQL constraint query: {:?}",
+            substitutions
+        );
 
         // 6. Execute query
         let results = context
@@ -209,6 +215,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
             for solution_res in solutions {
                 let solution = solution_res.map_err(|e| e.to_string())?;
+                println!("SPARQL solution: {:?}", solution);
 
                 // Check for failure variable
                 if let Some(Term::Literal(lit)) = solution.get("failure") {
@@ -271,6 +278,11 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     failed_value_node: failed_node,
                     message,
                 };
+                println!(
+                    "SPARQL constraint failure for {}: {}",
+                    format_term_for_label(&c.focus_node()),
+                    failure.message
+                );
                 validation_results.push(ComponentValidationResult::Fail(error_context, failure));
             }
 
