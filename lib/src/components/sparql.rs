@@ -153,12 +153,13 @@ impl ValidateComponent for SPARQLConstraintComponent {
         };
 
         // 4. Parse query
-        let query = Query::parse(&final_query_str, None).map_err(|e| {
+        let mut query = Query::parse(&final_query_str, None).map_err(|e| {
             format!(
                 "Failed to parse SPARQL constraint query for {:?}: {}",
                 self.constraint_node, e
             )
         })?;
+        query.dataset_mut().set_default_graph_as_union();
 
         // 5. Pre-bind variables
         let substitutions = vec![(Variable::new_unchecked("this"), c.focus_node().clone())];
