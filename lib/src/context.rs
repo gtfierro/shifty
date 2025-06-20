@@ -708,7 +708,7 @@ impl SourceShape {
 ///
 /// It contains the focus node, the path taken to reach the current value nodes,
 /// and the value nodes themselves.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct Context {
     focus_node: Term,
     /// The property path that led to the current value nodes.
