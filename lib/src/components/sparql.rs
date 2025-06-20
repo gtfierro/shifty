@@ -3,7 +3,7 @@ use super::{
 };
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
-use crate::types::{ComponentID, PropShapeID, TraceItem};
+use crate::types::{ComponentID, TraceItem};
 use ontoenv::api::ResolveTarget;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{Literal, NamedNode, NamedNodeRef, Term};
@@ -177,7 +177,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         }
         substitutions.push((
             Variable::new_unchecked("shapesGraph"),
-            context.shape_graph_iri().clone().into(),
+            context.shape_graph_iri.clone().into(),
         ));
 
         // 6. Execute query
@@ -568,7 +568,7 @@ impl ValidateComponent for CustomConstraintComponent {
         }
         substitutions.push((
             Variable::new_unchecked("shapesGraph"),
-            context.shape_graph_iri().clone().into(),
+            context.shape_graph_iri.clone().into(),
         ));
 
         for (param_path, values) in &self.parameter_values {
