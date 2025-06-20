@@ -10,6 +10,8 @@ version = "0.1.0"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2021"
+description = "A Shapes Constraint Language (SHACL) validator written in Rust"
+readme = "README.md"
 
 [workspace.dependencies]
 oxigraph = "0.4.11"

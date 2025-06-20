@@ -1,4 +1,3 @@
-use crate::components::ToSubjectRef;
 use oxigraph::model::{
     BlankNode, Graph, GraphNameRef, NamedNode, Quad, Subject, SubjectRef, Term, TermRef, Triple,
 };
@@ -50,8 +49,10 @@ fn node_equality(n1: &Term, n2: &Term) -> bool {
 /// using `petgraph::algo::is_isomorphic` to check for isomorphism, which correctly
 /// handles blank nodes.
 pub fn are_isomorphic(g1: &Graph, g2: &Graph) -> bool {
-    let pg1 = oxigraph_to_petgraph(g1);
-    let pg2 = oxigraph_to_petgraph(g2);
+    let cg1 = to_canonical_graph(g1);
+    let pg1 = oxigraph_to_petgraph(&cg1);
+    let cg2 = to_canonical_graph(g2);
+    let pg2 = oxigraph_to_petgraph(&cg2);
 
     //is_isomorphic_matching(&pg1, &pg2, |n1, n2| node_equality(n1, n2), |e1, e2| e1 == e2)
     //is_isomorphic_subgraph(&pg1, &pg2) && is_isomorphic_subgraph(&pg2, &pg1)
@@ -119,12 +120,11 @@ pub(crate) fn graph_diff(g1: &Graph, g2: &Graph) -> GraphDiff {
 }
 
 /// Creates a canonical version of a graph by replacing blank node identifiers
-/// with deterministic, content-based identifiers.
+/// with deterministic, content-based identifiers according to RDFC-1.0.
 ///
 /// This allows for meaningful comparison of graphs that contain blank nodes.
 pub(crate) fn to_canonical_graph(graph: &Graph) -> Graph {
-    let mut canonicalizer = TripleCanonicalizer::new(graph);
-    let bnode_labels = canonicalizer.get_bnode_labels();
+    let bnode_labels = rdfc10::canonicalize(graph);
 
     if bnode_labels.is_empty() {
         return graph.clone();
@@ -134,17 +134,21 @@ pub(crate) fn to_canonical_graph(graph: &Graph) -> Graph {
     for t in graph.iter() {
         let subject = match t.subject {
             SubjectRef::BlankNode(bn) => {
-                let owned_bn = bn.into_owned();
-                let label = bnode_labels.get(&owned_bn).unwrap();
-                Subject::from(BlankNode::new_unchecked(format!("cb{}", label)))
+                let bn = bn.into_owned();
+                let label = bnode_labels.get(&bn).unwrap_or_else(|| {
+                    panic!("No canonical label for blank node {}", bn.as_str())
+                });
+                Subject::from(BlankNode::new_unchecked(label))
             }
             _ => t.subject.into_owned(),
         };
         let object = match t.object {
             TermRef::BlankNode(bn) => {
-                let owned_bn = bn.into_owned();
-                let label = bnode_labels.get(&owned_bn).unwrap();
-                Term::from(BlankNode::new_unchecked(format!("cb{}", label)))
+                let bn = bn.into_owned();
+                let label = bnode_labels.get(&bn).unwrap_or_else(|| {
+                    panic!("No canonical label for blank node {}", bn.as_str())
+                });
+                Term::from(BlankNode::new_unchecked(label))
             }
             _ => t.object.into_owned(),
         };
@@ -153,252 +157,314 @@ pub(crate) fn to_canonical_graph(graph: &Graph) -> Graph {
     canonical_graph
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Partition {
-    nodes: Vec<Term>,
-    hash: String,
-}
+mod rdfc10 {
+    use super::*;
+    use std::collections::{BTreeMap, HashMap, HashSet};
 
-impl Ord for Partition {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.hash
-            .cmp(&other.hash)
-            .then_with(|| self.nodes.len().cmp(&other.nodes.len()))
+    #[derive(Clone, Debug)]
+    pub(super) struct IdentifierIssuer {
+        prefix: String,
+        counter: u64,
+        issued_identifiers: BTreeMap<String, String>,
     }
-}
 
-impl PartialOrd for Partition {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
+    impl IdentifierIssuer {
+        fn new(prefix: &str) -> Self {
+            Self {
+                prefix: prefix.to_string(),
+                counter: 0,
+                issued_identifiers: BTreeMap::new(),
+            }
+        }
 
-struct TripleCanonicalizer<'a> {
-    graph: &'a Graph,
-    hash_cache: HashMap<String, String>,
-}
+        fn issue(&mut self, existing_identifier: &str) -> &str {
+            self.issued_identifiers
+                .entry(existing_identifier.to_string())
+                .or_insert_with(|| {
+                    let new_id = format!("{}{}", self.prefix, self.counter);
+                    self.counter += 1;
+                    new_id
+                })
+        }
 
-impl<'a> TripleCanonicalizer<'a> {
-    fn new(graph: &'a Graph) -> Self {
-        Self {
-            graph,
-            hash_cache: HashMap::new(),
+        fn get(&self, existing_identifier: &str) -> Option<&str> {
+            self.issued_identifiers.get(existing_identifier).map(|s| s.as_str())
+        }
+
+        fn has_identifier_for(&self, existing_identifier: &str) -> bool {
+            self.issued_identifiers.contains_key(existing_identifier)
         }
     }
 
-    fn get_bnode_labels(&mut self) -> HashMap<BlankNode, String> {
-        let bnodes: HashSet<BlankNode> = self
-            .graph
-            .iter()
-            .flat_map(|t| {
-                let mut terms = vec![];
-                if let SubjectRef::BlankNode(bn) = t.subject {
-                    terms.push(bn.into_owned());
+    fn hash(data: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    fn serialize_term_for_hashing(term: &Term) -> String {
+        term.to_string()
+    }
+
+    fn serialize_subject_for_hashing(subject: &Subject) -> String {
+        subject.to_string()
+    }
+
+    fn serialize_triple_for_hashing(
+        triple: &Triple,
+        reference_bn_id: &str,
+        other_bn_char: &str,
+    ) -> String {
+        let s = match &triple.subject {
+            Subject::BlankNode(bn) if bn.as_str() == reference_bn_id => "_:a".to_string(),
+            Subject::BlankNode(_) => format!("_:{}", other_bn_char),
+            _ => serialize_subject_for_hashing(&triple.subject),
+        };
+        let p = serialize_term_for_hashing(&Term::NamedNode(triple.predicate.clone()));
+        let o = match &triple.object {
+            Term::BlankNode(bn) if bn.as_str() == reference_bn_id => "_:a".to_string(),
+            Term::BlankNode(_) => format!("_:{}", other_bn_char),
+            _ => serialize_term_for_hashing(&triple.object),
+        };
+        format!("{} {} {} .", s, p, o)
+    }
+
+    fn hash_first_degree_triples(
+        bnode_id: &str,
+        bnode_to_triples: &HashMap<String, Vec<Triple>>,
+    ) -> String {
+        let mut nquads = Vec::new();
+        if let Some(triples) = bnode_to_triples.get(bnode_id) {
+            for triple in triples {
+                nquads.push(serialize_triple_for_hashing(triple, bnode_id, "z"));
+            }
+        }
+        nquads.sort();
+        hash(&nquads.join("\n"))
+    }
+
+    fn hash_related_blank_node(
+        related_bnode_id: &str,
+        triple: &Triple,
+        position: char,
+        first_degree_hashes: &HashMap<String, String>,
+        canonical_issuer: &IdentifierIssuer,
+        path_issuer: &IdentifierIssuer,
+    ) -> String {
+        let mut input = format!("{}<{}", position, triple.predicate);
+        input.push('>');
+
+        if let Some(id) = canonical_issuer.get(related_bnode_id) {
+            input.push_str("_:");
+            input.push_str(id);
+        } else if let Some(id) = path_issuer.get(related_bnode_id) {
+            input.push_str("_:");
+            input.push_str(id);
+        } else {
+            input.push_str(first_degree_hashes.get(related_bnode_id).unwrap());
+        }
+        hash(&input)
+    }
+
+    fn permutations<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
+        if items.len() > 8 {
+            panic!("Too many permutations to calculate, aborting.");
+        }
+        if items.is_empty() {
+            return vec![vec![]];
+        }
+        let first = &items[0];
+        let rest = &items[1..];
+        let perms_rest = permutations(rest);
+        let mut all_perms = Vec::new();
+        for p in perms_rest {
+            for i in 0..=p.len() {
+                let mut new_p = p.clone();
+                new_p.insert(i, first.clone());
+                all_perms.push(new_p);
+            }
+        }
+        all_perms
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn hash_n_degree_triples(
+        bnode_id: &str,
+        bnode_to_triples: &HashMap<String, Vec<Triple>>,
+        first_degree_hashes: &HashMap<String, String>,
+        canonical_issuer: &IdentifierIssuer,
+        mut path_issuer: IdentifierIssuer,
+    ) -> (String, IdentifierIssuer) {
+        let mut h_n = BTreeMap::<String, Vec<String>>::new();
+        if let Some(triples) = bnode_to_triples.get(bnode_id) {
+            for triple in triples {
+                if let Subject::BlankNode(s_bn) = &triple.subject {
+                    if s_bn.as_str() != bnode_id {
+                        let related_hash = hash_related_blank_node(
+                            s_bn.as_str(),
+                            triple,
+                            's',
+                            first_degree_hashes,
+                            canonical_issuer,
+                            &path_issuer,
+                        );
+                        h_n.entry(related_hash).or_default().push(s_bn.as_str().to_string());
+                    }
                 }
-                if let TermRef::BlankNode(bn) = t.object {
-                    terms.push(bn.into_owned());
+                if let Term::BlankNode(o_bn) = &triple.object {
+                    if o_bn.as_str() != bnode_id {
+                        let related_hash = hash_related_blank_node(
+                            o_bn.as_str(),
+                            triple,
+                            'o',
+                            first_degree_hashes,
+                            canonical_issuer,
+                            &path_issuer,
+                        );
+                        h_n.entry(related_hash).or_default().push(o_bn.as_str().to_string());
+                    }
                 }
-                terms
-            })
-            .collect();
+            }
+        }
+
+        let mut data_to_hash = String::new();
+        for (related_hash, bnode_list) in h_n {
+            data_to_hash.push_str(&related_hash);
+
+            let mut chosen_path = String::new();
+            let mut chosen_issuer = None;
+
+            for p in permutations(&bnode_list) {
+                let mut issuer_copy = path_issuer.clone();
+                let mut path = String::new();
+                let mut recursion_list = Vec::new();
+
+                for related in &p {
+                    if canonical_issuer.has_identifier_for(related) {
+                        path.push_str("_:");
+                        path.push_str(canonical_issuer.get(related).unwrap());
+                    } else {
+                        if !issuer_copy.has_identifier_for(related) {
+                            recursion_list.push(related.clone());
+                        }
+                        path.push_str("_:");
+                        path.push_str(issuer_copy.issue(related));
+                    }
+                }
+
+                for related in recursion_list {
+                    let (hash, new_issuer) = hash_n_degree_triples(
+                        &related,
+                        bnode_to_triples,
+                        first_degree_hashes,
+                        canonical_issuer,
+                        issuer_copy,
+                    );
+                    issuer_copy = new_issuer;
+                    path.push_str("_:");
+                    path.push_str(issuer_copy.get(&related).unwrap());
+                    path.push('<');
+                    path.push_str(&hash);
+                    path.push('>');
+                }
+
+                if chosen_issuer.is_none() || path < chosen_path {
+                    chosen_path = path;
+                    chosen_issuer = Some(issuer_copy);
+                }
+            }
+            data_to_hash.push_str(&chosen_path);
+            path_issuer = chosen_issuer.unwrap();
+        }
+
+        (hash(&data_to_hash), path_issuer)
+    }
+
+    pub(super) fn canonicalize(graph: &Graph) -> HashMap<BlankNode, String> {
+        let mut bnode_to_triples = HashMap::<String, Vec<Triple>>::new();
+        let mut bnodes = HashSet::<String>::new();
+
+        for t_ref in graph.iter() {
+            let triple = t_ref.into_owned();
+            if let Subject::BlankNode(bn) = &triple.subject {
+                let id = bn.as_str().to_string();
+                bnodes.insert(id.clone());
+                bnode_to_triples.entry(id).or_default().push(triple.clone());
+            }
+            if let Term::BlankNode(bn) = &triple.object {
+                let id = bn.as_str().to_string();
+                bnodes.insert(id.clone());
+                bnode_to_triples.entry(id).or_default().push(triple.clone());
+            }
+        }
 
         if bnodes.is_empty() {
             return HashMap::new();
         }
 
-        let mut coloring = self.initial_color(&bnodes);
-        coloring = self.refine(coloring.clone());
-
-        if !self.is_discrete(&coloring) {
-            coloring = self.traces(coloring);
+        let mut first_degree_hashes = HashMap::<String, String>::new();
+        let mut hash_to_bnodes = BTreeMap::<String, Vec<String>>::new();
+        for id in &bnodes {
+            let hash = hash_first_degree_triples(id, &bnode_to_triples);
+            first_degree_hashes.insert(id.clone(), hash.clone());
+            hash_to_bnodes.entry(hash).or_default().push(id.clone());
         }
 
-        let mut bnode_labels = HashMap::new();
-        for partition in coloring {
-            if let Term::BlankNode(bn) = &partition.nodes[0] {
-                bnode_labels.insert(bn.clone(), partition.hash);
-            }
-        }
-        bnode_labels
-    }
-
-    fn hash(&mut self, data: &str) -> String {
-        if let Some(hash) = self.hash_cache.get(data) {
-            return hash.clone();
-        }
-        let mut hasher = Sha256::new();
-        hasher.update(data.as_bytes());
-        let hash = format!("{:x}", hasher.finalize());
-        self.hash_cache.insert(data.to_string(), hash.clone());
-        hash
-    }
-
-    fn initial_color(&mut self, bnodes: &HashSet<BlankNode>) -> Vec<Partition> {
-        let mut partitions = Vec::new();
-        let mut bnode_terms: Vec<Term> = bnodes.iter().cloned().map(Term::from).collect();
-        bnode_terms.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-        partitions.push(Partition {
-            nodes: bnode_terms,
-            hash: self.hash("initial"),
-        });
-
-        let mut non_bnodes = HashSet::new();
-        for bn in bnodes {
-            for t in self.graph.triples_for_subject(bn.as_ref()) {
-                if !matches!(t.object, TermRef::BlankNode(_)) {
-                    non_bnodes.insert(t.object.into_owned());
-                }
-            }
-            for t in self.graph.triples_for_object(bn.as_ref()) {
-                if !matches!(t.subject, SubjectRef::BlankNode(_)) {
-                    non_bnodes.insert(t.subject.into_owned().into());
-                }
-            }
+        for bnode_list in hash_to_bnodes.values_mut() {
+            bnode_list.sort();
         }
 
-        let mut sorted_non_bnodes: Vec<Term> = non_bnodes.into_iter().collect();
-        sorted_non_bnodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-
-        for term in sorted_non_bnodes {
-            partitions.push(Partition {
-                hash: self.hash(&term.to_string()),
-                nodes: vec![term],
-            });
-        }
-
-        partitions.sort();
-        partitions
-    }
-
-    fn refine(&mut self, mut coloring: Vec<Partition>) -> Vec<Partition> {
-        let mut worklist = coloring.clone();
-        while let Some(w) = worklist.pop() {
-            let mut next_coloring = Vec::new();
-            let mut changed = false;
-            for c in &coloring {
-                if c.nodes.len() > 1 {
-                    let new_partitions = self.distinguish(c, &w);
-                    if new_partitions.len() > 1 {
-                        changed = true;
-                        for p in new_partitions {
-                            if p.nodes.len() < c.nodes.len() {
-                                worklist.push(p.clone());
-                            }
-                            next_coloring.push(p);
-                        }
-                    } else {
-                        next_coloring.extend(new_partitions);
-                    }
-                } else {
-                    next_coloring.push(c.clone());
-                }
-            }
-            if changed {
-                next_coloring.sort();
-                coloring = next_coloring;
-            }
-        }
-        coloring
-    }
-
-    fn distinguish(&mut self, c: &Partition, w: &Partition) -> Vec<Partition> {
-        let mut new_hashes: BTreeMap<String, Vec<Term>> = BTreeMap::new();
-        for n in &c.nodes {
-            let mut signature_parts = vec![c.hash.clone()];
-            for w_node in &w.nodes {
-                // Case where n is a subject and w_node is an object
-                if let Ok(subject_ref) = n.try_to_subject_ref() {
-                    for t in self.graph.triples_for_subject(subject_ref) {
-                        if t.object == w_node.as_ref() {
-                            signature_parts.push(format!("out:{}", t.predicate));
-                        }
-                    }
-                }
-
-                // Case where w_node is a subject and n is an object
-                if let Ok(w_subject_ref) = n.try_to_subject_ref() {
-                    for t in self.graph.triples_for_subject(w_subject_ref) {
-                        if t.object == n.as_ref() {
-                            signature_parts.push(format!("in:{}", t.predicate));
-                        }
-                    }
-                }
-            }
-            signature_parts.sort();
-            let new_hash = self.hash(&signature_parts.join(""));
-            new_hashes.entry(new_hash).or_default().push(n.clone());
-        }
-
-        new_hashes
-            .into_iter()
-            .map(|(hash, mut nodes)| {
-                nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-                Partition { nodes, hash }
-            })
-            .collect()
-    }
-
-    fn traces(&mut self, coloring: Vec<Partition>) -> Vec<Partition> {
-        if self.is_discrete(&coloring) {
-            return coloring;
-        }
-
-        let candidates = self.get_candidates(&coloring);
-        let mut best_coloring: Option<Vec<Partition>> = None;
-
-        for (candidate_node, p_index) in candidates {
-            let mut coloring_copy = coloring.clone();
-            let _new_partition = self.individuate(&mut coloring_copy, &candidate_node, p_index);
-
-            let mut refined = self.refine(coloring_copy);
-            if !self.is_discrete(&refined) {
-                refined = self.traces(refined);
-            }
-
-            if let Some(best) = &best_coloring {
-                if refined > *best {
-                    best_coloring = Some(refined);
-                }
+        let mut canonical_issuer = IdentifierIssuer::new("c14n");
+        let mut hashes_to_process = Vec::new();
+        for (hash, bnode_list) in &hash_to_bnodes {
+            if bnode_list.len() == 1 {
+                canonical_issuer.issue(&bnode_list[0]);
             } else {
-                best_coloring = Some(refined);
+                hashes_to_process.push(hash.clone());
             }
         }
-        best_coloring.unwrap()
-    }
+        hashes_to_process.sort();
 
-    fn individuate(
-        &mut self,
-        coloring: &mut Vec<Partition>,
-        node: &Term,
-        p_index: usize,
-    ) -> Partition {
-        let p = &mut coloring[p_index];
-        p.nodes.retain(|n| n != node);
+        for hash in hashes_to_process {
+            if let Some(bnode_list) = hash_to_bnodes.get(&hash) {
+                let mut hash_path_list = Vec::new();
+                for bnode_id in bnode_list {
+                    if canonical_issuer.has_identifier_for(bnode_id) {
+                        continue;
+                    }
+                    let mut temporary_issuer = IdentifierIssuer::new("b");
+                    temporary_issuer.issue(bnode_id);
+                    let (n_degree_hash, final_issuer) = hash_n_degree_triples(
+                        bnode_id,
+                        &bnode_to_triples,
+                        &first_degree_hashes,
+                        &canonical_issuer,
+                        temporary_issuer,
+                    );
+                    hash_path_list.push((n_degree_hash, final_issuer));
+                }
 
-        let new_hash = self.hash(&format!("individual:{}", p.hash));
-        let new_partition = Partition {
-            nodes: vec![node.clone()],
-            hash: new_hash,
-        };
-        coloring.push(new_partition.clone());
-        coloring.sort();
-        new_partition
-    }
+                hash_path_list.sort_by(|(h1, _), (h2, _)| h1.cmp(h2));
 
-    fn get_candidates(&self, coloring: &[Partition]) -> Vec<(Term, usize)> {
-        let mut candidates = Vec::new();
-        for (i, p) in coloring.iter().enumerate() {
-            if p.nodes.len() > 1 {
-                // To ensure determinism, we select the first node from the sorted list.
-                candidates.push((p.nodes[0].clone(), i));
-                break; // Only need to break one symmetry at a time.
+                for (_, issuer) in hash_path_list {
+                    let mut ids_to_issue: Vec<_> = issuer.issued_identifiers.keys().cloned().collect();
+                    ids_to_issue.sort_by(|a, b| {
+                        issuer.get(a).unwrap().cmp(issuer.get(b).unwrap())
+                    });
+                    for id in ids_to_issue {
+                        if !canonical_issuer.has_identifier_for(&id) {
+                            canonical_issuer.issue(&id);
+                        }
+                    }
+                }
             }
         }
-        candidates
-    }
 
-    fn is_discrete(&self, coloring: &[Partition]) -> bool {
-        coloring.iter().all(|p| p.nodes.len() <= 1)
+        let mut result = HashMap::new();
+        for (id_str, canonical_id) in canonical_issuer.issued_identifiers {
+            result.insert(BlankNode::new_unchecked(id_str), canonical_id);
+        }
+        result
     }
 }
 

@@ -216,5 +216,5 @@ generate_test_cases! {
     test_node_xone_001: "tests/test-suite/core/node/xone-001.ttl",
     test_node_xone_duplicate: "tests/test-suite/core/node/xone-duplicate.ttl",
 
-
+    test_complex_personexample: "tests/test-suite/core/complex/personexample.ttl",
 }
