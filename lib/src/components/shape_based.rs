@@ -309,12 +309,16 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 c.trace_index(),
             );
 
-            let conforms_to_target = match check_conformance_for_node(
+            let trace_len_before = trace.len();
+            let result = check_conformance_for_node(
                 &mut value_node_as_context,
                 target_node_shape,
                 validation_context,
                 trace,
-            )? {
+            )?;
+            trace.truncate(trace_len_before);
+
+            let conforms_to_target = match result {
                 ConformanceReport::Conforms => true,
                 ConformanceReport::NonConforms(_) => false,
             };
@@ -336,12 +340,16 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                         SourceShape::NodeShape(*sibling_shape.identifier()),
                         c.trace_index(),
                     );
-                    match check_conformance_for_node(
+                    let trace_len_before = trace.len();
+                    let result = check_conformance_for_node(
                         &mut sibling_check_context,
                         sibling_shape,
                         validation_context,
                         trace,
-                    )? {
+                    )?;
+                    trace.truncate(trace_len_before);
+
+                    match result {
                         ConformanceReport::Conforms => {
                             conforms_to_sibling = true;
                             break; // Found a conforming sibling, no need to check others for this value_node
