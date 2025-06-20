@@ -8,6 +8,15 @@
 
 @prefix ex: <http://example.org/shacl-test/> .
 
+ex:i ex:p "300"^^xsd:byte .
+ex:i ex:p "55"^^xsd:integer .
+ex:i ex:p "c"^^xsd:byte .
+
+ex:s a sh:PropertyShape ;
+  sh:targetNode ex:i ;
+  sh:path ex:p ;
+  sh:datatype xsd:byte .
+
 <urn:datatype-ill-formed.ttl> rdf:type mf:Manifest ;
    mf:entries (
       <urn:datatype-ill-formed>
@@ -15,8 +24,8 @@
 
 <urn:datatype-ill-formed> rdf:type sht:Validate;
   rdfs:label "Test of validation report for ill-formed literals" ;
-  mf:action [ sht:dataGraph <datatype-ill-formed-data.ttl> ;
-              sht:shapesGraph <datatype-ill-formed-shapes.ttl> ] ;
+  mf:action [ sht:dataGraph <urn:datatype-ill-formed-data.ttl> ;
+              sht:shapesGraph <urn:datatype-ill-formed-shapes.ttl> ] ;
   mf:result [ rdf:type sh:ValidationReport ;
               sh:conforms "false"^^xsd:boolean ;
 	      sh:result [ rdf:type sh:ValidationResult ;

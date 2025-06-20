@@ -9,7 +9,7 @@ pub mod types;
 pub use report::ValidationReport;
 
 // Internal modules.
-pub(crate) mod canonicalization;
+pub mod canonicalization;
 pub(crate) mod context;
 pub(crate) mod named_nodes;
 pub(crate) mod optimize;

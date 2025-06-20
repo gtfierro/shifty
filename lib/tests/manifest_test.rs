@@ -147,8 +147,6 @@ generate_test_cases! {
     test_property_datatype_002: "tests/test-suite/core/property/datatype-002.ttl",
     test_property_datatype_003: "tests/test-suite/core/property/datatype-003.ttl",
     test_property_datatype_ill_formed: "tests/test-suite/core/property/datatype-ill-formed.ttl",
-    test_property_datatype_ill_formed_data: "tests/test-suite/core/property/datatype-ill-formed-data.ttl",
-    test_property_datatype_ill_formed_shapes: "tests/test-suite/core/property/datatype-ill-formed-shapes.ttl",
     test_property_disjoint_001: "tests/test-suite/core/property/disjoint-001.ttl",
     test_property_equals_001: "tests/test-suite/core/property/equals-001.ttl",
     test_property_has_value_001: "tests/test-suite/core/property/hasValue-001.ttl",
