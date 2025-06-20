@@ -73,6 +73,10 @@ pub(crate) struct SHACL {
     pub(crate) deactivated: NamedNodeRef<'static>,
     pub(crate) message: NamedNodeRef<'static>,
     pub(crate) sparql: NamedNodeRef<'static>,
+    pub(crate) prefixes: NamedNodeRef<'static>,
+    pub(crate) declare: NamedNodeRef<'static>,
+    pub(crate) prefix: NamedNodeRef<'static>,
+    pub(crate) namespace: NamedNodeRef<'static>,
 
     // Validation Report
     pub(crate) validation_report: NamedNodeRef<'static>,
@@ -182,6 +186,10 @@ impl SHACL {
             deactivated: NamedNodeRef::new("http://www.w3.org/ns/shacl#deactivated").unwrap(),
             message: NamedNodeRef::new("http://www.w3.org/ns/shacl#message").unwrap(),
             sparql: NamedNodeRef::new("http://www.w3.org/ns/shacl#sparql").unwrap(),
+            prefixes: NamedNodeRef::new("http://www.w3.org/ns/shacl#prefixes").unwrap(),
+            declare: NamedNodeRef::new("http://www.w3.org/ns/shacl#declare").unwrap(),
+            prefix: NamedNodeRef::new("http://www.w3.org/ns/shacl#prefix").unwrap(),
+            namespace: NamedNodeRef::new("http://www.w3.org/ns/shacl#namespace").unwrap(),
 
             // Validation Report
             validation_report: NamedNodeRef::new("http://www.w3.org/ns/shacl#ValidationReport")
