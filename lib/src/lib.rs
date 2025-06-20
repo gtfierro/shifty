@@ -74,7 +74,7 @@ impl Validator {
     ///
     /// This can be used to visualize which parts of the shapes graph were most active during validation.
     /// Note: `validate()` must be called before this method to populate the execution traces.
-    pub fn to_graphviz_heatmap(&self) -> Result<String, String> {
-        self.context.graphviz_heatmap()
+    pub fn to_graphviz_heatmap(&self, include_all_nodes: bool) -> Result<String, String> {
+        self.context.graphviz_heatmap(include_all_nodes)
     }
 }

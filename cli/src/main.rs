@@ -84,6 +84,10 @@ struct GraphvizHeatmapArgs {
     /// Path to the data file
     #[arg(short, long, value_name = "FILE")]
     data_file: PathBuf,
+
+    /// Include all shapes and components, even those not executed
+    #[arg(long)]
+    all: bool,
 }
 
 #[derive(Parser)]
@@ -99,6 +103,10 @@ struct PdfHeatmapArgs {
     /// Path to the output PDF file
     #[arg(short, long, value_name = "FILE")]
     output_file: PathBuf,
+
+    /// Include all shapes and components, even those not executed
+    #[arg(long)]
+    all: bool,
 }
 
 #[derive(Parser)]
@@ -246,7 +254,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Run validation to populate execution traces
             let _report = validator.validate();
 
-            let dot_string = validator.to_graphviz_heatmap()?;
+            let dot_string = validator.to_graphviz_heatmap(args.all)?;
             println!("{}", dot_string);
         }
         Commands::PdfHeatmap(args) => {
@@ -263,7 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Run validation to populate execution traces
             let _report = validator.validate();
 
-            let dot_string = validator.to_graphviz_heatmap()?;
+            let dot_string = validator.to_graphviz_heatmap(args.all)?;
 
             let output_format = Format::Pdf;
             let output_file_path_str = args

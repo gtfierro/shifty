@@ -266,7 +266,10 @@ impl ValidationContext {
     }
 
     /// Generates a Graphviz DOT string representation of the shapes, with nodes colored by execution frequency.
-    pub(crate) fn graphviz_heatmap(&self) -> Result<String, String> {
+    pub(crate) fn graphviz_heatmap(
+        &self,
+        include_all_nodes: bool,
+    ) -> Result<String, String> {
         let mut frequencies: HashMap<TraceItem, usize> = HashMap::new();
         for trace in self.execution_traces.borrow().iter() {
             for item in trace.iter() {
@@ -297,6 +300,11 @@ impl ValidationContext {
         for shape in self.node_shapes.values() {
             let trace_item = TraceItem::NodeShape(*shape.identifier());
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
+
+            if !include_all_nodes && count == 0 {
+                continue;
+            }
+
             let color = get_color(count);
             let relative_freq = if total_freq > 0 {
                 (count as f32 / total_freq as f32) * 100.0
@@ -319,12 +327,17 @@ impl ValidationContext {
                 relative_freq,
                 color
             ));
-            for comp in shape.constraints() {
-                dot_string.push_str(&format!(
-                    "    {} -> {};\n",
-                    shape.identifier().to_graphviz_id(),
-                    comp.to_graphviz_id()
-                ));
+            for comp_id in shape.constraints() {
+                let comp_trace_item = TraceItem::Component(*comp_id);
+                let comp_count = frequencies.get(&comp_trace_item).copied().unwrap_or(0);
+
+                if include_all_nodes || comp_count > 0 {
+                    dot_string.push_str(&format!(
+                        "    {} -> {};\n",
+                        shape.identifier().to_graphviz_id(),
+                        comp_id.to_graphviz_id()
+                    ));
+                }
             }
         }
 
@@ -332,6 +345,11 @@ impl ValidationContext {
         for pshape in self.prop_shapes.values() {
             let trace_item = TraceItem::PropertyShape(*pshape.identifier());
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
+
+            if !include_all_nodes && count == 0 {
+                continue;
+            }
+
             let color = get_color(count);
             let relative_freq = if total_freq > 0 {
                 (count as f32 / total_freq as f32) * 100.0
@@ -357,12 +375,17 @@ impl ValidationContext {
                 relative_freq,
                 color
             ));
-            for comp in pshape.constraints() {
-                dot_string.push_str(&format!(
-                    "    {} -> {};\n",
-                    pshape.identifier().to_graphviz_id(),
-                    comp.to_graphviz_id()
-                ));
+            for comp_id in pshape.constraints() {
+                let comp_trace_item = TraceItem::Component(*comp_id);
+                let comp_count = frequencies.get(&comp_trace_item).copied().unwrap_or(0);
+
+                if include_all_nodes || comp_count > 0 {
+                    dot_string.push_str(&format!(
+                        "    {} -> {};\n",
+                        pshape.identifier().to_graphviz_id(),
+                        comp_id.to_graphviz_id()
+                    ));
+                }
             }
         }
 
@@ -370,6 +393,11 @@ impl ValidationContext {
         for (ident, comp) in self.components.iter() {
             let trace_item = TraceItem::Component(*ident);
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
+
+            if !include_all_nodes && count == 0 {
+                continue;
+            }
+
             let color = get_color(count);
             let relative_freq = if total_freq > 0 {
                 (count as f32 / total_freq as f32) * 100.0
