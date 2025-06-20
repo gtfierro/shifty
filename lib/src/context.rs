@@ -321,10 +321,12 @@ impl ValidationContext {
                 .clone();
             let name_label = format_term_for_label(&name);
             dot_string.push_str(&format!(
-                "  {} [label=\"NodeShape\\n{}\\n({:.2}%)\", fillcolor=\"{}\"];\n",
+                "  {} [label=\"NodeShape\\n{}\\n({:.2}%) ({}/{})\", fillcolor=\"{}\"];\n",
                 shape.identifier().to_graphviz_id(),
                 name_label,
                 relative_freq,
+                count,
+                total_freq,
                 color
             ));
             for comp_id in shape.constraints() {
@@ -369,10 +371,12 @@ impl ValidationContext {
 
             let path_label = pshape.sparql_path();
             dot_string.push_str(&format!(
-                "  {} [label=\"PropertyShape\\nPath: {}\\n({:.2}%)\", fillcolor=\"{}\"];\n",
+                "  {} [label=\"PropertyShape\\nPath: {}\\n({:.2}%) ({}/{})\", fillcolor=\"{}\"];\n",
                 pshape.identifier().to_graphviz_id(),
                 path_label,
                 relative_freq,
+                count,
+                total_freq,
                 color
             ));
             for comp_id in pshape.constraints() {
@@ -419,7 +423,7 @@ impl ValidationContext {
                             let new_end_pos = end_pos + color_attr.len();
                             if let Some(label_end) = modified_line[..new_end_pos].rfind('"') {
                                 if label_end > label_start {
-                                    let freq_text = format!("\\n({:.2}%)", relative_freq);
+                                    let freq_text = format!("\\n({:.2}%) ({}/{})", relative_freq, count, total_freq);
                                     modified_line.insert_str(label_end, &freq_text);
                                 }
                             }
