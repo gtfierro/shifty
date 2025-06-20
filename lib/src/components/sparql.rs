@@ -204,7 +204,9 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     }
                 }
 
-                let message = if let Some(Term::Literal(lit)) = &message_template {
+                let message = if let Some(message_term) = solution.get("message") {
+                    message_term.to_string()
+                } else if let Some(Term::Literal(lit)) = &message_template {
                     let mut msg = lit.value().to_string();
                     for (var, val) in solution.iter() {
                         let var_name = format!("{{?{}}}", var.as_str());
