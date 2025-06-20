@@ -251,6 +251,14 @@ impl ValidationReportBuilder {
                         term,
                     ));
                 }
+
+                if let Some(term) = &context.source_constraint {
+                    graph.insert(&Triple::new(
+                        result_node.clone(),
+                        sh.source_constraint,
+                        term.clone(),
+                    ));
+                }
             }
         }
 
