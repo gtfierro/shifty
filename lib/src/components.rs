@@ -11,7 +11,6 @@ mod logical;
 mod other;
 mod property_pair;
 mod shape_based;
-mod sparql;
 mod string_based;
 mod value_range;
 mod value_type;
@@ -21,10 +20,148 @@ pub use logical::*;
 pub use other::*;
 pub use property_pair::*;
 pub use shape_based::*;
-pub use sparql::*;
 pub use string_based::*;
 pub use value_range::*;
 pub use value_type::*;
+
+#[derive(Debug, Clone)]
+pub struct SPARQLConstraintComponent {
+    pub constraint_node: Term,
+}
+
+impl SPARQLConstraintComponent {
+    pub fn new(constraint_node: Term) -> Self {
+        SPARQLConstraintComponent { constraint_node }
+    }
+}
+
+impl GraphvizOutput for SPARQLConstraintComponent {
+    fn to_graphviz_string(&self, component_id: ComponentID, context: &ValidationContext) -> String {
+        let shacl = SHACL::new();
+        let constraint_subject = self.constraint_node.to_subject_ref();
+        let select_query = context
+            .store()
+            .quads_for_pattern(
+                Some(constraint_subject),
+                Some(shacl.select.as_ref()),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next();
+
+        let query_str = match select_query {
+            Some(Term::Literal(lit)) => lit.value().to_string(),
+            _ => "Missing sh:select".to_string(),
+        };
+
+        let label = format!(
+            "SPARQL\\n{}",
+            query_str
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\l")
+        );
+        format!(
+            "  {} [label=\"{}\", shape=box];",
+            component_id.to_graphviz_id(),
+            label
+        )
+    }
+
+    fn component_type(&self) -> NamedNode {
+        SHACL::new().sparql_constraint_component.into_owned()
+    }
+}
+
+impl ValidateComponent for SPARQLConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &mut Context,
+        context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        let shacl = SHACL::new();
+        let constraint_subject = self.constraint_node.to_subject_ref();
+
+        let select_query = context
+            .store()
+            .quads_for_pattern(
+                Some(constraint_subject),
+                Some(shacl.select.as_ref()),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .next();
+
+        let select_query = match select_query {
+            Some(Term::Literal(lit)) => lit.value().to_string(),
+            _ => return Ok(vec![]),
+        };
+
+        let messages: Vec<Term> = context
+            .store()
+            .quads_for_pattern(
+                Some(constraint_subject),
+                Some(shacl.message.as_ref()),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .collect();
+
+        // TODO: Handle sh:prefixes
+        let substitutions = vec![(Variable::new("this").unwrap(), c.focus_node().clone())];
+
+        let mut results = vec![];
+
+        let query_results = context.store().query_opt_with_substituted_variables(
+            &select_query,
+            QueryOptions::default(),
+            substitutions,
+        );
+
+        match query_results {
+            Ok(QueryResults::Solutions(solutions)) => {
+                for solution in solutions {
+                    if let Ok(solution) = solution {
+                        let value = solution.get("value").cloned();
+                        let path_term = solution.get("path").cloned();
+
+                        let result_path = path_term.map(|p| crate::shape::Path::Simple(p));
+
+                        let mut new_context = c.clone();
+                        new_context.result_path = result_path;
+                        if let Some(v) = &value {
+                            new_context.value = Some(v.clone());
+                        }
+
+                        results.push(ComponentValidationResult::Fail(
+                            new_context,
+                            ValidationFailure {
+                                component_id,
+                                failed_value_node: value,
+                                message: messages
+                                    .first()
+                                    .map(|t| t.to_string())
+                                    .unwrap_or_else(|| "SPARQL constraint violated".to_string()),
+                            },
+                        ));
+                    }
+                }
+            }
+            Err(e) => return Err(format!("SPARQL query failed: {}", e)),
+            _ => {} // Other results types are ignored
+        }
+
+        Ok(results)
+    }
+}
 
 /// The result of validating a single value node against a constraint component.
 #[derive(Debug, Clone)]
@@ -101,20 +238,20 @@ impl<'a> ToSubjectRef for TermRef<'a> {
 // NEW STRUCTS for SPARQL-based Constraint Components
 
 #[derive(Debug, Clone)]
-pub(crate) struct Parameter {
+pub struct Parameter {
     pub path: NamedNode,
     pub optional: bool,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SPARQLValidator {
+pub struct SPARQLValidator {
     pub query: String,
     pub is_ask: bool,
     pub messages: Vec<Term>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CustomConstraintComponentDefinition {
+pub struct CustomConstraintComponentDefinition {
     pub iri: NamedNode,
     pub parameters: Vec<Parameter>,
     pub validator: Option<SPARQLValidator>,
@@ -157,7 +294,6 @@ fn parse_custom_constraint_components(
 ) {
     let mut definitions = HashMap::new();
     let mut param_to_component: HashMap<NamedNode, Vec<NamedNode>> = HashMap::new();
-    let shacl = SHACL::new();
 
     let query = "SELECT ?cc WHERE { ?cc a sh:ConstraintComponent }";
     if let Ok(QueryResults::Solutions(solutions)) =
@@ -1483,5 +1619,5 @@ pub(crate) fn check_conformance_for_node(
             }
         }
     }
-    Ok(ConformanceReport::Conforms) // All constraints passed for the node_as_context against shape_to_check_against
+    Ok(ConformanceReport::Conforms) // All results passed for the node_as_context against shape_to_check_against
 }
