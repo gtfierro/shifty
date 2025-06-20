@@ -21,3 +21,7 @@ To build and install the CLI from source, you will need Rust and Cargo installed
 1. Clone the repository.
 2. Navigate to the project directory and run:
 
+
+## Desired features
+- add a 'data-graph' argument which takes an ontology name (from the local ontoenv) and uses `ontoenv.add` to fetch it into the ontology
+- add configuration options for using the imports closure from ontoenv
