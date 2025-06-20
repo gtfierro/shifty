@@ -1,9 +1,10 @@
-use crate::context::{Context, ValidationContext}; // Removed format_term_for_label, sanitize_graphviz_string
+use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
-use crate::shape::NodeShape; // Removed PropertyShape
-use crate::types::{ComponentID, ID, TraceItem}; // Removed PropShapeID
+use crate::shape::{NodeShape, PropertyShape};
+use crate::types::{ComponentID, ID, TraceItem};
 use oxigraph::model::{Literal, NamedNode, SubjectRef, Term, TermRef};
-use std::collections::HashMap;
+use oxigraph::sparql::{QueryOptions, QueryResults, Variable};
+use std::collections::{HashMap, HashSet};
 
 mod cardinality;
 mod logical;
@@ -97,6 +98,178 @@ impl<'a> ToSubjectRef for TermRef<'a> {
     }
 }
 
+// NEW STRUCTS for SPARQL-based Constraint Components
+
+#[derive(Debug, Clone)]
+pub(crate) struct Parameter {
+    pub path: NamedNode,
+    pub optional: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SPARQLValidator {
+    pub query: String,
+    pub is_ask: bool,
+    pub messages: Vec<Term>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CustomConstraintComponentDefinition {
+    pub iri: NamedNode,
+    pub parameters: Vec<Parameter>,
+    pub validator: Option<SPARQLValidator>,
+    pub node_validator: Option<SPARQLValidator>,
+    pub property_validator: Option<SPARQLValidator>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CustomConstraintComponent {
+    pub definition: CustomConstraintComponentDefinition,
+    pub parameter_values: HashMap<NamedNode, Vec<Term>>,
+}
+
+fn local_name(iri: &NamedNode) -> String {
+    let iri_str = iri.as_str();
+    if let Some(hash_idx) = iri_str.rfind('#') {
+        iri_str[hash_idx + 1..].to_string()
+    } else if let Some(slash_idx) = iri_str.rfind('/') {
+        if slash_idx < iri_str.len() - 1 {
+            iri_str[slash_idx + 1..].to_string()
+        } else {
+            // trailing slash
+            let mut end = slash_idx;
+            let mut start = slash_idx;
+            if let Some(prev_slash) = iri_str[..end].rfind('/') {
+                start = prev_slash + 1;
+            }
+            iri_str[start..end].to_string()
+        }
+    } else {
+        iri_str.to_string()
+    }
+}
+
+fn parse_custom_constraint_components(
+    context: &ValidationContext,
+) -> (
+    HashMap<NamedNode, CustomConstraintComponentDefinition>,
+    HashMap<NamedNode, Vec<NamedNode>>,
+) {
+    let mut definitions = HashMap::new();
+    let mut param_to_component = HashMap::new();
+    let shacl = SHACL::new();
+
+    let query = "SELECT ?cc WHERE { ?cc a sh:ConstraintComponent }";
+    if let Ok(QueryResults::Solutions(solutions)) =
+        context.store().query(query, QueryOptions::default())
+    {
+        for solution in solutions {
+            if let Some(Term::NamedNode(cc_iri)) = solution.unwrap().get("cc") {
+                let mut parameters = vec![];
+                let param_query = format!(
+                    "SELECT ?param ?path ?optional WHERE {{ <{}> sh:parameter ?param . ?param sh:path ?path . OPTIONAL {{ ?param sh:optional ?optional }} }}",
+                    cc_iri.as_str()
+                );
+
+                if let Ok(QueryResults::Solutions(param_solutions)) =
+                    context.store().query(&param_query, QueryOptions::default())
+                {
+                    for param_solution in param_solutions {
+                        if let Ok(p_sol) = param_solution {
+                            if let Some(Term::NamedNode(path)) = p_sol.get("path") {
+                                let optional = p_sol
+                                    .get("optional")
+                                    .and_then(|t| match t {
+                                        Term::Literal(l) => l.value().parse::<bool>().ok(),
+                                        _ => None,
+                                    })
+                                    .unwrap_or(false);
+                                parameters.push(Parameter {
+                                    path: path.clone(),
+                                    optional,
+                                });
+                                param_to_component
+                                    .entry(path.clone())
+                                    .or_default()
+                                    .push(cc_iri.clone());
+                            }
+                        }
+                    }
+                }
+
+                let mut validator = None;
+                let mut node_validator = None;
+                let mut property_validator = None;
+
+                // Helper to parse a validator
+                let parse_validator = |v_term: &Term, is_ask: bool| -> Option<SPARQLValidator> {
+                    let query_prop = if is_ask { "ask" } else { "select" };
+                    let v_query = format!(
+                        "SELECT ?query (GROUP_CONCAT(?msg; separator='|||') as ?messages) WHERE {{ <{}> sh:{} ?query . OPTIONAL {{ <{}> sh:message ?msg }} }} GROUP BY ?query",
+                        v_term, query_prop, v_term
+                    );
+
+                    if let Ok(QueryResults::Solutions(v_solutions)) =
+                        context.store().query(&v_query, QueryOptions::default())
+                    {
+                        if let Some(Ok(v_sol)) = v_solutions.into_iter().next() {
+                            if let Some(Term::Literal(query_lit)) = v_sol.get("query") {
+                                let messages = v_sol.get("messages").map_or(vec![], |t| {
+                                    if let Term::Literal(lit) = t {
+                                        // This is a hack because group_concat doesn't preserve term type
+                                        // A proper implementation would parse the list of messages properly
+                                        vec![Term::Literal(Literal::new_simple_literal(lit.value()))]
+                                    } else {
+                                        vec![]
+                                    }
+                                });
+                                return Some(SPARQLValidator {
+                                    query: query_lit.value().to_string(),
+                                    is_ask,
+                                    messages,
+                                });
+                            }
+                        }
+                    }
+                    None
+                };
+
+                if let Some(v_term) = context.store().value_for_subject_predicate(
+                    &cc_iri.as_ref().into(),
+                    &shacl.validator.as_ref(),
+                ) {
+                    validator = parse_validator(&v_term, true);
+                }
+                if let Some(v_term) = context.store().value_for_subject_predicate(
+                    &cc_iri.as_ref().into(),
+                    &shacl.node_validator.as_ref(),
+                ) {
+                    node_validator = parse_validator(&v_term, false);
+                }
+                if let Some(v_term) = context.store().value_for_subject_predicate(
+                    &cc_iri.as_ref().into(),
+                    &shacl.property_validator.as_ref(),
+                ) {
+                    property_validator = parse_validator(&v_term, false);
+                }
+
+                definitions.insert(
+                    cc_iri.clone(),
+                    CustomConstraintComponentDefinition {
+                        iri: cc_iri.clone(),
+                        parameters,
+                        validator,
+                        node_validator,
+                        property_validator,
+                    },
+                );
+            }
+        }
+    }
+
+    (definitions, param_to_component)
+}
+
 /// Parses all constraint components attached to a given shape subject (`start`) from the shapes graph.
 ///
 /// This function iterates through all known SHACL constraint properties (e.g., `sh:class`, `sh:minCount`)
@@ -127,8 +300,11 @@ pub(crate) fn parse_components(
             acc
         });
 
+    let mut processed_predicates = HashSet::new();
+
     // value type
     if let Some(class_terms) = pred_obj_pairs.get(&shacl.class.into_owned()) {
+        processed_predicates.insert(shacl.class.into_owned());
         for class_term in class_terms {
             // class_term is &Term
             let component =
@@ -143,6 +319,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(datatype_terms) = pred_obj_pairs.get(&shacl.datatype.into_owned()) {
+        processed_predicates.insert(shacl.datatype.into_owned());
         for datatype_term in datatype_terms {
             // datatype_term is &Term
             let component = Component::DatatypeConstraint(DatatypeConstraintComponent::new(
@@ -158,6 +335,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(node_kind_terms) = pred_obj_pairs.get(&shacl.node_kind.into_owned()) {
+        processed_predicates.insert(shacl.node_kind.into_owned());
         for node_kind_term in node_kind_terms {
             // node_kind_term is &Term
             let component = Component::NodeKindConstraint(NodeKindConstraintComponent::new(
@@ -174,6 +352,7 @@ pub(crate) fn parse_components(
 
     // node constraint component
     if let Some(node_terms) = pred_obj_pairs.get(&shacl.node.into_owned()) {
+        processed_predicates.insert(shacl.node.into_owned());
         for node_term in node_terms {
             // node_term is &Term
             let target_shape_id = context.get_or_create_node_id(node_term.clone());
@@ -190,6 +369,7 @@ pub(crate) fn parse_components(
 
     // property constraints
     if let Some(property_terms) = pred_obj_pairs.get(&shacl.property.into_owned()) {
+        processed_predicates.insert(shacl.property.into_owned());
         for property_term in property_terms {
             // property_term is &Term
             let target_shape_id = context.get_or_create_prop_id(property_term.clone());
@@ -206,6 +386,7 @@ pub(crate) fn parse_components(
 
     // cardinality
     if let Some(min_count_terms) = pred_obj_pairs.get(&shacl.min_count.into_owned()) {
+        processed_predicates.insert(shacl.min_count.into_owned());
         for min_count_term in min_count_terms {
             // min_count_term is &Term
             if let Term::Literal(lit) = min_count_term {
@@ -224,6 +405,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(max_count_terms) = pred_obj_pairs.get(&shacl.max_count.into_owned()) {
+        processed_predicates.insert(shacl.max_count.into_owned());
         for max_count_term in max_count_terms {
             // max_count_term is &Term
             if let Term::Literal(lit) = max_count_term {
@@ -243,6 +425,7 @@ pub(crate) fn parse_components(
 
     // value range
     if let Some(min_exclusive_terms) = pred_obj_pairs.get(&shacl.min_exclusive.into_owned()) {
+        processed_predicates.insert(shacl.min_exclusive.into_owned());
         for min_exclusive_term in min_exclusive_terms {
             // min_exclusive_term is &Term
             if let Term::Literal(_lit) = min_exclusive_term {
@@ -260,6 +443,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(min_inclusive_terms) = pred_obj_pairs.get(&shacl.min_inclusive.into_owned()) {
+        processed_predicates.insert(shacl.min_inclusive.into_owned());
         for min_inclusive_term in min_inclusive_terms {
             // min_inclusive_term is &Term
             if let Term::Literal(_lit) = min_inclusive_term {
@@ -277,6 +461,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(max_exclusive_terms) = pred_obj_pairs.get(&shacl.max_exclusive.into_owned()) {
+        processed_predicates.insert(shacl.max_exclusive.into_owned());
         for max_exclusive_term in max_exclusive_terms {
             // max_exclusive_term is &Term
             if let Term::Literal(_lit) = max_exclusive_term {
@@ -294,6 +479,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(max_inclusive_terms) = pred_obj_pairs.get(&shacl.max_inclusive.into_owned()) {
+        processed_predicates.insert(shacl.max_inclusive.into_owned());
         for max_inclusive_term in max_inclusive_terms {
             // max_inclusive_term is &Term
             if let Term::Literal(_lit) = max_inclusive_term {
@@ -312,6 +498,7 @@ pub(crate) fn parse_components(
 
     // string-based constraints
     if let Some(min_length_terms) = pred_obj_pairs.get(&shacl.min_length.into_owned()) {
+        processed_predicates.insert(shacl.min_length.into_owned());
         for min_length_term in min_length_terms {
             // min_length_term is &Term
             if let Term::Literal(lit) = min_length_term {
@@ -331,6 +518,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(max_length_terms) = pred_obj_pairs.get(&shacl.max_length.into_owned()) {
+        processed_predicates.insert(shacl.max_length.into_owned());
         for max_length_term in max_length_terms {
             // max_length_term is &Term
             if let Term::Literal(lit) = max_length_term {
@@ -350,6 +538,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(pattern_terms) = pred_obj_pairs.get(&shacl.pattern.into_owned()) {
+        processed_predicates.insert(shacl.pattern.into_owned());
         if let Some(pattern_term @ Term::Literal(pattern_lit)) = pattern_terms.first() {
             // pattern_term is &Term
             let pattern_str = pattern_lit.value().to_string();
@@ -375,10 +564,14 @@ pub(crate) fn parse_components(
             )));
             let component_id = context.get_or_create_component_id(id_term);
             new_components.insert(component_id, component);
+            if flags_str.is_some() {
+                processed_predicates.insert(shacl.flags.into_owned());
+            }
         }
     }
 
     if let Some(language_in_terms) = pred_obj_pairs.get(&shacl.language_in.into_owned()) {
+        processed_predicates.insert(shacl.language_in.into_owned());
         if let Some(list_head_term) = language_in_terms.first() {
             // list_head_term is &Term
             let list_items = context.parse_rdf_list(list_head_term.clone()); // parse_rdf_list takes Term, returns Vec<Term>
@@ -402,6 +595,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(unique_lang_terms) = pred_obj_pairs.get(&shacl.unique_lang.into_owned()) {
+        processed_predicates.insert(shacl.unique_lang.into_owned());
         for unique_lang_term in unique_lang_terms {
             // unique_lang_term is &Term
             if let Term::Literal(lit) = unique_lang_term {
@@ -422,6 +616,7 @@ pub(crate) fn parse_components(
 
     // property pair constraints
     if let Some(equals_terms) = pred_obj_pairs.get(&shacl.equals.into_owned()) {
+        processed_predicates.insert(shacl.equals.into_owned());
         for equals_term in equals_terms {
             // equals_term is &Term
             if let Term::NamedNode(_nn) = equals_term {
@@ -439,6 +634,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(disjoint_terms) = pred_obj_pairs.get(&shacl.disjoint.into_owned()) {
+        processed_predicates.insert(shacl.disjoint.into_owned());
         for disjoint_term in disjoint_terms {
             // disjoint_term is &Term
             if let Term::NamedNode(_nn) = disjoint_term {
@@ -456,6 +652,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(less_than_terms) = pred_obj_pairs.get(&shacl.less_than.into_owned()) {
+        processed_predicates.insert(shacl.less_than.into_owned());
         for less_than_term in less_than_terms {
             // less_than_term is &Term
             if let Term::NamedNode(_nn) = less_than_term {
@@ -475,6 +672,7 @@ pub(crate) fn parse_components(
     if let Some(less_than_or_equals_terms) =
         pred_obj_pairs.get(&shacl.less_than_or_equals.into_owned())
     {
+        processed_predicates.insert(shacl.less_than_or_equals.into_owned());
         for less_than_or_equals_term in less_than_or_equals_terms {
             // less_than_or_equals_term is &Term
             if let Term::NamedNode(_nn) = less_than_or_equals_term {
@@ -493,6 +691,7 @@ pub(crate) fn parse_components(
 
     // logical constraints
     if let Some(not_terms) = pred_obj_pairs.get(&shacl.not.into_owned()) {
+        processed_predicates.insert(shacl.not.into_owned());
         for not_term in not_terms {
             // not_term is &Term
             let negated_shape_id = context.get_or_create_node_id(not_term.clone());
@@ -507,6 +706,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(and_terms) = pred_obj_pairs.get(&shacl.and_.into_owned()) {
+        processed_predicates.insert(shacl.and_.into_owned());
         if let Some(list_head_term) = and_terms.first() {
             // list_head_term is &Term
             let shape_list_terms = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
@@ -521,6 +721,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(or_terms) = pred_obj_pairs.get(&shacl.or_.into_owned()) {
+        processed_predicates.insert(shacl.or_.into_owned());
         if let Some(list_head_term) = or_terms.first() {
             // list_head_term is &Term
             let shape_list_terms = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
@@ -535,6 +736,7 @@ pub(crate) fn parse_components(
     }
 
     if let Some(xone_terms) = pred_obj_pairs.get(&shacl.xone.into_owned()) {
+        processed_predicates.insert(shacl.xone.into_owned());
         if let Some(list_head_term) = xone_terms.first() {
             // list_head_term is &Term
             let shape_list_terms = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
@@ -549,70 +751,84 @@ pub(crate) fn parse_components(
     }
 
     // Qualified Value Shape
-    let qvs_term_opt = pred_obj_pairs
-        .get(&shacl.qualified_value_shape.into_owned())
-        .and_then(|terms| terms.first().cloned()); // qvs_term_opt is Option<Term>
+    if let Some(qvs_terms) = pred_obj_pairs.get(&shacl.qualified_value_shape.into_owned()) {
+        processed_predicates.insert(shacl.qualified_value_shape.into_owned());
+        let qvs_term_opt = qvs_terms.first().cloned();
 
-    if let Some(qvs_term) = qvs_term_opt {
-        // qvs_term is Term
-        let q_min_count_opt = pred_obj_pairs
-            .get(&shacl.qualified_min_count.into_owned())
-            .and_then(|terms| terms.first()) // &Term
-            .and_then(|term_ref_val| {
-                // term_ref_val is &Term
-                if let Term::Literal(lit) = term_ref_val {
-                    lit.value().parse::<u64>().ok()
-                } else {
-                    None
-                }
-            });
+        if let Some(qvs_term) = qvs_term_opt {
+            // qvs_term is Term
+            let q_min_count_opt = pred_obj_pairs
+                .get(&shacl.qualified_min_count.into_owned())
+                .and_then(|terms| terms.first()) // &Term
+                .and_then(|term_ref_val| {
+                    // term_ref_val is &Term
+                    if let Term::Literal(lit) = term_ref_val {
+                        lit.value().parse::<u64>().ok()
+                    } else {
+                        None
+                    }
+                });
 
-        let q_max_count_opt = pred_obj_pairs
-            .get(&shacl.qualified_max_count.into_owned())
-            .and_then(|terms| terms.first()) // &Term
-            .and_then(|term_ref_val| {
-                // term_ref_val is &Term
-                if let Term::Literal(lit) = term_ref_val {
-                    lit.value().parse::<u64>().ok()
-                } else {
-                    None
-                }
-            });
+            if q_min_count_opt.is_some() {
+                processed_predicates.insert(shacl.qualified_min_count.into_owned());
+            }
 
-        let q_disjoint_opt = pred_obj_pairs
-            .get(&shacl.qualified_value_shapes_disjoint.into_owned())
-            .and_then(|terms| terms.first()) // &Term
-            .and_then(|term_ref_val| {
-                // term_ref_val is &Term
-                if let Term::Literal(lit) = term_ref_val {
-                    lit.value().parse::<bool>().ok()
-                } else {
-                    None
-                }
-            });
+            let q_max_count_opt = pred_obj_pairs
+                .get(&shacl.qualified_max_count.into_owned())
+                .and_then(|terms| terms.first()) // &Term
+                .and_then(|term_ref_val| {
+                    // term_ref_val is &Term
+                    if let Term::Literal(lit) = term_ref_val {
+                        lit.value().parse::<u64>().ok()
+                    } else {
+                        None
+                    }
+                });
 
-        let shape_id = context.get_or_create_node_id(qvs_term.clone());
-        let component = Component::QualifiedValueShape(QualifiedValueShapeComponent::new(
-            shape_id,
-            q_min_count_opt,
-            q_max_count_opt,
-            q_disjoint_opt,
-        ));
-        let id_term = Term::Literal(Literal::new_simple_literal(format!(
-            "QualifiedValueShape:{}:{}:{}:{}",
-            qvs_term,
-            q_min_count_opt.map(|v| v.to_string()).unwrap_or_default(),
-            q_max_count_opt.map(|v| v.to_string()).unwrap_or_default(),
-            q_disjoint_opt.map(|v| v.to_string()).unwrap_or_default()
-        )));
-        let component_id = context.get_or_create_component_id(id_term);
-        new_components.insert(component_id, component);
+            if q_max_count_opt.is_some() {
+                processed_predicates.insert(shacl.qualified_max_count.into_owned());
+            }
+
+            let q_disjoint_opt = pred_obj_pairs
+                .get(&shacl.qualified_value_shapes_disjoint.into_owned())
+                .and_then(|terms| terms.first()) // &Term
+                .and_then(|term_ref_val| {
+                    // term_ref_val is &Term
+                    if let Term::Literal(lit) = term_ref_val {
+                        lit.value().parse::<bool>().ok()
+                    } else {
+                        None
+                    }
+                });
+
+            if q_disjoint_opt.is_some() {
+                processed_predicates.insert(shacl.qualified_value_shapes_disjoint.into_owned());
+            }
+
+            let shape_id = context.get_or_create_node_id(qvs_term.clone());
+            let component = Component::QualifiedValueShape(QualifiedValueShapeComponent::new(
+                shape_id,
+                q_min_count_opt,
+                q_max_count_opt,
+                q_disjoint_opt,
+            ));
+            let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                "QualifiedValueShape:{}:{}:{}:{}",
+                qvs_term,
+                q_min_count_opt.map(|v| v.to_string()).unwrap_or_default(),
+                q_max_count_opt.map(|v| v.to_string()).unwrap_or_default(),
+                q_disjoint_opt.map(|v| v.to_string()).unwrap_or_default()
+            )));
+            let component_id = context.get_or_create_component_id(id_term);
+            new_components.insert(component_id, component);
+        }
     }
 
     // Other Constraint Components
 
     // sh:closed / sh:ignoredProperties
     if let Some(closed_terms) = pred_obj_pairs.get(&shacl.closed.into_owned()) {
+        processed_predicates.insert(shacl.closed.into_owned());
         for closed_term in closed_terms {
             // closed_term is &Term
             if let Term::Literal(lit) = closed_term {
@@ -620,6 +836,10 @@ pub(crate) fn parse_components(
                     let ignored_properties_list_opt = pred_obj_pairs
                         .get(&shacl.ignored_properties.into_owned())
                         .and_then(|terms| terms.first().cloned()); // Option<Term>
+
+                    if ignored_properties_list_opt.is_some() {
+                        processed_predicates.insert(shacl.ignored_properties.into_owned());
+                    }
 
                     let ignored_properties_terms: Vec<Term> =
                         if let Some(list_head) = ignored_properties_list_opt {
@@ -654,6 +874,7 @@ pub(crate) fn parse_components(
 
     // sh:hasValue
     if let Some(has_value_terms) = pred_obj_pairs.get(&shacl.has_value.into_owned()) {
+        processed_predicates.insert(shacl.has_value.into_owned());
         for has_value_term in has_value_terms {
             // has_value_term is &Term
             let component = Component::HasValueConstraint(HasValueConstraintComponent::new(
@@ -670,6 +891,7 @@ pub(crate) fn parse_components(
 
     // sh:in
     if let Some(in_terms) = pred_obj_pairs.get(&shacl.in_.into_owned()) {
+        processed_predicates.insert(shacl.in_.into_owned());
         if let Some(list_head_term) = in_terms.first() {
             // list_head_term is &Term
             let list_items = context.parse_rdf_list(list_head_term.clone()); // Vec<Term>
@@ -683,12 +905,59 @@ pub(crate) fn parse_components(
 
     // sh:sparql
     if let Some(sparql_terms) = pred_obj_pairs.get(&shacl.sparql.into_owned()) {
+        processed_predicates.insert(shacl.sparql.into_owned());
         for sparql_term in sparql_terms {
             // sparql_term is &Term, which is the constraint details node.
             let component =
                 Component::SPARQLConstraint(SPARQLConstraintComponent::new(sparql_term.clone()));
             let component_id = context.get_or_create_component_id(sparql_term.clone());
             new_components.insert(component_id, component);
+        }
+    }
+
+    // SPARQL-based Constraint Components
+    let (custom_component_defs, param_to_component) = parse_custom_constraint_components(context);
+
+    let mut shape_predicates: HashSet<NamedNode> = pred_obj_pairs.keys().cloned().collect();
+    for p in processed_predicates {
+        shape_predicates.remove(&p);
+    }
+
+    let mut component_candidates: HashSet<NamedNode> = HashSet::new();
+    for p in &shape_predicates {
+        if let Some(ccs) = param_to_component.get(p) {
+            for cc in ccs {
+                component_candidates.insert(cc.clone());
+            }
+        }
+    }
+
+    for cc_iri in component_candidates {
+        if let Some(cc_def) = custom_component_defs.get(&cc_iri) {
+            let mut has_all_mandatory = true;
+            let mut parameter_values = HashMap::new();
+
+            for param in &cc_def.parameters {
+                if let Some(values) = pred_obj_pairs.get(&param.path) {
+                    parameter_values.insert(param.path.clone(), values.clone());
+                } else if !param.optional {
+                    has_all_mandatory = false;
+                    break;
+                }
+            }
+
+            if has_all_mandatory {
+                let component = Component::CustomConstraint(CustomConstraintComponent {
+                    definition: cc_def.clone(),
+                    parameter_values,
+                });
+                let id_term = Term::Literal(Literal::new_simple_literal(format!(
+                    "CustomConstraint:{}",
+                    cc_iri.as_str()
+                )));
+                let component_id = context.get_or_create_component_id(id_term);
+                new_components.insert(component_id, component);
+            }
         }
     }
 
@@ -802,6 +1071,8 @@ pub(crate) enum Component {
     InConstraint(InConstraintComponent),
     /// `sh:sparql`
     SPARQLConstraint(SPARQLConstraintComponent),
+    /// A constraint from a SPARQL-based constraint component
+    CustomConstraint(CustomConstraintComponent),
 }
 
 impl Component {
@@ -844,6 +1115,7 @@ impl Component {
             Component::HasValueConstraint(_) => "HasValueConstraint".to_string(),
             Component::InConstraint(_) => "InConstraint".to_string(),
             Component::SPARQLConstraint(_) => "SPARQLConstraint".to_string(),
+            Component::CustomConstraint(c) => local_name(&c.definition.iri),
         }
     }
 
@@ -879,6 +1151,7 @@ impl Component {
             Component::HasValueConstraint(c) => c.component_type(),
             Component::InConstraint(c) => c.component_type(),
             Component::SPARQLConstraint(c) => c.component_type(),
+            Component::CustomConstraint(c) => c.component_type(),
         }
     }
 
@@ -918,6 +1191,7 @@ impl Component {
             Component::HasValueConstraint(c) => c.to_graphviz_string(component_id, context),
             Component::InConstraint(c) => c.to_graphviz_string(component_id, context),
             Component::SPARQLConstraint(c) => c.to_graphviz_string(component_id, context),
+            Component::CustomConstraint(c) => c.to_graphviz_string(component_id, context),
         }
     }
 
@@ -970,8 +1244,161 @@ impl Component {
                 comp.validate(component_id, c, context, trace)
             }
             Component::ClosedConstraint(comp) => comp.validate(component_id, c, context, trace),
-            // For components without specific validation logic, or structural ones, consider them as passing.
+            Component::CustomConstraint(comp) => comp.validate(component_id, c, context, trace),
         }
+    }
+}
+
+impl GraphvizOutput for CustomConstraintComponent {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
+        let label = format!(
+            "Custom: {}\\n{}",
+            local_name(&self.definition.iri),
+            self.parameter_values
+                .iter()
+                .map(|(p, vs)| format!(
+                    "{}: {}",
+                    local_name(p),
+                    vs.iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+                .collect::<Vec<_>>()
+                .join("\\n")
+        );
+        format!(
+            "  {} [label=\"{}\", shape=box];",
+            component_id.to_graphviz_id(),
+            label
+        )
+    }
+
+    fn component_type(&self) -> NamedNode {
+        self.definition.iri.clone()
+    }
+}
+
+impl ValidateComponent for CustomConstraintComponent {
+    fn validate(
+        &self,
+        component_id: ComponentID,
+        c: &mut Context,
+        context: &ValidationContext,
+        _trace: &mut Vec<TraceItem>,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        let is_prop_shape = c.source_shape().as_prop_id().is_some();
+
+        let validator = if is_prop_shape {
+            self.definition
+                .property_validator
+                .as_ref()
+                .or(self.definition.validator.as_ref())
+        } else {
+            self.definition
+                .node_validator
+                .as_ref()
+                .or(self.definition.validator.as_ref())
+        };
+
+        let validator = match validator {
+            Some(v) => v,
+            None => return Ok(vec![]), // No suitable validator
+        };
+
+        let mut results = vec![];
+        let mut options = QueryOptions::default().with_binding(
+            "this",
+            c.focus_node().clone(),
+        )?;
+
+        for (param_path, values) in &self.parameter_values {
+            if let Some(value) = values.first() {
+                let param_name = local_name(param_path);
+                options = options.with_binding(param_name, value.clone())?;
+            }
+        }
+
+        if validator.is_ask {
+            if let Some(value_nodes) = c.value_nodes() {
+                for value_node in value_nodes {
+                    let mut ask_options =
+                        options.clone().with_binding("value", value_node.clone())?;
+                    match context.store().query(&validator.query, ask_options) {
+                        Ok(QueryResults::Boolean(conforms)) => {
+                            if !conforms {
+                                results.push(ComponentValidationResult::Fail(
+                                    c.clone(),
+                                    ValidationFailure {
+                                        component_id,
+                                        failed_value_node: Some(value_node.clone()),
+                                        message: validator
+                                            .messages
+                                            .first()
+                                            .map(|t| t.to_string())
+                                            .unwrap_or_else(|| {
+                                                format!(
+                                                    "Value does not conform to custom constraint {}",
+                                                    self.definition.iri
+                                                )
+                                            }),
+                                    },
+                                ));
+                            }
+                        }
+                        Err(e) => return Err(format!("SPARQL query failed: {}", e)),
+                    }
+                }
+            }
+        } else {
+            // SELECT validator
+            let mut query = validator.query.clone();
+            if is_prop_shape {
+                if let Some(prop_id) = c.source_shape().as_prop_id() {
+                    if let Some(prop_shape) = context.get_prop_shape_by_id(prop_id) {
+                        let path_str = prop_shape.sparql_path();
+                        query = query.replace("$PATH", &path_str);
+                    }
+                }
+            }
+
+            match context.store().query(&query, options) {
+                Ok(QueryResults::Solutions(solutions)) => {
+                    for solution in solutions {
+                        if let Ok(solution) = solution {
+                            let value = solution.get("value").or_else(|| c.value()).cloned();
+                            results.push(ComponentValidationResult::Fail(
+                                c.clone(),
+                                ValidationFailure {
+                                    component_id,
+                                    failed_value_node: value,
+                                    message: solution
+                                        .get("message")
+                                        .map(|t| t.to_string())
+                                        .or_else(|| {
+                                            validator.messages.first().map(|t| t.to_string())
+                                        })
+                                        .unwrap_or_else(|| {
+                                            format!(
+                                                "Value does not conform to custom constraint {}",
+                                                self.definition.iri
+                                            )
+                                        }),
+                                },
+                            ));
+                        }
+                    }
+                }
+                Err(e) => return Err(format!("SPARQL query failed: {}", e)),
+                _ => {}
+            }
+        }
+
+        Ok(results)
     }
 }
 
