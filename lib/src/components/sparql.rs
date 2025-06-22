@@ -207,19 +207,32 @@ impl ValidateComponent for SPARQLConstraintComponent {
         query.dataset_mut().set_default_graph_as_union();
 
         // 6. Prepare pre-bound variables
-        let mut substitutions =
-            vec![(Variable::new_unchecked("this"), c.focus_node().clone())];
+        let mut substitutions = vec![];
 
-        if let Some(current_shape_term) = c.source_shape().get_term(context) {
+        if full_query_str.contains("$this") {
+            // Only add if the query uses it
             substitutions.push((
-                Variable::new_unchecked("currentShape"),
-                current_shape_term,
+                Variable::new_unchecked("this"),
+                c.focus_node().clone(),
             ));
         }
-        substitutions.push((
-            Variable::new_unchecked("shapesGraph"),
-            context.shape_graph_iri.clone().into(),
-        ));
+
+        if let Some(current_shape_term) = c.source_shape().get_term(context) {
+            if full_query_str.contains("$currentShape") {
+                // Only add if the query uses it
+                substitutions.push((
+                    Variable::new_unchecked("currentShape"),
+                    current_shape_term,
+                ));
+            }
+        }
+        if full_query_str.contains("$shapesGraph") {
+            // Only add if the query uses it
+            substitutions.push((
+                Variable::new_unchecked("shapesGraph"),
+                context.shape_graph_iri.clone().into(),
+            ));
+        }
 
         // 7. Get messages
         let messages: Vec<Term> = context
