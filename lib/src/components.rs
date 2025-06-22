@@ -57,6 +57,8 @@ pub(crate) struct ValidationFailure {
     pub message: String,
     /// The path of the validation result, which can be overridden by SPARQL-based constraints.
     pub result_path: Option<Path>,
+    /// The constraint that was violated, for `sh:sparql` constraints.
+    pub source_constraint: Option<Term>,
 }
 
 /// A trait for converting `Term` or `TermRef` into `SubjectRef`.
