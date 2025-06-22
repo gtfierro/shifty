@@ -7,7 +7,7 @@ use crate::types::{ComponentID, TraceItem};
 use ontoenv::api::ResolveTarget;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{Literal, NamedNode, NamedNodeRef, Term, TermRef};
-use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
+use oxigraph::sparql::{QueryOptions, QueryResults, Variable};
 use std::collections::HashMap;
 
 fn get_prefixes_for_sparql_node(
@@ -156,7 +156,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .next()
         {
             if let Term::Literal(lit) = &deactivated_quad.object {
-                if lit.datatype() == Some(xsd::BOOLEAN) && lit.value() == "true" {
+                if lit.datatype() == Some(xsd::BOOLEAN.into()) && lit.value() == "true" {
                     return Ok(vec![]);
                 }
             }
@@ -205,7 +205,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         if c.source_shape().as_prop_id().is_some() {
             if let Some(prop_id) = c.source_shape().as_prop_id() {
                 if let Some(prop_shape) = context.get_prop_shape_by_id(prop_id) {
-                    let path_str = prop_shape.sparql_path()?;
+                    let path_str = prop_shape.sparql_path();
                     select_query = select_query.replace("$PATH", &path_str);
                 }
             }
@@ -259,7 +259,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     let solution = solution_res.map_err(|e| e.to_string())?;
 
                     if let Some(Term::Literal(failure)) = solution.get("failure") {
-                        if failure.datatype() == Some(xsd::BOOLEAN) && failure.value() == "true" {
+                        if failure.datatype() == Some(xsd::BOOLEAN.into()) && failure.value() == "true" {
                             return Err("SPARQL query reported a failure.".to_string());
                         }
                     }
