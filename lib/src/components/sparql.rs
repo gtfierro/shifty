@@ -141,6 +141,166 @@ impl ValidateComponent for SPARQLConstraintComponent {
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        let shacl = SHACL::new();
+        let constraint_subject = self.constraint_node.to_subject_ref();
+
+        // 1. Check if deactivated
+        if let Some(Ok(deactivated_quad)) = context
+            .store()
+            .quads_for_pattern(
+                Some(constraint_subject),
+                Some(shacl.deactivated),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .next()
+        {
+            if let Term::Literal(lit) = &deactivated_quad.object {
+                if lit.datatype() == Some(xsd::BOOLEAN) && lit.value() == "true" {
+                    return Ok(vec![]);
+                }
+            }
+        }
+
+        // 2. Get SELECT query
+        let mut select_query = if let Some(Ok(quad)) = context
+            .store()
+            .quads_for_pattern(
+                Some(constraint_subject),
+                Some(shacl.select),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .next()
+        {
+            if let Term::Literal(lit) = &quad.object {
+                lit.value().to_string()
+            } else {
+                return Err("sh:select value must be a literal string".to_string());
+            }
+        } else {
+            return Err("SPARQL constraint is missing sh:select".to_string());
+        };
+
+        // 3. SPARQL syntax checks from Appendix A
+        // Note: These are simplified checks. More robust checks would need a full SPARQL parser
+        // or more complex regular expressions to avoid matching inside comments or strings.
+        if select_query.to_uppercase().contains(" MINUS ") {
+            // with spaces to avoid matching variable names
+            return Err("A SPARQL Constraint must not contain a MINUS clause.".to_string());
+        }
+        if select_query.to_uppercase().contains(" VALUES ") {
+            return Err("A SPARQL Constraint must not contain a VALUES clause.".to_string());
+        }
+        if select_query.to_uppercase().contains(" SERVICE ") {
+            return Err(
+                "A SPARQL Constraint must not contain a federated query (SERVICE).".to_string(),
+            );
+        }
+
+        // 4. Get prefixes
+        let prefixes = get_prefixes_for_sparql_node(self.constraint_node.as_ref(), context)?;
+
+        // 5. Handle $PATH substitution for property shapes
+        if c.source_shape().as_prop_id().is_some() {
+            if let Some(prop_id) = c.source_shape().as_prop_id() {
+                if let Some(prop_shape) = context.get_prop_shape_by_id(prop_id) {
+                    let path_str = prop_shape.sparql_path()?;
+                    select_query = select_query.replace("$PATH", &path_str);
+                }
+            }
+        }
+
+        let full_query = if !prefixes.is_empty() {
+            format!("{}\n{}", prefixes, select_query)
+        } else {
+            select_query
+        };
+
+        // 6. Prepare pre-bound variables
+        let mut substitutions =
+            vec![(Variable::new_unchecked("this"), c.focus_node().clone())];
+
+        if let Some(current_shape_term) = c.source_shape().get_term(context) {
+            substitutions.push((
+                Variable::new_unchecked("currentShape"),
+                current_shape_term,
+            ));
+        }
+        substitutions.push((
+            Variable::new_unchecked("shapesGraph"),
+            context.shape_graph_iri.clone().into(),
+        ));
+
+        // 7. Get messages
+        let messages: Vec<Term> = context
+            .store()
+            .quads_for_pattern(
+                Some(constraint_subject),
+                Some(shacl.message),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .collect();
+
+        // 8. Execute query
+        let query_results = context.store().query_opt_with_substituted_variables(
+            &full_query,
+            QueryOptions::default(),
+            substitutions,
+        );
+
+        match query_results {
+            Ok(QueryResults::Solutions(solutions)) => {
+                let mut results = vec![];
+                for solution_res in solutions {
+                    let solution = solution_res.map_err(|e| e.to_string())?;
+
+                    if let Some(Term::Literal(failure)) = solution.get("failure") {
+                        if failure.datatype() == Some(xsd::BOOLEAN) && failure.value() == "true" {
+                            return Err("SPARQL query reported a failure.".to_string());
+                        }
+                    }
+
+                    let failed_value_node = solution.get("value").cloned();
+
+                    let mut message = solution
+                        .get("message")
+                        .map(|t| t.to_string())
+                        .or_else(|| messages.first().map(|t| t.to_string()))
+                        .unwrap_or_else(|| "Node does not conform to SPARQL constraint".to_string());
+
+                    // Substitute variables in message
+                    for var in solution.variables() {
+                        if let Some(term) = solution.get(var) {
+                            let var_name = var.as_str();
+                            let placeholder1 = format!("{{?{}}}", var_name);
+                            let placeholder2 = format!("{{${}}}", var_name);
+                            message = message.replace(&placeholder1, &term.to_string());
+                            message = message.replace(&placeholder2, &term.to_string());
+                        }
+                    }
+
+                    // The path for the validation result is taken from the context `c`.
+                    // The spec allows for `?path` to be bound in the query to override this,
+                    // but this is not implemented here to maintain consistency with `CustomConstraintComponent`.
+
+                    results.push(ComponentValidationResult::Fail(
+                        c.clone(),
+                        ValidationFailure {
+                            component_id,
+                            failed_value_node,
+                            message,
+                        },
+                    ));
+                }
+                Ok(results)
+            }
+            Err(e) => Err(format!("SPARQL query failed: {}", e)),
+            _ => Ok(vec![]), // Other query result types are ignored
+        }
     }
 }
 
