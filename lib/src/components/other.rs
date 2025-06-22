@@ -33,6 +33,7 @@ impl ValidateComponent for InConstraintComponent {
                         "sh:in constraint has an empty list, but value nodes {:?} exist.",
                         c.value_nodes().unwrap_or(&Vec::new()) // Provide empty vec for formatting if None
                     ),
+                    result_path: None,
                 };
                 Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
             };
@@ -52,6 +53,7 @@ impl ValidateComponent for InConstraintComponent {
                         component_id,
                         failed_value_node: Some(vn.clone()),
                         message,
+                        result_path: None,
                     };
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
@@ -195,6 +197,7 @@ impl ValidateComponent for ClosedConstraintComponent {
                         component_id,
                         failed_value_node: Some(object),
                         message,
+                        result_path: Some(Path::Simple(Term::NamedNode(predicate))),
                     };
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
@@ -256,6 +259,7 @@ impl ValidateComponent for HasValueConstraintComponent {
                             "None of the value nodes {:?} are equal to the required value {:?}",
                             value_nodes, self.value
                         ),
+                        result_path: None,
                     };
                     Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
                 }
@@ -269,6 +273,7 @@ impl ValidateComponent for HasValueConstraintComponent {
                         "No value nodes found to check against required value {:?}",
                         self.value
                     ),
+                    result_path: None,
                 };
                 Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
             }

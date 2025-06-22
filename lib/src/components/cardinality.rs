@@ -1,8 +1,7 @@
+use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 use crate::context::{Context, ValidationContext};
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::NamedNode;
-
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 
 #[derive(Debug)]
 pub struct MinCountConstraintComponent {
@@ -50,6 +49,7 @@ impl ValidateComponent for MinCountConstraintComponent {
                     "Value count ({}) does not meet minimum requirement: {}",
                     count, self.min_count
                 ),
+                result_path: None,
             };
             Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
         } else {
@@ -104,6 +104,7 @@ impl ValidateComponent for MaxCountConstraintComponent {
                     "Value count ({}) exceeds maximum requirement: {}",
                     count, self.max_count
                 ),
+                result_path: None,
             };
             Ok(vec![ComponentValidationResult::Fail(c.clone(), failure)])
         } else {

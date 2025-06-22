@@ -91,6 +91,7 @@ impl ValidateComponent for EqualsConstraintComponent {
                         format_term_for_label(value_node),
                         equals_property.as_str()
                     ),
+                    result_path: None,
                 },
             ));
         }
@@ -109,6 +110,7 @@ impl ValidateComponent for EqualsConstraintComponent {
                         format_term_for_label(other_value),
                         equals_property.as_str()
                     ),
+                    result_path: None,
                 },
             ));
         }
@@ -206,6 +208,7 @@ impl ValidateComponent for DisjointConstraintComponent {
                             format_term_for_label(value_node),
                             disjoint_property.as_str()
                         ),
+                        result_path: None,
                     },
                 ));
             }
@@ -315,6 +318,7 @@ impl ValidateComponent for LessThanConstraintComponent {
                                 format_term_for_label(other_value),
                                 less_than_property.as_str()
                             ),
+                            result_path: None,
                         },
                     ));
                 }
@@ -425,6 +429,7 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
                                 format_term_for_label(other_value),
                                 lte_property.as_str()
                             ),
+                            result_path: None,
                         },
                     ));
                 }

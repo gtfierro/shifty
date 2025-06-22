@@ -76,6 +76,7 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
                             format_term_for_label(value_node),
                             format_term_for_label(&self.min_exclusive),
                         ),
+                        result_path: None,
                     },
                 ));
             }
@@ -156,6 +157,7 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
                             format_term_for_label(value_node),
                             format_term_for_label(&self.min_inclusive),
                         ),
+                        result_path: None,
                     },
                 ));
             }
@@ -236,6 +238,7 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
                             format_term_for_label(value_node),
                             format_term_for_label(&self.max_exclusive),
                         ),
+                        result_path: None,
                     },
                 ));
             }
@@ -316,6 +319,7 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
                             format_term_for_label(value_node),
                             format_term_for_label(&self.max_inclusive),
                         ),
+                        result_path: None,
                     },
                 ));
             }

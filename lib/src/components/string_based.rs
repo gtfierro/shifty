@@ -59,6 +59,7 @@ impl ValidateComponent for MinLengthConstraintComponent {
                             component_id,
                             failed_value_node: Some(vn.clone()),
                             message,
+                            result_path: None,
                         };
                         results.push(ComponentValidationResult::Fail(error_context, failure));
                         continue;
@@ -83,6 +84,7 @@ impl ValidateComponent for MinLengthConstraintComponent {
                         component_id,
                         failed_value_node: Some(vn.clone()),
                         message,
+                        result_path: None,
                     };
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
@@ -145,6 +147,7 @@ impl ValidateComponent for MaxLengthConstraintComponent {
                             component_id,
                             failed_value_node: Some(vn.clone()),
                             message,
+                            result_path: None,
                         };
                         results.push(ComponentValidationResult::Fail(error_context, failure));
                         continue;
@@ -169,6 +172,7 @@ impl ValidateComponent for MaxLengthConstraintComponent {
                         component_id,
                         failed_value_node: Some(vn.clone()),
                         message,
+                        result_path: None,
                     };
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
@@ -254,6 +258,7 @@ impl ValidateComponent for PatternConstraintComponent {
                             component_id,
                             failed_value_node: Some(vn.clone()),
                             message,
+                            result_path: None,
                         };
                         results.push(ComponentValidationResult::Fail(error_context, failure));
                         continue;
@@ -280,6 +285,7 @@ impl ValidateComponent for PatternConstraintComponent {
                         component_id,
                         failed_value_node: Some(vn.clone()),
                         message,
+                        result_path: None,
                     };
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
@@ -401,6 +407,7 @@ impl ValidateComponent for LanguageInConstraintComponent {
                         component_id,
                         failed_value_node: Some(vn.clone()),
                         message,
+                        result_path: None,
                     };
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
@@ -480,6 +487,7 @@ impl ValidateComponent for UniqueLangConstraintComponent {
                         "Language tag '{}' is used by more than one value node, but sh:uniqueLang is true.",
                         duplicated_tag
                     ),
+                    result_path: None,
                 };
                 results.push(ComponentValidationResult::Fail(c.clone(), failure));
             }
