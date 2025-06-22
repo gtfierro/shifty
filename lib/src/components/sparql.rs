@@ -7,7 +7,7 @@ use crate::types::{ComponentID, Path, TraceItem};
 use ontoenv::api::ResolveTarget;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{Literal, NamedNode, NamedNodeRef, Term, TermRef};
-use oxigraph::sparql::{QueryOptions, QueryResults, Variable};
+use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 use std::collections::HashMap;
 
 fn get_prefixes_for_sparql_node(
@@ -196,11 +196,15 @@ impl ValidateComponent for SPARQLConstraintComponent {
             }
         }
 
-        let full_query = if !prefixes.is_empty() {
+        let full_query_str = if !prefixes.is_empty() {
             format!("{}\n{}", prefixes, select_query)
         } else {
             select_query
         };
+
+        let mut query = Query::parse(&full_query_str, None)
+            .map_err(|e| format!("Failed to parse SPARQL constraint query: {}", e))?;
+        query.dataset_mut().set_default_graph_as_union();
 
         // 6. Prepare pre-bound variables
         let mut substitutions =
@@ -232,7 +236,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // 8. Execute query
         let query_results = context.store().query_opt_with_substituted_variables(
-            &full_query,
+            query,
             QueryOptions::default(),
             substitutions,
         );
