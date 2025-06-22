@@ -217,4 +217,9 @@ generate_test_cases! {
     test_node_xone_duplicate: "tests/test-suite/core/node/xone-duplicate.ttl",
 
     test_complex_personexample: "tests/test-suite/core/complex/personexample.ttl",
+
+    test_sparql_node_sparql_001: "tests/test-suite/sparql/node/sparql-001.ttl",
+    test_sparql_node_sparql_002: "tests/test-suite/sparql/node/sparql-002.ttl",
+    test_sparql_node_sparql_003: "tests/test-suite/sparql/node/sparql-003.ttl",
+    test_sparql_node_prefixes_001: "tests/test-suite/sparql/node/prefixes-001.ttl",
 }
