@@ -156,7 +156,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .next()
         {
             if let Term::Literal(lit) = &deactivated_quad.object {
-                if lit.datatype() == Some(xsd::BOOLEAN.into()) && lit.value() == "true" {
+                if lit.datatype() == Some(xsd::BOOLEAN) && lit.value() == "true" {
                     return Ok(vec![]);
                 }
             }
@@ -259,7 +259,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     let solution = solution_res.map_err(|e| e.to_string())?;
 
                     if let Some(Term::Literal(failure)) = solution.get("failure") {
-                        if failure.datatype() == Some(xsd::BOOLEAN.into()) && failure.value() == "true" {
+                        if failure.datatype() == Some(xsd::BOOLEAN) && failure.value() == "true" {
                             return Err("SPARQL query reported a failure.".to_string());
                         }
                     }
