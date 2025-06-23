@@ -85,6 +85,8 @@ impl NodeShape {
 #[derive(Debug)]
 pub struct PropertyShape {
     identifier: PropShapeID,
+    /// The targets that specify which nodes this shape applies to.
+    pub targets: Vec<Target>,
     path: Path,
     constraints: Vec<ComponentID>,
     severity: Severity,
@@ -95,12 +97,14 @@ impl PropertyShape {
     /// Creates a new `PropertyShape`.
     pub fn new(
         identifier: PropShapeID,
+        targets: Vec<Target>,
         path: Path,
         constraints: Vec<ComponentID>,
         severity: Option<Severity>,
     ) -> Self {
         PropertyShape {
             identifier,
+            targets,
             path,
             constraints,
             severity: severity.unwrap_or_default(),

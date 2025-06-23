@@ -66,6 +66,54 @@ impl ValidateShape for NodeShape {
     }
 }
 
+impl ValidateShape for PropertyShape {
+    fn process_targets(
+        &self,
+        context: &ValidationContext,
+        rb: &mut ValidationReportBuilder,
+    ) -> Result<(), String> {
+        // first gather all of the targets
+        let mut target_contexts = HashSet::new();
+        for target in self.targets.iter() {
+            info!(
+                "get targets from target: {:?} on shape {}",
+                target,
+                self.identifier()
+            );
+            target_contexts.extend(target.get_target_nodes(context, *self.identifier())?);
+        }
+
+        for mut target_context in target_contexts.into_iter() {
+            let trace_index = {
+                let mut traces = context.execution_traces.borrow_mut();
+                traces.push(Vec::new());
+                traces.len() - 1
+            };
+            target_context.set_trace_index(trace_index);
+
+            {
+                let mut traces = context.execution_traces.borrow_mut();
+                let trace = &mut traces[trace_index];
+
+                match self.validate(&mut target_context, context, trace) {
+                    Ok(validation_results) => {
+                        for result in validation_results {
+                            if let ComponentValidationResult::Fail(ctx, failure) = result {
+                                rb.add_failure(&ctx, failure);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // This is a processing error, not a validation failure. Propagate it.
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl PropertyShape {
     /// Validates a context against this property shape.
     ///

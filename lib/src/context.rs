@@ -184,12 +184,24 @@ impl ValidationContext {
         info!("Validating NodeShapes and PropertyShapes in the context");
         for node_shape in self.node_shapes.values() {
             // Validate each NodeShape
-            if let Err(e) = node_shape.validate(self, &mut b) {
+            if let Err(e) = node_shape.process_targets(self, &mut b) {
                 error!(
                     "Error validating NodeShape {}: {}",
                     node_shape.identifier(),
                     e
                 );
+            }
+        }
+
+        for prop_shape in self.prop_shapes.values() {
+            if !prop_shape.targets.is_empty() {
+                if let Err(e) = prop_shape.process_targets(self, &mut b) {
+                    error!(
+                        "Error validating PropertyShape {}: {}",
+                        prop_shape.identifier(),
+                        e
+                    );
+                }
             }
         }
         b
