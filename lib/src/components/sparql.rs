@@ -8,28 +8,50 @@ use ontoenv::api::ResolveTarget;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{Literal, NamedNode, NamedNodeRef, Term, TermRef};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+// TODO : stop grabbing prefixes/declaratiosn from *everywhere*
 fn get_prefixes_for_sparql_node(
     sparql_node: TermRef,
     context: &ValidationContext,
 ) -> Result<String, String> {
     let shacl = SHACL::new();
-    let prefixes_subjects: Vec<Term> = context
+    println!("shape graph iri: {}", context.shape_graph_iri_ref());
+    let mut prefixes_subjects: HashSet<Term> = context
         .store()
         .quads_for_pattern(
             Some(sparql_node.try_to_subject_ref()?),
             Some(shacl.prefixes),
             None,
-            Some(context.shape_graph_iri_ref()),
+            None,
         )
         .filter_map(Result::ok)
         .map(|q| q.object)
         .collect();
 
+    // extend with all subjects of sh:declare
+    prefixes_subjects.extend(
+        context
+            .store()
+            .quads_for_pattern(
+                None,
+                Some(shacl.declare),
+                None,
+                None,
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.subject.into()),
+    );
+
+    println!("Found prefixes subjects: {:?}", prefixes_subjects);
+
     let mut collected_prefixes: HashMap<String, String> = HashMap::new();
 
     for prefixes_subject in prefixes_subjects {
+        println!(
+            "Processing sh:prefixes subject: {}",
+            prefixes_subject
+        );
         // As per spec, sh:prefixes values can be ontology IRIs or nodes with sh:declare.
         // Per user request, we only handle ontology IRIs here.
         if let Term::NamedNode(ontology_iri) = &prefixes_subject {
@@ -41,6 +63,11 @@ fn get_prefixes_for_sparql_node(
                 None => continue,
             };
             if let Ok(ont) = context.env().get_ontology(&graphid) {
+                println!(
+                    "Found ontology with IRI: {} and prefixes: {:?}",
+                    ontology_iri,
+                    ont.namespace_map()
+                );
                 for (prefix, namespace) in ont.namespace_map().iter() {
                     if let Some(existing_namespace) = collected_prefixes.get(prefix.as_str()) {
                         if existing_namespace != namespace {
@@ -201,9 +228,13 @@ impl ValidateComponent for SPARQLConstraintComponent {
         } else {
             select_query
         };
+        println!(
+            "SPARQL constraint query: {}",
+            full_query_str.replace('\n', " ")
+        );
 
         let mut query = Query::parse(&full_query_str, None)
-            .map_err(|e| format!("Failed to parse SPARQL constraint query: {}", e))?;
+            .map_err(|e| format!("Failed to parse SPARQL constraint query: {}", e)).unwrap();
         query.dataset_mut().set_default_graph_as_union();
 
         // 6. Prepare pre-bound variables
