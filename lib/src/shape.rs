@@ -6,12 +6,13 @@ use crate::types::{Path, Target};
 /// A trait for shapes that can be validated.
 pub(crate) trait ValidateShape {
     /// Performs validation of the shape against the data in the `ValidationContext`.
+    /// found by the shape's targets.
     ///
     /// # Arguments
     ///
     /// * `context` - The current `ValidationContext`.
     /// * `rb` - A mutable `ValidationReportBuilder` to collect validation results.
-    fn validate(
+    fn process_targets(
         &self,
         context: &ValidationContext,
         rb: &mut ValidationReportBuilder,

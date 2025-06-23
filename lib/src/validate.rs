@@ -9,7 +9,7 @@ use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 use std::collections::HashSet;
 
 impl ValidateShape for NodeShape {
-    fn validate(
+    fn process_targets(
         &self,
         context: &ValidationContext,
         rb: &mut ValidationReportBuilder,
