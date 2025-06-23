@@ -261,6 +261,19 @@ fn parse_property_shape(
 
     let path = parse_shacl_path_recursive(context, path_object_term.as_ref())?;
 
+    // get the targets
+    let mut targets: Vec<crate::types::Target> = context
+        .store()
+        .quads_for_pattern(Some(subject), None, None, Some(ps_shape_graph_name.as_ref()))
+        .filter_map(Result::ok)
+        .filter_map(|quad| {
+            crate::types::Target::from_predicate_object(
+                quad.predicate.as_ref(),
+                quad.object.as_ref(),
+            )
+        })
+        .collect();
+
     // get constraint components
     // parse_components will internally use context.store() and context.shape_graph_iri_ref()
     let constraints = parse_components(pshape, context);
@@ -284,7 +297,7 @@ fn parse_property_shape(
 
     let severity = severity_term_opt.as_ref().and_then(Severity::from_term);
 
-    let prop_shape = PropertyShape::new(id, path, component_ids, severity);
+    let prop_shape = PropertyShape::new(id, targets, path, component_ids, severity);
     context.prop_shapes.insert(id, prop_shape);
     Ok(id)
 }
