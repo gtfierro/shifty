@@ -40,7 +40,7 @@ fn get_prefixes_for_sparql_node(
         let declarations: Vec<Term> = context
             .store()
             .quads_for_pattern(
-                Some(prefixes_subject.to_subject_ref()?),
+                Some(prefixes_subject.try_to_subject_ref()?),
                 Some(shacl.declare),
                 None,
                 Some(context.shape_graph_iri_ref()),
@@ -50,7 +50,7 @@ fn get_prefixes_for_sparql_node(
             .collect();
 
         for declaration in declarations {
-            let decl_subject = match declaration.to_subject_ref() {
+            let decl_subject = match declaration.try_to_subject_ref() {
                 Ok(s) => s,
                 Err(_) => {
                     return Err(format!(
