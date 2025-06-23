@@ -17,43 +17,97 @@ fn get_prefixes_for_sparql_node(
 ) -> Result<String, String> {
     let shacl = SHACL::new();
     println!("shape graph iri: {}", context.shape_graph_iri_ref());
-    let mut prefixes_subjects: HashSet<Term> = context
+    let prefixes_subjects: HashSet<Term> = context
         .store()
         .quads_for_pattern(
             Some(sparql_node.try_to_subject_ref()?),
             Some(shacl.prefixes),
             None,
-            None,
+            Some(context.shape_graph_iri_ref()),
         )
         .filter_map(Result::ok)
         .map(|q| q.object)
         .collect();
-
-    // extend with all subjects of sh:declare
-    prefixes_subjects.extend(
-        context
-            .store()
-            .quads_for_pattern(
-                None,
-                Some(shacl.declare),
-                None,
-                None,
-            )
-            .filter_map(Result::ok)
-            .map(|q| q.subject.into()),
-    );
 
     println!("Found prefixes subjects: {:?}", prefixes_subjects);
 
     let mut collected_prefixes: HashMap<String, String> = HashMap::new();
 
     for prefixes_subject in prefixes_subjects {
-        println!(
-            "Processing sh:prefixes subject: {}",
-            prefixes_subject
-        );
-        // As per spec, sh:prefixes values can be ontology IRIs or nodes with sh:declare.
-        // Per user request, we only handle ontology IRIs here.
+        println!("Processing sh:prefixes subject: {}", prefixes_subject);
+
+        // Handle sh:declare on the prefixes_subject
+        let declarations: Vec<Term> = context
+            .store()
+            .quads_for_pattern(
+                Some(prefixes_subject.to_subject_ref()?),
+                Some(shacl.declare),
+                None,
+                Some(context.shape_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .collect();
+
+        for declaration in declarations {
+            let decl_subject = match declaration.to_subject_ref() {
+                Ok(s) => s,
+                Err(_) => {
+                    return Err(format!(
+                        "sh:declare value must be an IRI or blank node, but found: {}",
+                        declaration
+                    ))
+                }
+            };
+
+            let prefix_val = context
+                .store()
+                .quads_for_pattern(
+                    Some(decl_subject),
+                    Some(shacl.prefix),
+                    None,
+                    Some(context.shape_graph_iri_ref()),
+                )
+                .next()
+                .and_then(|res| res.ok())
+                .map(|q| q.object);
+
+            let namespace_val = context
+                .store()
+                .quads_for_pattern(
+                    Some(decl_subject),
+                    Some(shacl.namespace),
+                    None,
+                    Some(context.shape_graph_iri_ref()),
+                )
+                .next()
+                .and_then(|res| res.ok())
+                .map(|q| q.object);
+
+            if let (Some(Term::Literal(prefix_lit)), Some(Term::Literal(namespace_lit))) =
+                (prefix_val, namespace_val)
+            {
+                let prefix = prefix_lit.value().to_string();
+                let namespace = namespace_lit.value().to_string();
+                if let Some(existing_namespace) = collected_prefixes.get(&prefix) {
+                    if existing_namespace != &namespace {
+                        return Err(format!(
+                            "Duplicate prefix '{}' with different namespaces: '{}' and '{}'",
+                            prefix, existing_namespace, namespace
+                        ));
+                    }
+                } else {
+                    collected_prefixes.insert(prefix, namespace);
+                }
+            } else {
+                return Err(format!(
+                    "Ill-formed prefix declaration: {}. Missing sh:prefix or sh:namespace.",
+                    declaration
+                ));
+            }
+        }
+
+        // Handle ontology IRI with ontoenv
         if let Term::NamedNode(ontology_iri) = &prefixes_subject {
             let graphid = context
                 .env()
@@ -81,11 +135,6 @@ fn get_prefixes_for_sparql_node(
                     }
                 }
             }
-        } else {
-            return Err(format!(
-                "sh:prefixes value must be an IRI (ontology IRI), but found: {}",
-                prefixes_subject
-            ));
         }
     }
 
