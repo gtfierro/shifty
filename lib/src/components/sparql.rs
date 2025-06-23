@@ -16,8 +16,7 @@ fn get_prefixes_for_sparql_node(
     context: &ValidationContext,
 ) -> Result<String, String> {
     let shacl = SHACL::new();
-    println!("shape graph iri: {}", context.shape_graph_iri_ref());
-    let prefixes_subjects: HashSet<Term> = context
+    let mut prefixes_subjects: HashSet<Term> = context
         .store()
         .quads_for_pattern(
             Some(sparql_node.try_to_subject_ref()?),
@@ -29,13 +28,23 @@ fn get_prefixes_for_sparql_node(
         .map(|q| q.object)
         .collect();
 
-    println!("Found prefixes subjects: {:?}", prefixes_subjects);
+    // extend with sh:declare subjects
+    prefixes_subjects.extend(
+        context
+            .store()
+            .quads_for_pattern(
+                None,
+                Some(shacl.declare),
+                None,
+                None,
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.subject.into()),
+    );
 
     let mut collected_prefixes: HashMap<String, String> = HashMap::new();
 
     for prefixes_subject in prefixes_subjects {
-        println!("Processing sh:prefixes subject: {}", prefixes_subject);
-
         // Handle sh:declare on the prefixes_subject
         let declarations: Vec<Term> = context
             .store()
@@ -43,7 +52,7 @@ fn get_prefixes_for_sparql_node(
                 Some(prefixes_subject.try_to_subject_ref()?),
                 Some(shacl.declare),
                 None,
-                Some(context.shape_graph_iri_ref()),
+                None,
             )
             .filter_map(Result::ok)
             .map(|q| q.object)
@@ -66,7 +75,7 @@ fn get_prefixes_for_sparql_node(
                     Some(decl_subject),
                     Some(shacl.prefix),
                     None,
-                    Some(context.shape_graph_iri_ref()),
+                    None,
                 )
                 .next()
                 .and_then(|res| res.ok())
@@ -78,7 +87,7 @@ fn get_prefixes_for_sparql_node(
                     Some(decl_subject),
                     Some(shacl.namespace),
                     None,
-                    Some(context.shape_graph_iri_ref()),
+                    None,
                 )
                 .next()
                 .and_then(|res| res.ok())
@@ -117,11 +126,6 @@ fn get_prefixes_for_sparql_node(
                 None => continue,
             };
             if let Ok(ont) = context.env().get_ontology(&graphid) {
-                println!(
-                    "Found ontology with IRI: {} and prefixes: {:?}",
-                    ontology_iri,
-                    ont.namespace_map()
-                );
                 for (prefix, namespace) in ont.namespace_map().iter() {
                     if let Some(existing_namespace) = collected_prefixes.get(prefix.as_str()) {
                         if existing_namespace != namespace {
@@ -277,10 +281,6 @@ impl ValidateComponent for SPARQLConstraintComponent {
         } else {
             select_query
         };
-        println!(
-            "SPARQL constraint query: {}",
-            full_query_str.replace('\n', " ")
-        );
 
         let mut query = Query::parse(&full_query_str, None)
             .map_err(|e| format!("Failed to parse SPARQL constraint query: {}", e)).unwrap();
@@ -327,11 +327,6 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .map(|q| q.object)
             .collect();
 
-        println!(
-            "Executing SPARQL constraint query: {}",
-            full_query_str.replace('\n', " ")
-        );
-
         // 8. Execute query
         let query_results = context.store().query_opt_with_substituted_variables(
             query,
@@ -342,6 +337,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         match query_results {
             Ok(QueryResults::Solutions(solutions)) => {
                 let mut results = vec![];
+                let mut seen_solutions = HashSet::new();
                 for solution_res in solutions {
                     println!("Processing SPARQL solution: {:?}", solution_res);
                     let solution = solution_res.map_err(|e| e.to_string())?;
@@ -359,6 +355,10 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     } else {
                         None
                     };
+                    if !seen_solutions.insert(failed_value_node.clone()) {
+                        // Skip duplicate solutions
+                        continue;
+                    }
 
                     let mut message = solution
                         .get("message")
