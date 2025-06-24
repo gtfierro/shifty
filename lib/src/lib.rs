@@ -104,7 +104,7 @@ impl Validator {
         };
 
         // If we didn't load an OntoEnv, create a temporary empty one.
-        let final_env = env.unwrap_or(OntoEnv::new_temporary()?);
+        let final_env = env.unwrap();
 
         let mut context =
             ValidationContext::new(store, final_env, shapes_graph_uri, data_graph_uri);
