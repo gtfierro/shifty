@@ -495,12 +495,24 @@ impl ValidationContext {
 
         let shape_graph_location = OntologyLocation::from_str(shape_graph_path)?;
         info!("Added shape graph: {}", shape_graph_location);
-        let shape_id = env.add(shape_graph_location, true)?;
-        let shape_graph_iri = env.get_ontology(&shape_id).unwrap().name().clone();
+        let shape_ids = env.add(shape_graph_location, true)?;
+        let shape_id = shape_ids.first().ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "No shape graph ID found after adding shape graph",
+            ))
+        })?;
+        let shape_graph_iri = env.get_ontology(shape_id).unwrap().name().clone();
         let data_graph_location = OntologyLocation::from_str(data_graph_path)?;
         info!("Added data graph: {}", data_graph_location);
-        let data_id = env.add(data_graph_location, true)?;
-        let data_graph_iri = env.get_ontology(&data_id).unwrap().name().clone();
+        let data_ids = env.add(data_graph_location, true)?;
+        let data_id = data_ids.first().ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "No data graph ID found after adding data graph",
+            ))
+        })?;
+        let data_graph_iri = env.get_ontology(data_id).unwrap().name().clone();
 
         let store = env.io().store().clone();
 

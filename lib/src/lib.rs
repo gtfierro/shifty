@@ -20,7 +20,8 @@ pub(crate) mod validate;
 
 use crate::context::ValidationContext;
 use crate::parser as shacl_parser;
-use ontoenv::api::OntoEnv;
+use ontoenv::api::{OntoEnv};
+use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::NamedNode;
 use oxigraph::store::Store;
@@ -62,65 +63,22 @@ impl Validator {
     /// * `data_source` - The source for the data to be validated.
     pub fn from_sources(shapes_source: Source, data_source: Source) -> Result<Self, Box<dyn Error>> {
         let store = Store::new()?;
-        let mut env: Option<OntoEnv> = None;
+        let mut env: OntoEnv = OntoEnv::new_online_in_memory_with_search()?;
 
-        // If any source is a graph URI, we need to load an OntoEnv to find it.
-        if matches!(shapes_source, Source::Graph(_)) || matches!(data_source, Source::Graph(_)) {
-            let onto_env = OntoEnv::load_from_directory(PathBuf::from("."), false)?;
-            let mut all_quads = vec![];
-            for (graph_id, ontology) in onto_env.ontologies() {
-                if let Ok(graph) = ontology.graph() {
-                    let graph_name = NamedNode::new(graph_id.to_string())?;
-                    for triple in graph.iter() {
-                        all_quads.push(triple.in_graph(graph_name.as_ref()).into_owned());
-                    }
-                }
-            }
-            store.bulk_loader().load_quads(all_quads)?;
-            env = Some(onto_env);
-        }
-
-        // Helper to load a file into a named graph in the store.
-        // The graph name is derived from the file's canonical path.
-        let load_file_to_store = |path: &Path, store: &Store| -> Result<NamedNode, Box<dyn Error>> {
-            let canonical_path = path.canonicalize()?;
-            let graph_uri_str =
-                format!("file://{}", canonical_path.to_str().ok_or("Invalid path")?);
-            let graph_uri = NamedNode::new(graph_uri_str)?;
-            let format = RdfFormat::from_extension(
-                canonical_path
-                    .extension()
-                    .and_then(std::ffi::OsStr::to_str)
-                    .ok_or("Could not get file extension")?,
-            )
-            .ok_or("Could not determine RDF format from file extension")?;
-            let file = File::open(path)?;
-            let reader = BufReader::new(file);
-            let parser = RdfParser::from_format(format)
-                .without_named_graphs()
-                .with_default_graph(graph_uri.as_ref());
-            store.bulk_loader().load_from_reader(parser, reader)?;
-            Ok(graph_uri)
+        let shapes_uris = match shapes_source {
+            Source::Graph(uri) => env.add(OntologyLocation::Url(uri.clone()), true)?,
+            Source::File(path) => env.add(OntologyLocation::File(path.clone()), true)?,
+        };
+        let datas_uris = match data_source {
+            Source::Graph(uri) => env.add(OntologyLocation::Url(uri.clone()), true)?,
+            Source::File(path) => env.add(OntologyLocation::File(path.clone()), true)?,
         };
 
-        let shapes_graph_uri = match shapes_source {
-            Source::File(path) => load_file_to_store(&path, &store)?,
-            Source::Graph(uri) => NamedNode::new(uri)?,
-        };
-
-        let data_graph_uri = match data_source {
-            Source::File(path) => load_file_to_store(&path, &store)?,
-            Source::Graph(uri) => NamedNode::new(uri)?,
-        };
-
-        // If we didn't load an OntoEnv, create a temporary empty one.
-        let final_env = match env {
-            Some(e) => e,
-            None => OntoEnv::load_from_directory(PathBuf::from("."), false)?,
-        };
+        let shapes_graph_uri = shapes_uris.first().cloned().unwrap();
+        let data_graph_uri = datas_uris.first().cloned().unwrap();
 
         let mut context =
-            ValidationContext::new(store, final_env, shapes_graph_uri, data_graph_uri);
+            ValidationContext::new(store, env, shapes_graph_uri.name().into(), data_graph_uri.name().into());
 
         shacl_parser::run_parser(&mut context)?;
 
