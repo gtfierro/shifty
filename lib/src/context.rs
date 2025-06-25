@@ -487,6 +487,7 @@ impl ValidationContext {
                 false,              // strict parsing
                 true,               // offline
                 true,               // in-memory
+                false,              // new argument in ontoenv v0.2.2-a6
             )
             .unwrap(),
             false,

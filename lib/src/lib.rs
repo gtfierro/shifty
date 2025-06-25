@@ -20,15 +20,11 @@ pub(crate) mod validate;
 
 use crate::context::ValidationContext;
 use crate::parser as shacl_parser;
-use ontoenv::api::{OntoEnv};
+use ontoenv::api::OntoEnv;
 use ontoenv::ontology::OntologyLocation;
-use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::NamedNode;
 use oxigraph::store::Store;
 use std::error::Error;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Represents the source of shapes or data, which can be either a local file or a named graph from an `OntoEnv`.
 #[derive(Debug)]
@@ -63,7 +59,7 @@ impl Validator {
     /// * `data_source` - The source for the data to be validated.
     pub fn from_sources(shapes_source: Source, data_source: Source) -> Result<Self, Box<dyn Error>> {
         let store = Store::new()?;
-        let mut env: OntoEnv = OntoEnv::new_online_in_memory_with_search()?;
+        let mut env: OntoEnv = OntoEnv::new_in_memory_online_with_search()?;
 
         let shapes_uris = match shapes_source {
             Source::Graph(uri) => env.add(OntologyLocation::Url(uri.clone()), true)?,
