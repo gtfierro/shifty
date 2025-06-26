@@ -482,12 +482,6 @@ impl ValidationContext {
         let mut env = OntoEnv::init(
             Config::new_with_default_matches(
                 PathBuf::from("."), // root
-                locations,          // no locations
-                true,               // require ontology names
-                false,              // strict parsing
-                true,               // offline
-                true,               // in-memory
-                false,              // new argument in ontoenv v0.2.2-a6
             )
             .unwrap(),
             false,
