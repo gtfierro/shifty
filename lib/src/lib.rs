@@ -87,17 +87,14 @@ impl Validator {
             .build()?;
         let mut env: OntoEnv = OntoEnv::init(config, false)?;
 
-        let shapes_uris = match shapes_source {
+        let shapes_graph_uri = match shapes_source {
             Source::Graph(uri) => env.add(OntologyLocation::Url(uri.clone()), true)?,
             Source::File(path) => env.add(OntologyLocation::File(path.clone()), true)?,
         };
-        let datas_uris = match data_source {
+        let data_graph_uri = match data_source {
             Source::Graph(uri) => env.add(OntologyLocation::Url(uri.clone()), true)?,
             Source::File(path) => env.add(OntologyLocation::File(path.clone()), true)?,
         };
-
-        let shapes_graph_uri = shapes_uris.first().cloned().unwrap();
-        let data_graph_uri = datas_uris.first().cloned().unwrap();
 
         let mut context = ValidationContext::new(
             store,

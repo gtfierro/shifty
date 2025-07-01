@@ -7,7 +7,6 @@ use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use log::{error, info};
 use ontoenv::api::OntoEnv;
-use ontoenv::config::Config;
 use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
@@ -19,7 +18,7 @@ use std::fmt;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Filters a string to keep only alphanumeric characters, for use in Graphviz identifiers.
 pub(crate) fn sanitize_graphviz_string(input: &str) -> String {
@@ -449,25 +448,13 @@ impl ValidationContext {
 
         let shape_graph_location = OntologyLocation::from_str(shape_graph_path)?;
         info!("Added shape graph: {}", shape_graph_location);
-        let shape_ids = env.add(shape_graph_location, false)?;
-        let shape_id = shape_ids.first().ok_or_else(|| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "No shape graph ID found after adding shape graph",
-            ))
-        })?;
-        let shape_graph_iri = env.get_ontology(shape_id).unwrap().name().clone();
+        let shape_id = env.add(shape_graph_location, false)?;
+        let shape_graph_iri = env.get_ontology(&[shape_id.clone()]).unwrap().name().clone();
 
         let data_graph_location = OntologyLocation::from_str(data_graph_path)?;
         info!("Added data graph: {}", data_graph_location);
-        let data_ids = env.add(data_graph_location, false)?;
-        let data_id = data_ids.first().ok_or_else(|| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "No data graph ID found after adding data graph",
-            ))
-        })?;
-        let data_graph_iri = env.get_ontology(data_id).unwrap().name().clone();
+        let data_id = env.add(data_graph_location, false)?;
+        let data_graph_iri = env.get_ontology(&[data_id.clone()]).unwrap().name().clone();
 
         let store = env.io().store().clone();
 
