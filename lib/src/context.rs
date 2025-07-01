@@ -449,12 +449,12 @@ impl ValidationContext {
         let shape_graph_location = OntologyLocation::from_str(shape_graph_path)?;
         info!("Added shape graph: {}", shape_graph_location);
         let shape_id = env.add(shape_graph_location, false)?;
-        let shape_graph_iri = env.get_ontology(&[shape_id.clone()]).unwrap().name().clone();
+        let shape_graph_iri = env.get_ontology(&shape_id).unwrap().name().clone();
 
         let data_graph_location = OntologyLocation::from_str(data_graph_path)?;
         info!("Added data graph: {}", data_graph_location);
         let data_id = env.add(data_graph_location, false)?;
-        let data_graph_iri = env.get_ontology(&[data_id.clone()]).unwrap().name().clone();
+        let data_graph_iri = env.get_ontology(&data_id).unwrap().name().clone();
 
         let store = env.io().store().clone();
 
