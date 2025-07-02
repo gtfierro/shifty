@@ -112,6 +112,14 @@ impl Validator {
             "Skolemizing shape graph <{}> with base IRI <{}>",
             shape_graph_iri, shape_graph_base_iri
         );
+        // TODO: The skolemization is necessary for now because of some behavior in oxigraph where
+        // blank nodes in SPARQL queries will match *any* blank node in the graph, rather than
+        // just the blank node with the same "identifier". This makes it difficult to compose
+        // queries that find the propertyshape value nodes when the focus node is a blank node.
+        // This means the query ends up looking like:
+        //    SELECT ?valuenode WHERE { _:focusnode <http://example.org/path> ?valuenode . }
+        // The _:focusnode will match any blank node in the graph, which is not what we want.
+        // This pops up in test cases like property_and_001
         skolemize(
             &store,
             GraphNameRef::NamedNode(shape_graph_iri.as_ref()),
