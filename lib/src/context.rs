@@ -416,29 +416,6 @@ impl ValidationContext {
         Ok(dot_string)
     }
 
-    // Loads triples from a file into the specified named graph of the given store.
-    fn load_graph_into_store(
-        store: &Store,
-        file_path: &str,
-        target_graph_name: GraphNameRef,
-    ) -> Result<(), Box<dyn Error>> {
-        let path = Path::new(file_path);
-        let file =
-            File::open(path).map_err(|e| format!("Failed to open file '{}': {}", file_path, e))?;
-        let reader = BufReader::new(file);
-
-        // Assuming Turtle format for simplicity, adjust RdfFormat::Turtle if other formats are expected.
-        // This parser will direct all triples from the input file into the `target_graph_name`.
-        let parser = RdfParser::from_format(RdfFormat::Turtle) // TODO: Make format configurable or detect
-            .with_default_graph(target_graph_name.into_owned()); // Load into the specified graph
-
-        store
-            .bulk_loader()
-            .load_from_reader(parser, reader)
-            .map_err(|e| Box::new(e) as Box<dyn Error>)?;
-        Ok(())
-    }
-
     /// Creates a new `ValidationContext` by loading shapes and data from files.
     pub fn from_files(
         shape_graph_path: &str,
@@ -457,38 +434,6 @@ impl ValidationContext {
         let data_graph_iri = env.get_ontology(&data_id).unwrap().name().clone();
 
         let store = env.io().store().clone();
-
-        info!("Loading shape graph with bulk loader: {}", shape_graph_path);
-        Self::load_graph_into_store(
-            &store,
-            shape_graph_path,
-            GraphNameRef::NamedNode(shape_graph_iri.as_ref()),
-        )
-        .map_err(|e| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "Error loading shape graph from '{}' into <{}>: {}",
-                    shape_graph_path, shape_graph_iri, e
-                ),
-            ))
-        })?;
-
-        info!("Loading data graph with bulk loader: {}", data_graph_path);
-        Self::load_graph_into_store(
-            &store,
-            data_graph_path,
-            GraphNameRef::NamedNode(data_graph_iri.as_ref()),
-        )
-        .map_err(|e| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "Error loading data graph from '{}' into <{}>: {}",
-                    data_graph_path, data_graph_iri, e
-                ),
-            ))
-        })?;
 
         let shape_graph_base_iri =
             format!("{}/.well-known/skolem/", shape_graph_iri.as_str().trim_end_matches('/'));
