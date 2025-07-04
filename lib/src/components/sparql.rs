@@ -781,45 +781,68 @@ impl ValidateComponent for CustomConstraintComponent {
                 substitutions,
             ) {
                 Ok(QueryResults::Solutions(solutions)) => {
-                    for solution in solutions {
-                        if let Ok(solution) = solution {
-                            let value = if let Some(val) = solution.get("value") {
-                                Some(val.clone())
-                            } else if c.source_shape().as_node_id().is_some() {
-                                Some(c.focus_node().clone())
+                    let mut seen_solutions = HashSet::new();
+                    for solution_res in solutions {
+                        let solution = solution_res.map_err(|e| e.to_string())?;
+
+                        if let Some(Term::Literal(failure)) = solution.get("failure") {
+                            if failure.datatype() == xsd::BOOLEAN && failure.value() == "true" {
+                                return Err("SPARQL validator reported a failure.".to_string());
+                            }
+                        }
+
+                        let failed_value_node = if let Some(val) = solution.get("value") {
+                            Some(val.clone())
+                        } else if c.source_shape().as_node_id().is_some() {
+                            Some(c.focus_node().clone())
+                        } else {
+                            None
+                        };
+
+                        if !seen_solutions.insert(failed_value_node.clone()) {
+                            // Skip duplicate solutions
+                            continue;
+                        }
+
+                        let mut message = solution
+                            .get("message")
+                            .map(|t| t.to_string())
+                            .or_else(|| validator.messages.first().map(|t| t.to_string()))
+                            .unwrap_or_else(|| {
+                                format!(
+                                    "Node does not conform to custom constraint {}",
+                                    self.definition.iri
+                                )
+                            });
+
+                        // Substitute variables in message
+                        for var in solution.variables() {
+                            if let Some(term) = solution.get(var) {
+                                let var_name = var.as_str();
+                                let placeholder1 = format!("{{?{}}}", var_name);
+                                let placeholder2 = format!("{{${}}}", var_name);
+                                message = message.replace(&placeholder1, &term.to_string());
+                                message = message.replace(&placeholder2, &term.to_string());
+                            }
+                        }
+
+                        let result_path_override =
+                            if let Some(Term::NamedNode(path_iri)) = solution.get("path") {
+                                Some(Path::Simple(Term::NamedNode(path_iri.clone())))
                             } else {
                                 None
                             };
 
-                            let result_path_override =
-                                if let Some(Term::NamedNode(path_iri)) = solution.get("path") {
-                                    Some(Path::Simple(Term::NamedNode(path_iri.clone())))
-                                } else {
-                                    None
-                                };
-
-                            results.push(ComponentValidationResult::Fail(
-                                c.clone(),
-                                ValidationFailure {
-                                    component_id,
-                                    failed_value_node: value,
-                                    message: solution
-                                        .get("message")
-                                        .map(|t| t.to_string())
-                                        .or_else(|| {
-                                            validator.messages.first().map(|t| t.to_string())
-                                        })
-                                        .unwrap_or_else(|| {
-                                            format!(
-                                                "Value does not conform to custom constraint {}",
-                                                self.definition.iri
-                                            )
-                                        }),
-                                    result_path: result_path_override,
-                                    source_constraint: None,
-                                },
-                            ));
-                        }
+                        results.push(ComponentValidationResult::Fail(
+                            c.clone(),
+                            ValidationFailure {
+                                component_id,
+                                failed_value_node,
+                                message,
+                                result_path: result_path_override,
+                                source_constraint: None,
+                            },
+                        ));
                     }
                 }
                 Err(e) => return Err(format!("SPARQL query failed: {}", e)),
