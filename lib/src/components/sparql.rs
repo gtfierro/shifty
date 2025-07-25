@@ -1,7 +1,7 @@
 use super::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{format_term_for_label, Context, ParsingContext, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::types::{ComponentID, Path, TraceItem};
 use ontoenv::api::ResolveTarget;

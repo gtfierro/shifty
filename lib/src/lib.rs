@@ -185,9 +185,9 @@ impl Validator {
     /// The report contains the outcome of the validation (conformity) and detailed
     /// results for any failures. The returned report is tied to the lifetime of the Validator.
     pub fn validate(&self) -> ValidationReport<'_> {
-        let report_builder = validate::validate(&self.context).unwrap();
+        let report_builder = validate::validate(&self.context);
         // The report needs the context to be able to serialize itself later.
-        ValidationReport::new(report_builder, &self.context)
+        ValidationReport::new(report_builder.unwrap(), &self.context)
     }
 
     /// Generates a Graphviz DOT string representation of the shapes.
