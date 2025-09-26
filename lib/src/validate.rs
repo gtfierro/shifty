@@ -3,7 +3,7 @@ use crate::report::ValidationReportBuilder;
 use crate::runtime::ComponentValidationResult;
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::types::{PropShapeID, TraceItem};
-use log::info;
+use log::{debug, info};
 use oxigraph::model::Term;
 use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 use std::collections::HashSet;
@@ -55,13 +55,13 @@ impl ValidateShape for NodeShape {
 
                 // for each target, validate the constraints
                 let constraints = self.constraints();
-                println!(
+                debug!(
                     "Node shape {} has {} constraints",
                     self.identifier(),
                     constraints.len()
                 );
                 for constraint_id in constraints {
-                    println!(
+                    debug!(
                         "Evaluating node shape constraint {} for shape {}",
                         constraint_id,
                         self.identifier()
@@ -243,13 +243,13 @@ impl PropertyShape {
             );
 
             let constraints = self.constraints();
-            println!(
+            debug!(
                 "Property shape {} has {} constraints",
                 self.identifier(),
                 constraints.len()
             );
             for constraint_id in constraints {
-                println!(
+                debug!(
                     "Evaluating property shape constraint {} for shape {}",
                     constraint_id,
                     self.identifier()

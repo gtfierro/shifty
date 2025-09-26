@@ -24,7 +24,7 @@ use crate::context::{ParsingContext, ShapesModel, ValidationContext};
 use crate::model::components::ComponentDescriptor;
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
-use log::info;
+use log::{debug, info};
 use ontoenv::api::OntoEnv;
 use ontoenv::config::Config;
 use ontoenv::ontology::OntologyLocation;
@@ -162,21 +162,21 @@ impl Validator {
 
         shacl_parser::run_parser(&mut parsing_context)?;
         {
-            println!("prop_shapes count: {}", parsing_context.prop_shapes.len());
+            debug!("prop_shapes count: {}", parsing_context.prop_shapes.len());
             let props_lookup = parsing_context.propshape_id_lookup.borrow();
             for (id, shape) in parsing_context.prop_shapes.iter() {
                 if let Some(term) = props_lookup.get_term(*id) {
-                    println!("prop_shape {:?} term {}", id, term);
+                    debug!("prop_shape {:?} term {}", id, term);
                 }
-                println!("  constraints: {:?}", shape.constraints());
+                debug!("  constraints: {:?}", shape.constraints());
                 for cid in shape.constraints() {
                     if let Some(descriptor) = parsing_context.component_descriptors.get(cid) {
                         match descriptor {
                             ComponentDescriptor::NodeKind { node_kind } => {
-                                println!("    component {:?} node_kind {}", cid, node_kind);
+                                debug!("    component {:?} node_kind {}", cid, node_kind);
                             }
                             other => {
-                                println!("    component {:?} {:?}", cid, other);
+                                debug!("    component {:?} {:?}", cid, other);
                             }
                         }
                     }

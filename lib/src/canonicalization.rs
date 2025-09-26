@@ -1,3 +1,4 @@
+use log::debug;
 use oxigraph::model::{
     BlankNode, Graph, GraphNameRef, NamedNode, Quad, Subject, SubjectRef, Term, TermRef, Triple,
 };
@@ -46,10 +47,10 @@ pub fn are_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let pg2 = oxigraph_to_petgraph(&cg2);
     let iso = is_isomorphic(&pg1, &pg2);
     if !iso {
-        println!("graphs not isomorphic");
+        debug!("graphs not isomorphic");
         for triple in cg1.iter() {
             if !cg2.contains(triple) {
-                println!(
+                debug!(
                     "only in first: {} {} {}",
                     triple.subject, triple.predicate, triple.object
                 );
@@ -57,7 +58,7 @@ pub fn are_isomorphic(g1: &Graph, g2: &Graph) -> bool {
         }
         for triple in cg2.iter() {
             if !cg1.contains(triple) {
-                println!(
+                debug!(
                     "only in second: {} {} {}",
                     triple.subject, triple.predicate, triple.object
                 );
@@ -467,7 +468,7 @@ pub(crate) fn skolemize(
 
             let new_subject = if let Subject::BlankNode(bn) = &quad.subject {
                 let skolem_iri = bnodes_to_skolemize.entry(bn.clone()).or_insert_with(|| {
-                    println!("skolemizing subject {}{}", base_iri, bn.as_str());
+                    debug!("skolemizing subject {}{}", base_iri, bn.as_str());
                     NamedNode::new_unchecked(format!("{}{}", base_iri, bn.as_str()))
                 });
                 Subject::from(skolem_iri.clone())
@@ -477,7 +478,7 @@ pub(crate) fn skolemize(
 
             let new_object = if let Term::BlankNode(bn) = &quad.object {
                 let skolem_iri = bnodes_to_skolemize.entry(bn.clone()).or_insert_with(|| {
-                    println!("skolemizing object {}{}", base_iri, bn.as_str());
+                    debug!("skolemizing object {}{}", base_iri, bn.as_str());
                     NamedNode::new_unchecked(format!("{}{}", base_iri, bn.as_str()))
                 });
                 Term::from(skolem_iri.clone())

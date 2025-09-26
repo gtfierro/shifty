@@ -6,6 +6,7 @@ use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::named_nodes::SHACL;
 use crate::types::{ComponentID, ID};
+use log::debug;
 
 use super::{parse_rdf_list, ParsingContext};
 
@@ -331,7 +332,7 @@ pub(crate) fn parse_components(
     if let Some(unique_lang_terms) = pred_obj_pairs.get(&shacl.unique_lang.into_owned()) {
         processed_predicates.insert(shacl.unique_lang.into_owned());
         let original_lexical = unique_lang_lexicals.get(shape_term);
-        println!(
+        debug!(
             "uniqueLang parsing for shape {:?}, map entry: {:?}",
             shape_term, original_lexical
         );

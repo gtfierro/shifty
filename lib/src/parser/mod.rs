@@ -5,6 +5,7 @@ use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, ID};
 use components::parse_components;
+use log::debug;
 use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{GraphFormat, GraphParser};
 use oxigraph::model::{GraphName, GraphNameRef, QuadRef, SubjectRef, Term, TermRef};
@@ -334,7 +335,7 @@ fn parse_property_shape(
     shape_term: Term,
     unique_lang_lexicals: &HashMap<Term, String>,
 ) -> Result<PropShapeID, String> {
-    println!("parse_property_shape: {}", shape_term);
+    debug!("parse_property_shape: {}", shape_term);
     let id = context.get_or_create_prop_id(shape_term.clone());
     let shacl = SHACL::new();
     let shape_ref = shape_term.as_ref();

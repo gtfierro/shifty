@@ -2,6 +2,7 @@ use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::runtime::Component;
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
+use log::debug;
 use oxigraph::model::{NamedNode, Term};
 use std::collections::HashSet;
 use std::vec::Vec;
@@ -156,7 +157,7 @@ impl ValidateComponent for ClosedConstraintComponent {
             }
         }
 
-        println!(
+        debug!(
             "ClosedConstraintComponent: allowed_properties: {:?}",
             allowed_properties
         );
