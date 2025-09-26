@@ -4,7 +4,9 @@ use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
 use std::collections::HashSet;
 
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
+use crate::runtime::{
+    ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
+};
 
 // string-based constraints
 #[derive(Debug)]
@@ -41,7 +43,7 @@ impl ValidateComponent for MinLengthConstraintComponent {
         &self,
         component_id: ComponentID,
         c: &mut Context,
-        _validation_context: &ValidationContext,
+        validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut results = Vec::new();
@@ -65,7 +67,26 @@ impl ValidateComponent for MinLengthConstraintComponent {
                         results.push(ComponentValidationResult::Fail(error_context, failure));
                         continue;
                     }
-                    TermRef::NamedNode(nn) => nn.as_str().chars().count(),
+                    TermRef::NamedNode(nn) => {
+                        if validation_context.is_data_skolem_iri(nn) {
+                            let mut error_context = c.clone();
+                            error_context.with_value(vn.clone());
+                            let message = format!(
+                                "Blank node {:?} found where string length constraints apply (minLength).",
+                                vn
+                            );
+                            let failure = ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(vn.clone()),
+                                message,
+                                result_path: None,
+                                source_constraint: None,
+                            };
+                            results.push(ComponentValidationResult::Fail(error_context, failure));
+                            continue;
+                        }
+                        nn.as_str().chars().count()
+                    }
                     TermRef::Literal(literal) => literal.value().chars().count(),
                     _ => {
                         return Err(format!(
@@ -131,7 +152,7 @@ impl ValidateComponent for MaxLengthConstraintComponent {
         &self,
         component_id: ComponentID,
         c: &mut Context,
-        _validation_context: &ValidationContext,
+        validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut results = Vec::new();
@@ -155,7 +176,26 @@ impl ValidateComponent for MaxLengthConstraintComponent {
                         results.push(ComponentValidationResult::Fail(error_context, failure));
                         continue;
                     }
-                    TermRef::NamedNode(nn) => nn.as_str().chars().count(),
+                    TermRef::NamedNode(nn) => {
+                        if validation_context.is_data_skolem_iri(nn) {
+                            let mut error_context = c.clone();
+                            error_context.with_value(vn.clone());
+                            let message = format!(
+                                "Blank node {:?} found where string length constraints apply (maxLength).",
+                                vn
+                            );
+                            let failure = ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(vn.clone()),
+                                message,
+                                result_path: None,
+                                source_constraint: None,
+                            };
+                            results.push(ComponentValidationResult::Fail(error_context, failure));
+                            continue;
+                        }
+                        nn.as_str().chars().count()
+                    }
                     TermRef::Literal(literal) => literal.value().chars().count(),
                     _ => {
                         return Err(format!(
@@ -224,7 +264,7 @@ impl ValidateComponent for PatternConstraintComponent {
         &self,
         component_id: ComponentID,
         c: &mut Context,
-        _validation_context: &ValidationContext,
+        validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut pattern_builder = regex::RegexBuilder::new(&self.pattern);
@@ -254,10 +294,8 @@ impl ValidateComponent for PatternConstraintComponent {
                     TermRef::BlankNode(_) => {
                         let mut error_context = c.clone();
                         error_context.with_value(vn.clone());
-                        let message = format!(
-                            "Blank node {:?} cannot be matched against a pattern.",
-                            vn
-                        );
+                        let message =
+                            format!("Blank node {:?} cannot be matched against a pattern.", vn);
                         let failure = ValidationFailure {
                             component_id,
                             failed_value_node: Some(vn.clone()),
@@ -268,7 +306,24 @@ impl ValidateComponent for PatternConstraintComponent {
                         results.push(ComponentValidationResult::Fail(error_context, failure));
                         continue;
                     }
-                    TermRef::NamedNode(nn) => nn.as_str().to_string(),
+                    TermRef::NamedNode(nn) => {
+                        if validation_context.is_data_skolem_iri(nn) {
+                            let mut error_context = c.clone();
+                            error_context.with_value(vn.clone());
+                            let message =
+                                format!("Blank node {:?} cannot be matched against a pattern.", vn);
+                            let failure = ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(vn.clone()),
+                                message,
+                                result_path: None,
+                                source_constraint: None,
+                            };
+                            results.push(ComponentValidationResult::Fail(error_context, failure));
+                            continue;
+                        }
+                        nn.as_str().to_string()
+                    }
                     TermRef::Literal(literal) => literal.value().to_string(),
                     _ => {
                         return Err(format!("Unexpected term type for pattern check: {:?}", vn));

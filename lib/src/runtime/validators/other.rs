@@ -1,12 +1,12 @@
-use crate::components::Component;
 use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::runtime::Component;
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use std::collections::HashSet;
 use std::vec::Vec;
 
-use super::{
+use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 
@@ -142,9 +142,7 @@ impl ValidateComponent for ClosedConstraintComponent {
 
         if let Some(node_shape) = validation_context.model.node_shapes.get(source_shape_id) {
             for constraint_com_id in node_shape.constraints() {
-                if let Some(component) =
-                    validation_context.model.get_component_by_id(constraint_com_id)
-                {
+                if let Some(component) = validation_context.get_component(constraint_com_id) {
                     if let Component::PropertyConstraint(pc) = component {
                         if let Some(prop_shape) =
                             validation_context.model.get_prop_shape_by_id(pc.shape())
@@ -173,14 +171,16 @@ impl ValidateComponent for ClosedConstraintComponent {
                 Err(_) => continue, // Literals cannot be subjects of triples.
             };
 
-            let data_graph_ref =
-                oxigraph::model::GraphNameRef::NamedNode(validation_context.data_graph_iri.as_ref());
+            let data_graph_ref = oxigraph::model::GraphNameRef::NamedNode(
+                validation_context.data_graph_iri.as_ref(),
+            );
 
-            for quad_res in validation_context
-                .model
-                .store()
-                .quads_for_pattern(Some(subject_ref), None, None, Some(data_graph_ref))
-            {
+            for quad_res in validation_context.model.store().quads_for_pattern(
+                Some(subject_ref),
+                None,
+                None,
+                Some(data_graph_ref),
+            ) {
                 let quad = quad_res.map_err(|e| e.to_string())?;
                 let predicate = quad.predicate;
 

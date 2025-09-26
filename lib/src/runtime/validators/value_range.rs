@@ -1,5 +1,7 @@
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::runtime::{
+    ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
+};
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use oxigraph::sparql::QueryResults;
@@ -59,7 +61,7 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
+                Ok(_) => false,  // Should not happen for ASK
                 Err(_) => false, // Incomparable values
             };
 
@@ -141,7 +143,7 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
+                Ok(_) => false,  // Should not happen for ASK
                 Err(_) => false, // Incomparable values
             };
 
@@ -223,7 +225,7 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
+                Ok(_) => false,  // Should not happen for ASK
                 Err(_) => false, // Incomparable values
             };
 
@@ -305,7 +307,7 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
+                Ok(_) => false,  // Should not happen for ASK
                 Err(_) => false, // Incomparable values
             };
 

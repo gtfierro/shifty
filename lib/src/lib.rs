@@ -2,7 +2,7 @@
 #![deny(clippy::all)]
 
 // Publicly visible items
-pub mod components;
+pub mod model;
 pub mod shape;
 pub mod types;
 
@@ -15,11 +15,13 @@ pub(crate) mod named_nodes;
 pub(crate) mod optimize;
 pub(crate) mod parser;
 pub(crate) mod report;
+pub(crate) mod runtime;
 pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
 use crate::canonicalization::skolemize;
 use crate::context::{ParsingContext, ShapesModel, ValidationContext};
+use crate::model::components::ComponentDescriptor;
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
 use log::info;
@@ -108,8 +110,10 @@ impl Validator {
 
         let store = env.io().store().clone();
 
-        let shape_graph_base_iri =
-            format!("{}/.well-known/skolem/", shape_graph_iri.as_str().trim_end_matches('/'));
+        let shape_graph_base_iri = format!(
+            "{}/.well-known/skolem/",
+            shape_graph_iri.as_str().trim_end_matches('/')
+        );
         info!(
             "Skolemizing shape graph <{}> with base IRI <{}>",
             shape_graph_iri, shape_graph_base_iri
@@ -128,8 +132,10 @@ impl Validator {
             &shape_graph_base_iri,
         )?;
 
-        let data_graph_base_iri =
-            format!("{}/.well-known/skolem/", data_graph_iri.as_str().trim_end_matches('/'));
+        let data_graph_base_iri = format!(
+            "{}/.well-known/skolem/",
+            data_graph_iri.as_str().trim_end_matches('/')
+        );
         info!(
             "Skolemizing data graph <{}> with base IRI <{}>",
             data_graph_iri, data_graph_base_iri
@@ -155,6 +161,28 @@ impl Validator {
             ParsingContext::new(store, env, shape_graph_iri, data_graph_iri.clone());
 
         shacl_parser::run_parser(&mut parsing_context)?;
+        {
+            println!("prop_shapes count: {}", parsing_context.prop_shapes.len());
+            let props_lookup = parsing_context.propshape_id_lookup.borrow();
+            for (id, shape) in parsing_context.prop_shapes.iter() {
+                if let Some(term) = props_lookup.get_term(*id) {
+                    println!("prop_shape {:?} term {}", id, term);
+                }
+                println!("  constraints: {:?}", shape.constraints());
+                for cid in shape.constraints() {
+                    if let Some(descriptor) = parsing_context.component_descriptors.get(cid) {
+                        match descriptor {
+                            ComponentDescriptor::NodeKind { node_kind } => {
+                                println!("    component {:?} node_kind {}", cid, node_kind);
+                            }
+                            other => {
+                                println!("    component {:?} {:?}", cid, other);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         info!("Optimizing shape graph");
         let mut o = Optimizer::new(parsing_context);
@@ -170,7 +198,7 @@ impl Validator {
             shape_graph_iri: final_ctx.shape_graph_iri,
             node_shapes: final_ctx.node_shapes,
             prop_shapes: final_ctx.prop_shapes,
-            components: final_ctx.components,
+            component_descriptors: final_ctx.component_descriptors,
             env: final_ctx.env,
         };
 

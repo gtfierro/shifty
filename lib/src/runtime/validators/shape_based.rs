@@ -4,7 +4,8 @@ use crate::types::{ComponentID, PropShapeID, TraceItem, ID};
 use oxigraph::model::NamedNode;
 // Removed: use oxigraph::model::Term;
 
-use super::{
+use crate::runtime::Component;
+use crate::runtime::{
     check_conformance_for_node, ComponentValidationResult, ConformanceReport, GraphvizOutput,
     ValidateComponent, ValidationFailure,
 };
@@ -57,8 +58,12 @@ impl ValidateComponent for NodeConstraintComponent {
             return Ok(vec![]);
         };
 
-        let Some(target_node_shape) = validation_context.model.get_node_shape_by_id(&self.shape) else {
-            return Err(format!("sh:node referenced shape {:?} not found", self.shape));
+        let Some(target_node_shape) = validation_context.model.get_node_shape_by_id(&self.shape)
+        else {
+            return Err(format!(
+                "sh:node referenced shape {:?} not found",
+                self.shape
+            ));
         };
 
         let mut results = Vec::new();
@@ -244,8 +249,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes = c.value_nodes().cloned().unwrap_or_default();
 
-        let Some(target_node_shape) = validation_context.model.get_node_shape_by_id(&self.shape) else {
-            return Err(format!("sh:qualifiedValueShape referenced shape {:?} not found", self.shape));
+        let Some(target_node_shape) = validation_context.model.get_node_shape_by_id(&self.shape)
+        else {
+            return Err(format!(
+                "sh:qualifiedValueShape referenced shape {:?} not found",
+                self.shape
+            ));
         };
 
         let mut sibling_shapes: Vec<&NodeShape> = Vec::new();
@@ -258,8 +267,9 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 if let TraceItem::NodeShape(id) = item { Some(*id) } else { None }
             }).ok_or_else(|| "Could not find parent node shape in execution trace for QualifiedValueShapeComponent".to_string())?;
 
-            if let Some(parent_node_shape) =
-                validation_context.model.get_node_shape_by_id(&parent_node_shape_id)
+            if let Some(parent_node_shape) = validation_context
+                .model
+                .get_node_shape_by_id(&parent_node_shape_id)
             {
                 if !matches!(c.source_shape(), SourceShape::PropertyShape(_)) {
                     return Err(
@@ -271,13 +281,14 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 // Iterate over the property shapes of the parent node shape to find all
                 // qualified value shapes, which are siblings.
                 for constraint_id in parent_node_shape.constraints() {
-                    if let Some(super::Component::PropertyConstraint(prop_constraint)) =
-                        validation_context.model.get_component_by_id(constraint_id)
+                    if let Some(Component::PropertyConstraint(prop_constraint)) =
+                        validation_context.get_component(constraint_id)
                     {
                         let sibling_prop_shape_id = prop_constraint.shape();
 
-                        if let Some(sibling_prop_shape) =
-                            validation_context.model.get_prop_shape_by_id(sibling_prop_shape_id)
+                        if let Some(sibling_prop_shape) = validation_context
+                            .model
+                            .get_prop_shape_by_id(sibling_prop_shape_id)
                         {
                             for sibling_component_id in sibling_prop_shape.constraints() {
                                 // Exclude the current component from its own sibling set.
@@ -285,8 +296,8 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                                     continue;
                                 }
 
-                                if let Some(super::Component::QualifiedValueShape(qvs)) =
-                                    validation_context.model.get_component_by_id(sibling_component_id)
+                                if let Some(Component::QualifiedValueShape(qvs)) =
+                                    validation_context.get_component(sibling_component_id)
                                 {
                                     if let Some(sibling_node_shape) =
                                         validation_context.model.get_node_shape_by_id(&qvs.shape)

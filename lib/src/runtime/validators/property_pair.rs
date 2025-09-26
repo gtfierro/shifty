@@ -1,7 +1,7 @@
-use super::{
+use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
-use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use oxigraph::sparql::QueryResults;
@@ -306,7 +306,7 @@ impl ValidateComponent for LessThanConstraintComponent {
 
                 let is_less_than = match context.model.store().query(&query_str) {
                     Ok(QueryResults::Boolean(b)) => b,
-                    Ok(_) => false, // Should not happen for ASK
+                    Ok(_) => false,  // Should not happen for ASK
                     Err(_) => false, // Incomparable values
                 };
 
@@ -419,7 +419,7 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
 
                 let is_less_than_or_equal = match context.model.store().query(&query_str) {
                     Ok(QueryResults::Boolean(b)) => b,
-                    Ok(_) => false, // Should not happen for ASK
+                    Ok(_) => false,  // Should not happen for ASK
                     Err(_) => false, // Incomparable values
                 };
 

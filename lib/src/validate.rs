@@ -1,6 +1,6 @@
-use crate::components::ComponentValidationResult;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::report::ValidationReportBuilder;
+use crate::runtime::ComponentValidationResult;
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::types::{PropShapeID, TraceItem};
 use log::info;
@@ -35,10 +35,9 @@ impl ValidateShape for NodeShape {
                 target,
                 self.identifier()
             );
-            target_contexts.extend(target.get_target_nodes(
-                context,
-                SourceShape::NodeShape(*self.identifier()),
-            )?);
+            target_contexts.extend(
+                target.get_target_nodes(context, SourceShape::NodeShape(*self.identifier()))?,
+            );
         }
 
         for mut target_context in target_contexts.into_iter() {
@@ -55,11 +54,21 @@ impl ValidateShape for NodeShape {
                 trace.push(TraceItem::NodeShape(*self.identifier())); // Record NodeShape visit
 
                 // for each target, validate the constraints
-                for constraint_id in self.constraints() {
+                let constraints = self.constraints();
+                println!(
+                    "Node shape {} has {} constraints",
+                    self.identifier(),
+                    constraints.len()
+                );
+                for constraint_id in constraints {
+                    println!(
+                        "Evaluating node shape constraint {} for shape {}",
+                        constraint_id,
+                        self.identifier()
+                    );
                     // constraint_id is &ComponentID
                     let comp = context
-                        .model
-                        .get_component_by_id(constraint_id)
+                        .get_component(constraint_id)
                         .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
 
                     // Call the component's own validation logic.
@@ -97,10 +106,9 @@ impl ValidateShape for PropertyShape {
                 target,
                 self.identifier()
             );
-            target_contexts.extend(target.get_target_nodes(
-                context,
-                SourceShape::PropertyShape(*self.identifier()),
-            )?);
+            target_contexts.extend(
+                target.get_target_nodes(context, SourceShape::PropertyShape(*self.identifier()))?,
+            );
         }
 
         for mut target_context in target_contexts.into_iter() {
@@ -189,9 +197,8 @@ impl PropertyShape {
 
             let value_nodes_vec: Vec<Term> = match results {
                 QueryResults::Solutions(solutions) => {
-                    let value_node_var = Variable::new("valueNode").map_err(|e| {
-                        format!("Internal error creating SPARQL variable: {}", e)
-                    })?;
+                    let value_node_var = Variable::new("valueNode")
+                        .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
 
                     let mut nodes = Vec::new();
                     for solution_res in solutions {
@@ -235,10 +242,20 @@ impl PropertyShape {
                 focus_context.trace_index(),
             );
 
-            for constraint_id in self.constraints() {
+            let constraints = self.constraints();
+            println!(
+                "Property shape {} has {} constraints",
+                self.identifier(),
+                constraints.len()
+            );
+            for constraint_id in constraints {
+                println!(
+                    "Evaluating property shape constraint {} for shape {}",
+                    constraint_id,
+                    self.identifier()
+                );
                 let component = context
-                    .model
-                    .get_component_by_id(constraint_id)
+                    .get_component(constraint_id)
                     .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
 
                 match component.validate(

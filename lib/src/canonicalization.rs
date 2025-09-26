@@ -44,8 +44,27 @@ pub fn are_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let pg1 = oxigraph_to_petgraph(&cg1);
     let cg2 = to_canonical_graph(g2);
     let pg2 = oxigraph_to_petgraph(&cg2);
-
-    is_isomorphic(&pg1, &pg2)
+    let iso = is_isomorphic(&pg1, &pg2);
+    if !iso {
+        println!("graphs not isomorphic");
+        for triple in cg1.iter() {
+            if !cg2.contains(triple) {
+                println!(
+                    "only in first: {} {} {}",
+                    triple.subject, triple.predicate, triple.object
+                );
+            }
+        }
+        for triple in cg2.iter() {
+            if !cg1.contains(triple) {
+                println!(
+                    "only in second: {} {} {}",
+                    triple.subject, triple.predicate, triple.object
+                );
+            }
+        }
+    }
+    iso
 }
 
 /// Creates a canonical version of a graph by replacing blank node identifiers
@@ -64,9 +83,9 @@ pub(crate) fn to_canonical_graph(graph: &Graph) -> Graph {
         let subject = match t.subject {
             SubjectRef::BlankNode(bn) => {
                 let bn = bn.into_owned();
-                let label = bnode_labels.get(&bn).unwrap_or_else(|| {
-                    panic!("No canonical label for blank node {}", bn.as_str())
-                });
+                let label = bnode_labels
+                    .get(&bn)
+                    .unwrap_or_else(|| panic!("No canonical label for blank node {}", bn.as_str()));
                 Subject::from(BlankNode::new_unchecked(label))
             }
             _ => t.subject.into_owned(),
@@ -74,9 +93,9 @@ pub(crate) fn to_canonical_graph(graph: &Graph) -> Graph {
         let object = match t.object {
             TermRef::BlankNode(bn) => {
                 let bn = bn.into_owned();
-                let label = bnode_labels.get(&bn).unwrap_or_else(|| {
-                    panic!("No canonical label for blank node {}", bn.as_str())
-                });
+                let label = bnode_labels
+                    .get(&bn)
+                    .unwrap_or_else(|| panic!("No canonical label for blank node {}", bn.as_str()));
                 Term::from(BlankNode::new_unchecked(label))
             }
             _ => t.object.into_owned(),
@@ -117,7 +136,9 @@ mod rdfc10 {
         }
 
         fn get(&self, existing_identifier: &str) -> Option<&str> {
-            self.issued_identifiers.get(existing_identifier).map(|s| s.as_str())
+            self.issued_identifiers
+                .get(existing_identifier)
+                .map(|s| s.as_str())
         }
 
         fn has_identifier_for(&self, existing_identifier: &str) -> bool {
@@ -237,7 +258,9 @@ mod rdfc10 {
                             canonical_issuer,
                             &path_issuer,
                         );
-                        h_n.entry(related_hash).or_default().push(s_bn.as_str().to_string());
+                        h_n.entry(related_hash)
+                            .or_default()
+                            .push(s_bn.as_str().to_string());
                     }
                 }
                 if let Term::BlankNode(o_bn) = &triple.object {
@@ -250,7 +273,9 @@ mod rdfc10 {
                             canonical_issuer,
                             &path_issuer,
                         );
-                        h_n.entry(related_hash).or_default().push(o_bn.as_str().to_string());
+                        h_n.entry(related_hash)
+                            .or_default()
+                            .push(o_bn.as_str().to_string());
                     }
                 }
             }
@@ -376,10 +401,9 @@ mod rdfc10 {
                 hash_path_list.sort_by(|(h1, _), (h2, _)| h1.cmp(h2));
 
                 for (_, issuer) in hash_path_list {
-                    let mut ids_to_issue: Vec<_> = issuer.issued_identifiers.keys().cloned().collect();
-                    ids_to_issue.sort_by(|a, b| {
-                        issuer.get(a).unwrap().cmp(issuer.get(b).unwrap())
-                    });
+                    let mut ids_to_issue: Vec<_> =
+                        issuer.issued_identifiers.keys().cloned().collect();
+                    ids_to_issue.sort_by(|a, b| issuer.get(a).unwrap().cmp(issuer.get(b).unwrap()));
                     for id in ids_to_issue {
                         if !canonical_issuer.has_identifier_for(&id) {
                             canonical_issuer.issue(&id);
@@ -443,6 +467,7 @@ pub(crate) fn skolemize(
 
             let new_subject = if let Subject::BlankNode(bn) = &quad.subject {
                 let skolem_iri = bnodes_to_skolemize.entry(bn.clone()).or_insert_with(|| {
+                    println!("skolemizing subject {}{}", base_iri, bn.as_str());
                     NamedNode::new_unchecked(format!("{}{}", base_iri, bn.as_str()))
                 });
                 Subject::from(skolem_iri.clone())
@@ -452,6 +477,7 @@ pub(crate) fn skolemize(
 
             let new_object = if let Term::BlankNode(bn) = &quad.object {
                 let skolem_iri = bnodes_to_skolemize.entry(bn.clone()).or_insert_with(|| {
+                    println!("skolemizing object {}{}", base_iri, bn.as_str());
                     NamedNode::new_unchecked(format!("{}{}", base_iri, bn.as_str()))
                 });
                 Term::from(skolem_iri.clone())
@@ -501,43 +527,47 @@ pub fn deskolemize_graph(graph: &Graph, base_iri: &str) -> Graph {
     let mut skolem_iris_to_bnode = HashMap::<NamedNode, BlankNode>::new();
     let mut new_graph = Graph::new();
 
+    fn bnode_suffix<'a>(iri: &'a str, base_iri: &str) -> Option<&'a str> {
+        if !base_iri.is_empty() && iri.starts_with(base_iri) {
+            return Some(&iri[base_iri.len()..]);
+        }
+
+        const SKOLEM_MARKER: &str = "/.well-known/skolem/";
+        iri.find(SKOLEM_MARKER)
+            .map(|idx| &iri[idx + SKOLEM_MARKER.len()..])
+    }
+
     for triple in graph.iter() {
         let new_subject = if let SubjectRef::NamedNode(nn) = triple.subject {
-            if nn.as_str().starts_with(base_iri) {
-                let bnode = skolem_iris_to_bnode.entry(nn.into_owned()).or_insert_with(|| {
-                    let bnode_id = &nn.as_str()[base_iri.len()..];
-                    BlankNode::new_unchecked(bnode_id)
-                });
-                Subject::from(bnode.clone())
-            } else {
-                triple.subject.into_owned()
+            match bnode_suffix(nn.as_str(), base_iri) {
+                Some(id) => {
+                    let bnode = skolem_iris_to_bnode
+                        .entry(nn.into_owned())
+                        .or_insert_with(|| BlankNode::new_unchecked(id));
+                    Subject::from(bnode.clone())
+                }
+                None => triple.subject.into_owned(),
             }
         } else {
             triple.subject.into_owned()
         };
 
         let new_object = if let TermRef::NamedNode(nn) = triple.object {
-            if nn.as_str().starts_with(base_iri) {
-                let bnode = skolem_iris_to_bnode.entry(nn.into_owned()).or_insert_with(|| {
-                    let bnode_id = &nn.as_str()[base_iri.len()..];
-                    BlankNode::new_unchecked(bnode_id)
-                });
-                Term::from(bnode.clone())
-            } else {
-                triple.object.into_owned()
+            match bnode_suffix(nn.as_str(), base_iri) {
+                Some(id) => {
+                    let bnode = skolem_iris_to_bnode
+                        .entry(nn.into_owned())
+                        .or_insert_with(|| BlankNode::new_unchecked(id));
+                    Term::from(bnode.clone())
+                }
+                None => triple.object.into_owned(),
             }
         } else {
             triple.object.into_owned()
         };
 
-        new_graph.insert(
-            Triple::new(
-                new_subject,
-                triple.predicate.into_owned(),
-                new_object,
-            )
-            .as_ref(),
-        );
+        new_graph
+            .insert(Triple::new(new_subject, triple.predicate.into_owned(), new_object).as_ref());
     }
     new_graph
 }

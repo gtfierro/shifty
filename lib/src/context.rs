@@ -1,12 +1,13 @@
-use crate::components::Component;
+use crate::model::components::ComponentDescriptor;
 use crate::optimize::Optimizer;
 use crate::parser;
+use crate::runtime::{build_component_from_descriptor, Component};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use log::info;
 use ontoenv::api::OntoEnv;
 use ontoenv::ontology::OntologyLocation;
-use oxigraph::model::{GraphNameRef, NamedNode, Term};
+use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
 use oxigraph::store::Store;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -114,8 +115,8 @@ pub struct ShapesModel {
     pub(crate) node_shapes: HashMap<ID, NodeShape>,
     /// A map from `PropShapeID` to the parsed `PropertyShape`.
     pub(crate) prop_shapes: HashMap<PropShapeID, PropertyShape>,
-    /// A map from `ComponentID` to the parsed `Component`.
-    pub(crate) components: HashMap<ComponentID, Component>,
+    /// Data-only descriptors for each component.
+    pub(crate) component_descriptors: HashMap<ComponentID, ComponentDescriptor>,
     pub(crate) env: OntoEnv,
 }
 
@@ -179,7 +180,7 @@ impl ShapesModel {
             shape_graph_iri: final_ctx.shape_graph_iri,
             node_shapes: final_ctx.node_shapes,
             prop_shapes: final_ctx.prop_shapes,
-            components: final_ctx.components,
+            component_descriptors: final_ctx.component_descriptors,
             env: final_ctx.env,
         })
     }
@@ -240,15 +241,12 @@ impl ShapesModel {
                 ));
             }
         }
-        for (ident, comp) in self.components.iter() {
-            // This part is tricky as `to_graphviz_string` expects a `ValidationContext`.
-            // For now, we can't fully support this without a temporary context.
-            // This will be resolved when the engine is built.
-            // A simple label will be used as a placeholder.
+        for (ident, descriptor) in self.component_descriptors.iter() {
+            let component = build_component_from_descriptor(descriptor);
             dot_string.push_str(&format!(
                 "  {} [label=\"{}\"];\n",
                 ident.to_graphviz_id(),
-                comp.label()
+                component.label()
             ));
         }
         dot_string.push_str("}\n");
@@ -280,9 +278,12 @@ impl ShapesModel {
         &self.propshape_id_lookup
     }
 
-    /// Retrieves a component by its `ComponentID`.
-    pub(crate) fn get_component_by_id(&self, id: &ComponentID) -> Option<&Component> {
-        self.components.get(id)
+    /// Retrieves a component descriptor by its `ComponentID`.
+    pub(crate) fn get_component_descriptor(
+        &self,
+        id: &ComponentID,
+    ) -> Option<&ComponentDescriptor> {
+        self.component_descriptors.get(id)
     }
 
     /// Retrieves a property shape by its `PropShapeID`.
@@ -303,17 +304,38 @@ impl ShapesModel {
 pub struct ValidationContext {
     pub(crate) model: Rc<ShapesModel>,
     pub(crate) data_graph_iri: NamedNode,
+    data_graph_skolem_base: String,
+    shape_graph_skolem_base: String,
     /// A collection of all execution traces generated during validation.
     pub(crate) execution_traces: RefCell<Vec<Vec<TraceItem>>>,
+    /// Runtime constraint components built from descriptors.
+    pub(crate) components: HashMap<ComponentID, Component>,
 }
 
 impl ValidationContext {
     /// Creates a new `ValidationContext` for a validation run.
     pub(crate) fn new(model: Rc<ShapesModel>, data_graph_iri: NamedNode) -> Self {
+        let data_graph_skolem_base = format!(
+            "{}/.well-known/skolem/",
+            data_graph_iri.as_str().trim_end_matches('/')
+        );
+        let shape_graph_skolem_base = format!(
+            "{}/.well-known/skolem/",
+            model.shape_graph_iri.as_str().trim_end_matches('/')
+        );
+        let components = model
+            .component_descriptors
+            .iter()
+            .map(|(id, descriptor)| (*id, build_component_from_descriptor(descriptor)))
+            .collect();
+
         ValidationContext {
             model,
             data_graph_iri,
+            data_graph_skolem_base,
+            shape_graph_skolem_base,
             execution_traces: RefCell::new(Vec::new()),
+            components,
         }
     }
 
@@ -327,6 +349,21 @@ impl ValidationContext {
         let mut traces = self.execution_traces.borrow_mut();
         traces.push(Vec::new());
         traces.len() - 1
+    }
+
+    /// Retrieves a runtime component by ID.
+    pub(crate) fn get_component(&self, id: &ComponentID) -> Option<&Component> {
+        self.components.get(id)
+    }
+
+    /// Returns true if the named node originates from skolemizing the data graph's blank nodes.
+    pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
+        node.as_str().starts_with(&self.data_graph_skolem_base)
+    }
+
+    /// Returns true if the named node originates from skolemizing the shapes graph's blank nodes.
+    pub(crate) fn is_shape_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
+        node.as_str().starts_with(&self.shape_graph_skolem_base)
     }
 
     /// Gets a human-readable label and type string for a `TraceItem`.
@@ -355,20 +392,18 @@ impl ValidationContext {
                 (label, "PropertyShape".to_string())
             }
             TraceItem::Component(id) => {
-                let label = self.model.get_component_by_id(id).map_or_else(
-                    || format!("Unknown Component ID: {:?}", id),
-                    |comp| comp.label(),
-                );
+                let label = self
+                    .model
+                    .get_component_descriptor(id)
+                    .map(|descriptor| build_component_from_descriptor(descriptor).label())
+                    .unwrap_or_else(|| format!("Unknown Component ID: {:?}", id));
                 (label, "Component".to_string())
             }
         }
     }
 
     /// Generates a Graphviz DOT string representation of the shapes, with nodes colored by execution frequency.
-    pub(crate) fn graphviz_heatmap(
-        &self,
-        include_all_nodes: bool,
-    ) -> Result<String, String> {
+    pub(crate) fn graphviz_heatmap(&self, include_all_nodes: bool) -> Result<String, String> {
         let mut frequencies: HashMap<TraceItem, usize> = HashMap::new();
         for trace in self.execution_traces.borrow().iter() {
             for item in trace.iter() {
@@ -465,9 +500,7 @@ impl ValidationContext {
                 .borrow()
                 .id_to_term
                 .get(pshape.identifier())
-                .ok_or_else(|| {
-                    format!("Missing term for propshape ID: {:?}", pshape.identifier())
-                })?
+                .ok_or_else(|| format!("Missing term for propshape ID: {:?}", pshape.identifier()))?
                 .clone();
 
             let path_label = pshape.sparql_path();
@@ -495,7 +528,8 @@ impl ValidationContext {
         }
 
         // Components
-        for (ident, comp) in self.model.components.iter() {
+        for (ident, descriptor) in self.model.component_descriptors.iter() {
+            let comp = build_component_from_descriptor(descriptor);
             let trace_item = TraceItem::Component(*ident);
             let count = frequencies.get(&trace_item).copied().unwrap_or(0);
 
@@ -524,7 +558,10 @@ impl ValidationContext {
                             let new_end_pos = end_pos + color_attr.len();
                             if let Some(label_end) = modified_line[..new_end_pos].rfind('"') {
                                 if label_end > label_start {
-                                    let freq_text = format!("\\n({:.2}%) ({}/{})", relative_freq, count, total_freq);
+                                    let freq_text = format!(
+                                        "\\n({:.2}%) ({}/{})",
+                                        relative_freq, count, total_freq
+                                    );
                                     modified_line.insert_str(label_end, &freq_text);
                                 }
                             }
@@ -562,8 +599,8 @@ pub(crate) struct ParsingContext {
     pub(crate) node_shapes: HashMap<ID, NodeShape>,
     /// A map from `PropShapeID` to the parsed `PropertyShape`.
     pub(crate) prop_shapes: HashMap<PropShapeID, PropertyShape>,
-    /// A map from `ComponentID` to the parsed `Component`.
-    pub(crate) components: HashMap<ComponentID, Component>,
+    /// Data-only descriptors for each component.
+    pub(crate) component_descriptors: HashMap<ComponentID, ComponentDescriptor>,
     pub(crate) env: OntoEnv,
 }
 
@@ -589,7 +626,7 @@ impl ParsingContext {
             data_graph_iri,
             node_shapes: HashMap::new(),
             prop_shapes: HashMap::new(),
-            components: HashMap::new(),
+            component_descriptors: HashMap::new(),
             env,
         }
     }

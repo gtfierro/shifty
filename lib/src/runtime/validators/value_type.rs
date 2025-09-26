@@ -1,6 +1,6 @@
-use crate::components::ToSubjectRef;
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
+use crate::runtime::ToSubjectRef;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
@@ -8,7 +8,9 @@ use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
 use oxsdatatypes::*;
 use std::str::FromStr;
 
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
+use crate::runtime::{
+    ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
+};
 
 // value type
 #[derive(Debug)]

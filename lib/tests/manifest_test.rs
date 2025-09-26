@@ -51,13 +51,8 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error>> {
             .shapes_graph_path
             .to_str()
             .ok_or("Invalid shapes graph path")?;
-        let validator =
-            Validator::from_files(shapes_graph_path, data_graph_path).map_err(|e| {
-                format!(
-                    "Failed to create Validator for test '{}': {}",
-                    test_name, e
-                )
-            })?;
+        let validator = Validator::from_files(shapes_graph_path, data_graph_path)
+            .map_err(|e| format!("Failed to create Validator for test '{}': {}", test_name, e))?;
         let report = validator.validate();
         let conforms = report.conforms();
         let expects_conform = test.conforms;
@@ -231,4 +226,8 @@ generate_test_cases! {
     test_sparql_node_sparql_002: "tests/test-suite/sparql/node/sparql-002.ttl",
     test_sparql_node_sparql_003: "tests/test-suite/sparql/node/sparql-003.ttl",
     test_sparql_node_prefixes_001: "tests/test-suite/sparql/node/prefixes-001.ttl",
+    test_sparql_component_nodevalidator_001: "tests/test-suite/sparql/component/nodeValidator-001.ttl",
+    test_sparql_component_propertyvalidator_001: "tests/test-suite/sparql/component/propertyValidator-select-001.ttl",
+    test_sparql_component_optional_001: "tests/test-suite/sparql/component/optional-001.ttl",
+    test_sparql_component_validator_001: "tests/test-suite/sparql/component/validator-001.ttl",
 }

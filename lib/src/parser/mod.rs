@@ -1,25 +1,86 @@
-use crate::components::{parse_components, ToSubjectRef};
+mod components;
+
 use crate::context::ParsingContext;
 use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, ID};
+use components::parse_components;
+use oxigraph::io::{GraphFormat, GraphParser};
 use oxigraph::model::{GraphName, GraphNameRef, QuadRef, SubjectRef, Term, TermRef};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::BufReader;
+use url::Url;
+
+trait ToSubjectRef {
+    fn to_subject_ref(&self) -> SubjectRef<'_>;
+    fn try_to_subject_ref(&self) -> Result<SubjectRef<'_>, String>;
+}
+
+impl ToSubjectRef for TermRef<'_> {
+    fn to_subject_ref(&self) -> SubjectRef<'_> {
+        match self {
+            TermRef::NamedNode(n) => n.clone().into(),
+            TermRef::BlankNode(b) => b.clone().into(),
+            _ => panic!("Invalid subject term {:?}", self),
+        }
+    }
+
+    fn try_to_subject_ref(&self) -> Result<SubjectRef<'_>, String> {
+        match self {
+            TermRef::NamedNode(n) => Ok(n.clone().into()),
+            TermRef::BlankNode(b) => Ok(b.clone().into()),
+            _ => Err(format!("Invalid subject term {:?}", self)),
+        }
+    }
+}
+
+fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> {
+    let mut map = HashMap::new();
+    let shacl = SHACL::new();
+
+    if let Ok(url) = Url::parse(context.shape_graph_iri.as_str()) {
+        println!("Shape graph IRI: {}", context.shape_graph_iri);
+        if url.scheme() == "file" {
+            if let Ok(path) = url.to_file_path() {
+                if let Ok(file) = File::open(&path) {
+                    let reader = BufReader::new(file);
+                    let parser = GraphParser::from_format(GraphFormat::Turtle);
+                    for triple in parser.read_triples(reader) {
+                        if let Ok(triple) = triple {
+                            if triple.predicate == shacl.unique_lang {
+                                if let Term::Literal(lit) = triple.object.clone() {
+                                    println!(
+                                        "uniqueLang lexical capture: subject {:?}, lexical {}",
+                                        triple.subject,
+                                        lit.value()
+                                    );
+                                    map.insert(triple.subject.into(), lit.value().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    map
+}
 
 /// Runs the parser to discover all shapes and components from the shapes graph
 /// and populates them into the `ParsingContext`.
 pub(crate) fn run_parser(context: &mut ParsingContext) -> Result<(), String> {
     // parses the shape graph to get all of the shapes and components defined within
+    let unique_lang_lexicals = load_unique_lang_lexicals(context);
     let shapes = get_node_shapes(context);
     for shape in shapes {
-        println!("Parsing node shape: {:?}", shape);
-        parse_node_shape(context, shape.as_ref())?;
+        parse_node_shape(context, shape, &unique_lang_lexicals)?;
     }
 
     let pshapes = get_property_shapes(context);
     for pshape in pshapes {
-        println!("Parsing property shape: {:?}", pshape);
-        parse_property_shape(context, pshape.as_ref())?;
+        parse_property_shape(context, pshape, &unique_lang_lexicals)?;
     }
     Ok(())
 }
@@ -148,13 +209,18 @@ fn get_node_shapes(context: &ParsingContext) -> Vec<Term> {
     node_shapes.into_iter().collect()
 }
 
-fn parse_node_shape(context: &mut ParsingContext, shape: TermRef) -> Result<ID, String> {
+fn parse_node_shape(
+    context: &mut ParsingContext,
+    shape_term: Term,
+    unique_lang_lexicals: &HashMap<Term, String>,
+) -> Result<ID, String> {
     // Parses a shape from the shape graph and returns its ID.
     // Adds the shape to the node_shapes map.
-    let id = context.get_or_create_node_id(shape.into());
+    let id = context.get_or_create_node_id(shape_term.clone());
     let sh = SHACL::new();
+    let shape_ref = shape_term.as_ref();
 
-    let subject: SubjectRef = shape.to_subject_ref();
+    let subject: SubjectRef = shape_ref.to_subject_ref();
     let shape_graph_name = GraphName::NamedNode(context.shape_graph_iri.clone());
 
     // get the targets
@@ -200,11 +266,12 @@ fn parse_node_shape(context: &mut ParsingContext, shape: TermRef) -> Result<ID, 
 
     // get constraint components
     // parse_components will internally use context.store() and context.shape_graph_iri_ref()
-    let constraints = parse_components(shape, context);
+    let constraints = parse_components(&shape_term, context, unique_lang_lexicals);
     let component_ids: Vec<ComponentID> = constraints.keys().cloned().collect();
-    for (component_id, component) in constraints {
-        // add the component to our context.components map
-        context.components.insert(component_id, component);
+    for (component_id, descriptor) in constraints {
+        context
+            .component_descriptors
+            .insert(component_id, descriptor);
     }
 
     let _property_shapes: Vec<PropShapeID> = context // This seems to be about sh:property linking to PropertyShapes.
@@ -241,11 +308,14 @@ fn parse_node_shape(context: &mut ParsingContext, shape: TermRef) -> Result<ID, 
 
 fn parse_property_shape(
     context: &mut ParsingContext,
-    pshape: TermRef,
+    shape_term: Term,
+    unique_lang_lexicals: &HashMap<Term, String>,
 ) -> Result<PropShapeID, String> {
-    let id = context.get_or_create_prop_id(pshape.into_owned());
+    println!("parse_property_shape: {}", shape_term);
+    let id = context.get_or_create_prop_id(shape_term.clone());
     let shacl = SHACL::new();
-    let subject: SubjectRef = pshape.to_subject_ref();
+    let shape_ref = shape_term.as_ref();
+    let subject: SubjectRef = shape_ref.to_subject_ref();
     let ps_shape_graph_name = GraphName::NamedNode(context.shape_graph_iri.clone());
 
     let path_object_term: Term = context
@@ -259,14 +329,19 @@ fn parse_property_shape(
         .filter_map(Result::ok)
         .map(|quad| quad.object)
         .next()
-        .ok_or_else(|| format!("Property shape {:?} must have a sh:path", pshape))?;
+        .ok_or_else(|| format!("Property shape {:?} must have a sh:path", shape_term))?;
 
     let path = parse_shacl_path_recursive(context, path_object_term.as_ref())?;
 
     // get the targets
     let targets: Vec<crate::types::Target> = context
         .store
-        .quads_for_pattern(Some(subject), None, None, Some(ps_shape_graph_name.as_ref()))
+        .quads_for_pattern(
+            Some(subject),
+            None,
+            None,
+            Some(ps_shape_graph_name.as_ref()),
+        )
         .filter_map(Result::ok)
         .filter_map(|quad| {
             crate::types::Target::from_predicate_object(
@@ -278,11 +353,12 @@ fn parse_property_shape(
 
     // get constraint components
     // parse_components will internally use context.store() and context.shape_graph_iri_ref()
-    let constraints = parse_components(pshape, context);
+    let constraints = parse_components(&shape_term, context, unique_lang_lexicals);
     let component_ids: Vec<ComponentID> = constraints.keys().cloned().collect();
-    for (component_id, component) in constraints {
-        // add the component to our context.components map
-        context.components.insert(component_id, component);
+    for (component_id, descriptor) in constraints {
+        context
+            .component_descriptors
+            .insert(component_id, descriptor);
     }
 
     let severity_term_opt = context

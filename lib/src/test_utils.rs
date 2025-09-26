@@ -1,5 +1,5 @@
-use crate::components::ToSubjectRef;
 use crate::named_nodes::{MF, RDF, RDFS, SHACL, SHT};
+use crate::runtime::ToSubjectRef;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{vocab::xsd, Graph, SubjectRef, TermRef, TripleRef};
 use std::fs;

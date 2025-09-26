@@ -1,8 +1,11 @@
-use super::{
+use crate::context::{format_term_for_label, Context, ParsingContext, ValidationContext};
+use crate::model::components::sparql::{
+    CustomConstraintComponentDefinition, Parameter, SPARQLValidator,
+};
+use crate::named_nodes::SHACL;
+use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
-use crate::context::{format_term_for_label, Context, ParsingContext, ValidationContext};
-use crate::named_nodes::SHACL;
 use crate::types::{ComponentID, Path, TraceItem};
 use ontoenv::api::{OntoEnv, ResolveTarget};
 use oxigraph::model::vocab::xsd;
@@ -33,12 +36,7 @@ fn get_prefixes_for_sparql_node(
     // extend with sh:declare subjects
     prefixes_subjects.extend(
         store
-            .quads_for_pattern(
-                None,
-                Some(shacl.declare),
-                None,
-                None,
-            )
+            .quads_for_pattern(None, Some(shacl.declare), None, None)
             .filter_map(Result::ok)
             .map(|q| q.subject.into()),
     );
@@ -70,23 +68,13 @@ fn get_prefixes_for_sparql_node(
             };
 
             let prefix_val = store
-                .quads_for_pattern(
-                    Some(decl_subject),
-                    Some(shacl.prefix),
-                    None,
-                    None,
-                )
+                .quads_for_pattern(Some(decl_subject), Some(shacl.prefix), None, None)
                 .next()
                 .and_then(|res| res.ok())
                 .map(|q| q.object);
 
             let namespace_val = store
-                .quads_for_pattern(
-                    Some(decl_subject),
-                    Some(shacl.namespace),
-                    None,
-                    None,
-                )
+                .quads_for_pattern(Some(decl_subject), Some(shacl.namespace), None, None)
                 .next()
                 .and_then(|res| res.ok())
                 .map(|q| q.object);
@@ -143,6 +131,63 @@ fn get_prefixes_for_sparql_node(
         .map(|(prefix, iri)| format!("PREFIX {}: <{}>", prefix, iri))
         .collect();
     Ok(prefix_strs.join("\n"))
+}
+
+fn query_mentions_var(query: &str, var: &str) -> bool {
+    fn contains(query: &str, prefix: char, var: &str) -> bool {
+        let mut start = 0;
+        let bytes = query.as_bytes();
+        let var_bytes = var.as_bytes();
+        while let Some(pos) = query[start..].find(prefix) {
+            let idx = start + pos + 1; // skip prefix itself
+            if bytes.len() >= idx + var_bytes.len()
+                && &bytes[idx..idx + var_bytes.len()] == var_bytes
+            {
+                let after = idx + var_bytes.len();
+                if after >= bytes.len() {
+                    return true;
+                }
+                let next = bytes[after] as char;
+                if !next.is_ascii_alphanumeric() && next != '_' {
+                    return true;
+                }
+            }
+            start += pos + 1;
+        }
+        false
+    }
+
+    contains(query, '?', var) || contains(query, '$', var)
+}
+
+fn replace_variable_with_term(query: &str, var: &str, term: &Term) -> String {
+    let mut result = String::with_capacity(query.len() + term.to_string().len());
+    let replacement = term.to_string();
+    let mut i = 0;
+    while i < query.len() {
+        let ch = query[i..].chars().next().unwrap();
+        let ch_len = ch.len_utf8();
+        if (ch == '?' || ch == '$')
+            && i + ch_len + var.len() <= query.len()
+            && &query[i + ch_len..i + ch_len + var.len()] == var
+        {
+            let after = i + ch_len + var.len();
+            let boundary_ok = after == query.len()
+                || query[after..]
+                    .chars()
+                    .next()
+                    .map_or(true, |next| !next.is_ascii_alphanumeric() && next != '_');
+            if boundary_ok {
+                result.push_str(&replacement);
+                i += ch_len + var.len();
+                continue;
+            }
+        }
+
+        result.push(ch);
+        i += ch_len;
+    }
+    result
 }
 
 #[derive(Debug, Clone)]
@@ -287,30 +332,25 @@ impl ValidateComponent for SPARQLConstraintComponent {
         };
 
         let mut query = Query::parse(&full_query_str, None)
-            .map_err(|e| format!("Failed to parse SPARQL constraint query: {}", e)).unwrap();
+            .map_err(|e| format!("Failed to parse SPARQL constraint query: {}", e))
+            .unwrap();
         query.dataset_mut().set_default_graph_as_union();
 
         // 6. Prepare pre-bound variables
         let mut substitutions = vec![];
 
-        if full_query_str.contains("$this") {
+        if query_mentions_var(&full_query_str, "this") {
             // Only add if the query uses it
-            substitutions.push((
-                Variable::new_unchecked("this"),
-                c.focus_node().clone(),
-            ));
+            substitutions.push((Variable::new_unchecked("this"), c.focus_node().clone()));
         }
 
         if let Some(current_shape_term) = c.source_shape().get_term(context) {
-            if full_query_str.contains("$currentShape") {
+            if query_mentions_var(&full_query_str, "currentShape") {
                 // Only add if the query uses it
-                substitutions.push((
-                    Variable::new_unchecked("currentShape"),
-                    current_shape_term,
-                ));
+                substitutions.push((Variable::new_unchecked("currentShape"), current_shape_term));
             }
         }
-        if full_query_str.contains("$shapesGraph") {
+        if query_mentions_var(&full_query_str, "shapesGraph") {
             // Only add if the query uses it
             substitutions.push((
                 Variable::new_unchecked("shapesGraph"),
@@ -344,7 +384,6 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 let mut results = vec![];
                 let mut seen_solutions = HashSet::new();
                 for solution_res in solutions {
-                    println!("Processing SPARQL solution: {:?}", solution_res);
                     let solution = solution_res.map_err(|e| e.to_string())?;
 
                     if let Some(Term::Literal(failure)) = solution.get("failure") {
@@ -369,7 +408,9 @@ impl ValidateComponent for SPARQLConstraintComponent {
                         .get("message")
                         .map(|t| t.to_string())
                         .or_else(|| messages.first().map(|t| t.to_string()))
-                        .unwrap_or_else(|| "Node does not conform to SPARQL constraint".to_string());
+                        .unwrap_or_else(|| {
+                            "Node does not conform to SPARQL constraint".to_string()
+                        });
 
                     // Substitute variables in message
                     for var in solution.variables() {
@@ -404,38 +445,10 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 }
                 Ok(results)
             }
-            Err(e) => {
-                println!("SPARQL query error: {}", e);
-                Err(format!("SPARQL query failed: {}", e))
-            }
+            Err(e) => Err(format!("SPARQL query failed: {}", e)),
             _ => Ok(vec![]), // Other query result types are ignored
         }
     }
-}
-
-// NEW STRUCTS for SPARQL-based Constraint Components
-
-#[derive(Debug, Clone)]
-pub struct Parameter {
-    pub path: NamedNode,
-    pub optional: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct SPARQLValidator {
-    pub query: String,
-    pub is_ask: bool,
-    pub messages: Vec<Term>,
-    pub prefixes: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct CustomConstraintComponentDefinition {
-    pub iri: NamedNode,
-    pub parameters: Vec<Parameter>,
-    pub validator: Option<SPARQLValidator>,
-    pub node_validator: Option<SPARQLValidator>,
-    pub property_validator: Option<SPARQLValidator>,
 }
 
 #[derive(Debug, Clone)]
@@ -480,16 +493,21 @@ pub(crate) fn parse_custom_constraint_components(
     let mut definitions = HashMap::new();
     let mut param_to_component: HashMap<NamedNode, Vec<NamedNode>> = HashMap::new();
 
-    let query = "SELECT ?cc WHERE { ?cc a sh:ConstraintComponent }";
+    let shapes_graph_iri = context.shape_graph_iri.as_str();
+    let query = format!(
+        "PREFIX sh: <http://www.w3.org/ns/shacl#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?cc FROM <{}> WHERE {{ ?cc a ?ccType . ?ccType rdfs:subClassOf* sh:ConstraintComponent }}",
+        shapes_graph_iri
+    );
     if let Ok(QueryResults::Solutions(solutions)) =
-        context.store.query_opt(query, QueryOptions::default())
+        context.store.query_opt(&query, QueryOptions::default())
     {
         for solution_res in solutions {
             if let Ok(solution) = solution_res {
                 if let Some(Term::NamedNode(cc_iri)) = solution.get("cc") {
                     let mut parameters = vec![];
                     let param_query = format!(
-                        "SELECT ?param ?path ?optional WHERE {{ <{}> sh:parameter ?param . ?param sh:path ?path . OPTIONAL {{ ?param sh:optional ?optional }} }}",
+                        "PREFIX sh: <http://www.w3.org/ns/shacl#>\nSELECT ?param ?path ?optional FROM <{}> WHERE {{ <{}> sh:parameter ?param . ?param sh:path ?path . OPTIONAL {{ ?param sh:optional ?optional }} }}",
+                        shapes_graph_iri,
                         cc_iri.as_str()
                     );
 
@@ -503,7 +521,17 @@ pub(crate) fn parse_custom_constraint_components(
                                     let optional = p_sol
                                         .get("optional")
                                         .and_then(|t| match t {
-                                            Term::Literal(l) => l.value().parse::<bool>().ok(),
+                                            Term::Literal(l) => match l.value() {
+                                                v if v.eq_ignore_ascii_case("true") || v == "1" => {
+                                                    Some(true)
+                                                }
+                                                v if v.eq_ignore_ascii_case("false")
+                                                    || v == "0" =>
+                                                {
+                                                    Some(false)
+                                                }
+                                                _ => None,
+                                            },
                                             _ => None,
                                         })
                                         .unwrap_or(false);
@@ -525,48 +553,59 @@ pub(crate) fn parse_custom_constraint_components(
                     let mut property_validator = None;
 
                     // Helper to parse a validator
-                    let parse_validator =
-                        |v_term: &Term, is_ask: bool, context: &ParsingContext| -> Option<SPARQLValidator> {
+                    let parse_validator = |v_term: &Term,
+                                           is_ask: bool,
+                                           context: &ParsingContext|
+                     -> Option<SPARQLValidator> {
+                        if let Term::NamedNode(nn) = v_term {
+                            let validator_iri = nn.as_str();
                             let query_prop = if is_ask { "ask" } else { "select" };
                             let v_query = format!(
-                            "SELECT ?query (GROUP_CONCAT(?msg; separator='|||') as ?messages) WHERE {{ <{}> sh:{} ?query . OPTIONAL {{ <{}> sh:message ?msg }} }} GROUP BY ?query",
-                            v_term, query_prop, v_term
-                        );
+                                "PREFIX sh: <http://www.w3.org/ns/shacl#>\nSELECT ?query (GROUP_CONCAT(?msg; separator=\"|||\") as ?messages) FROM <{}> WHERE {{ <{}> sh:{} ?query . OPTIONAL {{ <{}> sh:message ?msg }} }} GROUP BY ?query",
+                                context.shape_graph_iri.as_str(),
+                                validator_iri,
+                                query_prop,
+                                validator_iri
+                            );
 
-                            if let Ok(QueryResults::Solutions(v_solutions)) =
-                                context.store.query_opt(&v_query, QueryOptions::default())
-                            {
-                                if let Some(Ok(v_sol)) = v_solutions.into_iter().next() {
-                                    if let Some(Term::Literal(query_lit)) = v_sol.get("query") {
-                                        let messages = v_sol.get("messages").map_or(vec![], |t| {
-                                            if let Term::Literal(lit) = t {
-                                                // This is a hack because group_concat doesn't preserve term type
-                                                // A proper implementation would parse the list of messages properly
-                                                vec![Term::Literal(Literal::new_simple_literal(
-                                                    lit.value(),
-                                                ))]
-                                            } else {
-                                                vec![]
-                                            }
-                                        });
-                                        let prefixes = get_prefixes_for_sparql_node(
-                                            v_term.as_ref(),
-                                            &context.store,
-                                            &context.env,
-                                            context.shape_graph_iri_ref(),
-                                        )
-                                        .unwrap_or_default();
-                                        return Some(SPARQLValidator {
-                                            query: query_lit.value().to_string(),
-                                            is_ask,
-                                            messages,
-                                            prefixes,
-                                        });
+                            match context.store.query_opt(&v_query, QueryOptions::default()) {
+                                Ok(QueryResults::Solutions(v_solutions_iter)) => {
+                                    let solutions: Vec<_> = v_solutions_iter.collect();
+                                    if let Some(Ok(v_sol)) = solutions.into_iter().next() {
+                                        if let Some(Term::Literal(query_lit)) = v_sol.get("query") {
+                                            let messages =
+                                                v_sol.get("messages").map_or(vec![], |t| {
+                                                    if let Term::Literal(lit) = t {
+                                                        vec![Term::Literal(
+                                                            Literal::new_simple_literal(
+                                                                lit.value(),
+                                                            ),
+                                                        )]
+                                                    } else {
+                                                        vec![]
+                                                    }
+                                                });
+                                            let prefixes = get_prefixes_for_sparql_node(
+                                                TermRef::NamedNode(nn.as_ref()),
+                                                &context.store,
+                                                &context.env,
+                                                context.shape_graph_iri_ref(),
+                                            )
+                                            .unwrap_or_default();
+                                            return Some(SPARQLValidator {
+                                                query: query_lit.value().to_string(),
+                                                is_ask,
+                                                messages,
+                                                prefixes,
+                                            });
+                                        }
                                     }
                                 }
+                                _ => {}
                             }
-                            None
-                        };
+                        }
+                        None
+                    };
 
                     let validator_prop =
                         NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#validator");
@@ -698,44 +737,70 @@ impl ValidateComponent for CustomConstraintComponent {
         };
 
         let mut results = vec![];
-        let mut substitutions = vec![(
-            Variable::new_unchecked("this"),
-            c.focus_node().clone(),
-        )];
+        let mut query_body = validator.query.clone();
 
-        if let Some(current_shape_term) = c.source_shape().get_term(context) {
-            substitutions.push((
-                Variable::new_unchecked("currentShape"),
-                current_shape_term,
-            ));
+        if is_prop_shape {
+            if let Some(prop_id) = c.source_shape().as_prop_id() {
+                if let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id) {
+                    let path_str = prop_shape.sparql_path();
+                    query_body = query_body.replace("$PATH", &path_str);
+                }
+            }
         }
-        substitutions.push((
-            Variable::new_unchecked("shapesGraph"),
-            context.model.shape_graph_iri.clone().into(),
-        ));
 
         for (param_path, values) in &self.parameter_values {
             if let Some(value) = values.first() {
                 let param_name = local_name(param_path);
-                substitutions.push((Variable::new_unchecked(param_name), value.clone()));
+                if query_mentions_var(&query_body, &param_name) {
+                    query_body = replace_variable_with_term(&query_body, &param_name, value);
+                }
             }
         }
 
+        let mut substitutions = Vec::new();
+
+        if query_mentions_var(&query_body, "this") {
+            substitutions.push((Variable::new_unchecked("this"), c.focus_node().clone()));
+        }
+
+        if query_mentions_var(&query_body, "currentShape") {
+            if let Some(current_shape_term) = c.source_shape().get_term(context) {
+                substitutions.push((Variable::new_unchecked("currentShape"), current_shape_term));
+            }
+        }
+
+        if query_mentions_var(&query_body, "shapesGraph") {
+            substitutions.push((
+                Variable::new_unchecked("shapesGraph"),
+                context.model.shape_graph_iri.clone().into(),
+            ));
+        }
+
+        let apply_prefixes = |body: &str| {
+            if validator.prefixes.is_empty() {
+                body.to_string()
+            } else {
+                format!("{}\n{}", validator.prefixes, body)
+            }
+        };
+
         if validator.is_ask {
             if let Some(value_nodes) = c.value_nodes() {
+                let include_value = query_mentions_var(&query_body, "value");
+                let query_with_prefixes = apply_prefixes(&query_body);
                 for value_node in value_nodes {
                     let mut ask_substitutions = substitutions.clone();
-                    ask_substitutions
-                        .push((Variable::new_unchecked("value"), value_node.clone()));
-
-                    let mut query_str = validator.query.clone();
-                    if !validator.prefixes.is_empty() {
-                        query_str.insert_str(0, "\n");
-                        query_str.insert_str(0, &validator.prefixes);
+                    if include_value {
+                        ask_substitutions
+                            .push((Variable::new_unchecked("value"), value_node.clone()));
                     }
 
+                    let mut parsed_query = Query::parse(&query_with_prefixes, None)
+                        .map_err(|e| format!("Failed to parse SPARQL validator query: {}", e))?;
+                    parsed_query.dataset_mut().set_default_graph_as_union();
+
                     match context.model.store().query_opt_with_substituted_variables(
-                        &query_str,
+                        parsed_query,
                         QueryOptions::default(),
                         ask_substitutions,
                     ) {
@@ -769,25 +834,16 @@ impl ValidateComponent for CustomConstraintComponent {
             }
         } else {
             // SELECT validator
-            let mut query = validator.query.clone();
-            if is_prop_shape {
-                if let Some(prop_id) = c.source_shape().as_prop_id() {
-                    if let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id) {
-                        let path_str = prop_shape.sparql_path();
-                        query = query.replace("$PATH", &path_str);
-                    }
-                }
-            }
+            let query = apply_prefixes(&query_body);
 
-            if !validator.prefixes.is_empty() {
-                query.insert_str(0, "\n");
-                query.insert_str(0, &validator.prefixes);
-            }
+            let mut parsed_query = Query::parse(&query, None)
+                .map_err(|e| format!("Failed to parse SPARQL validator query: {}", e))?;
+            parsed_query.dataset_mut().set_default_graph_as_union();
 
             match context.model.store().query_opt_with_substituted_variables(
-                &query,
+                parsed_query,
                 QueryOptions::default(),
-                substitutions,
+                substitutions.clone(),
             ) {
                 Ok(QueryResults::Solutions(solutions)) => {
                     let mut seen_solutions = HashSet::new();

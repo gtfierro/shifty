@@ -202,7 +202,8 @@ impl SHACL {
             value: NamedNodeRef::new("http://www.w3.org/ns/shacl#value").unwrap(),
             result_path: NamedNodeRef::new("http://www.w3.org/ns/shacl#resultPath").unwrap(),
             source_shape: NamedNodeRef::new("http://www.w3.org/ns/shacl#sourceShape").unwrap(),
-            source_constraint: NamedNodeRef::new("http://www.w3.org/ns/shacl#sourceConstraint").unwrap(),
+            source_constraint: NamedNodeRef::new("http://www.w3.org/ns/shacl#sourceConstraint")
+                .unwrap(),
             source_constraint_component: NamedNodeRef::new(
                 "http://www.w3.org/ns/shacl#sourceConstraintComponent",
             )

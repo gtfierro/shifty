@@ -1,5 +1,7 @@
-use super::{ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure};
 use crate::context::{Context, ValidationContext};
+use crate::runtime::{
+    ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
+};
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::NamedNode;
 

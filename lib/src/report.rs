@@ -1,6 +1,6 @@
-use crate::components::ValidationFailure;
 use crate::context::{Context, ValidationContext};
 use crate::named_nodes::SHACL;
+use crate::runtime::ValidationFailure;
 use crate::types::{Path, TraceItem};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
@@ -142,8 +142,7 @@ impl ValidationReportBuilder {
         for (context, _) in &self.results {
             if let Some(trace) = traces.get(context.trace_index()) {
                 for item in trace {
-                    let (label, item_type) =
-                        validation_context.get_trace_item_label_and_type(item);
+                    let (label, item_type) = validation_context.get_trace_item_label_and_type(item);
                     let id = item.to_string();
                     *frequencies.entry((id, label, item_type)).or_insert(0) += 1;
                 }
@@ -209,23 +208,9 @@ impl ValidationReportBuilder {
 
                 let source_shape_term = context.source_shape().get_term(validation_context);
 
-                let mut source_constraint_component_term = None;
-                let traces = validation_context.execution_traces.borrow();
-                if let Some(trace) = traces.get(context.trace_index()) {
-                    // Iterate backwards to find the last component that was executed,
-                    // as this is the one that caused the validation failure.
-                    for item in trace.iter().rev() {
-                        if let TraceItem::Component(id) = item {
-                            // The component type (e.g., sh:MinCountConstraintComponent) is the
-                            // value for sh:sourceConstraintComponent.
-                            source_constraint_component_term = validation_context
-                                .model
-                                .get_component_by_id(id)
-                                .map(|c| c.component_type());
-                            break;
-                        }
-                    }
-                }
+                let source_constraint_component_term = validation_context
+                    .get_component(&failure.component_id)
+                    .map(|component| component.component_type());
 
                 if let Some(v) = &failure.failed_value_node {
                     graph.insert(&Triple::new(result_node.clone(), sh.value, v.clone()));
@@ -379,8 +364,7 @@ impl ValidationReportBuilder {
                 continue;
             }
             for item in trace {
-                let (label, item_type) =
-                    validation_context.get_trace_item_label_and_type(item);
+                let (label, item_type) = validation_context.get_trace_item_label_and_type(item);
                 println!("  - {} ({}) - {}", item.to_string(), item_type, label);
             }
         }

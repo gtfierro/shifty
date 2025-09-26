@@ -1,8 +1,8 @@
 use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext};
-use crate::types::{ComponentID, ID, TraceItem};
+use crate::types::{ComponentID, TraceItem, ID};
 use oxigraph::model::NamedNode;
 
-use super::{
+use crate::runtime::{
     check_conformance_for_node, ComponentValidationResult, ConformanceReport, GraphvizOutput,
     ValidateComponent, ValidationFailure,
 };
@@ -56,7 +56,8 @@ impl ValidateComponent for NotConstraintComponent {
             return Ok(vec![]); // No value nodes to check
         };
 
-        let Some(negated_node_shape) = validation_context.model.get_node_shape_by_id(&self.shape) else {
+        let Some(negated_node_shape) = validation_context.model.get_node_shape_by_id(&self.shape)
+        else {
             return Err(format!(
                 "sh:not referenced shape {:?} not found",
                 self.shape
@@ -130,7 +131,11 @@ impl GraphvizOutput for AndConstraintComponent {
         NamedNode::new_unchecked("http://www.w3.org/ns/shacl#AndConstraintComponent")
     }
 
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
@@ -172,8 +177,9 @@ impl ValidateComponent for AndConstraintComponent {
                     SourceShape::NodeShape(*conjunct_shape_id), // Source shape is the conjunct being checked
                     c.trace_index(),
                 );
-                let Some(conjunct_node_shape) =
-                    validation_context.model.get_node_shape_by_id(conjunct_shape_id)
+                let Some(conjunct_node_shape) = validation_context
+                    .model
+                    .get_node_shape_by_id(conjunct_shape_id)
                 else {
                     return Err(format!(
                         "sh:and referenced shape {:?} not found",
@@ -238,7 +244,11 @@ impl GraphvizOutput for OrConstraintComponent {
         NamedNode::new_unchecked("http://www.w3.org/ns/shacl#OrConstraintComponent")
     }
 
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
@@ -275,7 +285,9 @@ impl ValidateComponent for OrConstraintComponent {
                 let failure = ValidationFailure {
                     component_id,
                     failed_value_node: value_nodes.first().cloned(),
-                    message: "sh:or with an empty list of shapes cannot be satisfied by any value node.".to_string(),
+                    message:
+                        "sh:or with an empty list of shapes cannot be satisfied by any value node."
+                            .to_string(),
                     result_path: None,
                     source_constraint: None,
                 };
@@ -297,8 +309,9 @@ impl ValidateComponent for OrConstraintComponent {
                     SourceShape::NodeShape(*disjunct_shape_id), // Source shape is the disjunct being checked
                     c.trace_index(),
                 );
-                let Some(disjunct_node_shape) =
-                    validation_context.model.get_node_shape_by_id(disjunct_shape_id)
+                let Some(disjunct_node_shape) = validation_context
+                    .model
+                    .get_node_shape_by_id(disjunct_shape_id)
                 else {
                     return Err(format!(
                         "sh:or referenced shape {:?} not found",
@@ -367,7 +380,11 @@ impl GraphvizOutput for XoneConstraintComponent {
         NamedNode::new_unchecked("http://www.w3.org/ns/shacl#XoneConstraintComponent")
     }
 
-    fn to_graphviz_string(&self, component_id: ComponentID, _context: &ValidationContext) -> String {
+    fn to_graphviz_string(
+        &self,
+        component_id: ComponentID,
+        _context: &ValidationContext,
+    ) -> String {
         let mut edges = String::new();
         for shape_id in &self.shapes {
             edges.push_str(&format!(
@@ -427,7 +444,8 @@ impl ValidateComponent for XoneConstraintComponent {
                     SourceShape::NodeShape(*xone_shape_id), // Source shape is the xone option being checked
                     c.trace_index(),
                 );
-                let Some(xone_node_shape) = validation_context.model.get_node_shape_by_id(xone_shape_id)
+                let Some(xone_node_shape) =
+                    validation_context.model.get_node_shape_by_id(xone_shape_id)
                 else {
                     return Err(format!(
                         "sh:xone referenced shape {:?} not found",
