@@ -5,6 +5,7 @@ use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, ID};
 use components::parse_components;
+use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{GraphFormat, GraphParser};
 use oxigraph::model::{GraphName, GraphNameRef, QuadRef, SubjectRef, Term, TermRef};
 use std::collections::{HashMap, HashSet};
@@ -39,25 +40,47 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
     let mut map = HashMap::new();
     let shacl = SHACL::new();
 
+    let mut candidate_paths: Vec<std::path::PathBuf> = Vec::new();
+
     if let Ok(url) = Url::parse(context.shape_graph_iri.as_str()) {
-        println!("Shape graph IRI: {}", context.shape_graph_iri);
         if url.scheme() == "file" {
             if let Ok(path) = url.to_file_path() {
-                if let Ok(file) = File::open(&path) {
-                    let reader = BufReader::new(file);
-                    let parser = GraphParser::from_format(GraphFormat::Turtle);
-                    for triple in parser.read_triples(reader) {
-                        if let Ok(triple) = triple {
-                            if triple.predicate == shacl.unique_lang {
-                                if let Term::Literal(lit) = triple.object.clone() {
-                                    println!(
-                                        "uniqueLang lexical capture: subject {:?}, lexical {}",
-                                        triple.subject,
-                                        lit.value()
-                                    );
-                                    map.insert(triple.subject.into(), lit.value().to_string());
-                                }
-                            }
+                candidate_paths.push(path);
+            }
+        }
+    }
+
+    if let Some(ontology) = context
+        .env
+        .ontologies()
+        .values()
+        .find(|ontology| ontology.name() == context.shape_graph_iri)
+    {
+        if let Some(OntologyLocation::File(path)) = ontology.location() {
+            let mut candidate = path.clone();
+            if !candidate.is_absolute() {
+                if let Ok(cwd) = std::env::current_dir() {
+                    candidate = cwd.join(candidate);
+                }
+            }
+            candidate_paths.push(candidate);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    for path in candidate_paths {
+        let canonical_path = std::fs::canonicalize(&path).unwrap_or(path.clone());
+        if !seen.insert(canonical_path.clone()) {
+            continue;
+        }
+        if let Ok(file) = File::open(&canonical_path) {
+            let reader = BufReader::new(file);
+            let parser = GraphParser::from_format(GraphFormat::Turtle);
+            for triple in parser.read_triples(reader) {
+                if let Ok(triple) = triple {
+                    if triple.predicate == shacl.unique_lang {
+                        if let Term::Literal(lit) = triple.object.clone() {
+                            map.insert(triple.subject.into(), lit.value().to_string());
                         }
                     }
                 }

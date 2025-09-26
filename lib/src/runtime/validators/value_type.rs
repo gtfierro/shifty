@@ -186,6 +186,53 @@ impl ValidateComponent for DatatypeConstraintComponent {
                                     Decimal::from_str(literal_value).is_ok()
                                 } else if target_datatype_iri == xsd::INTEGER {
                                     Integer::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::BYTE {
+                                    Integer::from_str(literal_value)
+                                        .map(|v| {
+                                            let value: i64 = v.into();
+                                            value >= i64::from(i8::MIN)
+                                                && value <= i64::from(i8::MAX)
+                                        })
+                                        .unwrap_or(false)
+                                } else if target_datatype_iri == xsd::SHORT {
+                                    Integer::from_str(literal_value)
+                                        .map(|v| {
+                                            let value: i64 = v.into();
+                                            value >= i64::from(i16::MIN)
+                                                && value <= i64::from(i16::MAX)
+                                        })
+                                        .unwrap_or(false)
+                                } else if target_datatype_iri == xsd::INT {
+                                    Integer::from_str(literal_value)
+                                        .map(|v| {
+                                            let value: i64 = v.into();
+                                            value >= i64::from(i32::MIN)
+                                                && value <= i64::from(i32::MAX)
+                                        })
+                                        .unwrap_or(false)
+                                } else if target_datatype_iri == xsd::LONG {
+                                    Integer::from_str(literal_value).is_ok()
+                                } else if target_datatype_iri == xsd::UNSIGNED_BYTE {
+                                    Integer::from_str(literal_value)
+                                        .map(|v| {
+                                            let value: i64 = v.into();
+                                            value >= 0 && value <= i64::from(u8::MAX)
+                                        })
+                                        .unwrap_or(false)
+                                } else if target_datatype_iri == xsd::UNSIGNED_SHORT {
+                                    Integer::from_str(literal_value)
+                                        .map(|v| {
+                                            let value: i64 = v.into();
+                                            value >= 0 && value <= i64::from(u16::MAX)
+                                        })
+                                        .unwrap_or(false)
+                                } else if target_datatype_iri == xsd::UNSIGNED_INT {
+                                    Integer::from_str(literal_value)
+                                        .map(|v| {
+                                            let value: i64 = v.into();
+                                            value >= 0 && value <= i64::from(u32::MAX)
+                                        })
+                                        .unwrap_or(false)
                                 } else if target_datatype_iri == xsd::DOUBLE {
                                     Double::from_str(literal_value).is_ok()
                                 } else if target_datatype_iri == xsd::FLOAT {
@@ -298,7 +345,7 @@ impl ValidateComponent for NodeKindConstraintComponent {
         &self,
         component_id: ComponentID,
         c: &mut Context,
-        _context: &ValidationContext,
+        context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let sh = SHACL::new();
@@ -307,23 +354,44 @@ impl ValidateComponent for NodeKindConstraintComponent {
 
         if let Some(value_nodes) = c.value_nodes().cloned() {
             for value_node in value_nodes {
-                let matches = match value_node.as_ref() {
-                    TermRef::NamedNode(_) => {
+                enum ValueCategory {
+                    Named,
+                    Blank,
+                    Literal,
+                    Unsupported,
+                }
+
+                let category = match value_node.as_ref() {
+                    TermRef::NamedNode(nn) => {
+                        // Skolem IRIs stand in for blank nodes during validation; treat them accordingly.
+                        if context.is_data_skolem_iri(nn) || context.is_shape_skolem_iri(nn) {
+                            ValueCategory::Blank
+                        } else {
+                            ValueCategory::Named
+                        }
+                    }
+                    TermRef::BlankNode(_) => ValueCategory::Blank,
+                    TermRef::Literal(_) => ValueCategory::Literal,
+                    _ => ValueCategory::Unsupported, // Triple, GraphName - should not occur as value nodes
+                };
+
+                let matches = match category {
+                    ValueCategory::Named => {
                         expected_node_kind_term == sh.iri.into()
                             || expected_node_kind_term == sh.blank_node_or_iri.into()
                             || expected_node_kind_term == sh.iri_or_literal.into()
                     }
-                    TermRef::BlankNode(_) => {
+                    ValueCategory::Blank => {
                         expected_node_kind_term == sh.blank_node.into()
                             || expected_node_kind_term == sh.blank_node_or_iri.into()
                             || expected_node_kind_term == sh.blank_node_or_literal.into()
                     }
-                    TermRef::Literal(_) => {
+                    ValueCategory::Literal => {
                         expected_node_kind_term == sh.literal.into()
                             || expected_node_kind_term == sh.blank_node_or_literal.into()
                             || expected_node_kind_term == sh.iri_or_literal.into()
                     }
-                    _ => false, // Triple, GraphName - should not occur as value nodes
+                    ValueCategory::Unsupported => false,
                 };
 
                 if !matches {
@@ -365,5 +433,128 @@ impl GraphvizOutput for NodeKindConstraintComponent {
             component_id.to_graphviz_id(),
             node_kind_name
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::{Context, IDLookupTable, ShapesModel, SourceShape, ValidationContext};
+    use crate::model::components::ComponentDescriptor;
+    use crate::types::{ComponentID, PropShapeID};
+    use ontoenv::api::OntoEnv;
+    use ontoenv::config::Config;
+    use oxigraph::model::{Literal, NamedNode, Term};
+    use oxigraph::store::Store;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    fn build_empty_validation_context() -> ValidationContext {
+        let store = Store::new().expect("failed to create in-memory store");
+        let shape_graph_iri = NamedNode::new("urn:shape").expect("invalid shape IRI");
+        let data_graph_iri = NamedNode::new("urn:data").expect("invalid data IRI");
+
+        let config = Config::builder()
+            .root(std::env::temp_dir())
+            .offline(true)
+            .no_search(true)
+            .temporary(true)
+            .build()
+            .expect("failed to build OntoEnv config");
+        let env = OntoEnv::init(config, false).expect("failed to initialise OntoEnv");
+
+        let model = ShapesModel {
+            nodeshape_id_lookup: RefCell::new(IDLookupTable::new()),
+            propshape_id_lookup: RefCell::new(IDLookupTable::new()),
+            component_id_lookup: RefCell::new(IDLookupTable::new()),
+            store,
+            shape_graph_iri,
+            node_shapes: HashMap::new(),
+            prop_shapes: HashMap::new(),
+            component_descriptors: HashMap::<ComponentID, ComponentDescriptor>::new(),
+            env,
+        };
+
+        ValidationContext::new(Rc::new(model), data_graph_iri)
+    }
+
+    #[test]
+    fn node_kind_rejects_skolemised_blank_nodes_for_iri_or_literal() {
+        let focus = NamedNode::new("urn:focus").unwrap();
+        let skolem_value = NamedNode::new("urn:data/.well-known/skolem/b1").unwrap();
+
+        let mut context = Context::new(
+            Term::NamedNode(focus.clone()),
+            None,
+            Some(vec![Term::NamedNode(skolem_value.clone())]),
+            SourceShape::PropertyShape(PropShapeID(0)),
+            0,
+        );
+
+        let validation_context = build_empty_validation_context();
+
+        let iri_or_literal = Term::NamedNode(SHACL::new().iri_or_literal.into_owned());
+        let component = NodeKindConstraintComponent::new(iri_or_literal);
+
+        let mut trace = Vec::new();
+        let results = component
+            .validate(
+                ComponentID(0),
+                &mut context,
+                &validation_context,
+                &mut trace,
+            )
+            .expect("validation should succeed");
+
+        assert_eq!(results.len(), 1, "expected a single violation");
+        match &results[0] {
+            ComponentValidationResult::Fail(_, failure) => {
+                let value = failure
+                    .failed_value_node
+                    .as_ref()
+                    .expect("missing failed value");
+                assert_eq!(value, &Term::NamedNode(skolem_value));
+            }
+            other => panic!("expected failure result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn datatype_constraint_rejects_invalid_byte_lexical_form() {
+        let focus = NamedNode::new("urn:focus").unwrap();
+        let byte_datatype = NamedNode::new(xsd::BYTE.as_str()).unwrap();
+        let ill_formed = Literal::new_typed_literal("c", byte_datatype.clone());
+
+        let mut context = Context::new(
+            Term::NamedNode(focus.clone()),
+            None,
+            Some(vec![Term::Literal(ill_formed.clone())]),
+            SourceShape::PropertyShape(PropShapeID(0)),
+            0,
+        );
+
+        let validation_context = build_empty_validation_context();
+        let datatype_component = DatatypeConstraintComponent::new(Term::NamedNode(byte_datatype));
+
+        let mut trace = Vec::new();
+        let results = datatype_component
+            .validate(
+                ComponentID(0),
+                &mut context,
+                &validation_context,
+                &mut trace,
+            )
+            .expect("validation should succeed");
+
+        assert_eq!(results.len(), 1, "c^^xsd:byte should trigger a violation");
+        let failure = match &results[0] {
+            ComponentValidationResult::Fail(_, failure) => failure,
+            other => panic!("expected failure result, got {:?}", other),
+        };
+        assert_eq!(
+            failure.failed_value_node.as_ref(),
+            Some(&Term::Literal(ill_formed))
+        );
     }
 }
