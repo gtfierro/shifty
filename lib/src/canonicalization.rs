@@ -35,37 +35,50 @@ pub(crate) fn oxigraph_to_petgraph(ox_graph: &Graph) -> DiGraph<Term, NamedNode>
     pg_graph
 }
 
-/// Checks if two `oxigraph::model::Graph`s are isomorphic.
+/// Checks if two `oxigraph::model::Graph`s are isomorphic (blank-node aware).
 ///
-/// This is done by converting both graphs to `petgraph` directed graphs and then
-/// using `petgraph::algo::is_isomorphic` to check for isomorphism, which correctly
-/// handles blank nodes.
+/// We canonicalize both graphs using RDFC-1.0 and then compare them as
+/// sets of triples. If the canonicalization is correct, simple set-equality
+/// is sufficient to decide isomorphism for single-graph datasets.
 pub fn are_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let cg1 = to_canonical_graph(g1);
-    let pg1 = oxigraph_to_petgraph(&cg1);
     let cg2 = to_canonical_graph(g2);
-    let pg2 = oxigraph_to_petgraph(&cg2);
-    let iso = is_isomorphic(&pg1, &pg2);
-    if !iso {
-        debug!("graphs not isomorphic");
-        for triple in cg1.iter() {
-            if !cg2.contains(triple) {
-                debug!(
-                    "only in first: {} {} {}",
-                    triple.subject, triple.predicate, triple.object
-                );
-            }
-        }
-        for triple in cg2.iter() {
-            if !cg1.contains(triple) {
-                debug!(
-                    "only in second: {} {} {}",
-                    triple.subject, triple.predicate, triple.object
-                );
-            }
+
+    if cg1.len() != cg2.len() {
+        debug!(
+            "graphs not isomorphic: different triple counts ({} vs {})",
+            cg1.len(),
+            cg2.len()
+        );
+        log_diff(&cg1, &cg2);
+        return false;
+    }
+
+    // Check set equality
+    let all_in = cg1.iter().all(|t| cg2.contains(t));
+    if !all_in {
+        debug!("graphs not isomorphic after canonicalization (set mismatch)");
+        log_diff(&cg1, &cg2);
+        return false;
+    }
+
+    true
+}
+
+/// Logs a human-readable diff between two graphs (triples present in one but not the other).
+fn log_diff(g1: &Graph, g2: &Graph) {
+    debug!("-- only in first graph --");
+    for t in g1.iter() {
+        if !g2.contains(t) {
+            debug!("only in first: {} {} {}", t.subject, t.predicate, t.object);
         }
     }
-    iso
+    debug!("-- only in second graph --");
+    for t in g2.iter() {
+        if !g1.contains(t) {
+            debug!("only in second: {} {} {}", t.subject, t.predicate, t.object);
+        }
+    }
 }
 
 /// Creates a canonical version of a graph by replacing blank node identifiers
@@ -571,4 +584,106 @@ pub fn deskolemize_graph(graph: &Graph, base_iri: &str) -> Graph {
             .insert(Triple::new(new_subject, triple.predicate.into_owned(), new_object).as_ref());
     }
     new_graph
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxigraph::model::vocab::rdf;
+    use oxigraph::model::{BlankNode, NamedNode, Subject, Term, Triple};
+
+    fn iri(s: &str) -> NamedNode {
+        NamedNode::new_unchecked(s)
+    }
+
+    #[test]
+    fn are_isomorphic_simple_blank_nodes() {
+        // g1: _:a ex:p _:b
+        let mut g1 = Graph::new();
+        let a = BlankNode::new_unchecked("a");
+        let b = BlankNode::new_unchecked("b");
+        let p = iri("http://example.org/p");
+        g1.insert(
+            Triple::new(Subject::from(a.clone()), p.clone(), Term::from(b.clone())).as_ref(),
+        );
+
+        // g2: _:x ex:p _:y
+        let mut g2 = Graph::new();
+        let x = BlankNode::new_unchecked("x");
+        let y = BlankNode::new_unchecked("y");
+        g2.insert(Triple::new(Subject::from(x), p, Term::from(y)).as_ref());
+
+        assert!(are_isomorphic(&g1, &g2));
+    }
+
+    #[test]
+    fn are_isomorphic_rdf_list_two_cells() {
+        // g1: _:a rdf:first ex:p ; rdf:rest _:b .
+        //     _:b rdf:first ex:q ; rdf:rest rdf:nil .
+        let mut g1 = Graph::new();
+        let a = BlankNode::new_unchecked("a");
+        let b = BlankNode::new_unchecked("b");
+        let p = iri("http://example.org/p");
+        let q = iri("http://example.org/q");
+
+        g1.insert(Triple::new(Subject::from(a.clone()), rdf::FIRST, Term::from(p.clone())).as_ref());
+        g1.insert(Triple::new(Subject::from(a.clone()), rdf::REST, Term::from(b.clone())).as_ref());
+        g1.insert(Triple::new(Subject::from(b.clone()), rdf::FIRST, Term::from(q.clone())).as_ref());
+        g1.insert(Triple::new(Subject::from(b.clone()), rdf::REST, Term::from(rdf::NIL)).as_ref());
+
+        // g2 with different blank node ids: _:x/_:y but same structure
+        let mut g2 = Graph::new();
+        let x = BlankNode::new_unchecked("x");
+        let y = BlankNode::new_unchecked("y");
+        g2.insert(Triple::new(Subject::from(x.clone()), rdf::FIRST, Term::from(p)).as_ref());
+        g2.insert(Triple::new(Subject::from(x.clone()), rdf::REST, Term::from(y.clone())).as_ref());
+        g2.insert(Triple::new(Subject::from(y.clone()), rdf::FIRST, Term::from(q)).as_ref());
+        g2.insert(Triple::new(Subject::from(y.clone()), rdf::REST, Term::from(rdf::NIL)).as_ref());
+
+        assert!(are_isomorphic(&g1, &g2));
+    }
+
+    #[test]
+    fn not_isomorphic_different_predicate() {
+        // g1: _:a ex:p _:b
+        let mut g1 = Graph::new();
+        let a = BlankNode::new_unchecked("a");
+        let b = BlankNode::new_unchecked("b");
+        let p = iri("http://example.org/p");
+        g1.insert(
+            Triple::new(Subject::from(a.clone()), p, Term::from(b.clone())).as_ref(),
+        );
+
+        // g2: _:x ex:q _:y (different predicate)
+        let mut g2 = Graph::new();
+        let x = BlankNode::new_unchecked("x");
+        let y = BlankNode::new_unchecked("y");
+        let q = iri("http://example.org/q");
+        g2.insert(Triple::new(Subject::from(x), q, Term::from(y)).as_ref());
+
+        assert!(!are_isomorphic(&g1, &g2));
+    }
+
+    #[test]
+    fn not_isomorphic_different_list_length() {
+        // g1: list of length 2
+        let mut g1 = Graph::new();
+        let a1 = BlankNode::new_unchecked("a1");
+        let a2 = BlankNode::new_unchecked("a2");
+        let p = iri("http://example.org/p");
+        let q = iri("http://example.org/q");
+        g1.insert(Triple::new(Subject::from(a1.clone()), rdf::FIRST, Term::from(p)).as_ref());
+        g1.insert(Triple::new(Subject::from(a1.clone()), rdf::REST, Term::from(a2.clone())).as_ref());
+        g1.insert(Triple::new(Subject::from(a2.clone()), rdf::FIRST, Term::from(q)).as_ref());
+        g1.insert(Triple::new(Subject::from(a2.clone()), rdf::REST, Term::from(rdf::NIL)).as_ref());
+
+        // g2: list of length 1
+        let mut g2 = Graph::new();
+        let x = BlankNode::new_unchecked("x");
+        let p2 = iri("http://example.org/p");
+        g2.insert(Triple::new(Subject::from(x.clone()), rdf::FIRST, Term::from(p2)).as_ref());
+        g2.insert(Triple::new(Subject::from(x.clone()), rdf::REST, Term::from(rdf::NIL)).as_ref());
+
+        assert!(!are_isomorphic(&g1, &g2));
+    }
 }
