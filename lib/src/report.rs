@@ -203,14 +203,18 @@ impl ValidationReportBuilder {
                 let result_path_term = if let Some(path_override) = &failure.result_path {
                     Some(path_to_rdf(path_override, &mut graph))
                 } else if let Some(p) = context.result_path() {
-                    Some(path_to_rdf(p, &mut graph))
+                    match context.source_shape() {
+                        SourceShape::PropertyShape(_) => {
+                            Some(result_path_term_for_property_shape(p, &mut graph))
+                        }
+                        _ => Some(path_to_rdf(p, &mut graph)),
+                    }
                 } else {
-                    // Fall back to the original SHACL property path from the source shape, if any.
                     match context.source_shape() {
                         SourceShape::PropertyShape(prop_id) => validation_context
                             .model
-                            .get_prop_shape_by_id(prop_id)
-                            .map(|ps| path_to_rdf(ps.path(), &mut graph)),
+                            .get_prop_shape_by_id(&prop_id)
+                            .map(|ps| result_path_term_for_property_shape(ps.path(), &mut graph)),
                         _ => None,
                     }
                 };
@@ -383,6 +387,40 @@ impl ValidationReportBuilder {
     pub(crate) fn merge(&mut self, other: ValidationReportBuilder) {
         self.results.extend(other.results);
     }
+}
+
+fn result_path_term_for_property_shape(path: &Path, graph: &mut Graph) -> Term {
+    match path {
+        Path::Sequence(elements) => build_list_minimal(elements, graph),
+        Path::Alternative(options) => {
+            let sh = SHACL::new();
+            let head = BlankNode::default();
+            let head_subject: Subject = head.clone().into();
+            let list_head = build_list_minimal(options, graph);
+            graph.insert(&Triple::new(head_subject, sh.alternative_path, list_head));
+            head.into()
+        }
+        _ => path_to_rdf(path, graph),
+    }
+}
+
+fn build_list_minimal(elements: &[Path], graph: &mut Graph) -> Term {
+    let head_bnode = BlankNode::default();
+    let head_subject: Subject = head_bnode.clone().into();
+
+    if let Some(first) = elements.first() {
+        let first_term = path_to_rdf(first, graph);
+        graph.insert(&Triple::new(head_subject.clone(), rdf::FIRST, first_term));
+    }
+
+    let rest_term: Term = if elements.is_empty() {
+        rdf::NIL.into()
+    } else {
+        Term::from(BlankNode::default())
+    };
+
+    graph.insert(&Triple::new(head_subject, rdf::REST, rest_term.clone()));
+    head_bnode.into()
 }
 
 fn path_to_rdf(path: &Path, graph: &mut Graph) -> Term {
