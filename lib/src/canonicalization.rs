@@ -686,16 +686,18 @@ mod tests {
         assert!(!are_isomorphic(&g1, &g2));
     }
 
-    // Helper to parse Turtle into a Graph.
-    use oxigraph::io::{RdfFormat, RdfParser};
+    // Helper to parse Turtle into a Graph (tests only; use deprecated API for simplicity).
+    use oxigraph::io::{GraphFormat, GraphParser};
 
     fn parse_turtle_to_graph(ttl: &str) -> Graph {
         let mut g = Graph::new();
-        let parser = RdfParser::from_format(RdfFormat::Turtle);
-        for t in parser.read_triples(ttl.as_bytes()) {
-            let t = t.expect("failed to parse Turtle");
-            g.insert(&t);
-        }
+        let parser = GraphParser::from_format(GraphFormat::Turtle);
+        parser
+            .read_triples(ttl.as_bytes(), &mut |t| {
+                g.insert(t);
+                Ok(())
+            })
+            .expect("failed to parse Turtle");
         g
     }
 
