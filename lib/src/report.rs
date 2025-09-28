@@ -537,7 +537,7 @@ fn clone_path_term_from_shapes_graph_inner(
                 Some(subject_ref),
                 None,
                 None,
-                Some(validation_context.shape_graph_iri_ref()),
+                Some(validation_context.model.shape_graph_iri_ref()),
             ) {
                 if let Ok(q) = quad_res {
                     let pred = q.predicate;
@@ -551,7 +551,7 @@ fn clone_path_term_from_shapes_graph_inner(
                         || pred == sh.one_or_more_path
                         || pred == sh.zero_or_one_path
                     {
-                        let obj_owned: Term = q.object.into_owned();
+                        let obj_owned: Term = q.object.to_owned();
                         let cloned_obj =
                             clone_path_term_from_shapes_graph_inner(&obj_owned, validation_context, out_graph, memo);
 
