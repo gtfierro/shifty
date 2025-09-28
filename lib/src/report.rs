@@ -537,7 +537,7 @@ fn clone_path_term_from_shapes_graph_inner(
                 Some(subject_ref),
                 None,
                 None,
-                Some(validation_context.model.shape_graph_iri_ref()),
+                None,
             ) {
                 if let Ok(q) = quad_res {
                     let pred = q.predicate;
