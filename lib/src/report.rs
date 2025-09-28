@@ -201,8 +201,14 @@ impl ValidationReportBuilder {
 
                 // sh:resultPath
                 let result_path_term = if let Some(path_override) = &failure.result_path {
-                    // Explicit overrides may originate outside the shapes graph; build structurally.
-                    Some(path_to_rdf(path_override, &mut graph))
+                    // If the override is a blank node head from the shapes graph, deep-clone its subgraph.
+                    // Otherwise, build structurally.
+                    Some(match path_override {
+                        Path::Simple(t) if matches!(t, Term::BlankNode(_)) => {
+                            clone_path_term_from_shapes_graph(t, validation_context, &mut graph)
+                        }
+                        _ => path_to_rdf(path_override, &mut graph),
+                    })
                 } else if let Some(_p) = context.result_path() {
                     // Prefer the original shapes-graph term when the source is a PropertyShape.
                     match context.source_shape() {
@@ -210,8 +216,14 @@ impl ValidationReportBuilder {
                             .model
                             .get_prop_shape_by_id(&prop_id)
                             .map(|ps| clone_path_term_from_shapes_graph(ps.path_term(), validation_context, &mut graph)),
-                        // For NodeShape-derived paths (rare), fall back to structural build.
-                        _ => context.result_path().map(|p| path_to_rdf(p, &mut graph)),
+                        // For NodeShape-derived paths (rare), if it's a blank node head from the shapes graph, clone it.
+                        // Otherwise, fall back to structural build.
+                        _ => context.result_path().map(|p| match p {
+                            Path::Simple(t) if matches!(t, Term::BlankNode(_)) => {
+                                clone_path_term_from_shapes_graph(t, validation_context, &mut graph)
+                            }
+                            _ => path_to_rdf(p, &mut graph),
+                        }),
                     }
                 } else {
                     // No runtime path set; if the source is a PropertyShape, clone from shapes graph.
