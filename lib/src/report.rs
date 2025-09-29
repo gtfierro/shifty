@@ -1,11 +1,11 @@
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::ValidationFailure;
-use crate::types::Path;
+use crate::types::{Path, Severity};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{
-    BlankNode, Graph, Literal, NamedOrBlankNode, Subject, SubjectRef, Term, Triple,
+    BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, Subject, SubjectRef, Term, Triple,
 };
 use std::collections::HashMap; // For using Term as a HashMap key
 use std::error::Error;
@@ -153,6 +153,39 @@ impl ValidationReportBuilder {
         frequencies
     }
 
+    fn severity_term_for_result(context: &Context, vc: &ValidationContext) -> Term {
+        let sh = SHACL::new();
+        let default_violation = Term::from(sh.violation);
+
+        let info_term = Term::from(NamedNode::new_unchecked("http://www.w3.org/ns/shacl#Info"));
+        let warning_term = Term::from(NamedNode::new_unchecked("http://www.w3.org/ns/shacl#Warning"));
+
+        match context.source_shape() {
+            SourceShape::PropertyShape(prop_id) => {
+                if let Some(ps) = vc.model.get_prop_shape_by_id(prop_id) {
+                    match ps.severity() {
+                        Severity::Info => info_term,
+                        Severity::Warning => warning_term,
+                        Severity::Violation => default_violation,
+                    }
+                } else {
+                    default_violation
+                }
+            }
+            SourceShape::NodeShape(node_id) => {
+                if let Some(ns) = vc.model.get_node_shape_by_id(node_id) {
+                    match ns.severity() {
+                        Severity::Info => info_term,
+                        Severity::Warning => warning_term,
+                        Severity::Violation => default_violation,
+                    }
+                } else {
+                    default_violation
+                }
+            }
+        }
+    }
+
     /// Constructs an `oxigraph::model::Graph` representing the validation report.
     pub fn to_graph(&self, validation_context: &ValidationContext) -> Graph {
         let mut graph = Graph::new();
@@ -273,10 +306,12 @@ impl ValidationReportBuilder {
                     graph.insert(&Triple::new(result_node.clone(), sh.result_path, term));
                 }
 
+                let severity_term =
+                    ValidationReportBuilder::severity_term_for_result(context, validation_context);
                 graph.insert(&Triple::new(
                     result_node.clone(),
                     sh.result_severity,
-                    Term::from(sh.violation),
+                    severity_term,
                 ));
 
                 if let Some(term) = source_constraint_component_term {
