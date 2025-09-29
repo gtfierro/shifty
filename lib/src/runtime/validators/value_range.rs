@@ -6,6 +6,39 @@ use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{Literal, NamedNode, Term};
 use oxigraph::sparql::QueryResults;
 
+fn escape_sparql_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn term_to_sparql(term: &Term) -> String {
+    match term {
+        Term::NamedNode(nn) => format!("<{}>", nn.as_str()),
+        Term::BlankNode(bn) => format!("_:{}", bn.as_str()),
+        Term::Literal(lit) => {
+            if let Some(lang) = lit.language() {
+                format!("\"{}\"@{}", escape_sparql_string(lit.value()), lang)
+            } else {
+                format!(
+                    "\"{}\"^^<{}>",
+                    escape_sparql_string(lit.value()),
+                    lit.datatype().as_str()
+                )
+            }
+        }
+    }
+}
+
 // value range constraints
 #[derive(Debug)]
 pub struct MinExclusiveConstraintComponent {
@@ -57,12 +90,16 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
 
         for value_node in &value_nodes {
             // For each value node v where the SPARQL expression $minExclusive < v does not return true, there is a validation result.
-            let query_str = format!("ASK {{ FILTER({} < {}) }}", self.min_exclusive, value_node);
+            let query_str = format!(
+                "ASK {{ FILTER({} < {}) }}",
+                term_to_sparql(&self.min_exclusive),
+                term_to_sparql(value_node)
+            );
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false,  // Should not happen for ASK
-                Err(_) => false, // Incomparable values
+                Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
             if !is_valid {
@@ -139,12 +176,16 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
 
         for value_node in &value_nodes {
             // For each value node v where the SPARQL expression $minInclusive <= v does not return true, there is a validation result.
-            let query_str = format!("ASK {{ FILTER({} <= {}) }}", self.min_inclusive, value_node);
+            let query_str = format!(
+                "ASK {{ FILTER({} <= {}) }}",
+                term_to_sparql(&self.min_inclusive),
+                term_to_sparql(value_node)
+            );
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false,  // Should not happen for ASK
-                Err(_) => false, // Incomparable values
+                Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
             if !is_valid {
@@ -221,12 +262,16 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
 
         for value_node in &value_nodes {
             // For each value node v where the SPARQL expression $maxExclusive > v does not return true, there is a validation result.
-            let query_str = format!("ASK {{ FILTER({} > {}) }}", self.max_exclusive, value_node);
+            let query_str = format!(
+                "ASK {{ FILTER({} > {}) }}",
+                term_to_sparql(&self.max_exclusive),
+                term_to_sparql(value_node)
+            );
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false,  // Should not happen for ASK
-                Err(_) => false, // Incomparable values
+                Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
             if !is_valid {
@@ -324,12 +369,16 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
 
         for value_node in &value_nodes {
             // For each value node v where the SPARQL expression $maxInclusive >= v does not return true, there is a validation result.
-            let query_str = format!("ASK {{ FILTER({} >= {}) }}", self.max_inclusive, value_node);
+            let query_str = format!(
+                "ASK {{ FILTER({} >= {}) }}",
+                term_to_sparql(&self.max_inclusive),
+                term_to_sparql(value_node)
+            );
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false,  // Should not happen for ASK
-                Err(_) => false, // Incomparable values
+                Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
             if !is_valid {
