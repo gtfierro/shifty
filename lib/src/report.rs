@@ -162,7 +162,7 @@ impl ValidationReportBuilder {
 
         match context.source_shape() {
             SourceShape::PropertyShape(prop_id) => {
-                if let Some(ps) = vc.model.get_prop_shape_by_id(prop_id) {
+                if let Some(ps) = vc.model.get_prop_shape_by_id(&prop_id) {
                     match ps.severity() {
                         Severity::Info => info_term,
                         Severity::Warning => warning_term,
@@ -173,7 +173,7 @@ impl ValidationReportBuilder {
                 }
             }
             SourceShape::NodeShape(node_id) => {
-                if let Some(ns) = vc.model.get_node_shape_by_id(node_id) {
+                if let Some(ns) = vc.model.get_node_shape_by_id(&node_id) {
                     match ns.severity() {
                         Severity::Info => info_term,
                         Severity::Warning => warning_term,
