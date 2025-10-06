@@ -511,15 +511,15 @@ pub(crate) fn skolemize(
         return Ok(()); // Nothing to do
     }
 
-    store.transaction(|mut transaction| {
-        for quad in &quads_to_remove {
-            transaction.remove(quad.as_ref())?;
-        }
-        for quad in &quads_to_add {
-            transaction.insert(quad.as_ref())?;
-        }
-        Ok(())
-    })
+    let mut transaction = store.start_transaction()?;
+    for quad in &quads_to_remove {
+        transaction.remove(quad.as_ref());
+    }
+    for quad in &quads_to_add {
+        transaction.insert(quad.as_ref());
+    }
+    transaction.commit()?;
+    Ok(())
 }
 
 /// Replaces skolem IRIs in a graph with blank nodes (Deskolemization).
@@ -689,14 +689,15 @@ mod tests {
     }
 
     // Helper to parse Turtle into a Graph (tests only; use deprecated API for simplicity).
-    use oxigraph::io::{GraphFormat, GraphParser};
+    use oxigraph::io::{RdfFormat, RdfParser};
 
     fn parse_turtle_to_graph(ttl: &str) -> Graph {
         let mut g = Graph::new();
-        let parser = GraphParser::from_format(GraphFormat::Turtle);
-        for t in parser.read_triples(ttl.as_bytes()) {
-            let t = t.expect("failed to parse Turtle");
-            g.insert(&t);
+        let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
+        for quad in parser.for_reader(ttl.as_bytes()) {
+            let quad = quad.expect("failed to parse Turtle");
+            let triple: Triple = quad.into();
+            g.insert(triple.as_ref());
         }
         g
     }

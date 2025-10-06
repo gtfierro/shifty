@@ -7,7 +7,7 @@ use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, ID};
 use components::parse_components;
 use log::debug;
 use ontoenv::ontology::OntologyLocation;
-use oxigraph::io::{GraphFormat, GraphParser};
+use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, QuadRef, SubjectRef, Term, TermRef};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -76,12 +76,12 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
         }
         if let Ok(file) = File::open(&canonical_path) {
             let reader = BufReader::new(file);
-            let parser = GraphParser::from_format(GraphFormat::Turtle);
-            for triple in parser.read_triples(reader) {
-                if let Ok(triple) = triple {
-                    if triple.predicate == shacl.unique_lang {
-                        if let Term::Literal(lit) = triple.object.clone() {
-                            map.insert(triple.subject.into(), lit.value().to_string());
+            let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
+            for quad in parser.for_reader(reader) {
+                if let Ok(quad) = quad {
+                    if quad.predicate == shacl.unique_lang {
+                        if let Term::Literal(lit) = quad.object.clone() {
+                            map.insert(quad.subject.clone().into(), lit.value().to_string());
                         }
                     }
                 }

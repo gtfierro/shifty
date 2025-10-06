@@ -158,7 +158,9 @@ impl ValidationReportBuilder {
         let default_violation = Term::from(sh.violation);
 
         let info_term = Term::from(NamedNode::new_unchecked("http://www.w3.org/ns/shacl#Info"));
-        let warning_term = Term::from(NamedNode::new_unchecked("http://www.w3.org/ns/shacl#Warning"));
+        let warning_term = Term::from(NamedNode::new_unchecked(
+            "http://www.w3.org/ns/shacl#Warning",
+        ));
 
         match context.source_shape() {
             SourceShape::PropertyShape(prop_id) => {
@@ -579,59 +581,57 @@ fn clone_path_term_from_shapes_graph_inner(
     out_graph: &mut Graph,
     memo: &mut HashMap<Term, Term>,
 ) -> Term {
-    match term {
-        // For IRIs (simple path steps) and literals, return as-is.
-        Term::NamedNode(_) | Term::Literal(_) | Term::Triple(_) => term.clone(),
-        // For blank nodes, recursively copy only SHACL path-relevant triples.
-        Term::BlankNode(_) => {
-            if let Some(mapped) = memo.get(term) {
-                return mapped.clone();
+    if !matches!(term, Term::BlankNode(_)) {
+        return term.clone();
+    }
+
+    if let Some(mapped) = memo.get(term) {
+        return mapped.clone();
+    }
+
+    let new_bn_term: Term = BlankNode::default().into();
+    memo.insert(term.clone(), new_bn_term.clone());
+
+    let store = validation_context.model.store();
+    let sh = SHACL::new();
+
+    let subject_ref = match term {
+        Term::BlankNode(b) => SubjectRef::BlankNode(b.as_ref()),
+        Term::NamedNode(n) => SubjectRef::NamedNode(n.as_ref()),
+        _ => unreachable!(),
+    };
+
+    for quad_res in store.quads_for_pattern(Some(subject_ref), None, None, None) {
+        if let Ok(q) = quad_res {
+            let pred = q.predicate;
+
+            // Copy only the path-defining predicates.
+            if pred == rdf::FIRST
+                || pred == rdf::REST
+                || pred == sh.alternative_path
+                || pred == sh.inverse_path
+                || pred == sh.zero_or_more_path
+                || pred == sh.one_or_more_path
+                || pred == sh.zero_or_one_path
+            {
+                let obj_owned: Term = q.object.to_owned();
+                let cloned_obj = clone_path_term_from_shapes_graph_inner(
+                    &obj_owned,
+                    validation_context,
+                    out_graph,
+                    memo,
+                );
+
+                let new_subject: Subject = match &new_bn_term {
+                    Term::BlankNode(b) => b.clone().into(),
+                    Term::NamedNode(n) => n.clone().into(),
+                    _ => unreachable!(),
+                };
+
+                out_graph.insert(&Triple::new(new_subject, pred, cloned_obj));
             }
-            let new_bn_term: Term = BlankNode::default().into();
-            memo.insert(term.clone(), new_bn_term.clone());
-
-            let store = validation_context.model.store();
-            let sh = SHACL::new();
-
-            let subject_ref: SubjectRef = match term {
-                Term::BlankNode(b) => SubjectRef::BlankNode(b.as_ref()),
-                Term::NamedNode(n) => SubjectRef::NamedNode(n.as_ref()),
-                _ => unreachable!(),
-            };
-
-            for quad_res in store.quads_for_pattern(Some(subject_ref), None, None, None) {
-                if let Ok(q) = quad_res {
-                    let pred = q.predicate;
-
-                    // Copy only the path-defining predicates.
-                    if pred == rdf::FIRST
-                        || pred == rdf::REST
-                        || pred == sh.alternative_path
-                        || pred == sh.inverse_path
-                        || pred == sh.zero_or_more_path
-                        || pred == sh.one_or_more_path
-                        || pred == sh.zero_or_one_path
-                    {
-                        let obj_owned: Term = q.object.to_owned();
-                        let cloned_obj = clone_path_term_from_shapes_graph_inner(
-                            &obj_owned,
-                            validation_context,
-                            out_graph,
-                            memo,
-                        );
-
-                        let new_subject: Subject = match &new_bn_term {
-                            Term::BlankNode(b) => b.clone().into(),
-                            Term::NamedNode(n) => n.clone().into(),
-                            _ => unreachable!(),
-                        };
-
-                        out_graph.insert(&Triple::new(new_subject, pred, cloned_obj));
-                    }
-                }
-            }
-
-            new_bn_term
         }
     }
+
+    new_bn_term
 }

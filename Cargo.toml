@@ -14,7 +14,7 @@ description = "A Shapes Constraint Language (SHACL) validator written in Rust"
 readme = "README.md"
 
 [workspace.dependencies]
-oxigraph = "0.4.11"
+oxigraph = "0.5.0"
 petgraph = "0.6.5"
 shacl = { version = "0.1.0", path = "lib" }
 clap = { version = "4.5.39", features = ["derive"] }

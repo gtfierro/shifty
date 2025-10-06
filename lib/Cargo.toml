@@ -9,16 +9,16 @@ oxsdatatypes = "0.2.2"
 papaya = "0.2.1"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 regex = { workspace = true }
-ontoenv = "0.4.0-a5"
 log = { workspace = true }
 url = { workspace = true }
 paste = "1.0.15"
 petgraph = { version = "0.8.2", features = ["rayon"] }
 sha2 = { workspace = true }
 rayon = "1.10.0"
-spargebra = "0.3.5"
+spargebra = "0.4"
 ntest = "0.9.3"
+ontoenv = "0.4.0-a9"
 
 [build-dependencies]
-oxigraph = { version = "0.4.11" }
+oxigraph.workspace = true
 url = { version = "2" }

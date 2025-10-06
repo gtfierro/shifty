@@ -25,15 +25,6 @@ fn subject_to_sparql(subject: &Subject) -> String {
     match subject {
         Subject::NamedNode(nn) => format!("<{}>", nn.as_str()),
         Subject::BlankNode(bn) => format!("_:{}", bn.as_str()),
-        Subject::Triple(t) => {
-            let t = t.as_ref();
-            format!(
-                "<< {} <{}> {} >>",
-                subject_to_sparql(&t.subject),
-                t.predicate.as_str(),
-                term_to_sparql(&t.object)
-            )
-        }
     }
 }
 
@@ -52,15 +43,7 @@ fn term_to_sparql(term: &Term) -> String {
                 )
             }
         }
-        Term::Triple(t) => {
-            let t = t.as_ref();
-            format!(
-                "<< {} <{}> {} >>",
-                subject_to_sparql(&t.subject),
-                t.predicate.as_str(),
-                term_to_sparql(&t.object)
-            )
-        }
+        _ => term.to_string(),
     }
 }
 
@@ -142,7 +125,7 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false,  // Should not happen for ASK
+                Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
@@ -229,7 +212,7 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false,  // Should not happen for ASK
+                Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
@@ -316,7 +299,7 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false,  // Should not happen for ASK
+                Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
@@ -404,7 +387,7 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
 
             let is_valid = match context.model.store().query(&query_str) {
                 Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false,  // Should not happen for ASK
+                Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
             };
 
