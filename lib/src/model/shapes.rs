@@ -9,6 +9,7 @@ pub struct NodeShape {
     pub targets: Vec<Target>,
     constraints: Vec<ComponentID>,
     severity: Severity,
+    deactivated: bool,
 }
 
 impl NodeShape {
@@ -17,12 +18,14 @@ impl NodeShape {
         targets: Vec<Target>,
         constraints: Vec<ComponentID>,
         severity: Option<Severity>,
+        deactivated: bool,
     ) -> Self {
         NodeShape {
             identifier,
             targets,
             constraints,
             severity: severity.unwrap_or_default(),
+            deactivated,
         }
     }
 
@@ -34,8 +37,12 @@ impl NodeShape {
         &self.constraints
     }
 
-    pub fn severity(&self) -> Severity {
-        self.severity
+    pub fn severity(&self) -> &Severity {
+        &self.severity
+    }
+
+    pub fn is_deactivated(&self) -> bool {
+        self.deactivated
     }
 }
 
@@ -49,6 +56,7 @@ pub struct PropertyShape {
     path_term: Term,
     constraints: Vec<ComponentID>,
     severity: Severity,
+    deactivated: bool,
 }
 
 impl PropertyShape {
@@ -59,6 +67,7 @@ impl PropertyShape {
         path_term: Term,
         constraints: Vec<ComponentID>,
         severity: Option<Severity>,
+        deactivated: bool,
     ) -> Self {
         PropertyShape {
             identifier,
@@ -67,6 +76,7 @@ impl PropertyShape {
             path_term,
             constraints,
             severity: severity.unwrap_or_default(),
+            deactivated,
         }
     }
 
@@ -90,7 +100,11 @@ impl PropertyShape {
         &self.constraints
     }
 
-    pub fn severity(&self) -> Severity {
-        self.severity
+    pub fn severity(&self) -> &Severity {
+        &self.severity
+    }
+
+    pub fn is_deactivated(&self) -> bool {
+        self.deactivated
     }
 }

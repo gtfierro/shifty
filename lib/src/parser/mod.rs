@@ -8,7 +8,7 @@ use components::parse_components;
 use log::debug;
 use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{GraphName, GraphNameRef, QuadRef, SubjectRef, Term, TermRef};
+use oxigraph::model::{vocab::xsd, GraphName, GraphNameRef, QuadRef, SubjectRef, Term, TermRef};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
@@ -184,6 +184,20 @@ fn get_node_shapes(context: &ParsingContext) -> Vec<Term> {
     // parse these out of the shape graph and return a vector of IDs
     let mut node_shapes = HashSet::new();
 
+    // Track property shapes so we don't misclassify them as node shapes when they
+    // declare explicit targets. Property shapes may be typed via rdf:type or
+    // discovered as objects of sh:property.
+    let property_shape_terms: HashSet<Term> = get_property_shapes(context).into_iter().collect();
+
+    // sh:path is only valid on property shapes; cache subjects using it so we can
+    // skip them when walking explicit target declarations below.
+    let shapes_with_path: HashSet<Term> = context
+        .store
+        .quads_for_pattern(None, Some(shacl.path), None, Some(shape_graph_name_ref))
+        .filter_map(Result::ok)
+        .map(|quad| quad.subject.into())
+        .collect();
+
     // <shape> rdf:type sh:NodeShape
     for quad_res in context.store.quads_for_pattern(
         None,
@@ -227,6 +241,31 @@ fn get_node_shapes(context: &ParsingContext) -> Vec<Term> {
     {
         if let Ok(quad) = quad_res {
             node_shapes.insert(quad.object);
+        }
+    }
+
+    // Shapes with explicit targets (sh:targetNode, sh:targetClass, sh:targetSubjectsOf, sh:targetObjectsOf)
+    for target_predicate in [
+        shacl.target_node,
+        shacl.target_class,
+        shacl.target_subjects_of,
+        shacl.target_objects_of,
+    ] {
+        for quad_res in context.store.quads_for_pattern(
+            None,
+            Some(target_predicate),
+            None,
+            Some(shape_graph_name_ref),
+        ) {
+            if let Ok(quad) = quad_res {
+                let subject_term: Term = quad.subject.into();
+                if property_shape_terms.contains(&subject_term)
+                    || shapes_with_path.contains(&subject_term)
+                {
+                    continue;
+                }
+                node_shapes.insert(subject_term);
+            }
         }
     }
 
@@ -352,7 +391,9 @@ fn parse_node_shape(
 
     let severity = severity_term_opt.as_ref().and_then(Severity::from_term);
 
-    let node_shape = NodeShape::new(id, targets, component_ids, severity);
+    let deactivated = shape_is_deactivated(context, subject, shape_graph_name.as_ref());
+
+    let node_shape = NodeShape::new(id, targets, component_ids, severity, deactivated);
     context.node_shapes.insert(id, node_shape);
     Ok(id)
 }
@@ -426,6 +467,8 @@ fn parse_property_shape(
 
     let severity = severity_term_opt.as_ref().and_then(Severity::from_term);
 
+    let deactivated = shape_is_deactivated(context, subject, ps_shape_graph_name.as_ref());
+
     let prop_shape = PropertyShape::new(
         id,
         targets,
@@ -433,9 +476,39 @@ fn parse_property_shape(
         path_object_term.clone(),
         component_ids,
         severity,
+        deactivated,
     );
     context.prop_shapes.insert(id, prop_shape);
     Ok(id)
+}
+
+fn shape_is_deactivated(
+    context: &ParsingContext,
+    subject: SubjectRef,
+    graph_name: GraphNameRef<'_>,
+) -> bool {
+    let sh = SHACL::new();
+    context
+        .store
+        .quads_for_pattern(Some(subject), Some(sh.deactivated), None, Some(graph_name))
+        .filter_map(Result::ok)
+        .any(|quad| term_is_true(&quad.object))
+}
+
+fn term_is_true(term: &Term) -> bool {
+    match term {
+        Term::Literal(lit) => {
+            let value = lit.value();
+            if lit.datatype() == xsd::BOOLEAN {
+                value.eq_ignore_ascii_case("true") || value == "1"
+            } else if lit.datatype() == xsd::STRING && lit.language().is_none() {
+                value.eq_ignore_ascii_case("true")
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
 }
 
 // Helper function to recursively parse SHACL paths

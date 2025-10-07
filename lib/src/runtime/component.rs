@@ -349,6 +349,10 @@ pub(crate) fn check_conformance_for_node(
     main_validation_context: &ValidationContext,
     trace: &mut Vec<TraceItem>,
 ) -> Result<ConformanceReport, String> {
+    if shape_to_check_against.is_deactivated() {
+        return Ok(ConformanceReport::Conforms);
+    }
+
     trace.push(TraceItem::NodeShape(*shape_to_check_against.identifier()));
 
     for constraint_id in shape_to_check_against.constraints() {

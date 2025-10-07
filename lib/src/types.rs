@@ -1,6 +1,6 @@
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
-use oxigraph::model::{NamedNodeRef, Term, TermRef, Variable};
+use oxigraph::model::{NamedNode, NamedNodeRef, Term, TermRef, Variable};
 use oxigraph::sparql::{Query, QueryOptions, QueryResults}; // Added Query
 use std::fmt; // Added for Display trait
 use std::hash::Hash; // Added Hash for derived traits
@@ -184,7 +184,7 @@ pub enum Target {
 }
 
 /// Represents the severity level of a validation result, corresponding to `sh:severity`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Severity {
     /// Corresponds to `sh:Info`.
     Info,
@@ -192,6 +192,8 @@ pub enum Severity {
     Warning,
     /// Corresponds to `sh:Violation`.
     Violation,
+    /// Custom severity IRI provided in the shapes graph.
+    Custom(NamedNode),
 }
 
 impl Default for Severity {
@@ -204,19 +206,12 @@ impl Severity {
     /// Creates a `Severity` from a `Term` if it matches a SHACL severity IRI.
     pub(crate) fn from_term(term: &Term) -> Option<Self> {
         let shacl = SHACL::new();
-        if let Term::NamedNode(nn) = term {
-            if *nn == shacl.info {
-                Some(Severity::Info)
-            } else if *nn == shacl.warning {
-                Some(Severity::Warning)
-            } else if *nn == shacl.violation {
-                Some(Severity::Violation)
-            } else {
-                None // Or default to Violation if an unknown IRI is used?
-                     // For now, strictly None if not recognized.
-            }
-        } else {
-            None
+        match term {
+            Term::NamedNode(nn) if *nn == shacl.info => Some(Severity::Info),
+            Term::NamedNode(nn) if *nn == shacl.warning => Some(Severity::Warning),
+            Term::NamedNode(nn) if *nn == shacl.violation => Some(Severity::Violation),
+            Term::NamedNode(nn) => Some(Severity::Custom(nn.clone())),
+            _ => None,
         }
     }
 }

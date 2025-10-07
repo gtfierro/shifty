@@ -32,6 +32,9 @@ impl ValidateShape for NodeShape {
         context: &ValidationContext,
         report_builder: &mut ValidationReportBuilder,
     ) -> Result<(), String> {
+        if self.is_deactivated() {
+            return Ok(());
+        }
         // first gather all of the targets
         let mut target_contexts = HashSet::new();
         for target in self.targets.iter() {
@@ -103,6 +106,9 @@ impl ValidateShape for PropertyShape {
         context: &ValidationContext,
         report_builder: &mut ValidationReportBuilder,
     ) -> Result<(), String> {
+        if self.is_deactivated() {
+            return Ok(());
+        }
         // first gather all of the targets
         let mut target_contexts = HashSet::new();
         for target in self.targets.iter() {
@@ -159,6 +165,9 @@ impl PropertyShape {
         context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        if self.is_deactivated() {
+            return Ok(vec![]);
+        }
         trace.push(TraceItem::PropertyShape(*self.identifier()));
 
         let mut all_results: Vec<ComponentValidationResult> = Vec::new();

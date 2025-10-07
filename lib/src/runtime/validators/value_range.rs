@@ -132,6 +132,16 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);
                 let mut fail_context = c.clone();
+                if fail_context.focus_node() == value_node {
+                    fail_context.set_focus_node(reported_term.clone());
+                }
+                if let Some(nodes) = fail_context.value_nodes_mut() {
+                    for node in nodes.iter_mut() {
+                        if *node == *value_node {
+                            *node = reported_term.clone();
+                        }
+                    }
+                }
                 fail_context.with_value(reported_term.clone());
                 results.push(ComponentValidationResult::Fail(
                     fail_context,
@@ -219,6 +229,16 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);
                 let mut fail_context = c.clone();
+                if fail_context.focus_node() == value_node {
+                    fail_context.set_focus_node(reported_term.clone());
+                }
+                if let Some(nodes) = fail_context.value_nodes_mut() {
+                    for node in nodes.iter_mut() {
+                        if *node == *value_node {
+                            *node = reported_term.clone();
+                        }
+                    }
+                }
                 fail_context.with_value(reported_term.clone());
                 results.push(ComponentValidationResult::Fail(
                     fail_context,
@@ -307,6 +327,16 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
                 let reported_term = preserve_numeric_lexical(value_node);
 
                 let mut fail_context = c.clone();
+                if fail_context.focus_node() == value_node {
+                    fail_context.set_focus_node(reported_term.clone());
+                }
+                if let Some(nodes) = fail_context.value_nodes_mut() {
+                    for node in nodes.iter_mut() {
+                        if *node == *value_node {
+                            *node = reported_term.clone();
+                        }
+                    }
+                }
                 fail_context.with_value(reported_term.clone());
                 results.push(ComponentValidationResult::Fail(
                     fail_context,
@@ -394,6 +424,16 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);
                 let mut fail_context = c.clone();
+                if fail_context.focus_node() == value_node {
+                    fail_context.set_focus_node(reported_term.clone());
+                }
+                if let Some(nodes) = fail_context.value_nodes_mut() {
+                    for node in nodes.iter_mut() {
+                        if *node == *value_node {
+                            *node = reported_term.clone();
+                        }
+                    }
+                }
                 fail_context.with_value(reported_term.clone());
                 results.push(ComponentValidationResult::Fail(
                     fail_context,

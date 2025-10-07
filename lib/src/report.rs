@@ -5,7 +5,7 @@ use crate::types::{Path, Severity};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{
-    BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, Subject, SubjectRef, Term, Triple,
+    BlankNode, Graph, Literal, NamedOrBlankNode, Subject, SubjectRef, Term, Triple,
 };
 use std::collections::HashMap; // For using Term as a HashMap key
 use std::error::Error;
@@ -157,34 +157,17 @@ impl ValidationReportBuilder {
         let sh = SHACL::new();
         let default_violation = Term::from(sh.violation);
 
-        let info_term = Term::from(NamedNode::new_unchecked("http://www.w3.org/ns/shacl#Info"));
-        let warning_term = Term::from(NamedNode::new_unchecked(
-            "http://www.w3.org/ns/shacl#Warning",
-        ));
-
         match context.source_shape() {
-            SourceShape::PropertyShape(prop_id) => {
-                if let Some(ps) = vc.model.get_prop_shape_by_id(&prop_id) {
-                    match ps.severity() {
-                        Severity::Info => info_term,
-                        Severity::Warning => warning_term,
-                        Severity::Violation => default_violation,
-                    }
-                } else {
-                    default_violation
-                }
-            }
-            SourceShape::NodeShape(node_id) => {
-                if let Some(ns) = vc.model.get_node_shape_by_id(&node_id) {
-                    match ns.severity() {
-                        Severity::Info => info_term,
-                        Severity::Warning => warning_term,
-                        Severity::Violation => default_violation,
-                    }
-                } else {
-                    default_violation
-                }
-            }
+            SourceShape::PropertyShape(prop_id) => vc
+                .model
+                .get_prop_shape_by_id(&prop_id)
+                .map(|ps| severity_to_term(ps.severity(), &sh))
+                .unwrap_or(default_violation),
+            SourceShape::NodeShape(node_id) => vc
+                .model
+                .get_node_shape_by_id(&node_id)
+                .map(|ns| severity_to_term(ns.severity(), &sh))
+                .unwrap_or(default_violation),
         }
     }
 
@@ -230,11 +213,28 @@ impl ValidationReportBuilder {
                 ));
 
                 // sh:resultMessage
-                //graph.insert(&Triple::new(
-                //    result_node.clone(),
-                //    sh.result_message,
-                //    Term::from(Literal::new_simple_literal(&failure.message)),
-                //));
+                let mut message_terms = Vec::new();
+
+                if let Some(shape_term) = context.source_shape().get_term(validation_context) {
+                    message_terms.extend(fetch_shape_messages(validation_context, &shape_term));
+                }
+
+                if message_terms.is_empty() {
+                    if let Some(constraint_term) = &failure.source_constraint {
+                        message_terms
+                            .extend(fetch_shape_messages(validation_context, constraint_term));
+                    }
+                }
+
+                if !message_terms.is_empty() {
+                    for message_term in message_terms {
+                        graph.insert(&Triple::new(
+                            result_node.clone(),
+                            sh.result_message,
+                            message_term,
+                        ));
+                    }
+                }
 
                 println!("failure result path: {:?}", failure.result_path);
                 println!("context result path: {:?}", context.result_path());
@@ -462,6 +462,15 @@ impl ValidationReportBuilder {
     }
 }
 
+fn severity_to_term(severity: &Severity, sh: &SHACL) -> Term {
+    match severity {
+        Severity::Info => Term::from(sh.info),
+        Severity::Warning => Term::from(sh.warning),
+        Severity::Violation => Term::from(sh.violation),
+        Severity::Custom(nn) => Term::from(nn.clone()),
+    }
+}
+
 fn result_path_term_for_property_shape(path: &Path, graph: &mut Graph) -> Term {
     match path {
         Path::Sequence(elements) => build_list_minimal(elements, graph),
@@ -573,6 +582,34 @@ fn clone_path_term_from_shapes_graph(
 ) -> Term {
     let mut memo: HashMap<Term, Term> = HashMap::new();
     clone_path_term_from_shapes_graph_inner(term, validation_context, out_graph, &mut memo)
+}
+
+fn fetch_shape_messages(validation_context: &ValidationContext, term: &Term) -> Vec<Term> {
+    let shacl = SHACL::new();
+    if let Some(subject_ref) = term_to_subject_ref(term) {
+        validation_context
+            .model
+            .store()
+            .quads_for_pattern(
+                Some(subject_ref),
+                Some(shacl.message),
+                None,
+                Some(validation_context.model.shape_graph_iri_ref()),
+            )
+            .filter_map(Result::ok)
+            .map(|q| q.object)
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn term_to_subject_ref(term: &Term) -> Option<SubjectRef<'_>> {
+    match term {
+        Term::NamedNode(nn) => Some(SubjectRef::NamedNode(nn.as_ref())),
+        Term::BlankNode(bn) => Some(SubjectRef::BlankNode(bn.as_ref())),
+        _ => None,
+    }
 }
 
 fn clone_path_term_from_shapes_graph_inner(

@@ -775,6 +775,11 @@ impl Context {
         self.result_path = Some(crate::types::Path::Simple(result_path));
     }
 
+    /// Overrides the focus node, used when preserving lexical forms for report output.
+    pub(crate) fn set_focus_node(&mut self, focus_node: Term) {
+        self.focus_node = focus_node;
+    }
+
     /// Returns the focus node for the current validation.
     pub(crate) fn focus_node(&self) -> &Term {
         &self.focus_node
@@ -788,6 +793,11 @@ impl Context {
     /// Returns the set of value nodes being validated.
     pub(crate) fn value_nodes(&self) -> Option<&Vec<Term>> {
         self.value_nodes.as_ref()
+    }
+
+    /// Returns a mutable reference to the set of value nodes, if present.
+    pub(crate) fn value_nodes_mut(&mut self) -> Option<&mut Vec<Term>> {
+        self.value_nodes.as_mut()
     }
 
     /// Returns the source shape that initiated this validation context.
