@@ -213,12 +213,25 @@ impl ShapesModel {
                 shape.identifier().to_graphviz_id(),
                 name_label
             ));
+            // Edges to component nodes
             for comp in shape.constraints() {
                 dot_string.push_str(&format!(
                     "    {} -> {};\n",
                     shape.identifier().to_graphviz_id(),
                     comp.to_graphviz_id()
                 ));
+            }
+            // Link NodeShape to referenced PropertyShapes (via Property components)
+            for comp_id in shape.constraints() {
+                if let Some(descriptor) = self.component_descriptors.get(comp_id) {
+                    if let ComponentDescriptor::Property { shape: prop_id } = descriptor {
+                        dot_string.push_str(&format!(
+                            "    {} -> {};\n",
+                            shape.identifier().to_graphviz_id(),
+                            prop_id.to_graphviz_id()
+                        ));
+                    }
+                }
             }
         }
         for pshape in self.prop_shapes.values() {
@@ -238,12 +251,35 @@ impl ShapesModel {
                 pshape.identifier().to_graphviz_id(),
                 path_label
             ));
+            // Edges to component nodes
             for comp in pshape.constraints() {
                 dot_string.push_str(&format!(
                     "    {} -> {};\n",
                     pshape.identifier().to_graphviz_id(),
                     comp.to_graphviz_id()
                 ));
+            }
+            // Link PropertyShape to referenced NodeShapes (via Node/QualifiedValueShape components)
+            for comp_id in pshape.constraints() {
+                if let Some(descriptor) = self.component_descriptors.get(comp_id) {
+                    match descriptor {
+                        ComponentDescriptor::Node { shape } => {
+                            dot_string.push_str(&format!(
+                                "    {} -> {};\n",
+                                pshape.identifier().to_graphviz_id(),
+                                shape.to_graphviz_id()
+                            ));
+                        }
+                        ComponentDescriptor::QualifiedValueShape { shape, .. } => {
+                            dot_string.push_str(&format!(
+                                "    {} -> {};\n",
+                                pshape.identifier().to_graphviz_id(),
+                                shape.to_graphviz_id()
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         for (ident, descriptor) in self.component_descriptors.iter() {
