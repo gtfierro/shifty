@@ -590,7 +590,7 @@ pub fn deskolemize_graph(graph: &Graph, base_iri: &str) -> Graph {
 mod tests {
     use super::*;
     use oxigraph::model::vocab::rdf;
-    use oxigraph::model::{BlankNode, NamedNode, Subject, Term, Triple};
+    use oxigraph::model::{BlankNode, NamedNode, NamedOrBlankNode as Subject, Term, Triple};
 
     fn iri(s: &str) -> NamedNode {
         NamedNode::new_unchecked(s)
