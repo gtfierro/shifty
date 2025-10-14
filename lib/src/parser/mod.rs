@@ -360,7 +360,7 @@ fn parse_node_shape(
 
     // get constraint components
     // parse_components will internally use context.store() and context.shape_graph_iri_ref()
-    let constraints = parse_components(&shape_term, context, unique_lang_lexicals);
+    let constraints = parse_components(&shape_term, context, unique_lang_lexicals, false)?;
     let component_ids: Vec<ComponentID> = constraints.keys().cloned().collect();
     for (component_id, descriptor) in constraints {
         context
@@ -449,7 +449,7 @@ fn parse_property_shape(
 
     // get constraint components
     // parse_components will internally use context.store() and context.shape_graph_iri_ref()
-    let constraints = parse_components(&shape_term, context, unique_lang_lexicals);
+    let constraints = parse_components(&shape_term, context, unique_lang_lexicals, true)?;
     let component_ids: Vec<ComponentID> = constraints.keys().cloned().collect();
     for (component_id, descriptor) in constraints {
         context

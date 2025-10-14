@@ -242,10 +242,6 @@ impl ValidationReportBuilder {
                     }
                 }
 
-                if message_terms.is_empty() && !failure.message.is_empty() {
-                    message_terms.push(Term::from(Literal::from(failure.message.clone())));
-                }
-
                 if !message_terms.is_empty() {
                     for message_term in message_terms {
                         graph.insert(&Triple::new(

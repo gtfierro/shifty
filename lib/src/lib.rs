@@ -334,7 +334,9 @@ mod tests {
     use std::error::Error;
     use std::fs;
     use std::io::Write;
+    use std::panic;
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_temp_dir(prefix: &str) -> Result<PathBuf, Box<dyn Error>> {
@@ -345,8 +347,14 @@ mod tests {
         Ok(dir)
     }
 
+    fn validator_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
     #[test]
     fn custom_sparql_message_and_severity() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_message_test")?;
 
         let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -366,7 +374,7 @@ ex:MinScoreConstraintComponent
             PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
             SELECT ?this ?value ?minScore
             WHERE {
-                ?this ex:score ?value .
+                ?this $PATH ?value .
                 FILTER(xsd:integer(?value) < xsd:integer(?minScore))
             }
         """ ;
@@ -456,5 +464,75 @@ ex:Alice a ex:Person ;
 
         fs::remove_dir_all(&temp_dir)?;
         Ok(())
+    }
+
+    #[test]
+    fn sparql_constraint_requires_this() {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_prebinding_this").unwrap();
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:TestShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:sparql [
+        sh:select """
+            PREFIX ex: <http://example.com/ns#>
+            SELECT ?msg WHERE { ?msg ex:note ?n . }
+        """
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Person ;
+    ex:note "test" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+
+        fs::write(&shapes_path, shapes_ttl).unwrap();
+        fs::write(&data_path, data_ttl).unwrap();
+
+        assert!(
+            crate::runtime::validators::validate_prebound_variable_usage(
+                "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
+                "unit-test",
+                true,
+                true,
+            )
+            .is_err()
+        );
+
+        let result =
+            Validator::from_files(&shapes_path.to_string_lossy(), &data_path.to_string_lossy());
+        let msg = match result {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("Expected missing $this to be rejected"),
+        };
+        assert!(
+            msg.contains("$this"),
+            "Error should mention $this, got: {}",
+            msg
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn custom_property_validator_requires_path() {
+        let _guard = validator_lock().lock().unwrap();
+        assert!(
+            crate::runtime::validators::validate_prebound_variable_usage(
+                "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
+                "unit-test",
+                true,
+                true,
+            )
+            .is_err()
+        );
     }
 }

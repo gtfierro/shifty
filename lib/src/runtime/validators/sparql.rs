@@ -163,6 +163,94 @@ fn query_mentions_var(query: &str, var: &str) -> bool {
     contains(query, '?', var) || contains(query, '$', var)
 }
 
+pub(crate) fn validate_prebound_variable_usage(
+    query: &str,
+    context_label: &str,
+    require_this: bool,
+    require_path: bool,
+) -> Result<(), String> {
+    if require_this && !query_mentions_var(query, "this") {
+        return Err(format!(
+            "{} must reference the pre-bound variable $this (or ?this).",
+            context_label
+        ));
+    }
+
+    if require_path && !query_mentions_var(query, "PATH") {
+        return Err(format!(
+            "{} must reference the pre-bound path placeholder $PATH.",
+            context_label
+        ));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn validate_constraint_prebound_usage(
+    context: &ParsingContext,
+    constraint_term: &Term,
+    _is_property_shape: bool,
+) -> Result<(), String> {
+    let shacl = SHACL::new();
+    let subject_node = constraint_term
+        .as_ref()
+        .try_to_subject_ref()
+        .map_err(|e| {
+            format!(
+                "Invalid sh:sparql constraint node {:?}: {}",
+                constraint_term, e
+            )
+        })?
+        .into_owned();
+    let mut found_query = false;
+
+    let mut validate = |predicate: NamedNodeRef<'_>, is_ask: bool| -> Result<(), String> {
+        let subject_ref = subject_node.as_ref();
+        let graph = context.shape_graph_iri_ref();
+        for quad in context
+            .store
+            .quads_for_pattern(Some(subject_ref.into()), Some(predicate), None, Some(graph))
+            .filter_map(Result::ok)
+        {
+            let query_term = quad.object;
+            let query_str = match &query_term {
+                Term::Literal(lit) => lit.value().to_string(),
+                _ => {
+                    return Err(format!(
+                        "SPARQL constraint {} must provide its {} query as a literal.",
+                        format_term_for_label(constraint_term),
+                        if is_ask { "sh:ask" } else { "sh:select" }
+                    ))
+                }
+            };
+            validate_prebound_variable_usage(
+                &query_str,
+                &format!(
+                    "SPARQL constraint {}",
+                    format_term_for_label(constraint_term)
+                ),
+                true,
+                false,
+            )?;
+            found_query = true;
+        }
+        Ok(())
+    };
+
+    validate(shacl.select, false)?;
+    let ask_pred = NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#ask");
+    validate(ask_pred, true)?;
+
+    if !found_query {
+        return Err(format!(
+            "SPARQL constraint {} must declare sh:select or sh:ask.",
+            format_term_for_label(constraint_term)
+        ));
+    }
+
+    Ok(())
+}
+
 fn substitute_placeholders(message: &str, substitutions: &[(String, String)]) -> String {
     let mut text = message.to_string();
     for (name, value) in substitutions {
@@ -571,6 +659,16 @@ impl ValidateComponent for SPARQLConstraintComponent {
             return Err("SPARQL constraint is missing sh:select".to_string());
         };
 
+        validate_prebound_variable_usage(
+            &select_query,
+            &format!(
+                "SPARQL constraint {}",
+                format_term_for_label(&self.constraint_node)
+            ),
+            true,
+            false,
+        )?;
+
         // Collect prefixes
         let prefixes = get_prefixes_for_sparql_node(
             self.constraint_node.as_ref(),
@@ -848,10 +946,13 @@ Potential improvements (future work):
 */
 pub(crate) fn parse_custom_constraint_components(
     context: &ParsingContext,
-) -> (
-    HashMap<NamedNode, CustomConstraintComponentDefinition>,
-    HashMap<NamedNode, Vec<NamedNode>>,
-) {
+) -> Result<
+    (
+        HashMap<NamedNode, CustomConstraintComponentDefinition>,
+        HashMap<NamedNode, Vec<NamedNode>>,
+    ),
+    String,
+> {
     let mut definitions = HashMap::new();
     let mut param_to_component: HashMap<NamedNode, Vec<NamedNode>> = HashMap::new();
     let shacl = SHACL::new();
@@ -940,83 +1041,115 @@ pub(crate) fn parse_custom_constraint_components(
                         .find_map(|term| Severity::from_term(&term));
 
                     // Helper to parse a validator
-                    let parse_validator = |v_term: &Term,
-                                           is_ask: bool,
-                                           context: &ParsingContext|
-                     -> Option<SPARQLValidator> {
-                        let subject = match v_term {
+                    let parse_validator =
+                        |v_term: &Term,
+                         is_ask: bool,
+                         context: &ParsingContext,
+                         require_path: bool|
+                         -> Result<Option<SPARQLValidator>, String> {
+                            let subject = match v_term {
                             Term::NamedNode(nn) => Some(nn.as_ref().into()),
                             Term::BlankNode(bn) => Some(bn.as_ref().into()),
                             _ => None,
-                        }?;
+                        }
+                        .ok_or_else(|| {
+                            format!(
+                                "Custom constraint validator term {:?} must be a node or blank node.",
+                                v_term
+                            )
+                        })?;
 
-                        let term_ref = match v_term {
+                            let term_ref = match v_term {
                             Term::NamedNode(nn) => TermRef::NamedNode(nn.as_ref()),
                             Term::BlankNode(bn) => TermRef::BlankNode(bn.as_ref()),
-                            _ => return None,
+                            _ => {
+                                return Err(format!(
+                                    "Custom constraint validator term {:?} must be a node or blank node.",
+                                    v_term
+                                ))
+                            }
                         };
 
-                        let ask_pred =
-                            NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#ask");
-                        let query_pred = if is_ask { ask_pred } else { shacl.select };
+                            let ask_pred =
+                                NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#ask");
+                            let query_pred = if is_ask { ask_pred } else { shacl.select };
 
-                        let query_object = context
-                            .store
-                            .quads_for_pattern(
-                                Some(subject),
-                                Some(query_pred),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
-                            )
-                            .filter_map(Result::ok)
-                            .map(|q| q.object)
-                            .next()?;
+                            let query_object = context
+                                .store
+                                .quads_for_pattern(
+                                    Some(subject),
+                                    Some(query_pred),
+                                    None,
+                                    Some(context.shape_graph_iri_ref()),
+                                )
+                                .filter_map(Result::ok)
+                                .map(|q| q.object)
+                                .next()
+                                .ok_or_else(|| {
+                                    format!(
+                                        "Custom constraint validator {:?} is missing the {} query.",
+                                        v_term,
+                                        if is_ask { "sh:ask" } else { "sh:select" }
+                                    )
+                                })?;
 
-                        let query_str = match query_object {
+                            let query_str = match query_object {
                             Term::Literal(ref lit) => lit.value().to_string(),
-                            _ => return None,
+                            _ => {
+                                return Err(format!(
+                                    "Custom constraint validator {:?} must supply its query as a literal.",
+                                    v_term
+                                ))
+                            }
                         };
 
-                        let messages: Vec<Term> = context
-                            .store
-                            .quads_for_pattern(
-                                Some(subject),
-                                Some(shacl.message),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
+                            validate_prebound_variable_usage(
+                                &query_str,
+                                &format!("Custom constraint {}", cc_iri),
+                                true,
+                                require_path,
+                            )?;
+
+                            let messages: Vec<Term> = context
+                                .store
+                                .quads_for_pattern(
+                                    Some(subject),
+                                    Some(shacl.message),
+                                    None,
+                                    Some(context.shape_graph_iri_ref()),
+                                )
+                                .filter_map(Result::ok)
+                                .map(|q| q.object)
+                                .collect();
+
+                            let severity = context
+                                .store
+                                .quads_for_pattern(
+                                    Some(subject),
+                                    Some(shacl.severity),
+                                    None,
+                                    Some(context.shape_graph_iri_ref()),
+                                )
+                                .filter_map(Result::ok)
+                                .map(|q| q.object)
+                                .find_map(|term| Severity::from_term(&term));
+
+                            let prefixes = get_prefixes_for_sparql_node(
+                                term_ref,
+                                &context.store,
+                                &context.env,
+                                context.shape_graph_iri_ref(),
                             )
-                            .filter_map(Result::ok)
-                            .map(|q| q.object)
-                            .collect();
+                            .unwrap_or_default();
 
-                        let severity = context
-                            .store
-                            .quads_for_pattern(
-                                Some(subject),
-                                Some(shacl.severity),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
-                            )
-                            .filter_map(Result::ok)
-                            .map(|q| q.object)
-                            .find_map(|term| Severity::from_term(&term));
-
-                        let prefixes = get_prefixes_for_sparql_node(
-                            term_ref,
-                            &context.store,
-                            &context.env,
-                            context.shape_graph_iri_ref(),
-                        )
-                        .unwrap_or_default();
-
-                        Some(SPARQLValidator {
-                            query: query_str,
-                            is_ask,
-                            messages,
-                            prefixes,
-                            severity,
-                        })
-                    };
+                            Ok(Some(SPARQLValidator {
+                                query: query_str,
+                                is_ask,
+                                messages,
+                                prefixes,
+                                severity,
+                            }))
+                        };
 
                     let validator_prop =
                         NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#validator");
@@ -1037,7 +1170,7 @@ pub(crate) fn parse_custom_constraint_components(
                         .map(|q| q.object)
                         .next()
                     {
-                        validator = parse_validator(&v_term, true, context);
+                        validator = parse_validator(&v_term, true, context, false)?;
                     }
                     if let Some(v_term) = context
                         .store
@@ -1051,7 +1184,7 @@ pub(crate) fn parse_custom_constraint_components(
                         .map(|q| q.object)
                         .next()
                     {
-                        node_validator = parse_validator(&v_term, false, context);
+                        node_validator = parse_validator(&v_term, false, context, false)?;
                     }
                     if let Some(v_term) = context
                         .store
@@ -1065,7 +1198,7 @@ pub(crate) fn parse_custom_constraint_components(
                         .map(|q| q.object)
                         .next()
                     {
-                        property_validator = parse_validator(&v_term, false, context);
+                        property_validator = parse_validator(&v_term, false, context, true)?;
                     }
 
                     definitions.insert(
@@ -1085,7 +1218,7 @@ pub(crate) fn parse_custom_constraint_components(
         }
     }
 
-    (definitions, param_to_component)
+    Ok((definitions, param_to_component))
 }
 
 impl GraphvizOutput for CustomConstraintComponent {
@@ -1148,6 +1281,13 @@ impl ValidateComponent for CustomConstraintComponent {
             Some(v) => v,
             None => return Ok(vec![]), // No suitable validator
         };
+
+        validate_prebound_variable_usage(
+            &validator.query,
+            &format!("Custom constraint {}", self.definition.iri),
+            true,
+            is_prop_shape,
+        )?;
 
         let mut results = vec![];
         let mut query_body = validator.query.clone();

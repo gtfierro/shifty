@@ -17,7 +17,8 @@ pub(crate) fn parse_components(
     shape_term: &Term,
     context: &mut ParsingContext,
     unique_lang_lexicals: &HashMap<Term, String>,
-) -> HashMap<ComponentID, ComponentDescriptor> {
+    is_property_shape: bool,
+) -> Result<HashMap<ComponentID, ComponentDescriptor>, String> {
     let mut descriptors = HashMap::new();
     let shacl = SHACL::new();
     let shape_ref = shape_term.as_ref();
@@ -608,6 +609,11 @@ pub(crate) fn parse_components(
     if let Some(sparql_terms) = pred_obj_pairs.get(&shacl.sparql.into_owned()) {
         processed_predicates.insert(shacl.sparql.into_owned());
         for sparql_term in sparql_terms {
+            crate::runtime::validators::validate_constraint_prebound_usage(
+                context,
+                sparql_term,
+                is_property_shape,
+            )?;
             let component_id = context.get_or_create_component_id(sparql_term.clone());
             descriptors.insert(
                 component_id,
@@ -618,7 +624,7 @@ pub(crate) fn parse_components(
         }
     }
 
-    let (custom_component_defs, param_to_component) = parse_custom_constraint_components(context);
+    let (custom_component_defs, param_to_component) = parse_custom_constraint_components(context)?;
 
     let mut shape_predicates: HashSet<NamedNode> = pred_obj_pairs.keys().cloned().collect();
     for p in processed_predicates {
@@ -679,7 +685,7 @@ pub(crate) fn parse_components(
         }
     }
 
-    descriptors
+    Ok(descriptors)
 }
 
 fn to_subject_ref(term: TermRef<'_>) -> Result<SubjectRef<'_>, String> {
@@ -692,9 +698,13 @@ fn to_subject_ref(term: TermRef<'_>) -> Result<SubjectRef<'_>, String> {
 
 fn parse_custom_constraint_components(
     context: &ParsingContext,
-) -> (
-    HashMap<NamedNode, CustomConstraintComponentDefinition>,
-    HashMap<NamedNode, Vec<NamedNode>>,
-) {
+) -> Result<
+    (
+        HashMap<NamedNode, CustomConstraintComponentDefinition>,
+        HashMap<NamedNode, Vec<NamedNode>>,
+    ),
+    String,
+> {
     crate::runtime::parse_custom_constraint_components(context)
+        .map_err(|e| format!("Error parsing custom constraint components: {}", e))
 }
