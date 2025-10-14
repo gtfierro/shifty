@@ -1,3 +1,4 @@
+mod component_registry;
 mod components;
 
 use crate::context::ParsingContext;
