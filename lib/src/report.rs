@@ -5,7 +5,8 @@ use crate::types::{Path, Severity};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{
-    BlankNode, Graph, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject, NamedOrBlankNodeRef as SubjectRef, Term, Triple,
+    BlankNode, Graph, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject,
+    NamedOrBlankNodeRef as SubjectRef, Term, Triple,
 };
 use std::collections::HashMap; // For using Term as a HashMap key
 use std::error::Error;

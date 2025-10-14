@@ -2,9 +2,8 @@
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix sht:     <http://www.w3.org/ns/shacl-test#> .
 
-<urn:manifest.ttl>
+<>
 	a mf:Manifest ;
-	mf:include <core/manifest.ttl> ;
-	mf:include <sparql/manifest.ttl> ;
-	mf:include <advanced/manifest.ttl> ;
+	mf:include <anon-shape-001.test.ttl> ;
+	mf:include <anon-shape-002.test.ttl> ;
 	.

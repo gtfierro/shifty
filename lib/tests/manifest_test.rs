@@ -90,18 +90,24 @@ fn skip_reason(test: &TestCase) -> Option<&'static str> {
     let is_sparql = data_path.contains("/sparql/") || shapes_path.contains("/sparql/");
 
     let allow_sparql = std::env::var("SHACL_W3C_ALLOW_SPARQL").ok().as_deref() == Some("1");
+    let allow_af = std::env::var("SHACL_W3C_ALLOW_AF").ok().as_deref() == Some("1");
+    let allow_pre_binding =
+        std::env::var("SHACL_W3C_ALLOW_PRE_BINDING").ok().as_deref() == Some("1");
+
+    let is_advanced = data_path.contains("/advanced/") || shapes_path.contains("/advanced/");
+
+    if is_advanced && !allow_af {
+        return Some("SHACL-AF validation disabled (set SHACL_W3C_ALLOW_AF=1 to opt in)");
+    }
 
     if !allow_sparql && is_sparql {
         return Some("SPARQL validation disabled (set SHACL_W3C_ALLOW_SPARQL=1 to opt in)");
     }
 
-    // Known unsupported SPARQL features even when SPARQL is enabled.
-    if is_sparql {
-        if data_path.contains("/sparql/pre-binding/")
-            || shapes_path.contains("/sparql/pre-binding/")
-        {
-            return Some("SPARQL pre-binding is not yet supported");
-        }
+    let is_pre_binding =
+        data_path.contains("/sparql/pre-binding/") || shapes_path.contains("/sparql/pre-binding/");
+    if is_pre_binding && !allow_pre_binding {
+        return Some("SPARQL pre-binding disabled (set SHACL_W3C_ALLOW_PRE_BINDING=1 to opt in)");
     }
 
     None

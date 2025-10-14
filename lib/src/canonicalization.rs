@@ -1,6 +1,7 @@
 use log::debug;
 use oxigraph::model::{
-    BlankNode, Graph, GraphNameRef, NamedNode, Quad, NamedOrBlankNode as Subject, NamedOrBlankNodeRef as SubjectRef, Term, TermRef, Triple,
+    BlankNode, Graph, GraphNameRef, NamedNode, NamedOrBlankNode as Subject,
+    NamedOrBlankNodeRef as SubjectRef, Quad, Term, TermRef, Triple,
 };
 use oxigraph::store::{StorageError, Store};
 use petgraph::graph::{DiGraph, NodeIndex};
