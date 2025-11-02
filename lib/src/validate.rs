@@ -1,21 +1,16 @@
-#![allow(deprecated)]
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::report::ValidationReportBuilder;
-use crate::runtime::ComponentValidationResult;
+use crate::runtime::{ComponentValidationResult, ToSubjectRef};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
+use crate::sparql::SparqlExecutor;
 use crate::types::{PropShapeID, TraceItem};
 use log::{debug, info};
-use oxigraph::model::Term;
-use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
-use std::collections::HashSet;
+use oxigraph::model::{Literal, Term};
+use oxigraph::sparql::{QueryResults, Variable};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBuilder, String> {
     let mut report_builder = ValidationReportBuilder::new();
-    eprintln!(
-        "node_shapes: {} prop_shapes: {}",
-        context.model.node_shapes.len(),
-        context.model.prop_shapes.len()
-    );
     // Validate all node shapes
     for shape in context.model.node_shapes.values() {
         shape.process_targets(context, &mut report_builder)?;
@@ -25,6 +20,112 @@ pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBu
         shape.process_targets(context, &mut report_builder)?;
     }
     Ok(report_builder)
+}
+
+fn canonicalize_value_nodes(
+    validation_context: &ValidationContext,
+    shape: &PropertyShape,
+    focus_node: &Term,
+    mut nodes: Vec<Term>,
+) -> Vec<Term> {
+    if nodes.is_empty() {
+        return nodes;
+    }
+
+    let predicate = match shape.path_term() {
+        Term::NamedNode(nn) => nn,
+        _ => return nodes,
+    };
+
+    let subject = match focus_node.try_to_subject_ref() {
+        Ok(subject) => subject,
+        Err(_) => return nodes,
+    };
+
+    let raw_objects: Vec<Term> = validation_context
+        .model
+        .store()
+        .quads_for_pattern(
+            Some(subject),
+            Some(predicate.as_ref()),
+            None,
+            Some(validation_context.data_graph_iri_ref()),
+        )
+        .filter_map(Result::ok)
+        .map(|q| q.object)
+        .collect();
+
+    if raw_objects.is_empty() && validation_context.model.original_values.is_none() {
+        return nodes;
+    }
+
+    let mut exact_matches: HashSet<Term> = raw_objects.iter().cloned().collect();
+    let mut literals_by_signature: HashMap<(String, Option<String>), VecDeque<Term>> =
+        HashMap::new();
+
+    for term in &raw_objects {
+        if let Term::Literal(lit) = term {
+            let key = literal_signature(lit);
+            literals_by_signature
+                .entry(key)
+                .or_insert_with(VecDeque::new)
+                .push_back(term.clone());
+        }
+    }
+
+    let original_index = validation_context.model.original_values.as_ref();
+
+    for node in &mut nodes {
+        let current = node.clone();
+
+        if let Term::Literal(ref lit) = current {
+            if let Some(index) = original_index {
+                if let Some(original) = index.resolve_literal(focus_node, &predicate, lit) {
+                    if original != current {
+                        exact_matches.remove(&original);
+                        *node = original;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if exact_matches.remove(&current) {
+            continue;
+        }
+
+        if let Term::Literal(ref lit) = current {
+            if let Some(term) =
+                lookup_by_signature(&mut literals_by_signature, &mut exact_matches, lit)
+            {
+                *node = term;
+            }
+        }
+    }
+
+    nodes
+}
+
+fn literal_signature(lit: &Literal) -> (String, Option<String>) {
+    (
+        lit.value().to_string(),
+        lit.language().map(|lang| lang.to_ascii_lowercase()),
+    )
+}
+
+fn lookup_by_signature(
+    buckets: &mut HashMap<(String, Option<String>), VecDeque<Term>>,
+    exact_matches: &mut HashSet<Term>,
+    lit: &Literal,
+) -> Option<Term> {
+    let key = literal_signature(lit);
+    if let Some(queue) = buckets.get_mut(&key) {
+        if let Some(term) = queue.pop_front() {
+            exact_matches.remove(&term);
+            return Some(term);
+        }
+    }
+    None
 }
 
 impl ValidateShape for NodeShape {
@@ -188,26 +289,23 @@ impl PropertyShape {
                 focus_node.to_string(),
                 sparql_path
             );
-            eprintln!(
-                "PropertyShape {:?} focus {} query: {}",
-                self.identifier(),
-                focus_node,
-                query_str
-            );
 
-            let mut query = Query::parse(&query_str, None).map_err(|e| {
-                format!(
-                    "Failed to parse query for PropertyShape {}: {}",
-                    self.identifier(),
-                    e
-                )
-            })?;
-            query.dataset_mut().set_default_graph_as_union();
+            let prepared = context
+                .model
+                .sparql
+                .prepared_query(&query_str)
+                .map_err(|e| {
+                    format!(
+                        "Failed to prepare query for PropertyShape {}: {}",
+                        self.identifier(),
+                        e
+                    )
+                })?;
 
             let results = context
                 .model
-                .store()
-                .query_opt(query, QueryOptions::default())
+                .sparql
+                .execute_with_substitutions(&query_str, &prepared, context.model.store(), &[])
                 .map_err(|e| {
                     format!(
                         "Failed to execute query for PropertyShape {}: {}",
@@ -233,7 +331,7 @@ impl PropertyShape {
                             ));
                         }
                     }
-                    nodes
+                    canonicalize_value_nodes(context, self, &focus_node, nodes)
                 }
                 QueryResults::Boolean(_) => {
                     return Err(format!(

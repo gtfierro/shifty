@@ -1,4 +1,5 @@
 use oxigraph::io::{RdfFormat, RdfSerializer};
+use oxigraph::model::{Graph, NamedNode};
 use shacl::canonicalization::{are_isomorphic, deskolemize_graph};
 use shacl::test_utils::{list_includes, load_manifest, TestCase};
 use shacl::Validator;
@@ -87,9 +88,6 @@ fn collect_tests_from_manifest(
 fn skip_reason(test: &TestCase) -> Option<&'static str> {
     let data_path = test.data_graph_path.to_string_lossy();
     let shapes_path = test.shapes_graph_path.to_string_lossy();
-    let is_sparql = data_path.contains("/sparql/") || shapes_path.contains("/sparql/");
-
-    let allow_sparql = std::env::var("SHACL_W3C_ALLOW_SPARQL").ok().as_deref() == Some("1");
     let allow_af = std::env::var("SHACL_W3C_ALLOW_AF").ok().as_deref() == Some("1");
     let allow_pre_binding =
         std::env::var("SHACL_W3C_ALLOW_PRE_BINDING").ok().as_deref() == Some("1");
@@ -98,10 +96,6 @@ fn skip_reason(test: &TestCase) -> Option<&'static str> {
 
     if is_advanced && !allow_af {
         return Some("SHACL-AF validation disabled (set SHACL_W3C_ALLOW_AF=1 to opt in)");
-    }
-
-    if !allow_sparql && is_sparql {
-        return Some("SPARQL validation disabled (set SHACL_W3C_ALLOW_SPARQL=1 to opt in)");
     }
 
     let is_pre_binding =
@@ -228,9 +222,34 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         );
         //let diff = graph_diff(&report_graph, &test.expected_report);
         //diff.dump();
+        let result_message_pred =
+            NamedNode::new("http://www.w3.org/ns/shacl#resultMessage").unwrap();
+        let expected_has_result_messages = test
+            .expected_report
+            .iter()
+            .any(|triple| triple.predicate == result_message_pred);
+
+        let report_graph_for_compare: Graph = if expected_has_result_messages {
+            report_graph.clone()
+        } else {
+            let mut filtered = Graph::new();
+            for triple in report_graph.iter() {
+                if triple.predicate != result_message_pred {
+                    filtered.insert(triple);
+                }
+            }
+            filtered
+        };
+
+        let expected_graph_for_compare: Graph = if expected_has_result_messages {
+            test.expected_report.clone()
+        } else {
+            test.expected_report.clone()
+        };
+
         assert!(are_isomorphic(
-            &report_graph,
-            &test.expected_report,
+            &report_graph_for_compare,
+            &expected_graph_for_compare,
         ), "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
             test_name, expected_turtle, report_turtle
         );

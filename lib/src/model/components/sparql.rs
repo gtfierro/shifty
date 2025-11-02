@@ -9,6 +9,7 @@ use crate::types::Severity;
 pub struct Parameter {
     pub path: NamedNode,
     pub optional: bool,
+    pub var_name: Option<String>,
 }
 
 /// Represents a SPARQL validator (either ASK or SELECT) defined on a custom constraint component.
@@ -19,6 +20,8 @@ pub struct SPARQLValidator {
     pub messages: Vec<Term>,
     pub prefixes: String,
     pub severity: Option<Severity>,
+    pub require_this: bool,
+    pub require_path: bool,
 }
 
 /// Metadata that defines a SHACL custom constraint component.

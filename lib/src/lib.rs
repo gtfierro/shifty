@@ -16,10 +16,12 @@ pub(crate) mod optimize;
 pub(crate) mod parser;
 pub(crate) mod report;
 pub(crate) mod runtime;
+pub(crate) mod sparql;
 pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
 use crate::canonicalization::skolemize;
+use crate::context::model::{FeatureToggles, OriginalValueIndex};
 use crate::context::{
     render_heatmap_graphviz, render_shapes_graphviz, ParsingContext, ShapesModel, ValidationContext,
 };
@@ -52,6 +54,8 @@ pub struct ValidatorBuilder {
     env_config: Option<Config>,
     skolemize_shapes: bool,
     skolemize_data: bool,
+    enable_af: bool,
+    enable_rules: bool,
 }
 
 impl ValidatorBuilder {
@@ -63,6 +67,8 @@ impl ValidatorBuilder {
             env_config: None,
             skolemize_shapes: true,
             skolemize_data: true,
+            enable_af: true,
+            enable_rules: true,
         }
     }
 
@@ -91,6 +97,18 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Enables or disables SHACL AF extensions.
+    pub fn with_af_enabled(mut self, enabled: bool) -> Self {
+        self.enable_af = enabled;
+        self
+    }
+
+    /// Enables or disables SHACL rules.
+    pub fn with_rules_enabled(mut self, enabled: bool) -> Self {
+        self.enable_rules = enabled;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -99,6 +117,8 @@ impl ValidatorBuilder {
             env_config,
             skolemize_shapes,
             skolemize_data,
+            enable_af,
+            enable_rules,
         } = self;
 
         let shapes_source =
@@ -129,8 +149,31 @@ impl ValidatorBuilder {
             ))
         })?;
 
-        let model =
-            Self::build_shapes_model(env, store, shapes_graph_iri.clone(), data_graph_iri.clone())?;
+        let data_skolem_base = if skolemize_data {
+            Some(Self::skolem_base(&data_graph_iri))
+        } else {
+            None
+        };
+        let original_values = match &data_source {
+            Source::File(path) => {
+                let base_ref = data_skolem_base.as_deref();
+                Some(OriginalValueIndex::from_path(path, base_ref)?)
+            }
+            Source::Graph(_) => None,
+        };
+
+        let features = FeatureToggles {
+            enable_af,
+            enable_rules,
+        };
+        let model = Self::build_shapes_model(
+            env,
+            store,
+            shapes_graph_iri.clone(),
+            data_graph_iri.clone(),
+            features.clone(),
+            original_values,
+        )?;
         let context = ValidationContext::new(Rc::new(model), data_graph_iri);
         Ok(Validator { context })
     }
@@ -219,9 +262,17 @@ impl ValidatorBuilder {
         store: Store,
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
+        features: FeatureToggles,
+        original_values: Option<OriginalValueIndex>,
     ) -> Result<ShapesModel, Box<dyn Error>> {
-        let mut parsing_context =
-            ParsingContext::new(store, env, shape_graph_iri.clone(), data_graph_iri.clone());
+        let mut parsing_context = ParsingContext::new(
+            store,
+            env,
+            shape_graph_iri.clone(),
+            data_graph_iri.clone(),
+            features.clone(),
+            original_values.clone(),
+        );
         shacl_parser::run_parser(&mut parsing_context)?;
 
         let mut optimizer = Optimizer::new(parsing_context);
@@ -238,6 +289,9 @@ impl ValidatorBuilder {
             prop_shapes: final_ctx.prop_shapes,
             component_descriptors: final_ctx.component_descriptors,
             env: final_ctx.env,
+            sparql: final_ctx.sparql.clone(),
+            features: final_ctx.features.clone(),
+            original_values,
         })
     }
 }
@@ -329,6 +383,7 @@ impl Validator {
 mod tests {
     use super::*;
     use crate::named_nodes::SHACL;
+    use crate::sparql::validate_prebound_variable_usage;
     use oxigraph::model::vocab::rdf;
     use oxigraph::model::{NamedOrBlankNode, Term, TermRef};
     use std::error::Error;
@@ -497,15 +552,13 @@ ex:Alice a ex:Person ;
         fs::write(&shapes_path, shapes_ttl).unwrap();
         fs::write(&data_path, data_ttl).unwrap();
 
-        assert!(
-            crate::runtime::validators::validate_prebound_variable_usage(
-                "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
-                "unit-test",
-                true,
-                true,
-            )
-            .is_err()
-        );
+        assert!(validate_prebound_variable_usage(
+            "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
+            "unit-test",
+            true,
+            true,
+        )
+        .is_err());
 
         let result =
             Validator::from_files(&shapes_path.to_string_lossy(), &data_path.to_string_lossy());
@@ -525,14 +578,12 @@ ex:Alice a ex:Person ;
     #[test]
     fn custom_property_validator_requires_path() {
         let _guard = validator_lock().lock().unwrap();
-        assert!(
-            crate::runtime::validators::validate_prebound_variable_usage(
-                "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
-                "unit-test",
-                true,
-                true,
-            )
-            .is_err()
-        );
+        assert!(validate_prebound_variable_usage(
+            "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
+            "unit-test",
+            true,
+            true,
+        )
+        .is_err());
     }
 }

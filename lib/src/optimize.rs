@@ -1,8 +1,8 @@
-#![allow(deprecated)]
 use crate::context::ParsingContext;
+use crate::sparql::SparqlExecutor;
 use crate::types::Target;
 use oxigraph::model::Term;
-use oxigraph::sparql::{Query, QueryOptions, QueryResults};
+use oxigraph::sparql::QueryResults;
 use std::collections::HashSet;
 
 /// A struct to hold statistics about the optimizations performed.
@@ -26,10 +26,6 @@ pub(crate) struct Optimizer {
     /// Statistics collected during optimization.
     pub(crate) stats: OptimizerStats,
 }
-
-const TYPE_QUERY: &str = "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT DISTINCT ?type WHERE { ?s rdf:type/rdfs:subClassOf* ?type . }";
 
 impl Optimizer {
     /// Creates a new `Optimizer` for a given `ParsingContext`.
@@ -59,16 +55,19 @@ impl Optimizer {
         // make a hashset of these types
         // Then remove all TargetClasses from nodeshapes where their class does not exist in this
         // hashset.
-        let mut parsed_query = Query::parse(TYPE_QUERY, None)
-            .map_err(|e| format!("SPARQL parse error: {} {:?}", TYPE_QUERY, e))?;
-        parsed_query
-            .dataset_mut()
-            .set_default_graph(vec![self.ctx.data_graph_iri.clone().into()]);
-
+        let query = format!(
+            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?type FROM <{}> WHERE {{ ?s rdf:type/rdfs:subClassOf* ?type . }}",
+            self.ctx.data_graph_iri.as_str()
+        );
+        let prepared = self
+            .ctx
+            .sparql
+            .prepared_query(&query)
+            .map_err(|e| format!("SPARQL parse error: {}", e))?;
         let results = self
             .ctx
-            .store
-            .query_opt(parsed_query, QueryOptions::default())
+            .sparql
+            .execute_with_substitutions(&query, &prepared, &self.ctx.store, &[])
             .map_err(|e| e.to_string())?;
 
         let mut types = HashSet::<Term>::new();

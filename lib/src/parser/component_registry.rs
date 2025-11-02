@@ -21,34 +21,90 @@ pub(crate) struct ComponentRegistryEntry {
 }
 
 pub(crate) static COMPONENT_REGISTRY: &[ComponentRegistryEntry] = &[
-    ComponentRegistryEntry { apply: handle_class_constraint },
-    ComponentRegistryEntry { apply: handle_datatype_constraint },
-    ComponentRegistryEntry { apply: handle_node_kind_constraint },
-    ComponentRegistryEntry { apply: handle_node_constraint },
-    ComponentRegistryEntry { apply: handle_property_constraint },
-    ComponentRegistryEntry { apply: handle_min_count_constraint },
-    ComponentRegistryEntry { apply: handle_max_count_constraint },
-    ComponentRegistryEntry { apply: handle_min_exclusive_constraint },
-    ComponentRegistryEntry { apply: handle_min_inclusive_constraint },
-    ComponentRegistryEntry { apply: handle_max_exclusive_constraint },
-    ComponentRegistryEntry { apply: handle_max_inclusive_constraint },
-    ComponentRegistryEntry { apply: handle_min_length_constraint },
-    ComponentRegistryEntry { apply: handle_max_length_constraint },
-    ComponentRegistryEntry { apply: handle_pattern_constraint },
-    ComponentRegistryEntry { apply: handle_language_in_constraint },
-    ComponentRegistryEntry { apply: handle_unique_lang_constraint },
-    ComponentRegistryEntry { apply: handle_equals_constraint },
-    ComponentRegistryEntry { apply: handle_disjoint_constraint },
-    ComponentRegistryEntry { apply: handle_less_than_constraint },
-    ComponentRegistryEntry { apply: handle_less_than_or_equals_constraint },
-    ComponentRegistryEntry { apply: handle_not_constraint },
-    ComponentRegistryEntry { apply: handle_and_constraint },
-    ComponentRegistryEntry { apply: handle_or_constraint },
-    ComponentRegistryEntry { apply: handle_xone_constraint },
-    ComponentRegistryEntry { apply: handle_qualified_value_shape_constraint },
-    ComponentRegistryEntry { apply: handle_closed_constraint },
-    ComponentRegistryEntry { apply: handle_has_value_constraint },
-    ComponentRegistryEntry { apply: handle_in_constraint },
+    ComponentRegistryEntry {
+        apply: handle_class_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_datatype_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_node_kind_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_node_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_property_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_min_count_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_max_count_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_min_exclusive_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_min_inclusive_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_max_exclusive_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_max_inclusive_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_min_length_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_max_length_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_pattern_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_language_in_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_unique_lang_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_equals_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_disjoint_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_less_than_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_less_than_or_equals_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_not_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_and_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_or_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_xone_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_qualified_value_shape_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_closed_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_has_value_constraint,
+    },
+    ComponentRegistryEntry {
+        apply: handle_in_constraint,
+    },
 ];
 
 fn insert_descriptor(

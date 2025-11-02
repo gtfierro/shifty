@@ -1,18 +1,168 @@
+#![allow(deprecated)]
 use super::ids::IDLookupTable;
 use crate::model::components::ComponentDescriptor;
 use crate::optimize::Optimizer;
 use crate::parser;
 use crate::shape::{NodeShape, PropertyShape};
+use crate::sparql::SparqlServices;
 use crate::types::{ComponentID, PropShapeID, ID};
 use log::info;
 use ontoenv::api::OntoEnv;
 use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
+use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
+use oxigraph::model::{Literal, Subject};
 use oxigraph::store::Store;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+use std::rc::Rc;
+
+#[derive(Clone)]
+pub struct FeatureToggles {
+    pub enable_af: bool,
+    #[allow(dead_code)]
+    pub enable_rules: bool,
+}
+
+impl Default for FeatureToggles {
+    fn default() -> Self {
+        Self {
+            enable_af: true,
+            enable_rules: true,
+        }
+    }
+}
+
+#[derive(Hash, Eq, PartialEq, Clone)]
+struct LiteralKey {
+    lexical: String,
+    language: Option<String>,
+}
+
+impl LiteralKey {
+    fn from_literal(lit: &Literal) -> Self {
+        let lexical = lit.value().to_string();
+        let language = lit.language().map(|l| l.to_ascii_lowercase());
+        LiteralKey { lexical, language }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct OriginalValueIndex {
+    literals: HashMap<Term, HashMap<NamedNode, HashMap<LiteralKey, VecDeque<Term>>>>,
+}
+
+impl OriginalValueIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_path(path: &Path, skolem_base: Option<&str>) -> Result<Self, Box<dyn Error>> {
+        let mut index = Self::new();
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+
+        let format = match extension.as_deref() {
+            Some("ttl") | Some("turtle") => Some(RdfFormat::Turtle),
+            Some("nt") => Some(RdfFormat::NTriples),
+            _ => None,
+        };
+
+        let format = match format {
+            Some(f) => f,
+            None => return Ok(index),
+        };
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let parser = RdfParser::from_format(format).without_named_graphs();
+        for quad in parser.for_reader(reader) {
+            let triple = quad?;
+            index.record_triple(
+                triple.subject,
+                triple.predicate.clone(),
+                triple.object,
+                skolem_base,
+            );
+        }
+        Ok(index)
+    }
+
+    fn record_triple(
+        &mut self,
+        subject: Subject,
+        predicate: NamedNode,
+        object: Term,
+        skolem_base: Option<&str>,
+    ) {
+        if let Term::Literal(lit) = object {
+            let subject_term = Self::canonicalize_subject(subject, skolem_base);
+            let object_term = Self::canonicalize_object(Term::Literal(lit.clone()), skolem_base);
+            let entry = self
+                .literals
+                .entry(subject_term)
+                .or_insert_with(HashMap::new)
+                .entry(predicate)
+                .or_insert_with(HashMap::new)
+                .entry(LiteralKey::from_literal(&lit))
+                .or_insert_with(VecDeque::new);
+            entry.push_back(object_term);
+        }
+    }
+
+    fn canonicalize_subject(subject: Subject, skolem_base: Option<&str>) -> Term {
+        match subject {
+            Subject::NamedNode(nn) => Term::NamedNode(nn),
+            Subject::BlankNode(bn) => {
+                if let Some(base) = skolem_base {
+                    Term::NamedNode(NamedNode::new_unchecked(format!("{}{}", base, bn.as_str())))
+                } else {
+                    Term::BlankNode(bn)
+                }
+            }
+        }
+    }
+
+    fn canonicalize_object(object: Term, skolem_base: Option<&str>) -> Term {
+        if let Term::BlankNode(bn) = object {
+            if let Some(base) = skolem_base {
+                Term::NamedNode(NamedNode::new_unchecked(format!("{}{}", base, bn.as_str())))
+            } else {
+                Term::BlankNode(bn)
+            }
+        } else {
+            object
+        }
+    }
+
+    pub fn resolve_literal(
+        &self,
+        subject: &Term,
+        predicate: &NamedNode,
+        candidate: &Literal,
+    ) -> Option<Term> {
+        let key = LiteralKey::from_literal(candidate);
+        let candidates = self.literals.get(subject)?.get(predicate)?.get(&key)?;
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let candidate_term = Term::Literal(candidate.clone());
+        if candidates.iter().any(|term| term == &candidate_term) {
+            Some(candidate_term)
+        } else {
+            candidates.front().cloned()
+        }
+    }
+}
 
 pub struct ShapesModel {
     pub(crate) nodeshape_id_lookup: RefCell<IDLookupTable<ID>>,
@@ -25,6 +175,10 @@ pub struct ShapesModel {
     pub(crate) prop_shapes: HashMap<PropShapeID, PropertyShape>,
     pub(crate) component_descriptors: HashMap<ComponentID, ComponentDescriptor>,
     pub(crate) env: OntoEnv,
+    pub(crate) sparql: Rc<SparqlServices>,
+    #[allow(dead_code)]
+    pub(crate) features: FeatureToggles,
+    pub(crate) original_values: Option<OriginalValueIndex>,
 }
 
 impl ShapesModel {
@@ -61,8 +215,14 @@ impl ShapesModel {
             ))
         })?;
 
-        let mut ctx =
-            ParsingContext::new(store, env, shape_graph_iri.clone(), dummy_data_graph_iri);
+        let mut ctx = ParsingContext::new(
+            store,
+            env,
+            shape_graph_iri.clone(),
+            dummy_data_graph_iri,
+            FeatureToggles::default(),
+            None,
+        );
         info!(
             "Parsing shapes from graph <{}> into context",
             ctx.shape_graph_iri_ref()
@@ -89,6 +249,9 @@ impl ShapesModel {
             prop_shapes: final_ctx.prop_shapes,
             component_descriptors: final_ctx.component_descriptors,
             env: final_ctx.env,
+            sparql: final_ctx.sparql.clone(),
+            features: final_ctx.features.clone(),
+            original_values: final_ctx.original_values,
         })
     }
 
@@ -140,6 +303,10 @@ pub(crate) struct ParsingContext {
     pub(crate) prop_shapes: HashMap<PropShapeID, PropertyShape>,
     pub(crate) component_descriptors: HashMap<ComponentID, ComponentDescriptor>,
     pub(crate) env: OntoEnv,
+    pub(crate) sparql: Rc<SparqlServices>,
+    #[allow(dead_code)]
+    pub(crate) features: FeatureToggles,
+    pub(crate) original_values: Option<OriginalValueIndex>,
 }
 
 impl ParsingContext {
@@ -152,6 +319,8 @@ impl ParsingContext {
         env: OntoEnv,
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
+        features: FeatureToggles,
+        original_values: Option<OriginalValueIndex>,
     ) -> Self {
         Self {
             nodeshape_id_lookup: RefCell::new(IDLookupTable::<ID>::new()),
@@ -164,6 +333,9 @@ impl ParsingContext {
             prop_shapes: HashMap::new(),
             component_descriptors: HashMap::new(),
             env,
+            sparql: Rc::new(SparqlServices::new()),
+            features,
+            original_values,
         }
     }
 

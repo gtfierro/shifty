@@ -1,11 +1,11 @@
-#![allow(deprecated)]
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::ToSubjectRef;
+use crate::sparql::SparqlExecutor;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
-use oxigraph::sparql::{Query, QueryOptions, QueryResults, Variable};
+use oxigraph::sparql::{QueryResults, Variable};
 use oxsdatatypes::*;
 use std::str::FromStr;
 
@@ -17,7 +17,7 @@ use crate::runtime::{
 #[derive(Debug)]
 pub struct ClassConstraintComponent {
     class: Term,
-    query: Query,
+    query: String,
 }
 
 impl ClassConstraintComponent {
@@ -31,12 +31,9 @@ impl ClassConstraintComponent {
         }}",
             class_term.to_string()
         );
-        match Query::parse(&query_str, None) {
-            Ok(mut query) => {
-                query.dataset_mut().set_default_graph_as_union();
-                ClassConstraintComponent { class, query }
-            }
-            Err(e) => panic!("Failed to parse SPARQL query: {}", e),
+        ClassConstraintComponent {
+            class,
+            query: query_str,
         }
     }
 }
@@ -75,12 +72,17 @@ impl ValidateComponent for ClassConstraintComponent {
 
         let mut results = Vec::new();
         let vns = c.value_nodes().cloned().unwrap();
+        let sparql_services = context.model.sparql.as_ref();
+        let prepared = sparql_services
+            .prepared_query(&self.query)
+            .map_err(|e| format!("Failed to prepare class constraint query: {}", e))?;
 
         for vn in vns.iter() {
-            match context.model.store().query_opt_with_substituted_variables(
-                self.query.clone(),
-                QueryOptions::default(),
-                [(cc_var.clone(), vn.clone())],
+            match sparql_services.execute_with_substitutions(
+                &self.query,
+                &prepared,
+                context.model.store(),
+                &[(cc_var.clone(), vn.clone())],
             ) {
                 Ok(QueryResults::Boolean(result)) => {
                     if !result {
@@ -452,8 +454,10 @@ impl GraphvizOutput for NodeKindConstraintComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::model::FeatureToggles;
     use crate::context::{Context, IDLookupTable, ShapesModel, SourceShape, ValidationContext};
     use crate::model::components::ComponentDescriptor;
+    use crate::sparql::SparqlServices;
     use crate::types::{ComponentID, PropShapeID};
     use ontoenv::api::OntoEnv;
     use ontoenv::config::Config;
@@ -487,6 +491,9 @@ mod tests {
             prop_shapes: HashMap::new(),
             component_descriptors: HashMap::<ComponentID, ComponentDescriptor>::new(),
             env,
+            sparql: Rc::new(SparqlServices::new()),
+            features: FeatureToggles::default(),
+            original_values: None,
         };
 
         ValidationContext::new(Rc::new(model), data_graph_iri)

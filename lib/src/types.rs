@@ -1,8 +1,8 @@
-#![allow(deprecated)]
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
+use crate::sparql::SparqlExecutor;
 use oxigraph::model::{NamedNode, NamedNodeRef, Term, TermRef, Variable};
-use oxigraph::sparql::{Query, QueryOptions, QueryResults}; // Added Query
+use oxigraph::sparql::QueryResults;
 use std::fmt; // Added for Display trait
 use std::hash::Hash; // Added Hash for derived traits
 
@@ -257,27 +257,28 @@ impl Target {
                     SELECT DISTINCT ?inst ?target_class WHERE { ?inst rdf:type ?c . ?c rdfs:subClassOf* ?target_class }";
                 let target_class_var = Variable::new("target_class").map_err(|e| e.to_string())?;
 
-                let mut parsed_query = Query::parse(query_str, None).map_err(|e| {
-                    format!(
-                        "SPARQL parse error for Target::Class: {} {:?}",
-                        query_str, e
-                    )
-                })?;
-                parsed_query.dataset_mut().set_default_graph_as_union();
+                let prepared = context
+                    .model
+                    .sparql
+                    .prepared_query(query_str)
+                    .map_err(|e| {
+                        format!(
+                            "SPARQL parse error for Target::Class: {} {:?}",
+                            query_str, e
+                        )
+                    })?;
 
                 let results = context
                     .model
-                    .store()
-                    .query_opt_with_substituted_variables(
-                        parsed_query,
-                        QueryOptions::default(),
-                        [(target_class_var, c.clone())],
+                    .sparql
+                    .execute_with_substitutions(
+                        query_str,
+                        &prepared,
+                        context.model.store(),
+                        &[(target_class_var, c.clone())],
                     )
                     .map_err(|e| {
-                        format!(
-                            "SPARQL query error for Target::Class: {} {:?}",
-                            query_str, e
-                        )
+                        format!("SPARQL query error for Target::Class: {} {}", query_str, e)
                     })?;
 
                 match results {
@@ -314,18 +315,27 @@ impl Target {
                         "SELECT DISTINCT ?s WHERE {{ ?s <{}> ?any . }}",
                         predicate_node.as_str()
                     );
-                    let mut parsed_query = Query::parse(&query_str, None).map_err(|e| {
-                        format!(
-                            "SPARQL parse error for Target::SubjectsOf: {} {:?}",
-                            query_str, e
-                        )
-                    })?;
-                    parsed_query.dataset_mut().set_default_graph_as_union();
+                    let prepared =
+                        context
+                            .model
+                            .sparql
+                            .prepared_query(&query_str)
+                            .map_err(|e| {
+                                format!(
+                                    "SPARQL parse error for Target::SubjectsOf: {} {:?}",
+                                    query_str, e
+                                )
+                            })?;
 
                     let results = context
                         .model
-                        .store()
-                        .query_opt(parsed_query, QueryOptions::default())
+                        .sparql
+                        .execute_with_substitutions(
+                            &query_str,
+                            &prepared,
+                            context.model.store(),
+                            &[],
+                        )
                         .map_err(|e| e.to_string())?;
 
                     match results {
@@ -362,18 +372,27 @@ impl Target {
                         "SELECT DISTINCT ?o WHERE {{ ?any <{}> ?o . }}",
                         predicate_node.as_str()
                     );
-                    let mut parsed_query = Query::parse(&query_str, None).map_err(|e| {
-                        format!(
-                            "SPARQL parse error for Target::ObjectsOf: {} {:?}",
-                            query_str, e
-                        )
-                    })?;
-                    parsed_query.dataset_mut().set_default_graph_as_union();
+                    let prepared =
+                        context
+                            .model
+                            .sparql
+                            .prepared_query(&query_str)
+                            .map_err(|e| {
+                                format!(
+                                    "SPARQL parse error for Target::ObjectsOf: {} {:?}",
+                                    query_str, e
+                                )
+                            })?;
 
                     let results = context
                         .model
-                        .store()
-                        .query_opt(parsed_query, QueryOptions::default())
+                        .sparql
+                        .execute_with_substitutions(
+                            &query_str,
+                            &prepared,
+                            context.model.store(),
+                            &[],
+                        )
                         .map_err(|e| e.to_string())?;
 
                     match results {
