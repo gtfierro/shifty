@@ -182,6 +182,20 @@ impl SparqlExecutor for SparqlServices {
             }
         }
 
+        const DEFAULT_PREFIXES: &[(&str, &str)] = &[
+            ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+            ("rdfs", "http://www.w3.org/2000/01/rdf-schema#"),
+            ("xsd", "http://www.w3.org/2001/XMLSchema#"),
+            ("owl", "http://www.w3.org/2002/07/owl#"),
+            ("sh", "http://www.w3.org/ns/shacl#"),
+        ];
+
+        for (prefix, namespace) in DEFAULT_PREFIXES {
+            collected_prefixes
+                .entry(prefix.to_string())
+                .or_insert_with(|| namespace.to_string());
+        }
+
         let prefix_strs: Vec<String> = collected_prefixes
             .iter()
             .map(|(prefix, iri)| format!("PREFIX {}: <{}>", prefix, iri))
@@ -800,6 +814,47 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
         for solution_res in solutions {
             if let Ok(solution) = solution_res {
                 if let Some(Term::NamedNode(cc_iri)) = solution.get("cc") {
+                    // Quick structural validation before running heavier SPARQL queries.
+                    let has_validator = context
+                        .store
+                        .quads_for_pattern(
+                            Some(cc_iri.as_ref().into()),
+                            None,
+                            None,
+                            Some(context.shape_graph_iri_ref()),
+                        )
+                        .filter_map(Result::ok)
+                        .any(|quad| {
+                            let predicate = quad.predicate.as_ref();
+                            predicate == shacl.validator
+                                || predicate == shacl.node_validator
+                                || predicate == shacl.property_validator
+                        });
+                    if !has_validator {
+                        return Err(format!(
+                            "Custom constraint component {} must declare at least one validator.",
+                            cc_iri
+                        ));
+                    }
+
+                    let has_parameter = context
+                        .store
+                        .quads_for_pattern(
+                            Some(cc_iri.as_ref().into()),
+                            Some(shacl.parameter),
+                            None,
+                            Some(context.shape_graph_iri_ref()),
+                        )
+                        .filter_map(Result::ok)
+                        .next()
+                        .is_some();
+                    if !has_parameter {
+                        return Err(format!(
+                            "Custom constraint component {} must declare at least one sh:parameter.",
+                            cc_iri
+                        ));
+                    }
+
                     let mut parameters = vec![];
                     let param_query = format!(
                         "PREFIX sh: <http://www.w3.org/ns/shacl#>\nSELECT ?param ?path ?optional ?varName FROM <{}> WHERE {{ <{}> sh:parameter ?param . ?param sh:path ?path . OPTIONAL {{ ?param sh:optional ?optional }} OPTIONAL {{ ?param sh:varName ?varName }} }}",

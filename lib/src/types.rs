@@ -532,7 +532,7 @@ fn evaluate_advanced_target(
         .filter_map(Result::ok)
     {
         if let Term::Literal(lit) = quad.object {
-            let query = build_prefixed_query(store, selector_ref, &lit, shape_graph)?;
+            let query = build_prefixed_query(context, selector, &lit)?;
             let nodes = execute_select_query(context, &query)?;
             focus_terms.extend(nodes);
         }
@@ -540,7 +540,7 @@ fn evaluate_advanced_target(
 
     let mut focus_terms = deduplicate_terms(focus_terms);
     focus_terms = apply_filter_shapes(context, selector_ref, focus_terms, shape_graph)?;
-    focus_terms = apply_ask_validators(context, selector_ref, focus_terms, shape_graph)?;
+    focus_terms = apply_ask_validators(context, selector, selector_ref, focus_terms, shape_graph)?;
 
     context.store_advanced_target(selector, &focus_terms);
     Ok(contexts_from_terms(context, focus_terms, source_shape))
@@ -654,6 +654,7 @@ fn apply_filter_shapes(
 
 fn apply_ask_validators(
     context: &ValidationContext,
+    selector: &Term,
     selector_ref: NamedOrBlankNodeRef<'_>,
     focus_terms: Vec<Term>,
     shape_graph: oxigraph::model::GraphNameRef<'_>,
@@ -674,7 +675,7 @@ fn apply_ask_validators(
                 ))
             }
         };
-        let query = build_prefixed_query(store, selector_ref, &lit, shape_graph)?;
+        let query = build_prefixed_query(context, selector, &lit)?;
         let mut next_terms = Vec::new();
         for term in current_terms.into_iter() {
             if execute_ask_query(context, &query, &term)? {
@@ -687,60 +688,28 @@ fn apply_ask_validators(
 }
 
 fn build_prefixed_query(
-    store: &oxigraph::store::Store,
-    selector_ref: NamedOrBlankNodeRef<'_>,
+    context: &ValidationContext,
+    selector: &Term,
     literal: &Literal,
-    shape_graph: oxigraph::model::GraphNameRef<'_>,
 ) -> Result<String, String> {
-    let shacl = SHACL::new();
-    let mut lines: Vec<String> = Vec::new();
-    for quad in store
-        .quads_for_pattern(
-            Some(selector_ref),
-            Some(shacl.declare),
-            None,
-            Some(shape_graph),
+    let prefixes = context
+        .model
+        .sparql
+        .prefixes_for_node(
+            selector,
+            context.model.store(),
+            context.model.env(),
+            context.model.shape_graph_iri_ref(),
         )
-        .filter_map(Result::ok)
-    {
-        let declaration_term = quad.object;
-        let declaration_ref = term_to_subject_ref(&declaration_term)?;
-        let prefix = store
-            .quads_for_pattern(
-                Some(declaration_ref),
-                Some(shacl.prefix),
-                None,
-                Some(shape_graph),
-            )
-            .filter_map(Result::ok)
-            .find_map(|q| match q.object {
-                Term::Literal(lit) => Some(lit.value().to_string()),
-                _ => None,
-            })
-            .ok_or_else(|| "sh:declare entry missing sh:prefix literal".to_string())?;
-        let namespace = store
-            .quads_for_pattern(
-                Some(declaration_ref),
-                Some(shacl.namespace),
-                None,
-                Some(shape_graph),
-            )
-            .filter_map(Result::ok)
-            .find_map(|q| match q.object {
-                Term::Literal(lit) => Some(lit.value().to_string()),
-                _ => None,
-            })
-            .ok_or_else(|| "sh:declare entry missing sh:namespace literal".to_string())?;
-        lines.push(format!("PREFIX {}: <{}>", prefix, namespace));
-    }
+        .map_err(|e| format!("Failed to resolve prefixes for advanced target: {}", e))?;
 
     let mut query = literal.value().to_string();
-    if !lines.is_empty() {
-        let prefix_block = lines.join("\n");
+    let trimmed_prefixes = prefixes.trim();
+    if !trimmed_prefixes.is_empty() {
         if query.starts_with('\n') {
             query = query.trim_start_matches('\n').to_string();
         }
-        query = format!("{}\n{}", prefix_block, query);
+        query = format!("{}\n{}", trimmed_prefixes, query);
     }
     Ok(query)
 }
