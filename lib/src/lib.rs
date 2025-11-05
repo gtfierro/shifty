@@ -34,7 +34,7 @@ use ontoenv::api::OntoEnv;
 use ontoenv::config::Config;
 use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
-use oxigraph::model::{GraphNameRef, NamedNode};
+use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
 use std::error::Error;
 use std::path::PathBuf;
@@ -382,6 +382,22 @@ impl Validator {
     /// Runs inference using the default configuration.
     pub fn run_inference(&self) -> Result<InferenceOutcome, InferenceError> {
         self.run_inference_with_config(InferenceConfig::default())
+    }
+
+    /// Returns all quads currently stored in the validator's data graph.
+    pub fn data_graph_quads(&self) -> Result<Vec<Quad>, String> {
+        let graph = GraphName::NamedNode(self.context.data_graph_iri.clone());
+        let mut quads = Vec::new();
+        for quad_res in
+            self.context
+                .model
+                .store()
+                .quads_for_pattern(None, None, None, Some(graph.as_ref()))
+        {
+            let quad = quad_res.map_err(|e| format!("Failed to read data graph: {}", e))?;
+            quads.push(quad);
+        }
+        Ok(quads)
     }
 
     /// Runs inference followed by validation, yielding both the inference outcome and report.

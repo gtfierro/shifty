@@ -35,6 +35,7 @@ pub struct InferenceOutcome {
     pub iterations_executed: usize,
     pub triples_added: usize,
     pub converged: bool,
+    pub inferred_quads: Vec<Quad>,
 }
 
 /// Errors that can arise during inference.
@@ -156,17 +157,19 @@ impl<'a> InferenceEngine<'a> {
                 iterations_executed: 0,
                 triples_added: 0,
                 converged: true,
+                inferred_quads: Vec::new(),
             });
         }
 
         let mut total_added = 0usize;
         let mut iterations_executed = 0usize;
         let mut converged = false;
+        let mut inferred_quads = Vec::new();
 
         for iteration in 1..=self.config.max_iterations {
             self.context.advanced_target_cache.borrow_mut().clear();
             iterations_executed = iteration;
-            let added_this_round = self.apply_rules_once()?;
+            let added_this_round = self.apply_rules_once(&mut inferred_quads)?;
             total_added += added_this_round;
 
             let reached_min = iteration >= self.config.min_iterations;
@@ -190,6 +193,7 @@ impl<'a> InferenceEngine<'a> {
             iterations_executed,
             triples_added: total_added,
             converged,
+            inferred_quads,
         })
     }
 
@@ -213,7 +217,7 @@ impl<'a> InferenceEngine<'a> {
         Ok(())
     }
 
-    fn apply_rules_once(&self) -> Result<usize, InferenceError> {
+    fn apply_rules_once(&self, collected: &mut Vec<Quad>) -> Result<usize, InferenceError> {
         let mut iteration_added = 0usize;
         let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
 
@@ -237,10 +241,10 @@ impl<'a> InferenceEngine<'a> {
                 }
                 let added = match rule {
                     Rule::Sparql(sparql_rule) => {
-                        self.apply_sparql_rule(sparql_rule, &focus_nodes, &mut seen_new)?
+                        self.apply_sparql_rule(sparql_rule, &focus_nodes, &mut seen_new, collected)?
                     }
                     Rule::Triple(triple_rule) => {
-                        self.apply_triple_rule(triple_rule, &focus_nodes, &mut seen_new)?
+                        self.apply_triple_rule(triple_rule, &focus_nodes, &mut seen_new, collected)?
                     }
                 };
                 iteration_added += added;
@@ -267,10 +271,10 @@ impl<'a> InferenceEngine<'a> {
                 }
                 let added = match rule {
                     Rule::Sparql(sparql_rule) => {
-                        self.apply_sparql_rule(sparql_rule, &focus_nodes, &mut seen_new)?
+                        self.apply_sparql_rule(sparql_rule, &focus_nodes, &mut seen_new, collected)?
                     }
                     Rule::Triple(triple_rule) => {
-                        self.apply_triple_rule(triple_rule, &focus_nodes, &mut seen_new)?
+                        self.apply_triple_rule(triple_rule, &focus_nodes, &mut seen_new, collected)?
                     }
                 };
                 iteration_added += added;
@@ -325,6 +329,7 @@ impl<'a> InferenceEngine<'a> {
         rule: &SparqlRule,
         focus_nodes: &[Term],
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
+        collected: &mut Vec<Quad>,
     ) -> Result<usize, InferenceError> {
         let sparql = self.context.model.sparql.as_ref();
         let prepared =
@@ -378,6 +383,7 @@ impl<'a> InferenceEngine<'a> {
                         predicate,
                         object_term,
                         seen_new,
+                        collected,
                     )? {
                         added += 1;
                     }
@@ -398,6 +404,7 @@ impl<'a> InferenceEngine<'a> {
         rule: &TripleRule,
         focus_nodes: &[Term],
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
+        collected: &mut Vec<Quad>,
     ) -> Result<usize, InferenceError> {
         let mut added = 0usize;
 
@@ -417,6 +424,7 @@ impl<'a> InferenceEngine<'a> {
                         rule.predicate.clone(),
                         object_term.clone(),
                         seen_new,
+                        collected,
                     )? {
                         added += 1;
                     }
@@ -539,6 +547,7 @@ impl<'a> InferenceEngine<'a> {
         predicate: NamedNode,
         object_term: Term,
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
+        collected: &mut Vec<Quad>,
     ) -> Result<bool, InferenceError> {
         if self.config.error_on_blank_nodes {
             if matches!(subject_term, Term::BlankNode(_))
@@ -562,7 +571,12 @@ impl<'a> InferenceEngine<'a> {
         }
 
         let graph = GraphName::NamedNode(self.context.data_graph_iri.clone());
-        let quad = Quad::new(subject, predicate.clone(), object_term.clone(), graph);
+        let quad = Quad::new(
+            subject.clone(),
+            predicate.clone(),
+            object_term.clone(),
+            graph.clone(),
+        );
 
         if self
             .context
@@ -587,6 +601,7 @@ impl<'a> InferenceEngine<'a> {
             })?;
 
         seen_new.insert(key);
+        collected.push(quad);
         Ok(true)
     }
 }
@@ -692,6 +707,7 @@ ex:rect2 a ex:Rectangle ;
         let config = InferenceConfig::default();
         let outcome = run_inference(context, config.clone()).expect("inference should succeed");
         assert_eq!(outcome.triples_added, 1);
+        assert_eq!(outcome.inferred_quads.len(), 1);
         assert!(outcome.converged);
         assert!(outcome.iterations_executed >= 1);
 
@@ -715,6 +731,7 @@ ex:rect2 a ex:Rectangle ;
         // second run should add nothing
         let outcome_second = run_inference(context, config).expect("second run succeeds");
         assert_eq!(outcome_second.triples_added, 0);
+        assert!(outcome_second.inferred_quads.is_empty());
     }
 
     #[test]
@@ -742,6 +759,7 @@ ex:rect2 a ex:Rectangle .
         let context = validator.context();
         let outcome = run_inference(context, InferenceConfig::default()).expect("inference");
         assert_eq!(outcome.triples_added, 2);
+        assert_eq!(outcome.inferred_quads.len(), 2);
 
         let predicate = NamedNode::new("http://example.com/ns#tag").unwrap();
         let literal = Term::Literal(Literal::new_simple_literal("rectangle"));
@@ -818,6 +836,7 @@ ex:Focus ex:value "foo" .
         let context = validator.context();
         let outcome = run_inference(context, InferenceConfig::default()).expect("inference");
         assert_eq!(outcome.triples_added, 1);
+        assert_eq!(outcome.inferred_quads.len(), 1);
 
         let predicate = NamedNode::new("http://example.com/ns#tag").unwrap();
         let quad = Quad::new(

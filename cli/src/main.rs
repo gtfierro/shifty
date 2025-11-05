@@ -2,9 +2,12 @@ use clap::{Parser, ValueEnum};
 use env_logger;
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
-use oxigraph::io::RdfFormat;
+use oxigraph::io::{RdfFormat, RdfSerializer};
+use oxigraph::model::{Quad, TripleRef};
 use shacl::{InferenceConfig, Source, Validator};
 use std::collections::HashMap;
+use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -129,6 +132,14 @@ struct InferenceArgs {
     /// Fail if inference produces blank nodes
     #[arg(long)]
     error_on_blank_nodes: bool,
+
+    /// Path to write the inferred triples as Turtle
+    #[arg(long, value_name = "FILE")]
+    output_file: Option<PathBuf>,
+
+    /// Output the union of the original data graph with inferred triples
+    #[arg(long)]
+    union: bool,
 }
 
 #[derive(Parser)]
@@ -226,6 +237,23 @@ fn build_inference_config(
     config
 }
 
+fn serialize_quads_to_turtle(quads: &[Quad]) -> Result<Vec<u8>, String> {
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle).for_writer(Vec::new());
+    for quad in quads {
+        let triple_ref = TripleRef::new(
+            quad.subject.as_ref(),
+            quad.predicate.as_ref(),
+            quad.object.as_ref(),
+        );
+        serializer
+            .serialize_triple(triple_ref)
+            .map_err(|e| format!("Failed to serialize triple: {}", e))?;
+    }
+    serializer
+        .finish()
+        .map_err(|e| format!("Failed to finish Turtle serialization: {}", e))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let cli = Cli::parse();
@@ -309,10 +337,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let outcome = validator
                 .run_inference_with_config(config)
                 .map_err(|e| format!("Inference failed: {}", e))?;
-            println!(
+            eprintln!(
                 "Inference added {} triple(s) in {} iteration(s); converged={}",
                 outcome.triples_added, outcome.iterations_executed, outcome.converged
             );
+
+            let quads_to_emit = if args.union {
+                validator
+                    .data_graph_quads()
+                    .map_err(|e| format!("Failed to read data graph: {}", e))?
+            } else {
+                outcome.inferred_quads
+            };
+
+            let turtle_bytes = serialize_quads_to_turtle(&quads_to_emit)?;
+
+            if let Some(path) = args.output_file {
+                fs::write(&path, &turtle_bytes)
+                    .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+                eprintln!(
+                    "Wrote {} triple(s) to {}",
+                    quads_to_emit.len(),
+                    path.display()
+                );
+            } else {
+                io::stdout().write_all(&turtle_bytes)?;
+            }
         }
         Commands::Heat(args) => {
             let validator = get_validator(&args.common)?;
