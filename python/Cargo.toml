@@ -1,0 +1,19 @@
+[package]
+name = "python"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description.workspace = true
+readme.workspace = true
+
+[lib]
+name = "shacl_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py39"] }
+shacl = { path = "../lib" }
+oxigraph.workspace = true
+ontoenv = "0.4.0-a15"
+tempfile = "3"
