@@ -1,5 +1,4 @@
 use clap::{Parser, ValueEnum};
-use env_logger;
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use oxigraph::io::{RdfFormat, RdfSerializer};

@@ -44,28 +44,22 @@ fn collect_tests_from_manifest(
         }
 
         let manifest = load_manifest(&canonical).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Failed to load manifest from {}: {}",
-                    canonical.display(),
-                    e
-                ),
-            )
+            io::Error::other(format!(
+                "Failed to load manifest from {}: {}",
+                canonical.display(),
+                e
+            ))
         })?;
         for case in manifest.test_cases {
             all_tests.push((canonical.clone(), case));
         }
 
         let includes = list_includes(&canonical).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Failed to list mf:include targets for {}: {}",
-                    canonical.display(),
-                    e
-                ),
-            )
+            io::Error::other(format!(
+                "Failed to list mf:include targets for {}: {}",
+                canonical.display(),
+                e
+            ))
         })?;
         for include in includes {
             let include_canonical = include.canonicalize().unwrap_or_else(|_| include.clone());
@@ -125,10 +119,10 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             .to_str()
             .ok_or("Invalid shapes graph path")?;
         let validator = Validator::from_files(shapes_graph_path, data_graph_path).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create Validator for test '{}': {}", test_name, e),
-            )
+            io::Error::other(format!(
+                "Failed to create Validator for test '{}': {}",
+                test_name, e
+            ))
         })?;
         let report = validator.validate();
         let conforms = report.conforms();
@@ -163,48 +157,36 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         report_graph = deskolemize_graph(&report_graph, &shapes_base_iri);
 
         let report_turtle = graph_to_turtle(&report_graph).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Failed to convert report graph to Turtle for test '{}': {}",
-                    test_name, e
-                ),
-            )
+            io::Error::other(format!(
+                "Failed to convert report graph to Turtle for test '{}': {}",
+                test_name, e
+            ))
         })?;
         // write to report.ttl
         let report_path = PathBuf::from("report.ttl");
         std::fs::write(&report_path, report_turtle.as_bytes()).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Failed to write report to {} for test '{}': {}",
-                    report_path.display(),
-                    test_name,
-                    e
-                ),
-            )
+            io::Error::other(format!(
+                "Failed to write report to {} for test '{}': {}",
+                report_path.display(),
+                test_name,
+                e
+            ))
         })?;
         let expected_turtle = graph_to_turtle(&test.expected_report).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Failed to convert expected report graph to Turtle for test '{}': {}",
-                    test_name, e
-                ),
-            )
+            io::Error::other(format!(
+                "Failed to convert expected report graph to Turtle for test '{}': {}",
+                test_name, e
+            ))
         })?;
         // write to expected.ttl
         let expected_path = PathBuf::from("expected.ttl");
         std::fs::write(&expected_path, expected_turtle.as_bytes()).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Failed to write expected report to {} for test '{}': {}",
-                    expected_path.display(),
-                    test_name,
-                    e
-                ),
-            )
+            io::Error::other(format!(
+                "Failed to write expected report to {} for test '{}': {}",
+                expected_path.display(),
+                test_name,
+                e
+            ))
         })?;
         assert_eq!(
             conforms, expects_conform,
@@ -232,11 +214,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             filtered
         };
 
-        let expected_graph_for_compare: Graph = if expected_has_result_messages {
-            test.expected_report.clone()
-        } else {
-            test.expected_report.clone()
-        };
+        let expected_graph_for_compare: Graph = test.expected_report.clone();
 
         assert!(are_isomorphic(
             &report_graph_for_compare,

@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -27,7 +29,7 @@ fn write_graph_to_file(
         Ok(s) => s,
         Err(_) => {
             let bytes: Vec<u8> = serialized.extract()?;
-            String::from_utf8(bytes).map_err(|e| map_err(e))?
+            String::from_utf8(bytes).map_err(map_err)?
         }
     };
 
@@ -152,7 +154,7 @@ fn resolve_run_until(
     if let Some(flag) = no_converge {
         let inferred_value = Some(!flag);
         if let Some(explicit) = run_until_converged {
-            if explicit != !flag {
+            if explicit == flag {
                 return Err(PyValueError::new_err(format!(
                     "Received conflicting values for {} and {}",
                     run_until_name, no_converge_name
