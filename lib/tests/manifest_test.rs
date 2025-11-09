@@ -260,4 +260,4 @@ macro_rules! generate_test_cases {
     }
 }
 
-include!(env!("SHACL_GENERATED_MANIFEST_TESTS"));
+include!(concat!(env!("OUT_DIR"), "/generated_manifest_tests.rs"));
