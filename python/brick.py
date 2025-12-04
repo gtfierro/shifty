@@ -16,7 +16,11 @@ print("Running SHACL inference...")
 inferred = shacl_rs.infer(model_graph, shape_graph)
 print(inferred.serialize(format="turtle"))
 
-valid, results_graph, report_string = shacl_rs.validate(model_graph, shape_graph)
+valid, results_graph, report_string = shacl_rs.validate(
+    model_graph,
+    shape_graph,
+    inference={"debug": True},
+)
 print("Validation Report:")
 print(report_string)
 print(f"Model is valid: {valid}")

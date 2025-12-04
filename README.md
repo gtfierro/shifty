@@ -99,6 +99,7 @@ shacl_rs.validate(
     shapes_graph: rdflib.Graph,
     *,
     run_inference=False,
+    inference=None,
     min_iterations=None,
     max_iterations=None,
     run_until_converged=None,
@@ -118,7 +119,17 @@ shacl_rs.validate(
 
 - `infer` returns only the new triples.
 - `validate` returns `(conforms, results_graph, report_turtle)`.
-- CLI-style inference aliases (`inference_min_iterations`, `inference_no_converge`, etc.) are available so Python scripts mirror the CLI flags.
+- `inference` can be `True`/`False` or a dict that groups inference options (e.g. `{"min_iterations": 2, "debug": True}`) so you don't have to repeat CLI-style flags in Python. Explicit keyword arguments still work and continue to accept their `inference_*` aliases for backward compatibility.
+
+Example:
+
+```python
+conforms, results_graph, report_text = shacl_rs.validate(
+    data_graph,
+    shapes_graph,
+    inference={"min_iterations": 2, "max_iterations": 6, "debug": True},
+)
+```
 
 ### Python example (adapted from `python/brick.py`)
 
@@ -140,9 +151,7 @@ print(inferred.serialize(format="turtle"))
 conforms, results_graph, report_text = shacl_rs.validate(
     data_graph,
     shapes_graph,
-    run_inference=True,
-    inference_max_iterations=12,
-    inference_debug=True,
+    inference={"max_iterations": 12, "debug": True},
 )
 print(f"Model conforms: {conforms}")
 print(report_text)

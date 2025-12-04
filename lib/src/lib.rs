@@ -445,8 +445,8 @@ impl Validator {
         render_heatmap_graphviz(&self.context, include_all_nodes)
     }
 
-    #[cfg(test)]
-    pub(crate) fn context(&self) -> &ValidationContext {
+    /// Exposes the underlying validation context for diagnostics (CLI, tooling).
+    pub fn context(&self) -> &ValidationContext {
         &self.context
     }
 }

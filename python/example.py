@@ -37,3 +37,11 @@ print(len(results_graph)) # Number of results triples
 # Run SHACL rules beforehand, returning only inferred triples
 inferred = shacl_rs.infer(data, shapes)
 print(len(inferred))      # New triples inferred by rules
+
+# Run validation with grouped inference options
+conforms2, _, _ = shacl_rs.validate(
+    data,
+    shapes,
+    inference={"min_iterations": 1, "max_iterations": 4, "debug": True},
+)
+print(conforms2)

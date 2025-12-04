@@ -12,6 +12,7 @@ use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
 use oxigraph::store::Store;
+use std::sync::RwLock;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;

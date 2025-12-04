@@ -142,6 +142,8 @@ jobs:
 
   macos:
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "10.13"
     strategy:
       matrix:
         platform:
@@ -151,6 +153,8 @@ jobs:
             target: aarch64
     steps:
       - uses: actions/checkout@v4
+      - name: Set macOS deployment target
+        run: echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}" >> $GITHUB_ENV
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x

@@ -27,8 +27,11 @@ import shacl_rs
 conforms, results_graph, report = shacl_rs.validate(
     data_graph,
     shapes_graph,
-    run_inference=True,
-    inference_max_iterations=8,
+    inference={
+        "min_iterations": 1,
+        "max_iterations": 8,
+        "debug": True,
+    },
 )
 
 inferred_graph = shacl_rs.infer(
@@ -37,6 +40,10 @@ inferred_graph = shacl_rs.infer(
     min_iterations=1,
     max_iterations=4,
 )
+
+Passing `inference=True` runs rule inference before validation, while a dict lets you tweak
+the same knobs as the CLI without repeating every keyword (aliases like
+`inference_max_iterations` remain for backward compatibility).
 ```
 
 See `example.py` and `brick.py` in this directory for full RDFlib/OntoEnv examples.

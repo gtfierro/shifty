@@ -7,7 +7,7 @@ use ontoenv::config::Config;
 use oxigraph::model::Quad;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBool, PyDict};
 use pyo3::wrap_pyfunction;
 use shacl::{InferenceConfig, Source, Validator};
 use tempfile::tempdir;
@@ -145,6 +145,30 @@ where
     }
 }
 
+fn merge_option<T>(
+    target: &mut Option<T>,
+    incoming: Option<T>,
+    target_name: &str,
+    source_name: &str,
+) -> PyResult<()>
+where
+    T: PartialEq + Copy,
+{
+    if let Some(value) = incoming {
+        if let Some(existing) = target {
+            if *existing != value {
+                return Err(PyValueError::new_err(format!(
+                    "Received conflicting values for {} and {}",
+                    target_name, source_name
+                )));
+            }
+        } else {
+            *target = Some(value);
+        }
+    }
+    Ok(())
+}
+
 fn resolve_run_until(
     run_until_converged: Option<bool>,
     no_converge: Option<bool>,
@@ -246,12 +270,13 @@ fn infer(
     graph_from_data(py, &data, "nt")
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=None))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=None))]
 fn validate(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
     shapes_graph: &Bound<'_, PyAny>,
     run_inference: bool,
+    inference: Option<&Bound<'_, PyAny>>,
     min_iterations: Option<usize>,
     max_iterations: Option<usize>,
     run_until_converged: Option<bool>,
@@ -276,38 +301,153 @@ fn validate(
         skip_invalid_rules.unwrap_or(false),
     )?;
 
-    if run_inference {
-        let min_iterations = resolve_alias(
-            min_iterations,
-            inference_min_iterations,
-            "min_iterations",
-            "inference_min_iterations",
-        )?;
-        let max_iterations = resolve_alias(
-            max_iterations,
-            inference_max_iterations,
-            "max_iterations",
-            "inference_max_iterations",
-        )?;
-        let run_until_converged = resolve_run_until(
-            run_until_converged,
-            no_converge,
-            "run_until_converged",
-            "no_converge",
-        )?;
-        let run_until_converged = resolve_run_until(
-            run_until_converged,
-            inference_no_converge,
-            "run_until_converged",
-            "inference_no_converge",
-        )?;
-        let error_on_blank_nodes = resolve_alias(
-            error_on_blank_nodes,
-            inference_error_on_blank_nodes,
-            "error_on_blank_nodes",
-            "inference_error_on_blank_nodes",
-        )?;
-        let debug = resolve_alias(debug, inference_debug, "debug", "inference_debug")?;
+    let mut min_iterations = resolve_alias(
+        min_iterations,
+        inference_min_iterations,
+        "min_iterations",
+        "inference_min_iterations",
+    )?;
+    let mut max_iterations = resolve_alias(
+        max_iterations,
+        inference_max_iterations,
+        "max_iterations",
+        "inference_max_iterations",
+    )?;
+    let mut run_until_converged = run_until_converged;
+    let mut no_converge = no_converge;
+    let mut inference_no_converge = inference_no_converge;
+    let mut error_on_blank_nodes = resolve_alias(
+        error_on_blank_nodes,
+        inference_error_on_blank_nodes,
+        "error_on_blank_nodes",
+        "inference_error_on_blank_nodes",
+    )?;
+    let mut debug = resolve_alias(debug, inference_debug, "debug", "inference_debug")?;
+    let mut should_run_inference = run_inference;
+
+    if let Some(obj) = inference {
+        if obj.is_none() {
+            // no-op
+        } else if obj.is_instance_of::<PyBool>() {
+            let flag = obj.extract::<bool>()?;
+            if should_run_inference && !flag {
+                return Err(PyValueError::new_err(
+                    "Received conflicting values for run_inference and inference flag",
+                ));
+            }
+            should_run_inference = flag;
+        } else if let Ok(dict) = obj.cast::<PyDict>() {
+            let mut run_toggle: Option<bool> = None;
+            for (key, value) in dict.iter() {
+                let key_name: String = key
+                    .extract()
+                    .map_err(|_| PyValueError::new_err("Inference option keys must be strings"))?;
+                if value.is_none() {
+                    continue;
+                }
+                let source_name = format!("inference['{}']", key_name);
+                match key_name.as_str() {
+                    "run" | "enabled" | "run_inference" => {
+                        let flag = value.extract::<bool>()?;
+                        run_toggle = match run_toggle {
+                            Some(existing) if existing != flag => {
+                                return Err(PyValueError::new_err(
+                                    "Received conflicting values inside inference['run']",
+                                ));
+                            }
+                            _ => Some(flag),
+                        };
+                    }
+                    "min_iterations" | "inference_min_iterations" => {
+                        let parsed = value.extract::<usize>()?;
+                        merge_option(
+                            &mut min_iterations,
+                            Some(parsed),
+                            "min_iterations",
+                            &source_name,
+                        )?;
+                    }
+                    "max_iterations" | "inference_max_iterations" => {
+                        let parsed = value.extract::<usize>()?;
+                        merge_option(
+                            &mut max_iterations,
+                            Some(parsed),
+                            "max_iterations",
+                            &source_name,
+                        )?;
+                    }
+                    "run_until_converged" => {
+                        let parsed = value.extract::<bool>()?;
+                        merge_option(
+                            &mut run_until_converged,
+                            Some(parsed),
+                            "run_until_converged",
+                            &source_name,
+                        )?;
+                    }
+                    "no_converge" => {
+                        let parsed = value.extract::<bool>()?;
+                        merge_option(&mut no_converge, Some(parsed), "no_converge", &source_name)?;
+                    }
+                    "inference_no_converge" => {
+                        let parsed = value.extract::<bool>()?;
+                        merge_option(
+                            &mut inference_no_converge,
+                            Some(parsed),
+                            "inference_no_converge",
+                            &source_name,
+                        )?;
+                    }
+                    "error_on_blank_nodes" | "inference_error_on_blank_nodes" => {
+                        let parsed = value.extract::<bool>()?;
+                        merge_option(
+                            &mut error_on_blank_nodes,
+                            Some(parsed),
+                            "error_on_blank_nodes",
+                            &source_name,
+                        )?;
+                    }
+                    "debug" | "inference_debug" => {
+                        let parsed = value.extract::<bool>()?;
+                        merge_option(&mut debug, Some(parsed), "debug", &source_name)?;
+                    }
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "Unknown inference option '{}'",
+                            other
+                        )));
+                    }
+                }
+            }
+
+            let desired_run = run_toggle.unwrap_or(true);
+            if should_run_inference && !desired_run {
+                return Err(PyValueError::new_err(
+                    "Received conflicting values for run_inference and inference['run']",
+                ));
+            }
+            should_run_inference = desired_run;
+        } else {
+            return Err(PyValueError::new_err(
+                "inference must be a bool, dict, or None",
+            ));
+        }
+    }
+
+    let run_until_converged = resolve_run_until(
+        run_until_converged,
+        no_converge,
+        "run_until_converged",
+        "no_converge",
+    )?;
+    let run_until_converged = resolve_run_until(
+        run_until_converged,
+        inference_no_converge,
+        "run_until_converged",
+        "inference_no_converge",
+    )?;
+
+    if should_run_inference {
         let config = build_inference_config(
             min_iterations,
             max_iterations,
