@@ -5,7 +5,7 @@ use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
-use crate::trace::{NullTraceSink, TraceSink};
+use crate::trace::{NullTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
 use std::cell::RefCell;
@@ -296,6 +296,10 @@ impl Context {
 
     pub(crate) fn value_nodes_mut(&mut self) -> Option<&mut Vec<Term>> {
         self.value_nodes.as_mut()
+    }
+
+    pub(crate) fn value(&self) -> Option<&Term> {
+        self.value.as_ref()
     }
 
     pub(crate) fn source_shape(&self) -> SourceShape {

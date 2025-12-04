@@ -3,6 +3,7 @@ use crate::report::ValidationReportBuilder;
 use crate::runtime::{ComponentValidationResult, ToSubjectRef};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::sparql::SparqlExecutor;
+use crate::trace::TraceEvent;
 use crate::types::{PropShapeID, TraceItem};
 use log::{debug, info};
 use oxigraph::model::{Literal, Term};
@@ -157,6 +158,9 @@ impl ValidateShape for NodeShape {
                 traces.len() - 1
             };
             target_context.set_trace_index(trace_index);
+            context
+                .trace_sink
+                .record(TraceEvent::EnterNodeShape(*self.identifier()));
 
             {
                 let mut traces = context.execution_traces.borrow_mut();
@@ -185,8 +189,26 @@ impl ValidateShape for NodeShape {
                     match comp.validate(*constraint_id, &mut target_context, context, trace) {
                         Ok(validation_results) => {
                             for result in validation_results {
-                                if let ComponentValidationResult::Fail(ctx, failure) = result {
-                                    report_builder.add_failure(&ctx, failure);
+                                match result {
+                                    ComponentValidationResult::Fail(ctx, failure) => {
+                                        context.trace_sink.record(TraceEvent::ComponentFailed {
+                                            component: *constraint_id,
+                                            focus: ctx.focus_node().clone(),
+                                            value: failure
+                                                .failed_value_node
+                                                .clone()
+                                                .or_else(|| ctx.value().cloned()),
+                                            message: Some(failure.message.clone()),
+                                        });
+                                        report_builder.add_failure(&ctx, failure);
+                                    }
+                                    ComponentValidationResult::Pass(ctx) => {
+                                        context.trace_sink.record(TraceEvent::ComponentPassed {
+                                            component: *constraint_id,
+                                            focus: ctx.focus_node().clone(),
+                                            value: ctx.value().cloned(),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -231,6 +253,9 @@ impl ValidateShape for PropertyShape {
                 traces.len() - 1
             };
             target_context.set_trace_index(trace_index);
+            context
+                .trace_sink
+                .record(TraceEvent::EnterPropertyShape(*self.identifier()));
 
             {
                 let mut traces = context.execution_traces.borrow_mut();
@@ -389,7 +414,30 @@ impl PropertyShape {
                     trace,
                 ) {
                     Ok(results) => {
-                        all_results.extend(results);
+                        for result in results {
+                            match result {
+                                ComponentValidationResult::Fail(ctx, failure) => {
+                                    context.trace_sink.record(TraceEvent::ComponentFailed {
+                                        component: *constraint_id,
+                                        focus: ctx.focus_node().clone(),
+                                        value: failure
+                                            .failed_value_node
+                                            .clone()
+                                            .or_else(|| ctx.value().cloned()),
+                                        message: Some(failure.message.clone()),
+                                    });
+                                    all_results.push(ComponentValidationResult::Fail(ctx, failure));
+                                }
+                                ComponentValidationResult::Pass(ctx) => {
+                                    context.trace_sink.record(TraceEvent::ComponentPassed {
+                                        component: *constraint_id,
+                                        focus: ctx.focus_node().clone(),
+                                        value: ctx.value().cloned(),
+                                    });
+                                    all_results.push(ComponentValidationResult::Pass(ctx));
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         return Err(e);
