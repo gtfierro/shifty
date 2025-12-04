@@ -1,3 +1,4 @@
+use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::component::{check_conformance_for_node, ConformanceReport};
@@ -278,27 +279,16 @@ impl Target {
                     SELECT DISTINCT ?inst ?target_class WHERE { ?inst rdf:type ?c . ?c rdfs:subClassOf* ?target_class }";
                 let target_class_var = Variable::new("target_class").map_err(|e| e.to_string())?;
 
-                let prepared = context
-                    .model
-                    .sparql
-                    .prepared_query(query_str)
-                    .map_err(|e| {
-                        format!(
-                            "SPARQL parse error for Target::Class: {} {:?}",
-                            query_str, e
-                        )
-                    })?;
-
-                let results = context
-                    .model
-                    .sparql
-                    .execute_with_substitutions(
-                        query_str,
-                        &prepared,
-                        context.model.store(),
-                        &[(target_class_var, c.clone())],
-                        false,
+                let prepared = context.prepare_query(query_str).map_err(|e| {
+                    format!(
+                        "SPARQL parse error for Target::Class: {} {:?}",
+                        query_str, e
                     )
+                })?;
+
+                let substitutions: Vec<Binding> = vec![(target_class_var, c.clone())];
+                let results = context
+                    .execute_prepared(query_str, &prepared, &substitutions, false)
                     .map_err(|e| {
                         format!("SPARQL query error for Target::Class: {} {}", query_str, e)
                     })?;
@@ -334,28 +324,15 @@ impl Target {
                         "SELECT DISTINCT ?s WHERE {{ ?s <{}> ?any . }}",
                         predicate_node.as_str()
                     );
-                    let prepared =
-                        context
-                            .model
-                            .sparql
-                            .prepared_query(&query_str)
-                            .map_err(|e| {
-                                format!(
-                                    "SPARQL parse error for Target::SubjectsOf: {} {:?}",
-                                    query_str, e
-                                )
-                            })?;
+                    let prepared = context.prepare_query(&query_str).map_err(|e| {
+                        format!(
+                            "SPARQL parse error for Target::SubjectsOf: {} {:?}",
+                            query_str, e
+                        )
+                    })?;
 
                     let results = context
-                        .model
-                        .sparql
-                        .execute_with_substitutions(
-                            &query_str,
-                            &prepared,
-                            context.model.store(),
-                            &[],
-                            false,
-                        )
+                        .execute_prepared(&query_str, &prepared, &[], false)
                         .map_err(|e| e.to_string())?;
 
                     match results {
@@ -389,28 +366,15 @@ impl Target {
                         "SELECT DISTINCT ?o WHERE {{ ?any <{}> ?o . }}",
                         predicate_node.as_str()
                     );
-                    let prepared =
-                        context
-                            .model
-                            .sparql
-                            .prepared_query(&query_str)
-                            .map_err(|e| {
-                                format!(
-                                    "SPARQL parse error for Target::ObjectsOf: {} {:?}",
-                                    query_str, e
-                                )
-                            })?;
+                    let prepared = context.prepare_query(&query_str).map_err(|e| {
+                        format!(
+                            "SPARQL parse error for Target::ObjectsOf: {} {:?}",
+                            query_str, e
+                        )
+                    })?;
 
                     let results = context
-                        .model
-                        .sparql
-                        .execute_with_substitutions(
-                            &query_str,
-                            &prepared,
-                            context.model.store(),
-                            &[],
-                            false,
-                        )
+                        .execute_prepared(&query_str, &prepared, &[], false)
                         .map_err(|e| e.to_string())?;
 
                     match results {

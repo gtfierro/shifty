@@ -1,6 +1,6 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
-use crate::backend::{GraphBackend, OxigraphBackend};
+use crate::backend::{Binding, GraphBackend, OxigraphBackend};
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
@@ -8,6 +8,7 @@ use crate::runtime::{build_component_from_descriptor, Component, CustomConstrain
 use crate::trace::{NullTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
+use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -98,6 +99,21 @@ impl ValidationContext {
 
     pub(crate) fn trace_sink(&self) -> &Arc<dyn TraceSink> {
         &self.trace_sink
+    }
+
+    pub(crate) fn prepare_query(&self, query: &str) -> Result<PreparedSparqlQuery, String> {
+        self.backend.prepare_query(query)
+    }
+
+    pub(crate) fn execute_prepared<'a>(
+        &'a self,
+        query_str: &str,
+        prepared: &'a PreparedSparqlQuery,
+        substitutions: &[Binding],
+        enforce_values_clause: bool,
+    ) -> Result<QueryResults<'a>, String> {
+        self.backend
+            .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
     }
 
     pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Vec<Term>> {

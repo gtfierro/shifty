@@ -1,3 +1,4 @@
+use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::report::ValidationReportBuilder;
 use crate::runtime::{ComponentValidationResult, ToSubjectRef};
@@ -314,28 +315,16 @@ impl PropertyShape {
                 focus_node, sparql_path
             );
 
-            let prepared = context
-                .model
-                .sparql
-                .prepared_query(&query_str)
-                .map_err(|e| {
-                    format!(
-                        "Failed to prepare query for PropertyShape {}: {}",
-                        self.identifier(),
-                        e
-                    )
-                })?;
+            let prepared = context.prepare_query(&query_str).map_err(|e| {
+                format!(
+                    "Failed to prepare query for PropertyShape {}: {}",
+                    self.identifier(),
+                    e
+                )
+            })?;
 
             let results = context
-                .model
-                .sparql
-                .execute_with_substitutions(
-                    &query_str,
-                    &prepared,
-                    context.model.store(),
-                    &[],
-                    false,
-                )
+                .execute_prepared(&query_str, &prepared, &[], false)
                 .map_err(|e| {
                     format!(
                         "Failed to execute query for PropertyShape {}: {}",
