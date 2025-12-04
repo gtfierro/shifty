@@ -677,7 +677,7 @@ impl<'a> InferenceEngine<'a> {
 
         if self
             .context
-            .model
+            .backend
             .store()
             .contains(quad.as_ref())
             .map_err(|e| InferenceError::RuleExecution {
@@ -689,7 +689,7 @@ impl<'a> InferenceEngine<'a> {
         }
 
         self.context
-            .model
+            .backend
             .store()
             .insert(quad.as_ref())
             .map_err(|e| InferenceError::RuleExecution {
