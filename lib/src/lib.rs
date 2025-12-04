@@ -4,6 +4,7 @@
 // Publicly visible items
 pub mod backend;
 pub mod inference;
+pub mod ir;
 pub mod model;
 pub mod shape;
 pub mod trace;

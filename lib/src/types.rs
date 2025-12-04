@@ -199,7 +199,7 @@ impl Path {
 }
 
 /// Represents a SHACL target, which specifies the nodes to be validated against a shape.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Target {
     /// Targets all instances of a given class (`sh:targetClass`).
     Class(Term),

@@ -24,7 +24,7 @@ use std::io::BufReader;
 use std::path::Path;
 use std::rc::Rc;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FeatureToggles {
     pub enable_af: bool,
     #[allow(dead_code)]
