@@ -172,6 +172,10 @@ impl ValidateShape for NodeShape {
             vec
         };
 
+        if focus_nodes.is_empty() {
+            return Ok(());
+        }
+
         for focus_node in focus_nodes {
             let mut target_context = Context::new(
                 focus_node.clone(),
@@ -282,6 +286,10 @@ impl ValidateShape for PropertyShape {
             context.store_prop_targets(*self.identifier(), vec.clone());
             vec
         };
+
+        if focus_nodes.is_empty() {
+            return Ok(());
+        }
 
         for focus_node in focus_nodes {
             let mut target_context = Context::new(
