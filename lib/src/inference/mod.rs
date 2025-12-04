@@ -1,6 +1,7 @@
 use crate::context::{SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
 use crate::model::shapes::{NodeShape, PropertyShape};
+use crate::backend::Binding;
 use crate::sparql::SparqlExecutor;
 use crate::types::{node_conforms_to_shape, ComponentID, PropShapeID, RuleID, ID};
 use log::{debug, info};
@@ -569,21 +570,16 @@ impl<'a> InferenceEngine<'a> {
             focus_node, sparql_path
         );
 
-        let prepared = self
-            .context
-            .model
-            .sparql
-            .prepared_query(&query)
-            .map_err(|e| InferenceError::RuleExecution {
+        let prepared = self.context.prepare_query(&query).map_err(|e| {
+            InferenceError::RuleExecution {
                 rule_id,
                 message: e,
-            })?;
+            }
+        })?;
 
         let results = self
             .context
-            .model
-            .sparql
-            .execute_with_substitutions(&query, &prepared, self.context.model.store(), &[], false)
+            .execute_prepared(&query, &prepared, &[], false)
             .map_err(|e| InferenceError::RuleExecution {
                 rule_id,
                 message: e,
