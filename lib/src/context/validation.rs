@@ -5,7 +5,7 @@ use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
-use crate::trace::{NullTraceSink, TraceEvent, TraceSink};
+use crate::trace::{MemoryTraceSink, NullTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct ValidationContext {
     pub(crate) model: Rc<ShapesModel>,
@@ -26,6 +26,7 @@ pub struct ValidationContext {
     pub(crate) advanced_target_cache: RefCell<HashMap<Term, Vec<Term>>>,
     pub(crate) backend: Rc<OxigraphBackend>,
     pub(crate) trace_sink: Arc<dyn TraceSink>,
+    pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
 }
 
 impl ValidationContext {
@@ -44,6 +45,8 @@ impl ValidationContext {
             model.shape_graph_iri.clone(),
             model.sparql.clone(),
         ));
+        let trace_events = Arc::new(Mutex::new(Vec::new()));
+        let memory_sink = MemoryTraceSink::new(Arc::clone(&trace_events));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
         let components = model
             .component_descriptors
@@ -75,7 +78,8 @@ impl ValidationContext {
             components,
             advanced_target_cache: RefCell::new(HashMap::new()),
             backend,
-            trace_sink: Arc::new(NullTraceSink),
+            trace_sink: Arc::new(memory_sink),
+            trace_events,
         }
     }
 
@@ -114,6 +118,10 @@ impl ValidationContext {
     ) -> Result<QueryResults<'a>, String> {
         self.backend
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
+    }
+
+    pub(crate) fn trace_events(&self) -> Arc<Mutex<Vec<TraceEvent>>> {
+        Arc::clone(&self.trace_events)
     }
 
     pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Vec<Term>> {

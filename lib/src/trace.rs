@@ -6,6 +6,7 @@
 
 use crate::types::{ComponentID, PropShapeID, RuleID, ID};
 use oxigraph::model::Term;
+use std::sync::{Arc, Mutex};
 
 /// Structured trace events emitted during execution.
 #[derive(Debug, Clone)]
@@ -42,4 +43,27 @@ pub struct NullTraceSink;
 
 impl TraceSink for NullTraceSink {
     fn record(&self, _event: TraceEvent) {}
+}
+
+/// In-memory sink that records all events for later inspection.
+pub struct MemoryTraceSink {
+    events: Arc<Mutex<Vec<TraceEvent>>>,
+}
+
+impl MemoryTraceSink {
+    pub fn new(events: Arc<Mutex<Vec<TraceEvent>>>) -> Self {
+        Self { events }
+    }
+
+    pub fn events(&self) -> Arc<Mutex<Vec<TraceEvent>>> {
+        Arc::clone(&self.events)
+    }
+}
+
+impl TraceSink for MemoryTraceSink {
+    fn record(&self, event: TraceEvent) {
+        if let Ok(mut guard) = self.events.lock() {
+            guard.push(event);
+        }
+    }
 }
