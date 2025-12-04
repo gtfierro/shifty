@@ -108,6 +108,16 @@ impl ValidationReportBuilder {
         }
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        ValidationReportBuilder {
+            results: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn merge(&mut self, other: ValidationReportBuilder) {
+        self.results.extend(other.results);
+    }
+
     /// Adds a validation failure to the report.
     ///
     /// # Arguments

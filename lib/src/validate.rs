@@ -10,7 +10,7 @@ use oxigraph::sparql::{QueryResults, Variable};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBuilder, String> {
-    let mut report_builder = ValidationReportBuilder::new();
+    let mut report_builder = ValidationReportBuilder::with_capacity(128);
     // Validate all node shapes using the IR plan while executing with the runtime model.
     for node_ir in &context.shape_ir().node_shapes {
         let shape = context
