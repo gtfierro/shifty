@@ -119,6 +119,31 @@ impl ValidationContext {
         self.components.get(id)
     }
 
+    pub(crate) fn order_constraints(&self, ids: &[ComponentID]) -> Vec<ComponentID> {
+        fn cost_of(descriptor: Option<&ComponentDescriptor>) -> u8 {
+            match descriptor {
+                Some(ComponentDescriptor::Sparql { .. }) => 10,
+                Some(ComponentDescriptor::Custom { .. }) => 9,
+                Some(ComponentDescriptor::Or { .. })
+                | Some(ComponentDescriptor::Xone { .. })
+                | Some(ComponentDescriptor::Not { .. })
+                | Some(ComponentDescriptor::And { .. }) => 8,
+                _ => 1,
+            }
+        }
+
+        let mut ordered: Vec<ComponentID> = ids.to_vec();
+        let ir_components = &self.shape_ir.components;
+        let model = &self.model;
+        ordered.sort_by_key(|id| {
+            let descriptor = ir_components
+                .get(id)
+                .or_else(|| model.get_component_descriptor(id));
+            cost_of(descriptor)
+        });
+        ordered
+    }
+
     #[allow(dead_code)]
     pub(crate) fn backend(&self) -> &impl GraphBackend<Error = String> {
         &*self.backend

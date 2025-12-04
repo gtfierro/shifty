@@ -196,7 +196,7 @@ impl ValidateShape for NodeShape {
                 trace.push(TraceItem::NodeShape(*self.identifier())); // Record NodeShape visit
 
                 // for each target, validate the constraints
-                let constraints = self.constraints();
+                let constraints = context.order_constraints(self.constraints());
                 debug!(
                     "Node shape {} has {} constraints",
                     self.identifier(),
@@ -210,17 +210,17 @@ impl ValidateShape for NodeShape {
                     );
                     // constraint_id is &ComponentID
                     let comp = context
-                        .get_component(constraint_id)
+                        .get_component(&constraint_id)
                         .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
 
                     // Call the component's own validation logic.
-                    match comp.validate(*constraint_id, &mut target_context, context, trace) {
+                    match comp.validate(constraint_id, &mut target_context, context, trace) {
                         Ok(validation_results) => {
                             for result in validation_results {
                                 match result {
                                     ComponentValidationResult::Fail(ctx, failure) => {
                                         context.trace_sink.record(TraceEvent::ComponentFailed {
-                                            component: *constraint_id,
+                                            component: constraint_id,
                                             focus: ctx.focus_node().clone(),
                                             value: failure
                                                 .failed_value_node
@@ -232,7 +232,7 @@ impl ValidateShape for NodeShape {
                                     }
                                     ComponentValidationResult::Pass(ctx) => {
                                         context.trace_sink.record(TraceEvent::ComponentPassed {
-                                            component: *constraint_id,
+                                            component: constraint_id,
                                             focus: ctx.focus_node().clone(),
                                             value: ctx.value().cloned(),
                                         });
@@ -507,7 +507,7 @@ impl PropertyShape {
                 focus_context.trace_index(),
             );
 
-            let constraints = self.constraints();
+            let constraints = context.order_constraints(self.constraints());
             debug!(
                 "Property shape {} has {} constraints",
                 self.identifier(),
@@ -520,11 +520,11 @@ impl PropertyShape {
                     self.identifier()
                 );
                 let component = context
-                    .get_component(constraint_id)
+                    .get_component(&constraint_id)
                     .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
 
                 match component.validate(
-                    *constraint_id,
+                    constraint_id,
                     &mut constraint_validation_context,
                     context,
                     trace,
@@ -534,7 +534,7 @@ impl PropertyShape {
                             match result {
                                 ComponentValidationResult::Fail(ctx, failure) => {
                                     context.trace_sink.record(TraceEvent::ComponentFailed {
-                                        component: *constraint_id,
+                                        component: constraint_id,
                                         focus: ctx.focus_node().clone(),
                                         value: failure
                                             .failed_value_node
@@ -546,7 +546,7 @@ impl PropertyShape {
                                 }
                                 ComponentValidationResult::Pass(ctx) => {
                                     context.trace_sink.record(TraceEvent::ComponentPassed {
-                                        component: *constraint_id,
+                                        component: constraint_id,
                                         focus: ctx.focus_node().clone(),
                                         value: ctx.value().cloned(),
                                     });
