@@ -479,12 +479,6 @@ impl ValidationReportBuilder {
             }
         }
     }
-
-    /// Merges results from another `ValidationReportBuilder` into this one.
-    #[allow(dead_code)]
-    pub(crate) fn merge(&mut self, other: ValidationReportBuilder) {
-        self.results.extend(other.results);
-    }
 }
 
 fn severity_to_term(severity: &Severity, sh: &SHACL) -> Term {
