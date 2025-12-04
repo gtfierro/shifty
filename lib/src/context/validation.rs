@@ -1,9 +1,11 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
+use crate::backend::{GraphBackend, OxigraphBackend};
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
+use crate::trace::{NullTraceSink, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
 use std::cell::RefCell;
@@ -11,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub struct ValidationContext {
     pub(crate) model: Rc<ShapesModel>,
@@ -20,6 +23,8 @@ pub struct ValidationContext {
     pub(crate) execution_traces: RefCell<Vec<Vec<TraceItem>>>,
     pub(crate) components: HashMap<ComponentID, Component>,
     pub(crate) advanced_target_cache: RefCell<HashMap<Term, Vec<Term>>>,
+    pub(crate) backend: Rc<OxigraphBackend>,
+    pub(crate) trace_sink: Arc<dyn TraceSink>,
 }
 
 impl ValidationContext {
@@ -32,6 +37,12 @@ impl ValidationContext {
             "{}/.well-known/skolem/",
             model.shape_graph_iri.as_str().trim_end_matches('/')
         );
+        let backend = Rc::new(OxigraphBackend::new(
+            model.store.clone(),
+            data_graph_iri.clone(),
+            model.shape_graph_iri.clone(),
+            model.sparql.clone(),
+        ));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
         let components = model
             .component_descriptors
@@ -62,6 +73,8 @@ impl ValidationContext {
             execution_traces: RefCell::new(Vec::new()),
             components,
             advanced_target_cache: RefCell::new(HashMap::new()),
+            backend,
+            trace_sink: Arc::new(NullTraceSink),
         }
     }
 
@@ -77,6 +90,14 @@ impl ValidationContext {
 
     pub(crate) fn get_component(&self, id: &ComponentID) -> Option<&Component> {
         self.components.get(id)
+    }
+
+    pub(crate) fn backend(&self) -> &impl GraphBackend<Error = String> {
+        &*self.backend
+    }
+
+    pub(crate) fn trace_sink(&self) -> &Arc<dyn TraceSink> {
+        &self.trace_sink
     }
 
     pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Vec<Term>> {
