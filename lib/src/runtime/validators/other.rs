@@ -184,7 +184,7 @@ impl ValidateComponent for ClosedConstraintComponent {
                 validation_context.data_graph_iri.as_ref(),
             );
 
-            for quad_res in validation_context.model.store().quads_for_pattern(
+            for quad_res in validation_context.store().quads_for_pattern(
                 Some(subject_ref),
                 None,
                 None,

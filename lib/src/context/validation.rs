@@ -1,14 +1,17 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
 use crate::backend::{Binding, GraphBackend, OxigraphBackend};
+use crate::ir::ShapeIR;
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
-use crate::trace::{MemoryTraceSink, NullTraceSink, TraceEvent, TraceSink};
+use crate::sparql::{SparqlExecutor, SparqlServices};
+use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
-use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
+use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
+use oxigraph::store::Store;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -24,9 +27,12 @@ pub struct ValidationContext {
     pub(crate) execution_traces: RefCell<Vec<Vec<TraceItem>>>,
     pub(crate) components: HashMap<ComponentID, Component>,
     pub(crate) advanced_target_cache: RefCell<HashMap<Term, Vec<Term>>>,
+    pub(crate) node_target_cache: RefCell<HashMap<ID, Vec<Term>>>,
+    pub(crate) prop_target_cache: RefCell<HashMap<PropShapeID, Vec<Term>>>,
     pub(crate) backend: Rc<OxigraphBackend>,
     pub(crate) trace_sink: Arc<dyn TraceSink>,
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
+    pub(crate) shape_ir: Rc<ShapeIR>,
 }
 
 impl ValidationContext {
@@ -47,6 +53,7 @@ impl ValidationContext {
         ));
         let trace_events = Arc::new(Mutex::new(Vec::new()));
         let memory_sink = MemoryTraceSink::new(Arc::clone(&trace_events));
+        let shape_ir = Rc::new(ShapeIR::from_model(&model, Some(data_graph_iri.clone())));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
         let components = model
             .component_descriptors
@@ -77,14 +84,29 @@ impl ValidationContext {
             execution_traces: RefCell::new(Vec::new()),
             components,
             advanced_target_cache: RefCell::new(HashMap::new()),
+            node_target_cache: RefCell::new(HashMap::new()),
+            prop_target_cache: RefCell::new(HashMap::new()),
             backend,
             trace_sink: Arc::new(memory_sink),
             trace_events,
+            shape_ir,
         }
     }
 
     pub(crate) fn data_graph_iri_ref(&self) -> GraphNameRef<'_> {
         GraphNameRef::NamedNode(self.data_graph_iri.as_ref())
+    }
+
+    pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
+        self.backend.shapes_graph()
+    }
+
+    pub(crate) fn store(&self) -> &Store {
+        self.backend.store()
+    }
+
+    pub(crate) fn sparql_services(&self) -> &SparqlServices {
+        &self.model.sparql
     }
 
     pub(crate) fn new_trace(&self) -> usize {
@@ -97,16 +119,28 @@ impl ValidationContext {
         self.components.get(id)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn backend(&self) -> &impl GraphBackend<Error = String> {
         &*self.backend
     }
 
+    #[allow(dead_code)]
     pub(crate) fn trace_sink(&self) -> &Arc<dyn TraceSink> {
         &self.trace_sink
     }
 
     pub(crate) fn prepare_query(&self, query: &str) -> Result<PreparedSparqlQuery, String> {
         self.backend.prepare_query(query)
+    }
+
+    pub(crate) fn objects_for_predicate(
+        &self,
+        subject: NamedOrBlankNodeRef<'_>,
+        predicate: NamedNodeRef<'_>,
+        graph: GraphNameRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        self.backend
+            .objects_for_predicate(subject, predicate, graph)
     }
 
     pub(crate) fn execute_prepared<'a>(
@@ -120,8 +154,21 @@ impl ValidationContext {
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
     }
 
-    pub(crate) fn trace_events(&self) -> Arc<Mutex<Vec<TraceEvent>>> {
+    pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
+        self.model.sparql.prefixes_for_node(
+            node,
+            self.backend.store(),
+            self.model.env(),
+            self.shape_graph_iri_ref(),
+        )
+    }
+
+    pub fn trace_events(&self) -> Arc<Mutex<Vec<TraceEvent>>> {
         Arc::clone(&self.trace_events)
+    }
+
+    pub fn shape_ir(&self) -> &ShapeIR {
+        &self.shape_ir
     }
 
     pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Vec<Term>> {
@@ -132,6 +179,22 @@ impl ValidationContext {
         self.advanced_target_cache
             .borrow_mut()
             .insert(selector.clone(), nodes.to_vec());
+    }
+
+    pub(crate) fn cached_node_targets(&self, id: &ID) -> Option<Vec<Term>> {
+        self.node_target_cache.borrow().get(id).cloned()
+    }
+
+    pub(crate) fn store_node_targets(&self, id: ID, nodes: Vec<Term>) {
+        self.node_target_cache.borrow_mut().insert(id, nodes);
+    }
+
+    pub(crate) fn cached_prop_targets(&self, id: &PropShapeID) -> Option<Vec<Term>> {
+        self.prop_target_cache.borrow().get(id).cloned()
+    }
+
+    pub(crate) fn store_prop_targets(&self, id: PropShapeID, nodes: Vec<Term>) {
+        self.prop_target_cache.borrow_mut().insert(id, nodes);
     }
 
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {

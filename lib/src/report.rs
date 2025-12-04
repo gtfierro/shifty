@@ -605,13 +605,12 @@ fn fetch_shape_messages(validation_context: &ValidationContext, term: &Term) -> 
     let shacl = SHACL::new();
     if let Some(subject_ref) = term_to_subject_ref(term) {
         validation_context
-            .model
             .store()
             .quads_for_pattern(
                 Some(subject_ref),
                 Some(shacl.message),
                 None,
-                Some(validation_context.model.shape_graph_iri_ref()),
+                Some(validation_context.shape_graph_iri_ref()),
             )
             .filter_map(Result::ok)
             .map(|q| q.object)
@@ -646,7 +645,7 @@ fn clone_path_term_from_shapes_graph_inner(
     let new_bn_term: Term = BlankNode::default().into();
     memo.insert(term.clone(), new_bn_term.clone());
 
-    let store = validation_context.model.store();
+    let store = validation_context.store();
     let sh = SHACL::new();
 
     let subject_ref = match term {

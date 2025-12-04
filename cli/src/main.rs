@@ -2,7 +2,9 @@ use clap::{Parser, ValueEnum};
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Quad, TripleRef};
+use oxigraph::model::{Quad, Term, TripleRef};
+use serde_json::json;
+use shacl::trace::TraceEvent;
 use shacl::{InferenceConfig, Source, Validator, ValidatorBuilder};
 use std::collections::HashMap;
 use std::fs;
@@ -89,6 +91,8 @@ enum ValidateOutputFormat {
 struct ValidateArgs {
     #[clap(flatten)]
     common: CommonArgs,
+    #[clap(flatten)]
+    trace: TraceOutputArgs,
 
     /// The output format for the validation report
     #[arg(long, value_enum, default_value_t = ValidateOutputFormat::Turtle)]
@@ -135,6 +139,8 @@ struct ValidateArgs {
 struct InferenceArgs {
     #[clap(flatten)]
     common: CommonArgs,
+    #[clap(flatten)]
+    trace: TraceOutputArgs,
 
     /// Minimum iterations for inference
     #[arg(long)]
@@ -208,7 +214,7 @@ struct PdfHeatmapArgs {
 }
 
 #[derive(Parser)]
-struct TraceArgs {
+struct TraceCmdArgs {
     #[clap(flatten)]
     common: CommonArgs,
 }
@@ -232,7 +238,7 @@ enum Commands {
     /// Run SHACL rule inference without performing validation
     Inference(InferenceArgs),
     /// Print the execution traces for debugging
-    Trace(TraceArgs),
+    Trace(TraceCmdArgs),
 }
 
 fn get_validator(common: &CommonArgs) -> Result<Validator, Box<dyn std::error::Error>> {
@@ -295,6 +301,95 @@ fn serialize_quads_to_turtle(quads: &[Quad]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to finish Turtle serialization: {}", e))
 }
 
+fn term_to_string(term: &Term) -> String {
+    term.to_string()
+}
+
+fn trace_event_to_json(event: &TraceEvent) -> serde_json::Value {
+    match event {
+        TraceEvent::EnterNodeShape(id) => json!({
+            "type": "EnterNodeShape",
+            "node_shape_id": id.0,
+        }),
+        TraceEvent::EnterPropertyShape(id) => json!({
+            "type": "EnterPropertyShape",
+            "property_shape_id": id.0,
+        }),
+        TraceEvent::ComponentPassed {
+            component,
+            focus,
+            value,
+        } => json!({
+            "type": "ComponentPassed",
+            "component_id": component.0,
+            "focus": term_to_string(focus),
+            "value": value.as_ref().map(term_to_string),
+        }),
+        TraceEvent::ComponentFailed {
+            component,
+            focus,
+            value,
+            message,
+        } => json!({
+            "type": "ComponentFailed",
+            "component_id": component.0,
+            "focus": term_to_string(focus),
+            "value": value.as_ref().map(term_to_string),
+            "message": message,
+        }),
+        TraceEvent::SparqlQuery { label } => json!({
+            "type": "SparqlQuery",
+            "label": label,
+        }),
+        TraceEvent::RuleApplied { rule, inserted } => json!({
+            "type": "RuleApplied",
+            "rule_id": rule.0,
+            "inserted": inserted,
+        }),
+    }
+}
+
+fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(), String> {
+    if events.is_empty()
+        || (!args.trace_events && args.trace_file.is_none() && args.trace_jsonl.is_none())
+    {
+        return Ok(());
+    }
+
+    if args.trace_events {
+        eprintln!("--- trace events ({} entries) ---", events.len());
+        for ev in events {
+            eprintln!("{:?}", ev);
+        }
+    }
+
+    if let Some(path) = args.trace_file.as_ref() {
+        let mut lines = String::new();
+        for ev in events {
+            lines.push_str(&format!("{:?}\n", ev));
+        }
+        fs::write(path, lines)
+            .map_err(|e| format!("Failed to write trace file {}: {}", path.display(), e))?;
+        eprintln!("Wrote trace events to {}", path.display());
+    }
+
+    if let Some(path) = args.trace_jsonl.as_ref() {
+        let mut buf = String::new();
+        for ev in events {
+            let value = trace_event_to_json(ev);
+            let line = serde_json::to_string(&value)
+                .map_err(|e| format!("Failed to serialise trace event to JSON: {}", e))?;
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        fs::write(path, buf)
+            .map_err(|e| format!("Failed to write trace jsonl {}: {}", path.display(), e))?;
+        eprintln!("Wrote trace events (JSONL) to {}", path.display());
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let cli = Cli::parse();
@@ -327,6 +422,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Validate(args) => {
             let validator = get_validator(&args.common)?;
+            let trace_buf = validator.context().trace_events();
             let (report, inference_outcome) = if args.run_inference {
                 let config = build_inference_config(
                     args.inference_min_iterations,
@@ -385,6 +481,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 exec_dot(dot_string, cmd_args)
                     .map_err(|e| format!("Graphviz execution error: {}", e))?;
                 println!("PDF heatmap generated at: {}", pdf_path.display());
+            }
+
+            if args.trace.requested() {
+                let events = trace_buf
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default();
+                emit_trace_outputs(&events, &args.trace).map_err(io::Error::other)?;
             }
         }
         Commands::Inference(args) => {
@@ -446,6 +551,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_err(|e| format!("Graphviz execution error: {}", e))?;
                 println!("PDF heatmap generated at: {}", pdf_path.display());
             }
+
+            // Emit trace events if requested.
+            if args.trace.requested() {
+                let trace_buf = validator.context().trace_events();
+                let events = trace_buf
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default();
+                emit_trace_outputs(&events, &args.trace).map_err(io::Error::other)?;
+            }
         }
         Commands::Heat(args) => {
             let validator = get_validator(&args.common)?;
@@ -504,4 +620,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+#[derive(Parser, Debug, Clone, Default)]
+struct TraceOutputArgs {
+    /// Print collected trace events to stderr after completion
+    #[arg(long)]
+    trace_events: bool,
+
+    /// Write collected trace events to a file (one debug-formatted event per line)
+    #[arg(long, value_name = "FILE")]
+    trace_file: Option<PathBuf>,
+
+    /// Write collected trace events as newline-delimited JSON
+    #[arg(long, value_name = "FILE")]
+    trace_jsonl: Option<PathBuf>,
+}
+
+impl TraceOutputArgs {
+    fn requested(&self) -> bool {
+        self.trace_events || self.trace_file.is_some() || self.trace_jsonl.is_some()
+    }
 }

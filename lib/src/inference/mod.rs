@@ -1,8 +1,6 @@
+use crate::backend::{Binding, GraphBackend};
 use crate::context::{SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
-use crate::model::shapes::{NodeShape, PropertyShape};
-use crate::backend::Binding;
-use crate::sparql::SparqlExecutor;
 use crate::types::{node_conforms_to_shape, ComponentID, PropShapeID, RuleID, ID};
 use log::{debug, info};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
@@ -129,29 +127,30 @@ pub struct InferenceGraph {
     pub property_shape_components: HashMap<PropShapeID, Vec<ComponentID>>,
     pub node_shape_rules: HashMap<ID, Vec<RuleID>>,
     pub property_shape_rules: HashMap<PropShapeID, Vec<RuleID>>,
+    pub rules: HashMap<RuleID, Rule>,
 }
 
 impl InferenceGraph {
     fn from_context(context: &ValidationContext) -> Self {
-        let node_shape_components = context
-            .model
+        let ir = context.shape_ir();
+        let node_shape_components = ir
             .node_shapes
             .iter()
-            .map(|(id, shape)| (*id, shape.constraints().to_vec()))
+            .map(|shape| (shape.id, shape.constraints.clone()))
             .collect();
 
-        let property_shape_components = context
-            .model
-            .prop_shapes
+        let property_shape_components = ir
+            .property_shapes
             .iter()
-            .map(|(id, shape)| (*id, shape.constraints().to_vec()))
+            .map(|shape| (shape.id, shape.constraints.clone()))
             .collect();
 
         Self {
             node_shape_components,
             property_shape_components,
-            node_shape_rules: context.model.node_shape_rules.clone(),
-            property_shape_rules: context.model.prop_shape_rules.clone(),
+            node_shape_rules: ir.node_shape_rules.clone(),
+            property_shape_rules: ir.prop_shape_rules.clone(),
+            rules: ir.rules.clone(),
         }
     }
 }
@@ -272,13 +271,19 @@ impl<'a> InferenceEngine<'a> {
         let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
 
         for (shape_id, rule_ids) in &self.graph.node_shape_rules {
-            let Some(shape) = self.context.model.get_node_shape_by_id(shape_id) else {
+            let Some(shape_ir) = self
+                .context
+                .shape_ir()
+                .node_shapes
+                .iter()
+                .find(|s| &s.id == shape_id)
+            else {
                 return Err(InferenceError::Configuration(format!(
-                    "Node shape {:?} referenced in rules but missing from model",
+                    "Node shape {:?} referenced in rules but missing from IR",
                     shape_id
                 )));
             };
-            let focus_nodes = self.focus_nodes_for_shape(shape_id, shape)?;
+            let focus_nodes = self.focus_nodes_for_shape(shape_ir)?;
             if self.config.trace {
                 debug!(
                     "Node shape {:?} has {} focus node(s) and {} rule(s)",
@@ -291,7 +296,7 @@ impl<'a> InferenceEngine<'a> {
                 if self.skipped_rules.borrow().contains(rule_id) {
                     continue;
                 }
-                let Some(rule) = self.context.model.rules.get(rule_id) else {
+                let Some(rule) = self.graph.rules.get(rule_id) else {
                     return Err(InferenceError::Configuration(format!(
                         "Rule {:?} referenced by shape {:?} but missing from model",
                         rule_id, shape_id
@@ -300,7 +305,7 @@ impl<'a> InferenceEngine<'a> {
                 if rule.is_deactivated() {
                     continue;
                 }
-                if focus_nodes.is_empty() && shape.targets.is_empty() {
+                if focus_nodes.is_empty() && shape_ir.targets.is_empty() {
                     if self.config.trace {
                         debug!(
                             "Skipping rule {:?} for node shape {:?} (no targets, no focus nodes)",
@@ -329,13 +334,19 @@ impl<'a> InferenceEngine<'a> {
         }
 
         for (shape_id, rule_ids) in &self.graph.property_shape_rules {
-            let Some(shape) = self.context.model.get_prop_shape_by_id(shape_id) else {
+            let Some(shape_ir) = self
+                .context
+                .shape_ir()
+                .property_shapes
+                .iter()
+                .find(|s| &s.id == shape_id)
+            else {
                 return Err(InferenceError::Configuration(format!(
-                    "Property shape {:?} referenced in rules but missing from model",
+                    "Property shape {:?} referenced in rules but missing from IR",
                     shape_id
                 )));
             };
-            let focus_nodes = self.focus_nodes_for_property_shape(shape_id, shape)?;
+            let focus_nodes = self.focus_nodes_for_property_shape(shape_ir)?;
             if self.config.trace {
                 debug!(
                     "Property shape {:?} has {} focus node(s) and {} rule(s)",
@@ -348,7 +359,7 @@ impl<'a> InferenceEngine<'a> {
                 if self.skipped_rules.borrow().contains(rule_id) {
                     continue;
                 }
-                let Some(rule) = self.context.model.rules.get(rule_id) else {
+                let Some(rule) = self.graph.rules.get(rule_id) else {
                     return Err(InferenceError::Configuration(format!(
                         "Rule {:?} referenced by property shape {:?} but missing from model",
                         rule_id, shape_id
@@ -357,7 +368,7 @@ impl<'a> InferenceEngine<'a> {
                 if rule.is_deactivated() {
                     continue;
                 }
-                if focus_nodes.is_empty() && shape.targets.is_empty() {
+                if focus_nodes.is_empty() && shape_ir.targets.is_empty() {
                     if self.config.trace {
                         debug!(
                             "Skipping rule {:?} for property shape {:?} (no targets, no focus nodes)",
@@ -390,15 +401,14 @@ impl<'a> InferenceEngine<'a> {
 
     fn focus_nodes_for_shape(
         &self,
-        shape_id: &ID,
-        shape: &NodeShape,
+        shape: &crate::ir::NodeShapeIR,
     ) -> Result<Vec<Term>, InferenceError> {
         let mut collected = HashSet::new();
         for target in &shape.targets {
             let contexts = target
-                .get_target_nodes(self.context, SourceShape::NodeShape(*shape_id))
+                .get_target_nodes(self.context, SourceShape::NodeShape(shape.id))
                 .map_err(|e| InferenceError::TargetResolution {
-                    shape_id: *shape_id,
+                    shape_id: shape.id,
                     message: e,
                 })?;
             for ctx in contexts {
@@ -410,15 +420,14 @@ impl<'a> InferenceEngine<'a> {
 
     fn focus_nodes_for_property_shape(
         &self,
-        shape_id: &PropShapeID,
-        shape: &PropertyShape,
+        shape: &crate::ir::PropertyShapeIR,
     ) -> Result<Vec<Term>, InferenceError> {
         let mut collected = HashSet::new();
         for target in &shape.targets {
             let contexts = target
-                .get_target_nodes(self.context, SourceShape::PropertyShape(*shape_id))
+                .get_target_nodes(self.context, SourceShape::PropertyShape(shape.id))
                 .map_err(|e| InferenceError::PropertyShapeTargetResolution {
-                    shape_id: *shape_id,
+                    shape_id: shape.id,
                     message: e,
                 })?;
             for ctx in contexts {
@@ -435,10 +444,9 @@ impl<'a> InferenceEngine<'a> {
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
         collected: &mut Vec<Quad>,
     ) -> Result<usize, InferenceError> {
-        let sparql = self.context.model.sparql.as_ref();
         let prepared =
-            sparql
-                .prepared_query(&rule.query)
+            self.context
+                .prepare_query(&rule.query)
                 .map_err(|e| InferenceError::RuleExecution {
                     rule_id: rule.id,
                     message: e,
@@ -454,14 +462,10 @@ impl<'a> InferenceEngine<'a> {
             if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
                 continue;
             }
-            let results = sparql
-                .execute_with_substitutions(
-                    &rule.query,
-                    &prepared,
-                    self.context.model.store(),
-                    &[(var_this.clone(), focus.clone())],
-                    false,
-                )
+            let substitutions: Vec<Binding> = vec![(var_this.clone(), focus.clone())];
+            let results = self
+                .context
+                .execute_prepared(&rule.query, &prepared, &substitutions, false)
                 .map_err(|e| InferenceError::RuleExecution {
                     rule_id: rule.id,
                     message: e,
@@ -570,12 +574,13 @@ impl<'a> InferenceEngine<'a> {
             focus_node, sparql_path
         );
 
-        let prepared = self.context.prepare_query(&query).map_err(|e| {
-            InferenceError::RuleExecution {
-                rule_id,
-                message: e,
-            }
-        })?;
+        let prepared =
+            self.context
+                .prepare_query(&query)
+                .map_err(|e| InferenceError::RuleExecution {
+                    rule_id,
+                    message: e,
+                })?;
 
         let results = self
             .context
@@ -808,7 +813,6 @@ ex:rect2 a ex:Rectangle ;
         assert!(outcome.converged);
         assert!(outcome.iterations_executed >= 1);
 
-        let store = context.model.store();
         let subject = NamedNode::new("http://example.com/ns#rect1").unwrap();
         let predicate = NamedNode::new("http://example.com/ns#isSquare").unwrap();
         let object = Term::Literal(Literal::new_typed_literal(
@@ -821,7 +825,9 @@ ex:rect2 a ex:Rectangle ;
             object,
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
-        assert!(store
+        assert!(context
+            .backend
+            .store()
             .contains(quad.as_ref())
             .expect("quad lookup should succeed"));
 

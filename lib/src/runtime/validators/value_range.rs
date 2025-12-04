@@ -124,7 +124,8 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
                 term_to_sparql(value_node)
             );
 
-            let is_valid = match context.model.store().query(&query_str) {
+            let prepared = context.prepare_query(&query_str)?;
+            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
@@ -225,7 +226,8 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
                 term_to_sparql(value_node)
             );
 
-            let is_valid = match context.model.store().query(&query_str) {
+            let prepared = context.prepare_query(&query_str)?;
+            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
@@ -326,7 +328,8 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
                 term_to_sparql(value_node)
             );
 
-            let is_valid = match context.model.store().query(&query_str) {
+            let prepared = context.prepare_query(&query_str)?;
+            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)
@@ -428,7 +431,8 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
                 term_to_sparql(value_node)
             );
 
-            let is_valid = match context.model.store().query(&query_str) {
+            let prepared = context.prepare_query(&query_str)?;
+            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
                 Ok(QueryResults::Boolean(b)) => b,
                 Ok(_) => false, // Should not happen for ASK
                 Err(_) => true, // Incomparable values are ignored (treated as valid)

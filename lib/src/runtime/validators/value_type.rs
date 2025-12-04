@@ -1,7 +1,6 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::ToSubjectRef;
-use crate::sparql::SparqlExecutor;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
@@ -72,16 +71,14 @@ impl ValidateComponent for ClassConstraintComponent {
 
         let mut results = Vec::new();
         let vns = c.value_nodes().cloned().unwrap();
-        let sparql_services = context.model.sparql.as_ref();
-        let prepared = sparql_services
-            .prepared_query(&self.query)
+        let prepared = context
+            .prepare_query(&self.query)
             .map_err(|e| format!("Failed to prepare class constraint query: {}", e))?;
 
         for vn in vns.iter() {
-            match sparql_services.execute_with_substitutions(
+            match context.execute_prepared(
                 &self.query,
                 &prepared,
-                context.model.store(),
                 &[(cc_var.clone(), vn.clone())],
                 false,
             ) {

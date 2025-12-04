@@ -294,18 +294,11 @@ impl ValidateComponent for LessThanConstraintComponent {
             }
         };
 
-        let other_values: Vec<Term> = context
-            .model
-            .store()
-            .quads_for_pattern(
-                Some(focus_node.try_to_subject_ref()?),
-                Some(less_than_property.as_ref()),
-                None,
-                Some(context.data_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
-            .map(|q| q.object)
-            .collect();
+        let other_values: Vec<Term> = context.objects_for_predicate(
+            focus_node.try_to_subject_ref()?,
+            less_than_property.as_ref(),
+            context.data_graph_iri_ref(),
+        )?;
 
         if other_values.is_empty() {
             return Ok(vec![]);
@@ -316,8 +309,9 @@ impl ValidateComponent for LessThanConstraintComponent {
         for value_node in &value_nodes {
             for other_value in &other_values {
                 let query_str = format!("ASK {{ FILTER({} < {}) }}", value_node, other_value);
-
-                let is_less_than = match context.model.store().query(&query_str) {
+                let prepared = context.prepare_query(&query_str)?;
+                let is_less_than = match context.execute_prepared(&query_str, &prepared, &[], false)
+                {
                     Ok(QueryResults::Boolean(b)) => b,
                     Ok(_) => false,  // Should not happen for ASK
                     Err(_) => false, // Incomparable values
@@ -411,18 +405,11 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
             }
         };
 
-        let other_values: Vec<Term> = context
-            .model
-            .store()
-            .quads_for_pattern(
-                Some(focus_node.try_to_subject_ref()?),
-                Some(lte_property.as_ref()),
-                None,
-                Some(context.data_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
-            .map(|q| q.object)
-            .collect();
+        let other_values: Vec<Term> = context.objects_for_predicate(
+            focus_node.try_to_subject_ref()?,
+            lte_property.as_ref(),
+            context.data_graph_iri_ref(),
+        )?;
 
         if other_values.is_empty() {
             return Ok(vec![]);
@@ -433,12 +420,13 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
         for value_node in &value_nodes {
             for other_value in &other_values {
                 let query_str = format!("ASK {{ FILTER({} <= {}) }}", value_node, other_value);
-
-                let is_less_than_or_equal = match context.model.store().query(&query_str) {
-                    Ok(QueryResults::Boolean(b)) => b,
-                    Ok(_) => false,  // Should not happen for ASK
-                    Err(_) => false, // Incomparable values
-                };
+                let prepared = context.prepare_query(&query_str)?;
+                let is_less_than_or_equal =
+                    match context.execute_prepared(&query_str, &prepared, &[], false) {
+                        Ok(QueryResults::Boolean(b)) => b,
+                        Ok(_) => false,  // Should not happen for ASK
+                        Err(_) => false, // Incomparable values
+                    };
 
                 if !is_less_than_or_equal {
                     let mut fail_context = c.clone();

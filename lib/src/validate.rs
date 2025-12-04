@@ -1,9 +1,7 @@
-use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::report::ValidationReportBuilder;
 use crate::runtime::{ComponentValidationResult, ToSubjectRef};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
-use crate::sparql::SparqlExecutor;
 use crate::trace::TraceEvent;
 use crate::types::{PropShapeID, TraceItem};
 use log::{debug, info};
@@ -13,12 +11,30 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBuilder, String> {
     let mut report_builder = ValidationReportBuilder::new();
-    // Validate all node shapes
-    for shape in context.model.node_shapes.values() {
+    // Validate all node shapes using the IR plan while executing with the runtime model.
+    for node_ir in &context.shape_ir().node_shapes {
+        let shape = context
+            .model
+            .get_node_shape_by_id(&node_ir.id)
+            .ok_or_else(|| {
+                format!(
+                    "Node shape {:?} referenced in IR but missing from model",
+                    node_ir.id
+                )
+            })?;
         shape.process_targets(context, &mut report_builder)?;
     }
     // Validate all property shapes
-    for shape in context.model.prop_shapes.values() {
+    for prop_ir in &context.shape_ir().property_shapes {
+        let shape = context
+            .model
+            .get_prop_shape_by_id(&prop_ir.id)
+            .ok_or_else(|| {
+                format!(
+                    "Property shape {:?} referenced in IR but missing from model",
+                    prop_ir.id
+                )
+            })?;
         shape.process_targets(context, &mut report_builder)?;
     }
     Ok(report_builder)
@@ -45,17 +61,12 @@ fn canonicalize_value_nodes(
     };
 
     let raw_objects: Vec<Term> = validation_context
-        .model
-        .store()
-        .quads_for_pattern(
-            Some(subject),
-            Some(predicate.as_ref()),
-            None,
-            Some(validation_context.data_graph_iri_ref()),
+        .objects_for_predicate(
+            subject,
+            predicate.as_ref(),
+            validation_context.data_graph_iri_ref(),
         )
-        .filter_map(Result::ok)
-        .map(|q| q.object)
-        .collect();
+        .unwrap_or_default();
 
     if raw_objects.is_empty() && validation_context.model.original_values.is_none() {
         return nodes;
@@ -139,20 +150,36 @@ impl ValidateShape for NodeShape {
         if self.is_deactivated() {
             return Ok(());
         }
-        // first gather all of the targets
-        let mut target_contexts = HashSet::new();
-        for target in self.targets.iter() {
-            info!(
-                "get targets from target: {:?} on shape {}",
-                target,
-                self.identifier()
-            );
-            target_contexts.extend(
-                target.get_target_nodes(context, SourceShape::NodeShape(*self.identifier()))?,
-            );
-        }
+        // first gather all of the targets (cached per shape)
+        let focus_nodes = if let Some(cached) = context.cached_node_targets(self.identifier()) {
+            cached
+        } else {
+            let mut nodes = HashSet::new();
+            for target in self.targets.iter() {
+                info!(
+                    "get targets from target: {:?} on shape {}",
+                    target,
+                    self.identifier()
+                );
+                for ctx in
+                    target.get_target_nodes(context, SourceShape::NodeShape(*self.identifier()))?
+                {
+                    nodes.insert(ctx.focus_node().clone());
+                }
+            }
+            let vec: Vec<Term> = nodes.into_iter().collect();
+            context.store_node_targets(*self.identifier(), vec.clone());
+            vec
+        };
 
-        for mut target_context in target_contexts.into_iter() {
+        for focus_node in focus_nodes {
+            let mut target_context = Context::new(
+                focus_node.clone(),
+                None,
+                Some(vec![focus_node.clone()]),
+                SourceShape::NodeShape(*self.identifier()),
+                context.new_trace(),
+            );
             let trace_index = {
                 let mut traces = context.execution_traces.borrow_mut();
                 traces.push(Vec::new());
@@ -234,20 +261,36 @@ impl ValidateShape for PropertyShape {
         if self.is_deactivated() {
             return Ok(());
         }
-        // first gather all of the targets
-        let mut target_contexts = HashSet::new();
-        for target in self.targets.iter() {
-            info!(
-                "get targets from target: {:?} on shape {}",
-                target,
-                self.identifier()
-            );
-            target_contexts.extend(
-                target.get_target_nodes(context, SourceShape::PropertyShape(*self.identifier()))?,
-            );
-        }
+        // first gather all of the targets (cached per shape)
+        let focus_nodes = if let Some(cached) = context.cached_prop_targets(self.identifier()) {
+            cached
+        } else {
+            let mut nodes = HashSet::new();
+            for target in self.targets.iter() {
+                info!(
+                    "get targets from target: {:?} on shape {}",
+                    target,
+                    self.identifier()
+                );
+                for ctx in target
+                    .get_target_nodes(context, SourceShape::PropertyShape(*self.identifier()))?
+                {
+                    nodes.insert(ctx.focus_node().clone());
+                }
+            }
+            let vec: Vec<Term> = nodes.into_iter().collect();
+            context.store_prop_targets(*self.identifier(), vec.clone());
+            vec
+        };
 
-        for mut target_context in target_contexts.into_iter() {
+        for focus_node in focus_nodes {
+            let mut target_context = Context::new(
+                focus_node.clone(),
+                None,
+                Some(vec![focus_node.clone()]),
+                SourceShape::PropertyShape(*self.identifier()),
+                context.new_trace(),
+            );
             let trace_index = {
                 let mut traces = context.execution_traces.borrow_mut();
                 traces.push(Vec::new());
@@ -308,63 +351,147 @@ impl PropertyShape {
             vec![focus_context.focus_node().clone()]
         };
 
+        let mut value_node_map: HashMap<Term, Vec<Term>> = HashMap::new();
+
+        // Fast path: batch query when all focus nodes are IRIs and the path is simple.
+        if focus_nodes_for_this_shape.len() > 1 && self.path().is_simple_predicate() {
+            let predicate_term = self.path_term();
+            if let Term::NamedNode(pred) = predicate_term {
+                // Only IRIs allowed in VALUES; if any focus node is blank, skip batching.
+                if focus_nodes_for_this_shape
+                    .iter()
+                    .all(|f| matches!(f, Term::NamedNode(_)))
+                {
+                    let values_clause = focus_nodes_for_this_shape
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let query_str = format!(
+                        "SELECT DISTINCT ?focus ?valueNode WHERE {{ VALUES ?focus {{ {} }} ?focus <{}> ?valueNode . }}",
+                        values_clause,
+                        pred.as_str()
+                    );
+
+                    let prepared = context.prepare_query(&query_str).map_err(|e| {
+                        format!(
+                            "Failed to prepare batch query for PropertyShape {}: {}",
+                            self.identifier(),
+                            e
+                        )
+                    })?;
+                    let results = context
+                        .execute_prepared(&query_str, &prepared, &[], false)
+                        .map_err(|e| {
+                            format!(
+                                "Failed to execute batch query for PropertyShape {}: {}",
+                                self.identifier(),
+                                e
+                            )
+                        })?;
+                    let focus_var = Variable::new("focus")
+                        .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
+                    let value_var = Variable::new("valueNode")
+                        .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
+
+                    match results {
+                        QueryResults::Solutions(solutions) => {
+                            for solution_res in solutions {
+                                let solution = solution_res.map_err(|e| e.to_string())?;
+                                let Some(focus_term) = solution.get(&focus_var) else {
+                                    continue;
+                                };
+                                let Some(val_term) = solution.get(&value_var) else {
+                                    continue;
+                                };
+                                value_node_map
+                                    .entry(focus_term.clone())
+                                    .or_default()
+                                    .push(val_term.clone());
+                            }
+                        }
+                        QueryResults::Boolean(_) => {
+                            return Err(format!(
+                                "Unexpected boolean result for PropertyShape {} batch query",
+                                self.identifier()
+                            ));
+                        }
+                        QueryResults::Graph(_) => {
+                            return Err(format!(
+                                "Unexpected graph result for PropertyShape {} batch query",
+                                self.identifier()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
         for focus_node in focus_nodes_for_this_shape {
-            let sparql_path = self.sparql_path();
-            let query_str = format!(
-                "SELECT DISTINCT ?valueNode WHERE {{ {} {} ?valueNode . }}",
-                focus_node, sparql_path
-            );
+            let raw_values = if let Some(values) = value_node_map.remove(&focus_node) {
+                values
+            } else {
+                let sparql_path = self.sparql_path();
+                let query_str = format!(
+                    "SELECT DISTINCT ?valueNode WHERE {{ {} {} ?valueNode . }}",
+                    focus_node, sparql_path
+                );
 
-            let prepared = context.prepare_query(&query_str).map_err(|e| {
-                format!(
-                    "Failed to prepare query for PropertyShape {}: {}",
-                    self.identifier(),
-                    e
-                )
-            })?;
-
-            let results = context
-                .execute_prepared(&query_str, &prepared, &[], false)
-                .map_err(|e| {
+                let prepared = context.prepare_query(&query_str).map_err(|e| {
                     format!(
-                        "Failed to execute query for PropertyShape {}: {}",
+                        "Failed to prepare query for PropertyShape {}: {}",
                         self.identifier(),
                         e
                     )
                 })?;
 
-            let value_nodes_vec: Vec<Term> = match results {
-                QueryResults::Solutions(solutions) => {
-                    let value_node_var = Variable::new("valueNode")
-                        .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
+                let results = context
+                    .execute_prepared(&query_str, &prepared, &[], false)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to execute query for PropertyShape {}: {}",
+                            self.identifier(),
+                            e
+                        )
+                    })?;
 
-                    let mut nodes = Vec::new();
-                    for solution_res in solutions {
-                        let solution = solution_res.map_err(|e| e.to_string())?;
-                        if let Some(term) = solution.get(&value_node_var) {
-                            nodes.push(term.clone());
-                        } else {
-                            return Err(format!(
-                                "Missing valueNode in solution for PropertyShape {}",
-                                self.identifier()
-                            ));
+                match results {
+                    QueryResults::Solutions(solutions) => {
+                        let value_node_var = Variable::new("valueNode").map_err(|e| {
+                            format!("Internal error creating SPARQL variable: {}", e)
+                        })?;
+
+                        let mut nodes = Vec::new();
+                        for solution_res in solutions {
+                            let solution = solution_res.map_err(|e| e.to_string())?;
+                            if let Some(term) = solution.get(&value_node_var) {
+                                nodes.push(term.clone());
+                            } else {
+                                return Err(format!(
+                                    "Missing valueNode in solution for PropertyShape {}",
+                                    self.identifier()
+                                ));
+                            }
                         }
+                        nodes
                     }
-                    canonicalize_value_nodes(context, self, &focus_node, nodes)
-                }
-                QueryResults::Boolean(_) => {
-                    return Err(format!(
-                        "Unexpected boolean result for PropertyShape {} query",
-                        self.identifier()
-                    ));
-                }
-                QueryResults::Graph(_) => {
-                    return Err(format!(
-                        "Unexpected graph result for PropertyShape {} query",
-                        self.identifier()
-                    ));
+                    QueryResults::Boolean(_) => {
+                        return Err(format!(
+                            "Unexpected boolean result for PropertyShape {} query",
+                            self.identifier()
+                        ));
+                    }
+                    QueryResults::Graph(_) => {
+                        return Err(format!(
+                            "Unexpected graph result for PropertyShape {} query",
+                            self.identifier()
+                        ));
+                    }
                 }
             };
+
+            let value_nodes_vec =
+                canonicalize_value_nodes(context, self, &focus_node, raw_values.clone());
 
             let value_nodes_opt = if value_nodes_vec.is_empty() {
                 None

@@ -2,7 +2,6 @@ use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::component::{check_conformance_for_node, ConformanceReport};
-use crate::sparql::SparqlExecutor;
 use oxigraph::model::{
     Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef, Variable,
 };
@@ -196,6 +195,10 @@ impl Path {
                 }
             }
         }
+    }
+
+    pub fn is_simple_predicate(&self) -> bool {
+        matches!(self, Path::Simple(Term::NamedNode(_)))
     }
 }
 
@@ -440,8 +443,7 @@ fn evaluate_advanced_target(
 
     let selector_ref = term_to_subject_ref(selector)?;
     let shacl = SHACL::new();
-    let store = context.model.store();
-    let shape_graph = context.model.shape_graph_iri_ref();
+    let shape_graph = context.shape_graph_iri_ref();
 
     let mut focus_terms: Vec<Term> = Vec::new();
 
@@ -481,16 +483,8 @@ fn evaluate_advanced_target(
     )?);
 
     // SPARQL-based selector via sh:select.
-    for quad in store
-        .quads_for_pattern(
-            Some(selector_ref),
-            Some(shacl.select),
-            None,
-            Some(shape_graph),
-        )
-        .filter_map(Result::ok)
-    {
-        if let Term::Literal(lit) = quad.object {
+    for term in context.objects_for_predicate(selector_ref, shacl.select, shape_graph)? {
+        if let Term::Literal(lit) = term {
             let query = build_prefixed_query(context, selector, &lit)?;
             let nodes = execute_select_query(context, &query)?;
             focus_terms.extend(nodes);
@@ -515,13 +509,10 @@ fn collect_nested_targets<F>(
 where
     F: FnMut(Term) -> Result<Vec<Context>, String>,
 {
-    let store = context.model.store();
     let mut terms = Vec::new();
-    for quad in store
-        .quads_for_pattern(Some(selector_ref), Some(predicate), None, Some(shape_graph))
-        .filter_map(Result::ok)
-    {
-        let evaluated = evaluator(quad.object)?;
+    let objects = context.objects_for_predicate(selector_ref, predicate, shape_graph)?;
+    for object in objects {
+        let evaluated = evaluator(object)?;
         terms.extend(contexts_to_terms(evaluated));
     }
     Ok(terms)
@@ -547,13 +538,9 @@ fn collect_shape_ids(
     predicate: NamedNodeRef<'_>,
     shape_graph: oxigraph::model::GraphNameRef<'_>,
 ) -> Result<Vec<ID>, String> {
-    let store = context.model.store();
     let mut ids = Vec::new();
-    for quad in store
-        .quads_for_pattern(Some(selector_ref), Some(predicate), None, Some(shape_graph))
-        .filter_map(Result::ok)
-    {
-        let term = quad.object;
+    let objects = context.objects_for_predicate(selector_ref, predicate, shape_graph)?;
+    for term in objects {
         let id = {
             let lookup = context.model.nodeshape_id_lookup().borrow();
             lookup.get(&term).ok_or_else(|| {
@@ -619,13 +606,9 @@ fn apply_ask_validators(
     shape_graph: oxigraph::model::GraphNameRef<'_>,
 ) -> Result<Vec<Term>, String> {
     let shacl = SHACL::new();
-    let store = context.model.store();
     let mut current_terms = focus_terms;
-    for quad in store
-        .quads_for_pattern(Some(selector_ref), Some(shacl.ask), None, Some(shape_graph))
-        .filter_map(Result::ok)
-    {
-        let lit = match quad.object {
+    for term in context.objects_for_predicate(selector_ref, shacl.ask, shape_graph)? {
+        let lit = match term {
             Term::Literal(l) => l,
             other => {
                 return Err(format!(
@@ -652,14 +635,7 @@ fn build_prefixed_query(
     literal: &Literal,
 ) -> Result<String, String> {
     let prefixes = context
-        .model
-        .sparql
-        .prefixes_for_node(
-            selector,
-            context.model.store(),
-            context.model.env(),
-            context.model.shape_graph_iri_ref(),
-        )
+        .prefixes_for_node(selector)
         .map_err(|e| format!("Failed to resolve prefixes for advanced target: {}", e))?;
 
     let mut query = literal.value().to_string();
@@ -674,12 +650,11 @@ fn build_prefixed_query(
 }
 
 fn execute_select_query(context: &ValidationContext, query: &str) -> Result<Vec<Term>, String> {
-    let sparql = context.model.sparql.as_ref();
-    let prepared = sparql
-        .prepared_query(query)
+    let prepared = context
+        .prepare_query(query)
         .map_err(|e| format!("SPARQL parse error for advanced target: {} {:?}", query, e))?;
-    let results = sparql
-        .execute_with_substitutions(query, &prepared, context.model.store(), &[], false)
+    let results = context
+        .execute_prepared(query, &prepared, &[], false)
         .map_err(|e| format!("SPARQL execution error for advanced target: {}", e))?;
 
     match results {
@@ -772,21 +747,14 @@ fn execute_ask_query(
     query: &str,
     term: &Term,
 ) -> Result<bool, String> {
-    let sparql = context.model.sparql.as_ref();
-    let prepared = sparql.prepared_query(query).map_err(|e| {
+    let prepared = context.prepare_query(query).map_err(|e| {
         format!(
             "SPARQL parse error for advanced target ASK: {} {:?}",
             query, e
         )
     })?;
     let var_this = Variable::new("this").map_err(|e| e.to_string())?;
-    let results = sparql.execute_with_substitutions(
-        query,
-        &prepared,
-        context.model.store(),
-        &[(var_this, term.clone())],
-        false,
-    )?;
+    let results = context.execute_prepared(query, &prepared, &[(var_this, term.clone())], false)?;
     match results {
         QueryResults::Boolean(value) => Ok(value),
         _ => Err("Advanced target ASK query must return a boolean result".to_string()),
