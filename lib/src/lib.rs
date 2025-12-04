@@ -2,9 +2,11 @@
 #![deny(clippy::all)]
 
 // Publicly visible items
+pub mod backend;
 pub mod inference;
 pub mod model;
 pub mod shape;
+pub mod trace;
 pub mod types;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
