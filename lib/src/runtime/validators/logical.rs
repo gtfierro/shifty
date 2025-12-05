@@ -28,7 +28,8 @@ impl GraphvizOutput for NotConstraintComponent {
         let shape_term_str = context
             .model
             .nodeshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),

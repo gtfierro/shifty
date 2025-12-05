@@ -412,7 +412,13 @@ pub(crate) fn parse_node_shape(
             Some(shape_graph_name.as_ref()),
         )
         .filter_map(Result::ok)
-        .filter_map(|quad| context.propshape_id_lookup.borrow().get(&quad.object))
+        .filter_map(|quad| {
+            context
+                .propshape_id_lookup
+                .read()
+                .unwrap()
+                .get(&quad.object)
+        })
         .collect();
     // TODO: property_shapes are collected but not used in NodeShape::new. This might be an existing oversight or for future use.
 

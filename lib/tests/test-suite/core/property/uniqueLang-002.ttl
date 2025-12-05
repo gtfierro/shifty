@@ -9,7 +9,7 @@
 ex:s1 a sh:PropertyShape ;
     sh:path ex:message ;
     sh:targetNode ex:i ;
-    sh:uniqueLang true .
+    sh:uniqueLang "1"^^xsd:boolean .
 
 <urn:uniqueLang-002.ttl> a mf:Manifest ;
     mf:entries ( <urn:uniqueLang-002> ) .
@@ -24,4 +24,3 @@ ex:i ex:message "HI"@en,
     mf:result [ a sh:ValidationReport ;
             sh:conforms true ] ;
     mf:status sht:approved .
-

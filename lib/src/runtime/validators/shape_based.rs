@@ -30,7 +30,8 @@ impl GraphvizOutput for NodeConstraintComponent {
         let shape_term_str = context
             .model
             .nodeshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),
@@ -163,7 +164,8 @@ impl GraphvizOutput for PropertyConstraintComponent {
         let shape_term_str = validation_context
             .model
             .propshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(*self.shape())
             .map_or_else(
                 || format!("MissingPropertyShape:{}", self.shape().0),
@@ -220,7 +222,8 @@ impl GraphvizOutput for QualifiedValueShapeComponent {
         let shape_term_str = context
             .model
             .nodeshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),

@@ -45,7 +45,7 @@ ex:ValidResource1 a rdfs:Resource ;
                     sh:resultSeverity sh:Violation ;
                     sh:sourceConstraintComponent sh:OrConstraintComponent ;
                     sh:sourceShape ex:TestShape-comment ;
-                    sh:value false ] ] ;
+                    sh:value "none"^^xsd:boolean ] ] ;
     mf:status sht:approved .
 
 <urn:or-datatypes-001.ttl> a mf:Manifest ;
@@ -54,10 +54,9 @@ ex:ValidResource1 a rdfs:Resource ;
 ex:InvalidResource1 a rdfs:Resource ;
     rdfs:label "Invalid resource1" ;
     rdfs:comment owl:Thing,
-        false,
+        "none"^^xsd:boolean,
         42,
         "A string" .
 
 ex:TestShape-comment sh:or ( [ sh:datatype xsd:string ] [ sh:datatype rdf:HTML ] [ sh:datatype rdf:langString ] [ sh:datatype xsd:boolean ] ) ;
     sh:path rdfs:comment .
-

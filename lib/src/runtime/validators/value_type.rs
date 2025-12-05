@@ -500,7 +500,7 @@ mod tests {
             original_values: None,
         };
 
-        ValidationContext::new(Arc::new(model), data_graph_iri)
+        ValidationContext::new(Arc::new(model), data_graph_iri, false)
     }
 
     #[test]

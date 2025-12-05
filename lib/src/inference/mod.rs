@@ -203,7 +203,7 @@ impl<'a> InferenceEngine<'a> {
         }
 
         for iteration in 1..=self.config.max_iterations {
-            self.context.advanced_target_cache.borrow_mut().clear();
+            self.context.advanced_target_cache.write().unwrap().clear();
             iterations_executed = iteration;
             let added_this_round = self.apply_rules_once(&mut inferred_quads)?;
             total_added += added_this_round;

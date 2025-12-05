@@ -542,7 +542,7 @@ fn collect_shape_ids(
     let objects = context.objects_for_predicate(selector_ref, predicate, shape_graph)?;
     for term in objects {
         let id = {
-            let lookup = context.model.nodeshape_id_lookup().borrow();
+            let lookup = context.model.nodeshape_id_lookup().read().unwrap();
             lookup.get(&term).ok_or_else(|| {
                 format!(
                     "Shape {} referenced via {} is not recognised as a node shape",

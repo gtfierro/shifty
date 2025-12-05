@@ -9,7 +9,7 @@ use crate::sparql::SparqlServices;
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, Variable};
 use oxigraph::store::Store;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Typed binding used when substituting variables into prepared SPARQL queries.
 pub type Binding = (Variable, Term);
@@ -54,10 +54,10 @@ pub trait GraphBackend {
 /// Oxigraph-backed implementation that mirrors the current engine behaviour.
 #[derive(Clone)]
 pub struct OxigraphBackend {
-    store: Store,
+    store: Arc<Store>,
     data_graph: NamedNode,
     shapes_graph: NamedNode,
-    sparql: Rc<SparqlServices>,
+    sparql: Arc<SparqlServices>,
 }
 
 impl OxigraphBackend {
@@ -65,10 +65,10 @@ impl OxigraphBackend {
         store: Store,
         data_graph: NamedNode,
         shapes_graph: NamedNode,
-        sparql: Rc<SparqlServices>,
+        sparql: Arc<SparqlServices>,
     ) -> Self {
         Self {
-            store,
+            store: Arc::new(store),
             data_graph,
             shapes_graph,
             sparql,
@@ -94,9 +94,10 @@ impl GraphBackend for OxigraphBackend {
         graph: GraphNameRef<'_>,
     ) -> Result<Vec<Term>, Self::Error> {
         let mut results = Vec::new();
-        for quad in self
-            .store
-            .quads_for_pattern(Some(subject), Some(predicate), None, Some(graph))
+        for quad in
+            self.store
+                .as_ref()
+                .quads_for_pattern(Some(subject), Some(predicate), None, Some(graph))
         {
             let q = quad.map_err(|e| e.to_string())?;
             results.push(q.object);
@@ -118,7 +119,7 @@ impl GraphBackend for OxigraphBackend {
         self.sparql.execute_with_substitutions(
             query_str,
             prepared,
-            &self.store,
+            self.store.as_ref(),
             substitutions,
             enforce_values_clause,
         )
@@ -132,6 +133,6 @@ impl GraphBackend for OxigraphBackend {
     }
 
     fn store(&self) -> &Store {
-        &self.store
+        self.store.as_ref()
     }
 }
