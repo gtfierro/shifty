@@ -101,5 +101,5 @@ sources → loader → parser → IR → planner → executor (interpreted / com
 
 ## Immediate Next Steps
 - Define `GraphBackend` and `TraceSink` traits in a new crate; implement Oxigraph adapter with current store.  
-- Extract parsing output into a serializable `ShapeIR` struct (reuse existing `ComponentDescriptor`, `NodeShape`, `PropertyShape` with store-free fields).  
+- ~~Extract parsing output into a serializable `ShapeIR` struct (reuse existing `ComponentDescriptor`, `NodeShape`, `PropertyShape` with store-free fields).~~ **Done** — validation now drives off `ShapeIR` IDs.  
 - Prototype a trivial `ValidationPlan` struct and execute it via the interpreter shim to prove the split end-to-end.
