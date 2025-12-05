@@ -76,15 +76,12 @@ impl ValidateComponent for NotConstraintComponent {
                 SourceShape::NodeShape(*negated_node_shape.identifier()), // Source shape is the one being checked against
                 c.trace_index(),
             );
-
-            let trace_len_before = trace.len();
             let result = check_conformance_for_node(
                 &mut value_node_as_context,
                 negated_node_shape,
                 validation_context,
                 trace,
             )?;
-            trace.truncate(trace_len_before); // Truncate sub-trace details
 
             match result {
                 ConformanceReport::Conforms => {
@@ -192,14 +189,12 @@ impl ValidateComponent for AndConstraintComponent {
                     ));
                 };
 
-                let trace_len_before = trace.len();
                 let result = check_conformance_for_node(
                     &mut value_node_as_context,
                     conjunct_node_shape,
                     validation_context,
                     trace,
                 )?;
-                trace.truncate(trace_len_before); // Truncate sub-trace details
 
                 match result {
                     ConformanceReport::Conforms => {
@@ -332,14 +327,12 @@ impl ValidateComponent for OrConstraintComponent {
                     ));
                 };
 
-                let trace_len_before = trace.len();
                 let result = check_conformance_for_node(
                     &mut value_node_as_context,
                     disjunct_node_shape,
                     validation_context,
                     trace,
                 )?;
-                trace.truncate(trace_len_before); // Truncate sub-trace details
 
                 match result {
                     ConformanceReport::Conforms => {
@@ -474,14 +467,12 @@ impl ValidateComponent for XoneConstraintComponent {
                     ));
                 };
 
-                let trace_len_before = trace.len();
                 let result = check_conformance_for_node(
                     &mut value_node_as_context,
                     xone_node_shape,
                     validation_context,
                     trace,
                 )?;
-                trace.truncate(trace_len_before); // Truncate sub-trace details
 
                 match result {
                     ConformanceReport::Conforms => {
