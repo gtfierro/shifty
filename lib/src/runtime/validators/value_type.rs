@@ -461,9 +461,8 @@ mod tests {
     use ontoenv::config::Config;
     use oxigraph::model::{Literal, NamedNode, Term};
     use oxigraph::store::Store;
-    use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::rc::Rc;
+    use std::sync::{Arc, RwLock};
 
     fn build_empty_validation_context() -> ValidationContext {
         let store = Store::new().expect("failed to create in-memory store");
@@ -480,10 +479,10 @@ mod tests {
         let env = OntoEnv::init(config, false).expect("failed to initialise OntoEnv");
 
         let model = ShapesModel {
-            nodeshape_id_lookup: RefCell::new(IDLookupTable::new()),
-            propshape_id_lookup: RefCell::new(IDLookupTable::new()),
-            component_id_lookup: RefCell::new(IDLookupTable::new()),
-            rule_id_lookup: RefCell::new(IDLookupTable::new()),
+            nodeshape_id_lookup: RwLock::new(IDLookupTable::new()),
+            propshape_id_lookup: RwLock::new(IDLookupTable::new()),
+            component_id_lookup: RwLock::new(IDLookupTable::new()),
+            rule_id_lookup: RwLock::new(IDLookupTable::new()),
             store,
             shape_graph_iri,
             node_shapes: HashMap::new(),
@@ -496,12 +495,12 @@ mod tests {
             node_shape_rules: HashMap::new(),
             prop_shape_rules: HashMap::new(),
             env,
-            sparql: Rc::new(SparqlServices::new()),
+            sparql: Arc::new(SparqlServices::new()),
             features: FeatureToggles::default(),
             original_values: None,
         };
 
-        ValidationContext::new(Rc::new(model), data_graph_iri)
+        ValidationContext::new(Arc::new(model), data_graph_iri)
     }
 
     #[test]
