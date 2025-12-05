@@ -41,7 +41,7 @@ use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
 use std::error::Error;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Represents the source of shapes or data, which can be either a local file or a named graph from an `OntoEnv`.
 #[derive(Debug)]
@@ -62,6 +62,7 @@ pub struct ValidatorBuilder {
     enable_af: bool,
     enable_rules: bool,
     skip_invalid_rules: bool,
+    warnings_are_errors: bool,
 }
 
 impl ValidatorBuilder {
@@ -76,6 +77,7 @@ impl ValidatorBuilder {
             enable_af: true,
             enable_rules: true,
             skip_invalid_rules: false,
+            warnings_are_errors: false,
         }
     }
 
@@ -122,6 +124,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Treat SHACL warnings as errors (default: false).
+    pub fn with_warnings_are_errors(mut self, warnings_as_errors: bool) -> Self {
+        self.warnings_are_errors = warnings_as_errors;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -133,6 +141,7 @@ impl ValidatorBuilder {
             enable_af,
             enable_rules,
             skip_invalid_rules,
+            warnings_are_errors,
         } = self;
 
         let shapes_source =
@@ -189,7 +198,7 @@ impl ValidatorBuilder {
             features.clone(),
             original_values,
         )?;
-        let context = ValidationContext::new(Rc::new(model), data_graph_iri);
+        let context = ValidationContext::new(Arc::new(model), data_graph_iri, warnings_are_errors);
         Ok(Validator { context })
     }
 
@@ -541,7 +550,11 @@ ex:Alice a ex:Person ;
         let shapes_path_str = shapes_path.to_string_lossy().to_string();
         let data_path_str = data_path.to_string_lossy().to_string();
 
-        let validator = Validator::from_files(&shapes_path_str, &data_path_str)?;
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(PathBuf::from(shapes_path_str.clone())))
+            .with_data_source(Source::File(PathBuf::from(data_path_str.clone())))
+            .with_warnings_are_errors(true)
+            .build()?;
         let report = validator.validate();
         assert!(!report.conforms(), "Expected validation to fail");
 
@@ -670,8 +683,11 @@ ex:ThingB a ex:Thing ;
         fs::write(&shapes_path, shapes_ttl)?;
         fs::write(&data_path, data_ttl)?;
 
-        let validator =
-            Validator::from_files(shapes_path.to_str().unwrap(), data_path.to_str().unwrap())?;
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(PathBuf::from(shapes_path.clone())))
+            .with_data_source(Source::File(PathBuf::from(data_path.clone())))
+            .with_warnings_are_errors(true)
+            .build()?;
 
         // Template metadata registered.
         let template_iri = NamedNode::new("http://example.com/ns#MinLabelConstraint")?;

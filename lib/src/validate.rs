@@ -14,10 +14,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBuilder, String> {
     let debug_parallel = std::env::var("SHACL_DEBUG_PARALLEL").is_ok();
     if debug_parallel {
-        debug!(
-            "rayon threads available: {}",
-            rayon::current_num_threads()
-        );
+        debug!("rayon threads available: {}", rayon::current_num_threads());
     }
 
     let mut report_builder = ValidationReportBuilder::with_capacity(128);
@@ -195,7 +192,22 @@ impl ValidateShape for NodeShape {
             focus_nodes.len()
         );
 
+        let shape_label = context
+            .model
+            .nodeshape_id_lookup()
+            .read()
+            .unwrap()
+            .get_term(*self.identifier())
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| format!("nodeshape:{}", self.identifier().0));
+
         let constraints = context.order_constraints(self.constraints());
+
+        debug!(
+            "Node shape {} has {} constraints",
+            shape_label,
+            constraints.len()
+        );
 
         let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
             .par_iter()
@@ -246,7 +258,9 @@ impl ValidateShape for NodeShape {
                         Some(ComponentDescriptor::Equals { .. }) => "equals".into(),
                         Some(ComponentDescriptor::Disjoint { .. }) => "disjoint".into(),
                         Some(ComponentDescriptor::LessThan { .. }) => "lessThan".into(),
-                        Some(ComponentDescriptor::LessThanOrEquals { .. }) => "lessThanOrEquals".into(),
+                        Some(ComponentDescriptor::LessThanOrEquals { .. }) => {
+                            "lessThanOrEquals".into()
+                        }
                         Some(ComponentDescriptor::Not { .. }) => "not".into(),
                         Some(ComponentDescriptor::And { .. }) => "and".into(),
                         Some(ComponentDescriptor::Or { .. }) => "or".into(),
@@ -288,7 +302,12 @@ impl ValidateShape for NodeShape {
                         .get_component(constraint_id)
                         .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
 
-                    match comp.validate(*constraint_id, &mut target_context, context, &mut local_trace) {
+                    match comp.validate(
+                        *constraint_id,
+                        &mut target_context,
+                        context,
+                        &mut local_trace,
+                    ) {
                         Ok(validation_results) => {
                             for result in validation_results {
                                 match result {
@@ -446,6 +465,15 @@ impl PropertyShape {
         }
         trace.push(TraceItem::PropertyShape(*self.identifier()));
 
+        let shape_label = context
+            .model
+            .propshape_id_lookup()
+            .read()
+            .unwrap()
+            .get_term(*self.identifier())
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| format!("propertyshape:{}", self.identifier().0));
+
         let mut all_results: Vec<ComponentValidationResult> = Vec::new();
 
         // If the incoming context has value nodes, those are our focus nodes (for nested property shapes).
@@ -496,7 +524,9 @@ impl PropertyShape {
                 }
                 Some(ComponentDescriptor::Node { .. }) => "node".into(),
                 Some(ComponentDescriptor::Property { .. }) => "property".into(),
-                Some(ComponentDescriptor::QualifiedValueShape { .. }) => "qualifiedValueShape".into(),
+                Some(ComponentDescriptor::QualifiedValueShape { .. }) => {
+                    "qualifiedValueShape".into()
+                }
                 None => format!("component_id:{}", id.0),
             }
         };
@@ -655,19 +685,19 @@ impl PropertyShape {
                 focus_context.trace_index(),
             );
 
-                let constraints = context.order_constraints(self.constraints());
+            let constraints = context.order_constraints(self.constraints());
+            debug!(
+                "Property shape {} has {} constraints",
+                shape_label,
+                constraints.len()
+            );
+            for constraint_id in constraints {
                 debug!(
-                    "Property shape {} has {} constraints",
-                    self.identifier(),
-                    constraints.len()
+                    "Evaluating constraint {} ({}) for property shape {}",
+                    constraint_id,
+                    describe_component(&constraint_id),
+                    shape_label
                 );
-                for constraint_id in constraints {
-                    debug!(
-                        "Evaluating constraint {} ({}) for property shape {}",
-                        constraint_id,
-                        describe_component(&constraint_id),
-                        self.identifier()
-                    );
                 let component = context
                     .get_component(&constraint_id)
                     .ok_or_else(|| format!("Component not found: {}", constraint_id))?;

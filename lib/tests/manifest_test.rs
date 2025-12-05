@@ -118,12 +118,17 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             .shapes_graph_path
             .to_str()
             .ok_or("Invalid shapes graph path")?;
-        let validator = Validator::from_files(shapes_graph_path, data_graph_path).map_err(|e| {
-            io::Error::other(format!(
-                "Failed to create Validator for test '{}': {}",
-                test_name, e
-            ))
-        })?;
+        let validator = Validator::builder()
+            .with_shapes_source(shacl::Source::File(PathBuf::from(shapes_graph_path)))
+            .with_data_source(shacl::Source::File(PathBuf::from(data_graph_path)))
+            .with_warnings_are_errors(true)
+            .build()
+            .map_err(|e| {
+                io::Error::other(format!(
+                    "Failed to create Validator for test '{}': {}",
+                    test_name, e
+                ))
+            })?;
         let report = validator.validate();
         let conforms = report.conforms();
         let expects_conform = test.conforms;
