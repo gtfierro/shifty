@@ -5,10 +5,13 @@ use std::path::{Path, PathBuf};
 
 use ontoenv::config::Config;
 use oxigraph::model::Quad;
+use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict};
+use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use pyo3::wrap_pyfunction;
+use serde_json::json;
+use shacl::trace::TraceEvent;
 use shacl::{InferenceConfig, Source, Validator};
 use tempfile::tempdir;
 
@@ -173,6 +176,127 @@ where
     Ok(())
 }
 
+fn trace_event_to_json(event: &TraceEvent) -> serde_json::Value {
+    match event {
+        TraceEvent::EnterNodeShape(id) => json!({
+            "type": "EnterNodeShape",
+            "node_shape_id": id.0,
+        }),
+        TraceEvent::EnterPropertyShape(id) => json!({
+            "type": "EnterPropertyShape",
+            "property_shape_id": id.0,
+        }),
+        TraceEvent::ComponentPassed {
+            component,
+            focus,
+            value,
+        } => json!({
+            "type": "ComponentPassed",
+            "component_id": component.0,
+            "focus": focus.to_string(),
+            "value": value.as_ref().map(|t| t.to_string()),
+        }),
+        TraceEvent::ComponentFailed {
+            component,
+            focus,
+            value,
+            message,
+        } => json!({
+            "type": "ComponentFailed",
+            "component_id": component.0,
+            "focus": focus.to_string(),
+            "value": value.as_ref().map(|t| t.to_string()),
+            "message": message,
+        }),
+        TraceEvent::SparqlQuery { label } => json!({
+            "type": "SparqlQuery",
+            "label": label,
+        }),
+        TraceEvent::RuleApplied { rule, inserted } => json!({
+            "type": "RuleApplied",
+            "rule_id": rule.0,
+            "inserted": inserted,
+        }),
+    }
+}
+
+fn trace_events_to_py(py: Python<'_>, events: &[TraceEvent]) -> PyResult<Py<PyAny>> {
+    let list = PyList::empty(py);
+    for event in events {
+        let dict = PyDict::new(py);
+        match event {
+            TraceEvent::EnterNodeShape(id) => {
+                dict.set_item("type", "EnterNodeShape")?;
+                dict.set_item("node_shape_id", id.0)?;
+            }
+            TraceEvent::EnterPropertyShape(id) => {
+                dict.set_item("type", "EnterPropertyShape")?;
+                dict.set_item("property_shape_id", id.0)?;
+            }
+            TraceEvent::ComponentPassed {
+                component,
+                focus,
+                value,
+            } => {
+                dict.set_item("type", "ComponentPassed")?;
+                dict.set_item("component_id", component.0)?;
+                dict.set_item("focus", focus.to_string())?;
+                dict.set_item("value", value.as_ref().map(|t| t.to_string()))?;
+            }
+            TraceEvent::ComponentFailed {
+                component,
+                focus,
+                value,
+                message,
+            } => {
+                dict.set_item("type", "ComponentFailed")?;
+                dict.set_item("component_id", component.0)?;
+                dict.set_item("focus", focus.to_string())?;
+                dict.set_item("value", value.as_ref().map(|t| t.to_string()))?;
+                dict.set_item("message", message)?;
+            }
+            TraceEvent::SparqlQuery { label } => {
+                dict.set_item("type", "SparqlQuery")?;
+                dict.set_item("label", label)?;
+            }
+            TraceEvent::RuleApplied { rule, inserted } => {
+                dict.set_item("type", "RuleApplied")?;
+                dict.set_item("rule_id", rule.0)?;
+                dict.set_item("inserted", inserted)?;
+            }
+        }
+        list.append(dict)?;
+    }
+    Ok(list.into())
+}
+
+fn write_trace_outputs(
+    events: &[TraceEvent],
+    trace_file: Option<&Path>,
+    trace_jsonl: Option<&Path>,
+) -> PyResult<()> {
+    if let Some(path) = trace_file {
+        let mut lines = String::new();
+        for ev in events {
+            lines.push_str(&format!("{:?}\n", ev));
+        }
+        fs::write(path, lines).map_err(map_err)?;
+    }
+
+    if let Some(path) = trace_jsonl {
+        let mut buf = String::new();
+        for ev in events {
+            let value = trace_event_to_json(ev);
+            let line = serde_json::to_string(&value).map_err(map_err)?;
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        fs::write(path, buf).map_err(map_err)?;
+    }
+
+    Ok(())
+}
+
 fn resolve_run_until(
     run_until_converged: Option<bool>,
     no_converge: Option<bool>,
@@ -230,7 +354,7 @@ fn graph_from_data(py: Python<'_>, data: &str, format: &str) -> PyResult<Py<PyAn
     Ok(graph.into())
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=true, warnings_are_errors=false, do_imports=true))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
 fn infer(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
@@ -246,6 +370,13 @@ fn infer(
     skip_invalid_rules: Option<bool>,
     warnings_are_errors: Option<bool>,
     do_imports: Option<bool>,
+    graphviz: bool,
+    heatmap: bool,
+    heatmap_all: bool,
+    trace_events: bool,
+    trace_file: Option<PathBuf>,
+    trace_jsonl: Option<PathBuf>,
+    return_inference_outcome: bool,
 ) -> PyResult<Py<PyAny>> {
     let validator = build_validator_from_graphs(
         py,
@@ -257,6 +388,14 @@ fn infer(
         warnings_are_errors.unwrap_or(false),
         do_imports.unwrap_or(true),
     )?;
+    let should_collect_traces =
+        trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
+    let trace_buf = if should_collect_traces {
+        Some(validator.context().trace_events())
+    } else {
+        None
+    };
+
     let run_until_converged = resolve_run_until(
         run_until_converged,
         no_converge,
@@ -275,10 +414,56 @@ fn infer(
         .map_err(map_err)?;
 
     let data = quads_to_ntriples(&outcome.inferred_quads);
-    graph_from_data(py, &data, "nt")
+    let inferred_graph = graph_from_data(py, &data, "nt")?;
+
+    let diagnostics = PyDict::new(py);
+
+    if graphviz {
+        let dot = validator.to_graphviz().map_err(map_err)?;
+        diagnostics.set_item("graphviz", dot)?;
+    }
+
+    if heatmap {
+        // Populate traces before generating the heatmap.
+        let _report = validator.validate();
+        let heatmap_dot = validator
+            .to_graphviz_heatmap(heatmap_all)
+            .map_err(map_err)?;
+        diagnostics.set_item("heatmap", heatmap_dot)?;
+    }
+
+    if let Some(buf) = trace_buf {
+        let events = buf
+            .lock()
+            .ok()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
+        write_trace_outputs(&events, trace_file.as_deref(), trace_jsonl.as_deref())?;
+        if trace_events {
+            let py_events = trace_events_to_py(py, &events)?;
+            diagnostics.set_item("trace_events", py_events)?;
+        }
+    }
+
+    if return_inference_outcome {
+        let stats = PyDict::new(py);
+        stats.set_item("iterations_executed", outcome.iterations_executed)?;
+        stats.set_item("triples_added", outcome.triples_added)?;
+        stats.set_item("converged", outcome.converged)?;
+        diagnostics.set_item("inference_outcome", stats)?;
+    }
+
+    if diagnostics.is_empty() {
+        Ok(inferred_graph.clone_ref(py))
+    } else {
+        let graph_obj = inferred_graph.clone_ref(py).into_py_any(py)?;
+        let diag_obj = diagnostics.into_py_any(py)?;
+        let tuple = PyTuple::new(py, &[graph_obj, diag_obj])?;
+        Ok(tuple.into_py_any(py)?)
+    }
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=None, warnings_are_errors=false, do_imports=true))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
 fn validate(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
@@ -301,7 +486,14 @@ fn validate(
     skip_invalid_rules: Option<bool>,
     warnings_are_errors: Option<bool>,
     do_imports: Option<bool>,
-) -> PyResult<(bool, Py<PyAny>, String)> {
+    graphviz: bool,
+    heatmap: bool,
+    heatmap_all: bool,
+    trace_events: bool,
+    trace_file: Option<PathBuf>,
+    trace_jsonl: Option<PathBuf>,
+    return_inference_outcome: bool,
+) -> PyResult<Py<PyAny>> {
     let validator = build_validator_from_graphs(
         py,
         shapes_graph,
@@ -312,6 +504,13 @@ fn validate(
         warnings_are_errors.unwrap_or(false),
         do_imports.unwrap_or(true),
     )?;
+    let should_collect_traces =
+        trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
+    let trace_buf = if should_collect_traces {
+        Some(validator.context().trace_events())
+    } else {
+        None
+    };
 
     let mut min_iterations = resolve_alias(
         min_iterations,
@@ -459,7 +658,7 @@ fn validate(
         "inference_no_converge",
     )?;
 
-    if should_run_inference {
+    let (report, inference_outcome) = if should_run_inference {
         let config = build_inference_config(
             min_iterations,
             max_iterations,
@@ -467,16 +666,71 @@ fn validate(
             error_on_blank_nodes,
             debug,
         )?;
-        validator
-            .run_inference_with_config(config)
-            .map_err(map_err)?;
-    }
-
-    let report = validator.validate();
+        match validator.validate_with_inference(config) {
+            Ok((outcome, report)) => (report, Some(outcome)),
+            Err(err) => return Err(map_err(err)),
+        }
+    } else {
+        (validator.validate(), None)
+    };
     let conforms = report.conforms();
     let report_turtle = report.to_turtle().map_err(map_err)?;
     let report_graph = graph_from_data(py, &report_turtle, "turtle")?;
-    Ok((conforms, report_graph, report_turtle))
+    let diagnostics = PyDict::new(py);
+
+    if graphviz {
+        let dot = validator.to_graphviz().map_err(map_err)?;
+        diagnostics.set_item("graphviz", dot)?;
+    }
+
+    if heatmap {
+        let dot = validator
+            .to_graphviz_heatmap(heatmap_all)
+            .map_err(map_err)?;
+        diagnostics.set_item("heatmap", dot)?;
+    }
+
+    if let Some(buf) = trace_buf {
+        let events = buf
+            .lock()
+            .ok()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
+        write_trace_outputs(&events, trace_file.as_deref(), trace_jsonl.as_deref())?;
+        if trace_events {
+            let py_events = trace_events_to_py(py, &events)?;
+            diagnostics.set_item("trace_events", py_events)?;
+        }
+    }
+
+    if return_inference_outcome {
+        if let Some(outcome) = inference_outcome {
+            let stats = PyDict::new(py);
+            stats.set_item("iterations_executed", outcome.iterations_executed)?;
+            stats.set_item("triples_added", outcome.triples_added)?;
+            stats.set_item("converged", outcome.converged)?;
+            diagnostics.set_item("inference_outcome", stats)?;
+        }
+    }
+
+    if diagnostics.is_empty() {
+        let items: Vec<Py<PyAny>> = vec![
+            conforms.into_py_any(py)?,
+            report_graph.clone_ref(py).into_py_any(py)?,
+            report_turtle.into_py_any(py)?,
+        ];
+        let tuple = PyTuple::new(py, &items)?;
+        Ok(tuple.into_py_any(py)?)
+    } else {
+        let items: Vec<Py<PyAny>> = vec![
+            conforms.into_py_any(py)?,
+            report_graph.clone_ref(py).into_py_any(py)?,
+            report_turtle.into_py_any(py)?,
+            diagnostics.into_py_any(py)?,
+        ];
+        let tuple = PyTuple::new(py, &items)?;
+        Ok(tuple.into_py_any(py)?)
+    }
 }
 
 /// Python module definition.

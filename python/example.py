@@ -45,3 +45,16 @@ conforms2, _, _ = shacl_rs.validate(
     inference={"min_iterations": 1, "max_iterations": 4, "debug": True},
 )
 print(conforms2)
+
+# Request diagnostics (graphviz + inference stats + traces as a dict)
+conforms3, _, _, diag = shacl_rs.validate(
+    data,
+    shapes,
+    run_inference=True,
+    graphviz=True,
+    trace_events=True,
+    return_inference_outcome=True,
+)
+print("Shapes DOT (first 80 chars):", diag["graphviz"][:80])
+print("Inference stats:", diag["inference_outcome"])
+print("Trace events count:", len(diag.get("trace_events", [])))

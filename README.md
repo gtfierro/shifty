@@ -79,10 +79,10 @@ Install the extension module with `uvx maturin develop` (or `maturin develop --r
 ```python
 import shacl_rs
 
-shacl_rs.infer(
-    data_graph: rdflib.Graph,
-    shapes_graph: rdflib.Graph,
-    *,
+# Requesting diagnostics returns a second item; otherwise you get just the graph.
+inferred_graph, diag = shacl_rs.infer(
+    data_graph,
+    shapes_graph,
     min_iterations=None,
     max_iterations=None,
     run_until_converged=None,
@@ -91,13 +91,21 @@ shacl_rs.infer(
     enable_af=True,
     enable_rules=True,
     debug=None,
-    skip_invalid_rules=None,
-) -> rdflib.Graph
+    skip_invalid_rules=False,
+    warnings_are_errors=False,
+    do_imports=True,
+    graphviz=True,
+    heatmap=False,
+    heatmap_all=False,
+    trace_events=False,
+    trace_file=None,
+    trace_jsonl=None,
+    return_inference_outcome=True,
+)
 
-shacl_rs.validate(
-    data_graph: rdflib.Graph,
-    shapes_graph: rdflib.Graph,
-    *,
+conforms, results_graph, report_text, diag = shacl_rs.validate(
+    data_graph,
+    shapes_graph,
     run_inference=False,
     inference=None,
     min_iterations=None,
@@ -113,22 +121,38 @@ shacl_rs.validate(
     enable_rules=True,
     debug=None,
     inference_debug=None,
-    skip_invalid_rules=None,
-) -> (bool, rdflib.Graph, str)
+    skip_invalid_rules=False,
+    warnings_are_errors=False,
+    do_imports=True,
+    graphviz=False,
+    heatmap=False,
+    heatmap_all=False,
+    trace_events=False,
+    trace_file=None,
+    trace_jsonl=None,
+    return_inference_outcome=False,
+)
 ```
 
-- `infer` returns only the new triples.
-- `validate` returns `(conforms, results_graph, report_turtle)`.
+- `infer` still returns only the new triples unless you request diagnostics, in which case you get `(graph, diag)` where `diag` may contain `graphviz`, `heatmap`, `trace_events`, and/or `inference_outcome`.
+- `validate` returns `(conforms, results_graph, report_turtle)` by default or a fourth diagnostics dict when any of the diagnostic flags are set.
 - `inference` can be `True`/`False` or a dict that groups inference options (e.g. `{"min_iterations": 2, "debug": True}`) so you don't have to repeat CLI-style flags in Python. Explicit keyword arguments still work and continue to accept their `inference_*` aliases for backward compatibility.
 
 Example:
 
 ```python
-conforms, results_graph, report_text = shacl_rs.validate(
+conforms, results_graph, report_text, diag = shacl_rs.validate(
     data_graph,
     shapes_graph,
     inference={"min_iterations": 2, "max_iterations": 6, "debug": True},
+    graphviz=True,
+    heatmap=True,
+    trace_events=True,
+    return_inference_outcome=True,
 )
+print(diag["graphviz"])
+print(diag["heatmap"])
+print(diag["inference_outcome"]["triples_added"])
 ```
 
 ### Python example (adapted from `python/brick.py`)

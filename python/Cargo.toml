@@ -20,3 +20,4 @@ shacl = { path = "../lib" }
 oxigraph.workspace = true
 ontoenv = "0.4.0"
 tempfile = "3"
+serde_json.workspace = true

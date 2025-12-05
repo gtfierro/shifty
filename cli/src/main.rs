@@ -79,7 +79,19 @@ struct GraphvizArgs {
 #[derive(Parser)]
 struct PdfArgs {
     #[clap(flatten)]
-    common: CommonArgs,
+    shapes: ShapesSourceCli,
+
+    /// Skip invalid SHACL constructs (log and continue)
+    #[arg(long)]
+    skip_invalid_rules: bool,
+
+    /// Treat SHACL warnings as errors (default: false)
+    #[arg(long)]
+    warnings_are_errors: bool,
+
+    /// Disable resolving owl:imports for shapes graph (default: do imports)
+    #[arg(long)]
+    no_imports: bool,
 
     /// Path to the output PDF file
     #[arg(short, long, value_name = "FILE")]
@@ -272,6 +284,28 @@ fn get_validator(common: &CommonArgs) -> Result<Validator, Box<dyn std::error::E
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
 
+fn get_validator_shapes_only(
+    shapes: &ShapesSourceCli,
+    skip_invalid_rules: bool,
+    warnings_are_errors: bool,
+    do_imports: bool,
+) -> Result<Validator, Box<dyn std::error::Error>> {
+    let shapes_source = if let Some(path) = &shapes.shapes_file {
+        Source::File(path.clone())
+    } else {
+        Source::Graph(shapes.shapes_graph.clone().unwrap())
+    };
+
+    ValidatorBuilder::new()
+        .with_shapes_source(shapes_source)
+        .with_data_source(Source::Empty)
+        .with_skip_invalid_rules(skip_invalid_rules)
+        .with_warnings_are_errors(warnings_are_errors)
+        .with_do_imports(do_imports)
+        .build()
+        .map_err(|e| format!("Error creating validator: {}", e).into())
+}
+
 fn build_inference_config(
     min_iterations: Option<usize>,
     max_iterations: Option<usize>,
@@ -411,7 +445,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", dot_string);
         }
         Commands::Pdf(args) => {
-            let validator = get_validator(&args.common)?;
+            let validator = get_validator_shapes_only(
+                &args.shapes,
+                args.skip_invalid_rules,
+                args.warnings_are_errors,
+                !args.no_imports,
+            )?;
             let dot_string = validator.to_graphviz()?;
 
             let output_format = Format::Pdf;

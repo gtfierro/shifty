@@ -51,6 +51,8 @@ pub enum Source {
     File(PathBuf),
     /// The URI of a named graph.
     Graph(String),
+    /// An in-memory empty graph (used when a data graph is not needed).
+    Empty,
 }
 
 /// Configurable builder for constructing `Validator` instances.
@@ -165,16 +167,30 @@ impl ValidatorBuilder {
 
         let mut env: OntoEnv = OntoEnv::init(config, false)?;
         let shapes_graph_iri = Self::add_source(&mut env, &shapes_source, "shapes")?;
-        let data_graph_iri = Self::add_source(&mut env, &data_source, "data")?;
+        let (data_graph_iri, data_in_env) = match &data_source {
+            Source::Empty => (
+                NamedNode::new("urn:shacl-rs:null-data")
+                    .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
+                false,
+            ),
+            _ => (Self::add_source(&mut env, &data_source, "data")?, true),
+        };
         let store = if do_imports {
-            let mut store = Store::new().map_err(|e| {
+            let store = Store::new().map_err(|e| {
                 Box::new(std::io::Error::other(format!(
                     "Error creating in-memory store: {}",
                     e
                 ))) as Box<dyn Error>
             })?;
 
-            for iri in [&shapes_graph_iri, &data_graph_iri] {
+            // Always load shapes; load data only when it came from an external source.
+            let import_graphs: Vec<&NamedNode> = if data_in_env {
+                vec![&shapes_graph_iri, &data_graph_iri]
+            } else {
+                vec![&shapes_graph_iri]
+            };
+
+            for iri in import_graphs {
                 let graph_id = env
                     .resolve(ResolveTarget::Graph(iri.clone()))
                     .ok_or_else(|| {
@@ -184,12 +200,15 @@ impl ValidatorBuilder {
                         ))) as Box<dyn Error>
                     })?;
 
-                let closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+                let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
                     Box::new(std::io::Error::other(format!(
                         "Failed to build imports closure for {}: {}",
                         iri, e
                     ))) as Box<dyn Error>
                 })?;
+                if !closure_ids.contains(&graph_id) {
+                    closure_ids.push(graph_id.clone());
+                }
                 let union = env
                     .get_union_graph(&closure_ids, Some(false), Some(false))
                     .map_err(|e| {
@@ -237,7 +256,7 @@ impl ValidatorBuilder {
                 let base_ref = data_skolem_base.as_deref();
                 Some(OriginalValueIndex::from_path(path, base_ref)?)
             }
-            Source::Graph(_) => None,
+            Source::Graph(_) | Source::Empty => None,
         };
 
         let features = FeatureToggles {
@@ -288,6 +307,12 @@ impl ValidatorBuilder {
                 Overwrite::Allow,
                 RefreshStrategy::Force,
             )?,
+            Source::Empty => {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "Empty source is not loadable for {} graph",
+                    label
+                ))))
+            }
         };
 
         let ontology = env
