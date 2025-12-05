@@ -192,22 +192,7 @@ impl ValidateShape for NodeShape {
             focus_nodes.len()
         );
 
-        let shape_label = context
-            .model
-            .nodeshape_id_lookup()
-            .read()
-            .unwrap()
-            .get_term(*self.identifier())
-            .map(|t| t.to_string())
-            .unwrap_or_else(|| format!("nodeshape:{}", self.identifier().0));
-
         let constraints = context.order_constraints(self.constraints());
-
-        debug!(
-            "Node shape {} has {} constraints",
-            shape_label,
-            constraints.len()
-        );
 
         let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
             .par_iter()
@@ -394,17 +379,6 @@ impl ValidateShape for PropertyShape {
         if focus_nodes.is_empty() {
             return Ok(());
         }
-
-        let shape_label = context
-            .model
-            .propshape_id_lookup()
-            .read()
-            .unwrap()
-            .get_term(*self.identifier())
-            .map(|t| t.to_string())
-            .unwrap_or_else(|| format!("propertyshape:{}", self.identifier().0));
-
-        let constraints = context.order_constraints(self.constraints());
 
         for focus_node in focus_nodes {
             let mut target_context = Context::new(

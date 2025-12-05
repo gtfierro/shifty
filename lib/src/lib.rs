@@ -34,6 +34,7 @@ use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
 use log::info;
 use ontoenv::api::OntoEnv;
+use ontoenv::api::ResolveTarget;
 use ontoenv::config::Config;
 use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
@@ -63,6 +64,7 @@ pub struct ValidatorBuilder {
     enable_rules: bool,
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
+    do_imports: bool,
 }
 
 impl ValidatorBuilder {
@@ -78,6 +80,7 @@ impl ValidatorBuilder {
             enable_rules: true,
             skip_invalid_rules: false,
             warnings_are_errors: false,
+            do_imports: true,
         }
     }
 
@@ -130,6 +133,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Whether to resolve and load owl:imports closures for shapes/data (default: true).
+    pub fn with_do_imports(mut self, do_imports: bool) -> Self {
+        self.do_imports = do_imports;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -142,6 +151,7 @@ impl ValidatorBuilder {
             enable_rules,
             skip_invalid_rules,
             warnings_are_errors,
+            do_imports,
         } = self;
 
         let shapes_source =
@@ -156,7 +166,52 @@ impl ValidatorBuilder {
         let mut env: OntoEnv = OntoEnv::init(config, false)?;
         let shapes_graph_iri = Self::add_source(&mut env, &shapes_source, "shapes")?;
         let data_graph_iri = Self::add_source(&mut env, &data_source, "data")?;
-        let store = env.io().store().clone();
+        let store = if do_imports {
+            let mut store = Store::new().map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Error creating in-memory store: {}",
+                    e
+                ))) as Box<dyn Error>
+            })?;
+
+            for iri in [&shapes_graph_iri, &data_graph_iri] {
+                let graph_id = env
+                    .resolve(ResolveTarget::Graph(iri.clone()))
+                    .ok_or_else(|| {
+                        Box::new(std::io::Error::other(format!(
+                            "Ontology not found for graph {}",
+                            iri
+                        ))) as Box<dyn Error>
+                    })?;
+
+                let closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to build imports closure for {}: {}",
+                        iri, e
+                    ))) as Box<dyn Error>
+                })?;
+                let union = env
+                    .get_union_graph(&closure_ids, Some(false), Some(false))
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to load union graph for {}: {}",
+                            iri, e
+                        ))) as Box<dyn Error>
+                    })?;
+
+                for quad in union.dataset.iter() {
+                    store.insert(quad).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to insert quad into store: {}",
+                            e
+                        ))) as Box<dyn Error>
+                    })?;
+                }
+            }
+            store
+        } else {
+            env.io().store().clone()
+        };
 
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;

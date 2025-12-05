@@ -64,6 +64,10 @@ struct CommonArgs {
     /// Treat SHACL warnings as errors (default: false)
     #[arg(long)]
     warnings_are_errors: bool,
+
+    /// Disable resolving owl:imports for shapes/data graphs (default: do imports)
+    #[arg(long)]
+    no_imports: bool,
 }
 
 #[derive(Parser)]
@@ -263,6 +267,7 @@ fn get_validator(common: &CommonArgs) -> Result<Validator, Box<dyn std::error::E
         .with_data_source(data_source)
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
+        .with_do_imports(!common.no_imports)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }

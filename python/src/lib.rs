@@ -56,6 +56,7 @@ fn build_validator_from_graphs(
     enable_rules: bool,
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
+    do_imports: bool,
 ) -> PyResult<Validator> {
     let temp_dir = tempdir().map_err(map_err)?;
     let shapes_path = write_graph_to_file(py, shapes_graph, temp_dir.path(), "shapes.ttl")?;
@@ -71,6 +72,7 @@ fn build_validator_from_graphs(
         .with_rules_enabled(enable_rules)
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
+        .with_do_imports(do_imports)
         .build()
         .map_err(map_err)?;
 
@@ -228,7 +230,7 @@ fn graph_from_data(py: Python<'_>, data: &str, format: &str) -> PyResult<Py<PyAn
     Ok(graph.into())
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=true, warnings_are_errors=false))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=true, warnings_are_errors=false, do_imports=true))]
 fn infer(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
@@ -243,6 +245,7 @@ fn infer(
     debug: Option<bool>,
     skip_invalid_rules: Option<bool>,
     warnings_are_errors: Option<bool>,
+    do_imports: Option<bool>,
 ) -> PyResult<Py<PyAny>> {
     let validator = build_validator_from_graphs(
         py,
@@ -252,6 +255,7 @@ fn infer(
         enable_rules,
         skip_invalid_rules.unwrap_or(false),
         warnings_are_errors.unwrap_or(false),
+        do_imports.unwrap_or(true),
     )?;
     let run_until_converged = resolve_run_until(
         run_until_converged,
@@ -274,7 +278,7 @@ fn infer(
     graph_from_data(py, &data, "nt")
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=None, warnings_are_errors=false))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=None, warnings_are_errors=false, do_imports=true))]
 fn validate(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
@@ -296,6 +300,7 @@ fn validate(
     inference_debug: Option<bool>,
     skip_invalid_rules: Option<bool>,
     warnings_are_errors: Option<bool>,
+    do_imports: Option<bool>,
 ) -> PyResult<(bool, Py<PyAny>, String)> {
     let validator = build_validator_from_graphs(
         py,
@@ -305,6 +310,7 @@ fn validate(
         enable_rules,
         skip_invalid_rules.unwrap_or(false),
         warnings_are_errors.unwrap_or(false),
+        do_imports.unwrap_or(true),
     )?;
 
     let mut min_iterations = resolve_alias(
