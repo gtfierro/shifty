@@ -2,8 +2,9 @@
 members = [
     "lib",
     "cli",
-    "python"
-, "crates/shacl-ir"]
+    "python",
+    "shacl-ir"
+]
 resolver = "2"
 
 [workspace.package]
