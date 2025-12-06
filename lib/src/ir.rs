@@ -1,7 +1,7 @@
 use crate::context::model::ShapesModel;
 use crate::shape::{NodeShape, PropertyShape};
 use oxigraph::model::NamedNode;
-use shacl_ir::{ComponentDescriptor, FeatureToggles, NodeShapeIR, PropertyShapeIR, ShapeIR};
+use shacl_ir::{NodeShapeIR, PropertyShapeIR, ShapeIR};
 
 fn node_ir(shape: &NodeShape) -> NodeShapeIR {
     NodeShapeIR {
