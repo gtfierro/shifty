@@ -26,7 +26,7 @@ pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
 use crate::canonicalization::skolemize;
-use crate::context::model::{FeatureToggles, OriginalValueIndex};
+use crate::context::model::OriginalValueIndex;
 use crate::context::{
     render_heatmap_graphviz, render_shapes_graphviz, ParsingContext, ShapesModel, ValidationContext,
 };
@@ -40,6 +40,7 @@ use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
+use shacl_ir::FeatureToggles;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;

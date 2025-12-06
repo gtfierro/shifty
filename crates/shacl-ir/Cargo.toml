@@ -1,0 +1,10 @@
+[package]
+name = "shacl-ir"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+authors = ["Gabe Fierro <gtfierro@mines.edu>"]
+description = "Declarative SHACL shape IR types"
+
+[dependencies]
+oxigraph = { version = "0.5.0" }

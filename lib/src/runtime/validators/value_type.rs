@@ -452,7 +452,6 @@ impl GraphvizOutput for NodeKindConstraintComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::model::FeatureToggles;
     use crate::context::{Context, IDLookupTable, ShapesModel, SourceShape, ValidationContext};
     use crate::model::components::ComponentDescriptor;
     use crate::sparql::SparqlServices;
@@ -461,6 +460,7 @@ mod tests {
     use ontoenv::config::Config;
     use oxigraph::model::{Literal, NamedNode, Term};
     use oxigraph::store::Store;
+    use shacl_ir::FeatureToggles;
     use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
 

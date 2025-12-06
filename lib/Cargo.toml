@@ -24,6 +24,7 @@ rayon = "1.10.0"
 spargebra = "0.4"
 ntest = "0.9.3"
 ontoenv = "0.4.0-a9"
+shacl-ir = { path = "../crates/shacl-ir" }
 
 [build-dependencies]
 oxigraph.workspace = true

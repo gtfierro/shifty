@@ -1,7 +1,6 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
 use crate::backend::{Binding, GraphBackend, OxigraphBackend};
-use crate::ir::ShapeIR;
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
@@ -12,6 +11,7 @@ use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
 use oxigraph::store::Store;
+use shacl_ir::ShapeIR;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -56,7 +56,10 @@ impl ValidationContext {
         ));
         let trace_events = Arc::new(Mutex::new(Vec::new()));
         let memory_sink = MemoryTraceSink::new(Arc::clone(&trace_events));
-        let shape_ir = Arc::new(ShapeIR::from_model(&model, Some(data_graph_iri.clone())));
+        let shape_ir = Arc::new(crate::ir::build_shape_ir(
+            &model,
+            Some(data_graph_iri.clone()),
+        ));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
         let components: HashMap<ComponentID, Component> = model
             .component_descriptors
@@ -67,13 +70,13 @@ impl ValidationContext {
                         definition,
                         parameter_values,
                     } => {
-                        let cache_key = custom_component_cache_key(definition, parameter_values);
+                        let cache_key = custom_component_cache_key(&definition, &parameter_values);
                         let cached = custom_cache.entry(cache_key).or_insert_with(|| {
-                            build_custom_constraint_component(definition, parameter_values)
+                            build_custom_constraint_component(&definition, &parameter_values)
                         });
                         Component::CustomConstraint(cached.clone())
                     }
-                    _ => build_component_from_descriptor(descriptor),
+                    _ => build_component_from_descriptor(&descriptor),
                 };
                 (*id, component)
             })

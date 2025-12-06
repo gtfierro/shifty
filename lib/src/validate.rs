@@ -4,7 +4,7 @@ use crate::report::ValidationReportBuilder;
 use crate::runtime::{ComponentValidationResult, ToSubjectRef};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::trace::TraceEvent;
-use crate::types::{PropShapeID, TraceItem};
+use crate::types::{PropShapeID, TargetEvalExt, TraceItem};
 use log::{debug, info};
 use oxigraph::model::{Literal, Term};
 use oxigraph::sparql::{QueryResults, Variable};

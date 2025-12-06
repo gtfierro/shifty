@@ -16,30 +16,13 @@ use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
 use oxigraph::model::{Literal, Subject};
 use oxigraph::store::Store;
+use shacl_ir::FeatureToggles;
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-
-#[derive(Debug, Clone)]
-pub struct FeatureToggles {
-    pub enable_af: bool,
-    #[allow(dead_code)]
-    pub enable_rules: bool,
-    pub skip_invalid_rules: bool,
-}
-
-impl Default for FeatureToggles {
-    fn default() -> Self {
-        Self {
-            enable_af: true,
-            enable_rules: true,
-            skip_invalid_rules: false,
-        }
-    }
-}
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 struct LiteralKey {

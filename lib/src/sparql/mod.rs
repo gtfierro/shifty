@@ -1000,7 +1000,7 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                         )
                         .filter_map(Result::ok)
                         .map(|q| q.object)
-                        .find_map(|term| Severity::from_term(&term));
+                        .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
                     let parse_validator =
                         |v_term: &Term,
@@ -1133,7 +1133,9 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                                 )
                                 .filter_map(Result::ok)
                                 .map(|q| q.object)
-                                .find_map(|term| Severity::from_term(&term));
+                                .find_map(|term| {
+                                    <Severity as crate::types::SeverityExt>::from_term(&term)
+                                });
 
                             Ok(Some(SPARQLValidator {
                                 query: query_str,

@@ -5,7 +5,7 @@ mod rules;
 use crate::context::ParsingContext;
 use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, ID};
+use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, SeverityExt, ID};
 use components::parse_components;
 use log::{debug, warn};
 use ontoenv::ontology::OntologyLocation;
@@ -358,7 +358,7 @@ pub(crate) fn parse_node_shape(
         .quads_for_pattern(Some(subject), None, None, Some(shape_graph_name.as_ref()))
         .filter_map(Result::ok)
         .filter_map(|quad| {
-            crate::types::Target::from_predicate_object(
+            crate::types::target_from_predicate_object(
                 quad.predicate.as_ref(),
                 quad.object.as_ref(),
             )
@@ -485,7 +485,7 @@ fn parse_property_shape(
         )
         .filter_map(Result::ok)
         .filter_map(|quad| {
-            crate::types::Target::from_predicate_object(
+            crate::types::target_from_predicate_object(
                 quad.predicate.as_ref(),
                 quad.object.as_ref(),
             )

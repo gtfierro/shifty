@@ -1,7 +1,8 @@
-use crate::backend::{Binding, GraphBackend};
-use crate::context::{SourceShape, ValidationContext};
+use crate::backend::Binding;
+use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
-use crate::types::{node_conforms_to_shape, ComponentID, PropShapeID, RuleID, ID};
+use crate::runtime::component::{check_conformance_for_node, ConformanceReport};
+use crate::types::{ComponentID, PropShapeID, RuleID, TargetEvalExt, TraceItem, ID};
 use log::{debug, info};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, Variable};
@@ -401,7 +402,7 @@ impl<'a> InferenceEngine<'a> {
 
     fn focus_nodes_for_shape(
         &self,
-        shape: &crate::ir::NodeShapeIR,
+        shape: &crate::types::NodeShapeIR,
     ) -> Result<Vec<Term>, InferenceError> {
         let mut collected = HashSet::new();
         for target in &shape.targets {
@@ -420,7 +421,7 @@ impl<'a> InferenceEngine<'a> {
 
     fn focus_nodes_for_property_shape(
         &self,
-        shape: &crate::ir::PropertyShapeIR,
+        shape: &crate::types::PropertyShapeIR,
     ) -> Result<Vec<Term>, InferenceError> {
         let mut collected = HashSet::new();
         for target in &shape.targets {
@@ -680,21 +681,16 @@ impl<'a> InferenceEngine<'a> {
             graph.clone(),
         );
 
-        if self
-            .context
-            .backend
-            .store()
-            .contains(quad.as_ref())
-            .map_err(|e| InferenceError::RuleExecution {
+        if self.context.store().contains(quad.as_ref()).map_err(|e| {
+            InferenceError::RuleExecution {
                 rule_id,
                 message: e.to_string(),
-            })?
-        {
+            }
+        })? {
             return Ok(false);
         }
 
         self.context
-            .backend
             .store()
             .insert(quad.as_ref())
             .map_err(|e| InferenceError::RuleExecution {
@@ -725,6 +721,28 @@ fn term_to_named_or_blank(term: Term) -> Result<NamedOrBlankNode, String> {
             "Inferred triple subject must be an IRI or blank node, found {:?}",
             other
         )),
+    }
+}
+
+fn node_conforms_to_shape(
+    vc: &ValidationContext,
+    focus_node: &Term,
+    shape_id: ID,
+) -> Result<bool, String> {
+    let Some(shape) = vc.model.get_node_shape_by_id(&shape_id) else {
+        return Err(format!("shape {:?} not found", shape_id));
+    };
+    let mut ctx = Context::new(
+        focus_node.clone(),
+        None,
+        Some(vec![focus_node.clone()]),
+        SourceShape::NodeShape(shape_id),
+        vc.new_trace(),
+    );
+    let mut trace: Vec<TraceItem> = Vec::new();
+    match check_conformance_for_node(&mut ctx, shape, vc, &mut trace)? {
+        ConformanceReport::Conforms => Ok(true),
+        ConformanceReport::NonConforms(_) => Ok(false),
     }
 }
 
@@ -826,7 +844,6 @@ ex:rect2 a ex:Rectangle ;
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
         assert!(context
-            .backend
             .store()
             .contains(quad.as_ref())
             .expect("quad lookup should succeed"));
@@ -951,7 +968,6 @@ ex:Focus ex:value "foo" .
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
         assert!(context
-            .model
             .store()
             .contains(quad.as_ref())
             .expect("quad lookup"));

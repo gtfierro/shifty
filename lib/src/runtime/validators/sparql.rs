@@ -103,13 +103,12 @@ impl GraphvizOutput for SPARQLConstraintComponent {
         let shacl = SHACL::new();
         let subject = self.constraint_node.to_subject_ref();
         let select_query_opt = context
-            .model
             .store()
             .quads_for_pattern(
                 Some(subject),
                 Some(shacl.select),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
+                Some(context.shape_graph_iri_ref()),
             )
             .filter_map(Result::ok)
             .map(|q| q.object)
@@ -148,13 +147,12 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // 1. Check if deactivated
         if let Some(Ok(deactivated_quad)) = context
-            .model
             .store()
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.deactivated),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
+                Some(context.shape_graph_iri_ref()),
             )
             .next()
         {
@@ -297,7 +295,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
             )
             .filter_map(Result::ok)
             .map(|q| q.object)
-            .find_map(|term| Severity::from_term(&term));
+            .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
         // Execute query
         let query_outcome =

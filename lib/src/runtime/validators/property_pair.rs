@@ -65,7 +65,6 @@ impl ValidateComponent for EqualsConstraintComponent {
         };
 
         let other_values_set: HashSet<Term> = context
-            .model
             .store()
             .quads_for_pattern(
                 Some(focus_node.try_to_subject_ref()?),
