@@ -8,7 +8,7 @@ use crate::runtime::{build_component_from_descriptor, Component, CustomConstrain
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
-use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
+use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
 use oxigraph::store::Store;
 use shacl_ir::ShapeIR;
@@ -188,6 +188,25 @@ impl ValidationContext {
     ) -> Result<QueryResults<'a>, String> {
         self.backend
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
+    }
+
+    pub(crate) fn contains_quad(&self, quad: &Quad) -> Result<bool, String> {
+        self.backend.contains(quad)
+    }
+
+    pub(crate) fn quads_for_pattern(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+    ) -> Result<Vec<Quad>, String> {
+        self.backend
+            .quads_for_pattern(subject, predicate, object, graph)
+    }
+
+    pub(crate) fn insert_quads(&self, quads: &[Quad]) -> Result<(), String> {
+        self.backend.insert_quads(quads)
     }
 
     pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {

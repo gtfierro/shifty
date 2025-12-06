@@ -6,7 +6,9 @@
 
 use crate::sparql::SparqlExecutor;
 use crate::sparql::SparqlServices;
-use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
+use oxigraph::model::{
+    GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term, TermRef,
+};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, Variable};
 use oxigraph::store::Store;
 use std::sync::Arc;
@@ -43,6 +45,18 @@ pub trait GraphBackend {
         substitutions: &[Binding],
         enforce_values_clause: bool,
     ) -> Result<QueryResults<'a>, Self::Error>;
+
+    /// Check whether the store already contains a quad.
+    fn contains(&self, quad: &Quad) -> Result<bool, Self::Error>;
+
+    /// Retrieve quads matching a pattern.
+    fn quads_for_pattern(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+    ) -> Result<Vec<Quad>, Self::Error>;
 
     /// Insert quads, typically used by rule engines.
     fn insert_quads(&self, quads: &[Quad]) -> Result<(), Self::Error>;
@@ -123,6 +137,39 @@ impl GraphBackend for OxigraphBackend {
             substitutions,
             enforce_values_clause,
         )
+    }
+
+    fn contains(&self, quad: &Quad) -> Result<bool, Self::Error> {
+        self.store
+            .contains(quad.as_ref())
+            .map_err(|e| e.to_string())
+    }
+
+    fn quads_for_pattern(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+    ) -> Result<Vec<Quad>, Self::Error> {
+        let subject_ref = subject.map(|s| s.into());
+        let object_ref: Option<TermRef<'_>> = object.map(|t| match t {
+            Term::NamedNode(nn) => nn.as_ref().into(),
+            Term::BlankNode(bn) => bn.as_ref().into(),
+            Term::Literal(l) => l.as_ref().into(),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("Unsupported term type in quads_for_pattern object"),
+        });
+
+        let mut out = Vec::new();
+        for q in self
+            .store
+            .as_ref()
+            .quads_for_pattern(subject_ref, predicate, object_ref, graph)
+        {
+            out.push(q.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
     }
 
     fn insert_quads(&self, quads: &[Quad]) -> Result<(), Self::Error> {

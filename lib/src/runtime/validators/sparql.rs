@@ -103,14 +103,14 @@ impl GraphvizOutput for SPARQLConstraintComponent {
         let shacl = SHACL::new();
         let subject = self.constraint_node.to_subject_ref();
         let select_query_opt = context
-            .store()
             .quads_for_pattern(
                 Some(subject),
                 Some(shacl.select),
                 None,
                 Some(context.shape_graph_iri_ref()),
             )
-            .filter_map(Result::ok)
+            .unwrap_or_default()
+            .into_iter()
             .map(|q| q.object)
             .find_map(|object| match object {
                 Term::Literal(lit) => Some(lit.value().to_string()),
@@ -146,14 +146,14 @@ impl ValidateComponent for SPARQLConstraintComponent {
         let constraint_subject = self.constraint_node.to_subject_ref();
 
         // 1. Check if deactivated
-        if let Some(Ok(deactivated_quad)) = context
-            .store()
+        if let Some(deactivated_quad) = context
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.deactivated),
                 None,
                 Some(context.shape_graph_iri_ref()),
-            )
+            )?
+            .into_iter()
             .next()
         {
             if let Term::Literal(lit) = &deactivated_quad.object {
@@ -164,14 +164,14 @@ impl ValidateComponent for SPARQLConstraintComponent {
         }
 
         // 2. Get SELECT query
-        let mut select_query = if let Some(Ok(quad)) = context
-            .store()
+        let mut select_query = if let Some(quad) = context
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.select),
                 None,
                 Some(context.shape_graph_iri_ref()),
-            )
+            )?
+            .into_iter()
             .next()
         {
             if let Term::Literal(lit) = &quad.object {
@@ -274,26 +274,24 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // Get messages
         let messages: Vec<Term> = context
-            .store()
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.message),
                 None,
                 Some(context.shape_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
+            )?
+            .into_iter()
             .map(|q| q.object)
             .collect();
 
         let severity = context
-            .store()
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.severity),
                 None,
                 Some(context.shape_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
+            )?
+            .into_iter()
             .map(|q| q.object)
             .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 

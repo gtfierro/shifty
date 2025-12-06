@@ -681,21 +681,22 @@ impl<'a> InferenceEngine<'a> {
             graph.clone(),
         );
 
-        if self.context.store().contains(quad.as_ref()).map_err(|e| {
-            InferenceError::RuleExecution {
+        if self
+            .context
+            .contains_quad(&quad)
+            .map_err(|e| InferenceError::RuleExecution {
                 rule_id,
-                message: e.to_string(),
-            }
-        })? {
+                message: e,
+            })?
+        {
             return Ok(false);
         }
 
         self.context
-            .store()
-            .insert(quad.as_ref())
+            .insert_quads(&[quad.clone()])
             .map_err(|e| InferenceError::RuleExecution {
                 rule_id,
-                message: e.to_string(),
+                message: e,
             })?;
 
         seen_new.insert(key);
@@ -843,10 +844,12 @@ ex:rect2 a ex:Rectangle ;
             object,
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
-        assert!(context
-            .store()
-            .contains(quad.as_ref())
-            .expect("quad lookup should succeed"));
+        assert!(
+            context
+                .contains_quad(&quad)
+                .expect("quad lookup should succeed"),
+            "quad should be present after inference"
+        );
 
         // second run should add nothing
         let outcome_second = run_inference(context, config).expect("second run succeeds");
@@ -890,11 +893,10 @@ ex:rect2 a ex:Rectangle .
                 literal.clone(),
                 GraphName::NamedNode(context.data_graph_iri.clone()),
             );
-            assert!(context
-                .model
-                .store()
-                .contains(quad.as_ref())
-                .expect("quad lookup"));
+            assert!(
+                context.contains_quad(&quad).expect("quad lookup"),
+                "quad should exist in store"
+            );
         }
     }
 

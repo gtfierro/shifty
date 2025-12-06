@@ -65,14 +65,13 @@ impl ValidateComponent for EqualsConstraintComponent {
         };
 
         let other_values_set: HashSet<Term> = context
-            .store()
             .quads_for_pattern(
                 Some(focus_node.try_to_subject_ref()?),
                 Some(equals_property.as_ref()),
                 None,
                 Some(context.data_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
+            )?
+            .into_iter()
             .map(|q| q.object)
             .collect();
 
@@ -189,15 +188,13 @@ impl ValidateComponent for DisjointConstraintComponent {
         };
 
         let other_values: HashSet<Term> = context
-            .model
-            .store()
             .quads_for_pattern(
                 Some(focus_node.try_to_subject_ref()?),
                 Some(disjoint_property.as_ref()),
                 None,
                 Some(context.data_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
+            )?
+            .into_iter()
             .map(|q| q.object)
             .collect();
 

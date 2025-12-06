@@ -185,39 +185,33 @@ impl TargetEvalExt for Target {
 
                     // Collect prefixes declared on the selector
                     let mut prefixes = String::new();
-                    for decl in context
-                        .store()
-                        .quads_for_pattern(
-                            Some(selector_ref),
-                            Some(sh.declare),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .flatten()
-                    {
+                    for decl in context.quads_for_pattern(
+                        Some(selector_ref),
+                        Some(sh.declare),
+                        None,
+                        Some(context.shape_graph_iri_ref()),
+                    )? {
                         let decl_ref = decl.object.to_subject_ref();
                         let prefix = context
-                            .store()
                             .quads_for_pattern(
                                 Some(decl_ref),
                                 Some(sh.prefix),
                                 None,
                                 Some(context.shape_graph_iri_ref()),
-                            )
-                            .flatten()
+                            )?
+                            .into_iter()
                             .find_map(|q| match q.object {
                                 Term::Literal(l) => Some(l.value().to_string()),
                                 _ => None,
                             });
                         let ns = context
-                            .store()
                             .quads_for_pattern(
                                 Some(decl_ref),
                                 Some(sh.namespace),
                                 None,
                                 Some(context.shape_graph_iri_ref()),
-                            )
-                            .flatten()
+                            )?
+                            .into_iter()
                             .find_map(|q| match q.object {
                                 Term::Literal(l) => Some(l.value().to_string()),
                                 _ => None,
@@ -229,9 +223,8 @@ impl TargetEvalExt for Target {
 
                     // sh:select branch
                     let select_q = context
-                        .store()
-                        .quads_for_pattern(None, Some(sh.select), None, None)
-                        .flatten()
+                        .quads_for_pattern(None, Some(sh.select), None, None)?
+                        .into_iter()
                         .find_map(|q| {
                             if q.subject == selector_ref.into() {
                                 if let Term::Literal(l) = q.object {
@@ -243,12 +236,13 @@ impl TargetEvalExt for Target {
 
                     let select_q = select_q.or_else(|| {
                         context
-                            .store()
                             .quads_for_pattern(None, Some(sh.select), None, None)
-                            .flatten()
-                            .find_map(|q| match q.object {
-                                Term::Literal(l) => Some(l.value().to_string()),
-                                _ => None,
+                            .ok()
+                            .and_then(|iter| {
+                                iter.into_iter().find_map(|q| match q.object {
+                                    Term::Literal(l) => Some(l.value().to_string()),
+                                    _ => None,
+                                })
                             })
                     });
 

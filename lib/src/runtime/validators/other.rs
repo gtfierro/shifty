@@ -184,13 +184,12 @@ impl ValidateComponent for ClosedConstraintComponent {
                 validation_context.data_graph_iri.as_ref(),
             );
 
-            for quad_res in validation_context.store().quads_for_pattern(
+            for quad in validation_context.quads_for_pattern(
                 Some(subject_ref),
                 None,
                 None,
                 Some(data_graph_ref),
-            ) {
-                let quad = quad_res.map_err(|e| e.to_string())?;
+            )? {
                 let predicate = quad.predicate;
 
                 if !allowed_properties.contains(&predicate) {
