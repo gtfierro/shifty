@@ -8,6 +8,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <http://datashapes.org/sh/tests/core/property/xone-001.test> a owl:Ontology ;
     rdfs:label "Test of sh:xone at property shape 001" ;
     owl:imports <http://datashapes.org/dash> .
@@ -53,4 +54,3 @@ ex:Dory a ex:Person ;
 
 ex:TestPropertyShape sh:path ex:value ;
     sh:xone ( [ sh:datatype xsd:string ] [ sh:datatype xsd:double ] [ sh:datatype xsd:long ] ) .
-

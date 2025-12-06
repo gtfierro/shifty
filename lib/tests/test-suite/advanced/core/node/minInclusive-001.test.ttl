@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <minInclusive-001> a sht:Validate ;
     rdfs:label "Test of sh:minInclusive at node shape 001" ;
     mf:action [ sht:dataGraph <minInclusive-001.test.ttl> ;
@@ -28,4 +29,3 @@ ex:TestShape a sh:NodeShape ;
 
 <minInclusive-001.test.ttl> a mf:Manifest ;
     mf:entries ( <minInclusive-001> ) .
-

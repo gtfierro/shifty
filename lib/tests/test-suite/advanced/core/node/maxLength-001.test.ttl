@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <maxLength-001> a sht:Validate ;
     rdfs:label "Test of sh:maxLength at node shape 001" ;
     mf:action [ sht:dataGraph <maxLength-001.test.ttl> ;
@@ -62,4 +63,3 @@ ex:TestShape a sh:NodeShape ;
         "Hell"@en .
 
 _:ne9db4193e41047889b29c205d84bc010b8 a ex:TestClass .
-

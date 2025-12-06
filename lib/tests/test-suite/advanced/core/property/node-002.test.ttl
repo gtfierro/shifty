@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Person a rdfs:Class ;
     rdfs:label "Person" .
 
@@ -51,4 +52,3 @@ ex:PersonShape-address sh:minCount 1 ;
     sh:path ex:address .
 
 ex:RetosAddress ex:postalCode 5678 .
-

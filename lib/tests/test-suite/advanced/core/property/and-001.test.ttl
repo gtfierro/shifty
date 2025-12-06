@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:AddressShape a sh:NodeShape ;
     rdfs:label "Address shape" ;
     sh:property ex:AddressShape-address ;
@@ -67,4 +68,3 @@ ex:AddressShape-address sh:and ( [ sh:property [ sh:minCount 1 ;
 _:n91506ce1f2514b769377aa495183bfc7b4 ex:postalCode 4879 .
 
 _:n91506ce1f2514b769377aa495183bfc7b6 ex:suburb ex:KewarraBeach .
-

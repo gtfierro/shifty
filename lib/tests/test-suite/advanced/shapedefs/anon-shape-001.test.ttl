@@ -8,6 +8,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-shapedefs:> .
 ex:Person a rdfs:Class ;
     rdfs:label "Person" .
 
@@ -56,4 +57,3 @@ ex:InvalidNode1 a ex:Person .
             sh:name "property" ;
             sh:path ex:property ] ;
     sh:targetClass ex:Person .
-

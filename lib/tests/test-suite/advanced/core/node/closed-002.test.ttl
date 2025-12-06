@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <closed-002> a sht:Validate ;
     rdfs:label "Test of sh:closed at node shape 002" ;
     mf:action [ sht:dataGraph <closed-002.test.ttl> ;
@@ -36,4 +37,3 @@ ex:ValidInstance1 a ex:SomeClass ;
 
 ex:InvalidInstance1 ex:otherProperty 4 ;
     ex:someProperty 3 .
-

@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <not-002> a sht:Validate ;
     rdfs:label "Test of sh:not at node shape 002" ;
     mf:action [ sht:dataGraph <not-002.test.ttl> ;
@@ -31,4 +32,3 @@ ex:NotExampleShape a sh:NodeShape ;
     mf:entries ( <not-002> ) .
 
 ex:InvalidInstance1 ex:property "Some value" .
-

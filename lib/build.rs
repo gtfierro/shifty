@@ -171,10 +171,23 @@ fn manifest_includes(graph: &Graph, manifest_path: &Path) -> Result<Vec<PathBuf>
         match include {
             TermRef::NamedNode(nn) => {
                 let iri = nn.as_str();
-                if let Ok(url) = Url::parse(iri) {
-                    if url.scheme() == "file" {
+                match Url::parse(iri) {
+                    Ok(url) if url.scheme() == "file" => {
                         if let Ok(pb) = url.to_file_path() {
                             includes.push(pb);
+                        }
+                    }
+                    Ok(url) if url.scheme() == "urn" => {
+                        if let Some(parent) = manifest_path.parent() {
+                            let path = url.path().trim_start_matches('/');
+                            if !path.is_empty() {
+                                includes.push(parent.join(path));
+                            }
+                        }
+                    }
+                    _ => {
+                        if let Some(parent) = manifest_path.parent() {
+                            includes.push(parent.join(iri));
                         }
                     }
                 }

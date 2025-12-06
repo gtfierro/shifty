@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:TestShape a rdfs:Class,
         sh:NodeShape ;
     rdfs:label "Test shape" ;
@@ -54,4 +55,3 @@ ex:TestShape-dateProperty rdfs:label "date property" ;
 ex:TestShape-integerProperty rdfs:label "integer property" ;
     sh:datatype xsd:integer ;
     sh:path ex:integerProperty .
-

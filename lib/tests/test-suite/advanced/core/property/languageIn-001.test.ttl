@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:NewZealandLanguagesShape a sh:NodeShape ;
     sh:property ex:NewZealandLanguagesShape-prefLabel ;
     sh:targetNode ex:Berg,
@@ -53,4 +54,3 @@ ex:Berg ex:prefLabel ex:BergLabel,
 
 ex:NewZealandLanguagesShape-prefLabel sh:languageIn ( "en" "mi" ) ;
     sh:path ex:prefLabel .
-

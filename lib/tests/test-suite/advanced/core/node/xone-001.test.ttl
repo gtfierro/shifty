@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Bob a ex:Person ;
     ex:firstName "Robert" ;
     ex:lastName "Coin" .
@@ -42,4 +43,3 @@ ex:Dory a ex:Person ;
     ex:firstName "Dory" ;
     ex:fullName "Dory Dunce" ;
     ex:lastName "Dunce" .
-

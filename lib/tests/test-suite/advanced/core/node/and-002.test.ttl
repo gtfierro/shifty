@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <and-002> a sht:Validate ;
     rdfs:label "Test of sh:and at node shape 002" ;
     mf:action [ sht:dataGraph <and-002.test.ttl> ;
@@ -44,4 +45,3 @@ ex:AndShape a sh:NodeShape ;
 
 ex:InvalidInstance2 ex:property "One",
         "Two" .
-

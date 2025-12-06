@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:SubClass a rdfs:Class ;
     rdfs:subClassOf ex:SuperClass .
 
@@ -61,4 +62,3 @@ ex:TestShape-testProperty rdfs:label "test property" ;
 ex:InvalidResource1 a rdfs:Resource ;
     ex:testProperty ex:InvalidResource1,
         "A string" .
-

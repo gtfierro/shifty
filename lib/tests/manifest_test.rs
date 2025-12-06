@@ -82,15 +82,19 @@ fn collect_tests_from_manifest(
 fn skip_reason(test: &TestCase) -> Option<&'static str> {
     let data_path = test.data_graph_path.to_string_lossy();
     let shapes_path = test.shapes_graph_path.to_string_lossy();
-    if data_path.contains("data-shapes-test-suite") || shapes_path.contains("data-shapes-test-suite")
-    {
-        return Some("SHACL 1.0 data-shapes suite pending parser support");
+    let advanced_expr = "/advanced/expression/";
+    if data_path.contains(advanced_expr) || shapes_path.contains(advanced_expr) {
+        return Some("SHACL-AF expressions not supported yet");
     }
-    let is_advanced = data_path.contains("/advanced/") || shapes_path.contains("/advanced/");
+    // if data_path.contains("data-shapes-test-suite") || shapes_path.contains("data-shapes-test-suite")
+    // {
+    //     return Some("SHACL 1.0 data-shapes suite pending parser support");
+    // }
+    // let is_advanced = data_path.contains("/advanced/") || shapes_path.contains("/advanced/");
 
-    if is_advanced {
-        return Some("SHACL-AF advanced manifest support pending");
-    }
+    // if is_advanced {
+    //     return Some("SHACL-AF advanced manifest support pending");
+    // }
 
     None
 }

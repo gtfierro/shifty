@@ -1,7 +1,7 @@
 @prefix mf: <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
 
+@base <urn:shacl-advanced-sparql:> .
 <manifest.ttl> a mf:Manifest ;
     mf:include <prefixes-001.test.ttl>,
         <sparql-001.test.ttl>,
         <sparql-002.test.ttl> .
-

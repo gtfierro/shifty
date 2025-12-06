@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Person a rdfs:Class ;
     rdfs:label "Person" ;
     rdfs:subClassOf rdfs:Resource .
@@ -42,4 +43,3 @@ ex:ValidResource a ex:Person ;
 ex:PersonShape-firstName sh:datatype xsd:string ;
     sh:minCount 1 ;
     sh:path ex:firstName .
-

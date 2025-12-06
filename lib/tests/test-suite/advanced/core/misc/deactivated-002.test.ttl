@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <deactivated-002> a sht:Validate ;
     rdfs:label "Test of sh:deactivated 002" ;
     mf:action [ sht:dataGraph <deactivated-002.test.ttl> ;
@@ -27,4 +28,3 @@ ex:TestShape a sh:NodeShape ;
 
 <deactivated-002.test.ttl> a mf:Manifest ;
     mf:entries ( <deactivated-002> ) .
-

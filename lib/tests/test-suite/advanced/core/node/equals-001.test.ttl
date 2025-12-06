@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <equals-001> a sht:Validate ;
     rdfs:label "Test of sh:equals at node shape 001" ;
     mf:action [ sht:dataGraph <equals-001.test.ttl> ;
@@ -39,4 +40,3 @@ ex:ValidResource1 ex:property ex:ValidResource1 .
 
 ex:InvalidResource1 ex:property ex:InvalidResource1,
         ex:SomeValue .
-

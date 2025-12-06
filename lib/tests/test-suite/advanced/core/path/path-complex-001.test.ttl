@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:MalePerson a rdfs:Class ;
     rdfs:subClassOf ex:Person .
 
@@ -52,4 +53,3 @@ ex:TestShape a sh:PropertyShape ;
         ex:ValidResource1,
         ex:ValidResource2,
         ex:ValidResource3 .
-

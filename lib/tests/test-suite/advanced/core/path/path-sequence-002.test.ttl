@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <path-sequence-002> a sht:Validate ;
     rdfs:label "Test of path sequence 002" ;
     mf:action [ sht:dataGraph <path-sequence-002.test.ttl> ;
@@ -48,4 +49,3 @@ ex:TestShape a sh:PropertyShape ;
         ex:InvalidResource2,
         ex:ValidResource1,
         ex:ValidResource2 .
-

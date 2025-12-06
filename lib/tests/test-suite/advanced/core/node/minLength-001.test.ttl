@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <minLength-001> a sht:Validate ;
     rdfs:label "Test of sh:minLength at node shape 001" ;
     mf:action [ sht:dataGraph <minLength-001.test.ttl> ;
@@ -56,4 +57,3 @@ ex:TestShape a sh:NodeShape ;
         "Hell"@en .
 
 _:n8405c31fb7c34ef38ccc7fd42516b75fb7 a ex:TestClass .
-

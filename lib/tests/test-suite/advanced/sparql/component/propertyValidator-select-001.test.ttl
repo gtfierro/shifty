@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 ex:Country a rdfs:Class ;
     rdfs:label "Country" .
 
@@ -77,4 +78,3 @@ _:n13a7c9b1c1dd4420a371c4f6b6d2a356b1 ex:lang "en" ;
 
 _:n13a7c9b1c1dd4420a371c4f6b6d2a356b2 ex:lang "de" ;
     sh:path ex:germanLabel .
-

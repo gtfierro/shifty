@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 ex:IncompleteShape a sh:NodeShape ;
     rdfs:label "Incomplete shape" ;
     ex:optionalParam "Some" ;
@@ -79,4 +80,3 @@ ex:TestConstraintComponent a sh:ConstraintComponent ;
     FILTER ($value != $requiredParam && $value != COALESCE(?optionalParam, "Three")) .
 }""" ;
             sh:prefixes <http://datashapes.org/sh/tests/sparql/component/optional-001.test> ] .
-

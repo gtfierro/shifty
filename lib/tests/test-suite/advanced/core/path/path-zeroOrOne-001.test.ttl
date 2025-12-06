@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <path-zeroOrOne-001> a sht:Validate ;
     rdfs:label "Test of path sh:zeroOrOnePath 001" ;
     mf:action [ sht:dataGraph <path-zeroOrOne-001.test.ttl> ;
@@ -37,4 +38,3 @@ ex:ValidResource2 ex:child ex:Person2 .
     mf:entries ( <path-zeroOrOne-001> ) .
 
 ex:InvalidResource1 a rdfs:Resource .
-

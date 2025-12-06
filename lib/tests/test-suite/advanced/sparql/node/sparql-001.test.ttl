@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 <sparql-001> a sht:Validate ;
     rdfs:label "Test of sh:sparql at node shape 001" ;
     mf:action [ sht:dataGraph <sparql-001.test.ttl> ;
@@ -65,4 +66,3 @@ ex:TestShape-sparql sh:message "Cannot have a label" ;
 		$this ?path ?value .
 		FILTER (?path = <http://www.w3.org/2000/01/rdf-schema#label>) .
 	}""" .
-

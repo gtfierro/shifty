@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Finger a rdfs:Class,
         sh:NodeShape ;
     rdfs:label "Finger" ;
@@ -93,4 +94,3 @@ ex:InvalidHand1 a ex:Hand ;
         ex:Finger2,
         ex:Finger3,
         ex:FingerAndThumb .
-

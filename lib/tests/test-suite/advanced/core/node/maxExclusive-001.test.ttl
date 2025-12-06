@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <maxExclusive-001> a sht:Validate ;
     rdfs:label "Test of sh:maxExclusive at node shape 001" ;
     mf:action [ sht:dataGraph <maxExclusive-001.test.ttl> ;
@@ -64,4 +65,3 @@ ex:TestShape a sh:NodeShape ;
         "Hello" .
 
 _:n2bb22e563092448e8a1badabf0928173b9 a ex:TestClass .
-

@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:TestShape a sh:NodeShape ;
     sh:property [ sh:minCount 0 ;
             sh:name "property" ;
@@ -24,4 +25,3 @@ ex:ValidResource1 a rdfs:Resource .
 
 <minCount-002.test.ttl> a mf:Manifest ;
     mf:entries ( <minCount-002> ) .
-

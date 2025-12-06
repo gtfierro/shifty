@@ -1,5 +1,6 @@
 @prefix mf: <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
 
+@base <urn:shacl-advanced-core:> .
 <manifest.ttl> a mf:Manifest ;
     mf:include <multipleTargets-001.test.ttl>,
         <targetClass-001.test.ttl>,
@@ -8,4 +9,3 @@
         <targetObjectsOf-001.test.ttl>,
         <targetSubjectsOf-001.test.ttl>,
         <targetSubjectsOf-002.test.ttl> .
-

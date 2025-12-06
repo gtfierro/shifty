@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 ex:Country a rdfs:Class .
 
 ex:ValidCountry a ex:Country ;
@@ -48,4 +49,3 @@ ex:LanguageExamplePropertyShape-sparql a sh:SPARQLConstraint ;
 			FILTER (!isLiteral(?value) || !langMatches(lang(?value), "de"))
 		}
 		""" .
-

@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <path-oneOrMore-001> a sht:Validate ;
     rdfs:label "Test of path sh:oneOrMorePath 001" ;
     mf:action [ sht:dataGraph <path-oneOrMore-001.test.ttl> ;
@@ -43,4 +44,3 @@ ex:TestShape a sh:PropertyShape ;
     sh:targetNode ex:InvalidResource1,
         ex:InvalidResource2,
         ex:ValidResource1 .
-
