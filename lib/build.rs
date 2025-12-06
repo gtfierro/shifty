@@ -15,17 +15,32 @@ const SHT_VALIDATE: &str = "http://www.w3.org/ns/shacl-test#Validate";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let crate_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-    let suite_root = crate_dir.join("tests").join("test-suite");
-    let root_manifest = suite_root.join("manifest.ttl");
+    let suite_roots = vec![
+        crate_dir
+            .join("tests")
+            .join("test-suite")
+            .join("manifest.ttl"),
+        crate_dir
+            .join("tests")
+            .join("data-shapes")
+            .join("data-shapes-test-suite")
+            .join("tests")
+            .join("manifest.ttl"),
+    ];
     let dest_path = PathBuf::from(std::env::var("OUT_DIR")?).join("generated_manifest_tests.rs");
 
-    if !root_manifest.exists() {
+    if !suite_roots.iter().any(|m| m.exists()) {
         write_empty_manifest_tests(&dest_path)?;
-        emit_rerun_metadata(&root_manifest);
+        for root in suite_roots {
+            emit_rerun_metadata(&root);
+        }
         return Ok(());
     }
 
-    let manifests = collect_manifest_files(&root_manifest)?;
+    let mut manifests = BTreeSet::new();
+    for root in suite_roots.iter().filter(|p| p.exists()) {
+        manifests.extend(collect_manifest_files(root)?);
+    }
 
     let mut file = File::create(&dest_path)?;
 
@@ -39,7 +54,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     writeln!(file, "}}")?;
 
-    emit_rerun_metadata(&root_manifest);
+    for root in suite_roots {
+        emit_rerun_metadata(&root);
+    }
 
     Ok(())
 }
