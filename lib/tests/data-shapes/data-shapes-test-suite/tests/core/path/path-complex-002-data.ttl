@@ -1,0 +1,8 @@
+@prefix ex: <http://example.org/shacl/tests/> .
+
+@base <urn:shacl-data-shapes:> .
+ex:j ex:p ex:i .
+
+ex:k ex:p ex:j .
+
+ex:l ex:p ex:j .
