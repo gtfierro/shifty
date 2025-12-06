@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 <nodeValidator-001> a sht:Validate ;
     rdfs:label "Test of sh:nodeValidator 001" ;
     mf:action [ sht:dataGraph <nodeValidator-001.test.ttl> ;
@@ -55,4 +56,3 @@ ex:ValidResource1 ex:property "Value" .
     mf:entries ( <nodeValidator-001> ) .
 
 ex:InvalidResource1 ex:property "Other" .
-

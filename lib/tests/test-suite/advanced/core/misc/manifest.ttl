@@ -1,8 +1,8 @@
 @prefix mf: <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
 
+@base <urn:shacl-advanced-core:> .
 <manifest.ttl> a mf:Manifest ;
     mf:include <deactivated-001.test.ttl>,
         <deactivated-002.test.ttl>,
         <severity-001.test.ttl>,
         <severity-002.test.ttl> .
-

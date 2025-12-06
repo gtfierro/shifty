@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <pattern-002> a sht:Validate ;
     rdfs:label "Test of sh:pattern at node shape 002" ;
     mf:action [ sht:dataGraph <pattern-002.test.ttl> ;
@@ -29,4 +30,3 @@ ex:TestShape a sh:NodeShape ;
 
 <pattern-002.test.ttl> a mf:Manifest ;
     mf:entries ( <pattern-002> ) .
-

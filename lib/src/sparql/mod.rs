@@ -15,8 +15,8 @@ use oxigraph::store::Store;
 use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression};
 use spargebra::term::GroundTerm;
 use spargebra::{Query as AlgebraQuery, SparqlParser};
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Mutex;
 
 type CustomComponentMaps = (
     HashMap<NamedNode, CustomConstraintComponentDefinition>,
@@ -68,9 +68,9 @@ pub trait MessageTemplater {
 
 #[derive(Default)]
 pub struct SparqlServices {
-    prefix_cache: RefCell<HashMap<Term, String>>,
-    prepared_cache: RefCell<HashMap<String, PreparedSparqlQuery>>,
-    algebra_cache: RefCell<HashMap<String, AlgebraQuery>>,
+    prefix_cache: Mutex<HashMap<Term, String>>,
+    prepared_cache: Mutex<HashMap<String, PreparedSparqlQuery>>,
+    algebra_cache: Mutex<HashMap<String, AlgebraQuery>>,
 }
 
 impl SparqlServices {
@@ -91,7 +91,7 @@ impl SparqlExecutor for SparqlServices {
         env: &OntoEnv,
         shape_graph_iri_ref: GraphNameRef<'_>,
     ) -> Result<String, String> {
-        if let Some(prefixes) = self.prefix_cache.borrow().get(node) {
+        if let Some(prefixes) = self.prefix_cache.lock().unwrap().get(node) {
             return Ok(prefixes.clone());
         }
 
@@ -215,14 +215,15 @@ impl SparqlExecutor for SparqlServices {
             .collect();
         let joined = prefix_strs.join("\n");
         self.prefix_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(node.clone(), joined.clone());
         Ok(joined)
     }
 
     fn prepared_query(&self, query_str: &str) -> Result<PreparedSparqlQuery, String> {
         let key = Self::cache_key(query_str);
-        if let Some(cached) = self.prepared_cache.borrow().get(&key) {
+        if let Some(cached) = self.prepared_cache.lock().unwrap().get(&key) {
             return Ok(cached.clone());
         }
 
@@ -231,21 +232,25 @@ impl SparqlExecutor for SparqlServices {
             .map_err(|e| format!("Failed to parse SPARQL query: {}", e))?;
         prepared.dataset_mut().set_default_graph_as_union();
         self.prepared_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(key.clone(), prepared.clone());
         Ok(prepared)
     }
 
     fn algebra(&self, query_str: &str) -> Result<AlgebraQuery, String> {
         let key = Self::cache_key(query_str);
-        if let Some(cached) = self.algebra_cache.borrow().get(&key) {
+        if let Some(cached) = self.algebra_cache.lock().unwrap().get(&key) {
             return Ok(cached.clone());
         }
 
         let algebra = SparqlParser::new()
             .parse_query(query_str)
             .map_err(|e| format!("SPARQL parse error: {}", e))?;
-        self.algebra_cache.borrow_mut().insert(key, algebra.clone());
+        self.algebra_cache
+            .lock()
+            .unwrap()
+            .insert(key, algebra.clone());
         Ok(algebra)
     }
 
@@ -804,8 +809,7 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
 
     let shapes_graph_iri = context.shape_graph_iri.as_str();
     let query = format!(
-        // "PREFIX sh: <http://www.w3.org/ns/shacl#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?cc FROM <{}> WHERE {{ ?cc a ?ccType . ?ccType rdfs:subClassOf* sh:ConstraintComponent }}",
-        "PREFIX sh: <http://www.w3.org/ns/shacl#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?cc FROM <{}> WHERE {{ ?cc a sh:ConstraintComponent }}",
+        "PREFIX sh: <http://www.w3.org/ns/shacl#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?cc FROM <{}> WHERE {{ ?cc a ?ccType . ?ccType rdfs:subClassOf* sh:ConstraintComponent }}",
         shapes_graph_iri
     );
     let prepared_components = services
@@ -996,7 +1000,7 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                         )
                         .filter_map(Result::ok)
                         .map(|q| q.object)
-                        .find_map(|term| Severity::from_term(&term));
+                        .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
                     let parse_validator =
                         |v_term: &Term,
@@ -1129,7 +1133,9 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                                 )
                                 .filter_map(Result::ok)
                                 .map(|q| q.object)
-                                .find_map(|term| Severity::from_term(&term));
+                                .find_map(|term| {
+                                    <Severity as crate::types::SeverityExt>::from_term(&term)
+                                });
 
                             Ok(Some(SPARQLValidator {
                                 query: query_str,

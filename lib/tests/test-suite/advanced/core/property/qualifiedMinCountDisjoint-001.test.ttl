@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Digit a rdfs:Class ;
     rdfs:label "Digit" .
 
@@ -86,4 +87,3 @@ ex:digit a rdf:Property ;
     rdfs:label "digit" ;
     rdfs:domain ex:Hand ;
     rdfs:range ex:Digit .
-

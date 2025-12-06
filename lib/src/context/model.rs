@@ -16,31 +16,13 @@ use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
 use oxigraph::model::{Literal, Subject};
 use oxigraph::store::Store;
-use std::cell::RefCell;
+use shacl_ir::FeatureToggles;
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::rc::Rc;
-
-#[derive(Clone)]
-pub struct FeatureToggles {
-    pub enable_af: bool,
-    #[allow(dead_code)]
-    pub enable_rules: bool,
-    pub skip_invalid_rules: bool,
-}
-
-impl Default for FeatureToggles {
-    fn default() -> Self {
-        Self {
-            enable_af: true,
-            enable_rules: true,
-            skip_invalid_rules: false,
-        }
-    }
-}
+use std::sync::{Arc, RwLock};
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 struct LiteralKey {
@@ -169,12 +151,12 @@ impl OriginalValueIndex {
 }
 
 pub struct ShapesModel {
-    pub(crate) nodeshape_id_lookup: RefCell<IDLookupTable<ID>>,
-    pub(crate) propshape_id_lookup: RefCell<IDLookupTable<PropShapeID>>,
+    pub(crate) nodeshape_id_lookup: RwLock<IDLookupTable<ID>>,
+    pub(crate) propshape_id_lookup: RwLock<IDLookupTable<PropShapeID>>,
     #[allow(dead_code)]
-    pub(crate) component_id_lookup: RefCell<IDLookupTable<ComponentID>>,
+    pub(crate) component_id_lookup: RwLock<IDLookupTable<ComponentID>>,
     #[allow(dead_code)]
-    pub(crate) rule_id_lookup: RefCell<IDLookupTable<RuleID>>,
+    pub(crate) rule_id_lookup: RwLock<IDLookupTable<RuleID>>,
     pub(crate) store: Store,
     pub(crate) shape_graph_iri: NamedNode,
     pub(crate) node_shapes: HashMap<ID, NodeShape>,
@@ -190,7 +172,7 @@ pub struct ShapesModel {
     pub(crate) node_shape_rules: HashMap<ID, Vec<RuleID>>,
     pub(crate) prop_shape_rules: HashMap<PropShapeID, Vec<RuleID>>,
     pub(crate) env: OntoEnv,
-    pub(crate) sparql: Rc<SparqlServices>,
+    pub(crate) sparql: Arc<SparqlServices>,
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
     pub(crate) original_values: Option<OriginalValueIndex>,
@@ -290,11 +272,11 @@ impl ShapesModel {
         GraphNameRef::NamedNode(self.shape_graph_iri.as_ref())
     }
 
-    pub(crate) fn nodeshape_id_lookup(&self) -> &RefCell<IDLookupTable<ID>> {
+    pub(crate) fn nodeshape_id_lookup(&self) -> &RwLock<IDLookupTable<ID>> {
         &self.nodeshape_id_lookup
     }
 
-    pub(crate) fn propshape_id_lookup(&self) -> &RefCell<IDLookupTable<PropShapeID>> {
+    pub(crate) fn propshape_id_lookup(&self) -> &RwLock<IDLookupTable<PropShapeID>> {
         &self.propshape_id_lookup
     }
 
@@ -315,10 +297,10 @@ impl ShapesModel {
 }
 
 pub(crate) struct ParsingContext {
-    pub(crate) nodeshape_id_lookup: RefCell<IDLookupTable<ID>>,
-    pub(crate) propshape_id_lookup: RefCell<IDLookupTable<PropShapeID>>,
-    pub(crate) component_id_lookup: RefCell<IDLookupTable<ComponentID>>,
-    pub(crate) rule_id_lookup: RefCell<IDLookupTable<RuleID>>,
+    pub(crate) nodeshape_id_lookup: RwLock<IDLookupTable<ID>>,
+    pub(crate) propshape_id_lookup: RwLock<IDLookupTable<PropShapeID>>,
+    pub(crate) component_id_lookup: RwLock<IDLookupTable<ComponentID>>,
+    pub(crate) rule_id_lookup: RwLock<IDLookupTable<RuleID>>,
     pub(crate) store: Store,
     pub(crate) shape_graph_iri: NamedNode,
     pub(crate) data_graph_iri: NamedNode,
@@ -332,7 +314,7 @@ pub(crate) struct ParsingContext {
     pub(crate) node_shape_rules: HashMap<ID, Vec<RuleID>>,
     pub(crate) prop_shape_rules: HashMap<PropShapeID, Vec<RuleID>>,
     pub(crate) env: OntoEnv,
-    pub(crate) sparql: Rc<SparqlServices>,
+    pub(crate) sparql: Arc<SparqlServices>,
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
     pub(crate) original_values: Option<OriginalValueIndex>,
@@ -352,10 +334,10 @@ impl ParsingContext {
         original_values: Option<OriginalValueIndex>,
     ) -> Self {
         Self {
-            nodeshape_id_lookup: RefCell::new(IDLookupTable::<ID>::new()),
-            propshape_id_lookup: RefCell::new(IDLookupTable::<PropShapeID>::new()),
-            component_id_lookup: RefCell::new(IDLookupTable::<ComponentID>::new()),
-            rule_id_lookup: RefCell::new(IDLookupTable::<RuleID>::new()),
+            nodeshape_id_lookup: RwLock::new(IDLookupTable::<ID>::new()),
+            propshape_id_lookup: RwLock::new(IDLookupTable::<PropShapeID>::new()),
+            component_id_lookup: RwLock::new(IDLookupTable::<ComponentID>::new()),
+            rule_id_lookup: RwLock::new(IDLookupTable::<RuleID>::new()),
             store,
             shape_graph_iri,
             data_graph_iri,
@@ -369,25 +351,34 @@ impl ParsingContext {
             node_shape_rules: HashMap::new(),
             prop_shape_rules: HashMap::new(),
             env,
-            sparql: Rc::new(SparqlServices::new()),
+            sparql: Arc::new(SparqlServices::new()),
             features,
             original_values,
         }
     }
 
     pub(crate) fn get_or_create_node_id(&self, term: Term) -> ID {
-        self.nodeshape_id_lookup.borrow_mut().get_or_create_id(term)
+        self.nodeshape_id_lookup
+            .write()
+            .unwrap()
+            .get_or_create_id(term)
     }
 
     pub(crate) fn get_or_create_prop_id(&self, term: Term) -> PropShapeID {
-        self.propshape_id_lookup.borrow_mut().get_or_create_id(term)
+        self.propshape_id_lookup
+            .write()
+            .unwrap()
+            .get_or_create_id(term)
     }
 
     pub(crate) fn get_or_create_component_id(&self, term: Term) -> ComponentID {
-        self.component_id_lookup.borrow_mut().get_or_create_id(term)
+        self.component_id_lookup
+            .write()
+            .unwrap()
+            .get_or_create_id(term)
     }
 
     pub(crate) fn get_or_create_rule_id(&self, term: Term) -> RuleID {
-        self.rule_id_lookup.borrow_mut().get_or_create_id(term)
+        self.rule_id_lookup.write().unwrap().get_or_create_id(term)
     }
 }

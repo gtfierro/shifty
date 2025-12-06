@@ -43,7 +43,8 @@ pub(crate) fn render_shapes_graphviz(model: &ShapesModel) -> Result<String, Stri
     for shape in model.node_shapes.values() {
         let name = model
             .nodeshape_id_lookup
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(*shape.identifier())
             .ok_or_else(|| format!("Missing term for nodeshape ID: {:?}", shape.identifier()))?
             .clone();
@@ -76,7 +77,8 @@ pub(crate) fn render_shapes_graphviz(model: &ShapesModel) -> Result<String, Stri
     for pshape in model.prop_shapes.values() {
         model
             .propshape_id_lookup
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(*pshape.identifier())
             .ok_or_else(|| format!("Missing term for propshape ID: {:?}", pshape.identifier()))?;
 
@@ -133,7 +135,7 @@ pub(crate) fn render_heatmap_graphviz(
     include_all_nodes: bool,
 ) -> Result<String, String> {
     let mut frequencies: HashMap<TraceItem, usize> = HashMap::new();
-    for trace in context.execution_traces.borrow().iter() {
+    for trace in context.execution_traces.lock().unwrap().iter() {
         for item in trace.iter() {
             *frequencies.entry(item.clone()).or_insert(0) += 1;
         }
@@ -175,7 +177,8 @@ pub(crate) fn render_heatmap_graphviz(
         let name = context
             .model
             .nodeshape_id_lookup
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(*shape.identifier())
             .ok_or_else(|| format!("Missing term for nodeshape ID: {:?}", shape.identifier()))?
             .clone();
@@ -221,7 +224,8 @@ pub(crate) fn render_heatmap_graphviz(
         context
             .model
             .propshape_id_lookup
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(*pshape.identifier())
             .ok_or_else(|| format!("Missing term for propshape ID: {:?}", pshape.identifier()))?;
 

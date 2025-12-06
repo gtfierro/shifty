@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:TestShape a sh:NodeShape ;
     sh:datatype xsd:boolean ;
     sh:deactivated true ;
@@ -28,4 +29,3 @@ ex:TestShape2 a sh:PropertyShape ;
 
 <deactivated-001.test.ttl> a mf:Manifest ;
     mf:entries ( <deactivated-001> ) .
-

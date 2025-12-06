@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <severity-002> a sht:Validate ;
     rdfs:label "Test of sh:severity 002" ;
     mf:action [ sht:dataGraph <severity-002.test.ttl> ;
@@ -40,4 +41,3 @@ ex:TestShape2 sh:datatype xsd:integer ;
     sh:severity sh:Info .
 
 ex:InvalidResource1 ex:property true .
-

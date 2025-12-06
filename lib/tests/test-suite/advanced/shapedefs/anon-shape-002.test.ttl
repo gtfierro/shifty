@@ -8,6 +8,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-shapedefs:> .
 <http://datashapes.org/sh/tests/shapedefs/anon-shape-002.test> a owl:Ontology ;
     rdfs:label "Test of anonymous shape definition 002" ;
     owl:imports <http://datashapes.org/dash> .
@@ -53,4 +54,3 @@ ex:InvalidNode1 rdfs:label "Invalid node 1" .
             sh:path ex:property ] ;
     sh:targetNode ex:InvalidNode1,
         ex:ValidNode1 .
-

@@ -82,12 +82,19 @@ fn collect_tests_from_manifest(
 fn skip_reason(test: &TestCase) -> Option<&'static str> {
     let data_path = test.data_graph_path.to_string_lossy();
     let shapes_path = test.shapes_graph_path.to_string_lossy();
-    let allow_af = std::env::var("SHACL_W3C_ALLOW_AF").ok().as_deref() == Some("1");
-    let is_advanced = data_path.contains("/advanced/") || shapes_path.contains("/advanced/");
-
-    if is_advanced && !allow_af {
-        return Some("SHACL-AF validation disabled (set SHACL_W3C_ALLOW_AF=1 to opt in)");
+    let advanced_expr = "/advanced/expression/";
+    if data_path.contains(advanced_expr) || shapes_path.contains(advanced_expr) {
+        return Some("SHACL-AF expressions not supported yet");
     }
+    // if data_path.contains("data-shapes-test-suite") || shapes_path.contains("data-shapes-test-suite")
+    // {
+    //     return Some("SHACL 1.0 data-shapes suite pending parser support");
+    // }
+    // let is_advanced = data_path.contains("/advanced/") || shapes_path.contains("/advanced/");
+
+    // if is_advanced {
+    //     return Some("SHACL-AF advanced manifest support pending");
+    // }
 
     None
 }
@@ -118,12 +125,17 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             .shapes_graph_path
             .to_str()
             .ok_or("Invalid shapes graph path")?;
-        let validator = Validator::from_files(shapes_graph_path, data_graph_path).map_err(|e| {
-            io::Error::other(format!(
-                "Failed to create Validator for test '{}': {}",
-                test_name, e
-            ))
-        })?;
+        let validator = Validator::builder()
+            .with_shapes_source(shacl::Source::File(PathBuf::from(shapes_graph_path)))
+            .with_data_source(shacl::Source::File(PathBuf::from(data_graph_path)))
+            .with_warnings_are_errors(true)
+            .build()
+            .map_err(|e| {
+                io::Error::other(format!(
+                    "Failed to create Validator for test '{}': {}",
+                    test_name, e
+                ))
+            })?;
         let report = validator.validate();
         let conforms = report.conforms();
         let expects_conform = test.conforms;

@@ -1,29 +1,45 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
+use crate::backend::{Binding, GraphBackend, OxigraphBackend};
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
+use crate::sparql::{SparqlExecutor, SparqlServices};
+use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
-use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, Term};
-use std::cell::RefCell;
+use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
+use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
+use oxigraph::store::Store;
+use shacl_ir::ShapeIR;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, RwLock};
 
 pub struct ValidationContext {
-    pub(crate) model: Rc<ShapesModel>,
+    pub(crate) model: Arc<ShapesModel>,
     pub(crate) data_graph_iri: NamedNode,
     data_graph_skolem_base: String,
     shape_graph_skolem_base: String,
-    pub(crate) execution_traces: RefCell<Vec<Vec<TraceItem>>>,
-    pub(crate) components: HashMap<ComponentID, Component>,
-    pub(crate) advanced_target_cache: RefCell<HashMap<Term, Vec<Term>>>,
+    pub(crate) warnings_are_errors: bool,
+    pub(crate) execution_traces: Mutex<Vec<Vec<TraceItem>>>,
+    pub(crate) components: Arc<HashMap<ComponentID, Component>>,
+    pub(crate) advanced_target_cache: RwLock<HashMap<Term, Vec<Term>>>,
+    pub(crate) node_target_cache: RwLock<HashMap<ID, Vec<Term>>>,
+    pub(crate) prop_target_cache: RwLock<HashMap<PropShapeID, Vec<Term>>>,
+    pub(crate) backend: Arc<OxigraphBackend>,
+    pub(crate) trace_sink: Arc<dyn TraceSink>,
+    pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
+    pub(crate) shape_ir: Arc<ShapeIR>,
 }
 
 impl ValidationContext {
-    pub(crate) fn new(model: Rc<ShapesModel>, data_graph_iri: NamedNode) -> Self {
+    pub(crate) fn new(
+        model: Arc<ShapesModel>,
+        data_graph_iri: NamedNode,
+        warnings_are_errors: bool,
+    ) -> Self {
         let data_graph_skolem_base = format!(
             "{}/.well-known/skolem/",
             data_graph_iri.as_str().trim_end_matches('/')
@@ -32,8 +48,20 @@ impl ValidationContext {
             "{}/.well-known/skolem/",
             model.shape_graph_iri.as_str().trim_end_matches('/')
         );
+        let backend = Arc::new(OxigraphBackend::new(
+            model.store.clone(),
+            data_graph_iri.clone(),
+            model.shape_graph_iri.clone(),
+            Arc::clone(&model.sparql),
+        ));
+        let trace_events = Arc::new(Mutex::new(Vec::new()));
+        let memory_sink = MemoryTraceSink::new(Arc::clone(&trace_events));
+        let shape_ir = Arc::new(crate::ir::build_shape_ir(
+            &model,
+            Some(data_graph_iri.clone()),
+        ));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
-        let components = model
+        let components: HashMap<ComponentID, Component> = model
             .component_descriptors
             .iter()
             .map(|(id, descriptor)| {
@@ -42,13 +70,13 @@ impl ValidationContext {
                         definition,
                         parameter_values,
                     } => {
-                        let cache_key = custom_component_cache_key(definition, parameter_values);
+                        let cache_key = custom_component_cache_key(&definition, &parameter_values);
                         let cached = custom_cache.entry(cache_key).or_insert_with(|| {
-                            build_custom_constraint_component(definition, parameter_values)
+                            build_custom_constraint_component(&definition, &parameter_values)
                         });
                         Component::CustomConstraint(cached.clone())
                     }
-                    _ => build_component_from_descriptor(descriptor),
+                    _ => build_component_from_descriptor(&descriptor),
                 };
                 (*id, component)
             })
@@ -59,9 +87,16 @@ impl ValidationContext {
             data_graph_iri,
             data_graph_skolem_base,
             shape_graph_skolem_base,
-            execution_traces: RefCell::new(Vec::new()),
-            components,
-            advanced_target_cache: RefCell::new(HashMap::new()),
+            warnings_are_errors,
+            execution_traces: Mutex::new(Vec::new()),
+            components: Arc::new(components),
+            advanced_target_cache: RwLock::new(HashMap::new()),
+            node_target_cache: RwLock::new(HashMap::new()),
+            prop_target_cache: RwLock::new(HashMap::new()),
+            backend,
+            trace_sink: Arc::new(memory_sink),
+            trace_events,
+            shape_ir,
         }
     }
 
@@ -69,8 +104,24 @@ impl ValidationContext {
         GraphNameRef::NamedNode(self.data_graph_iri.as_ref())
     }
 
+    pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
+        self.backend.shapes_graph()
+    }
+
+    pub(crate) fn store(&self) -> &Store {
+        self.backend.store()
+    }
+
+    pub(crate) fn sparql_services(&self) -> &SparqlServices {
+        &self.model.sparql
+    }
+
+    pub(crate) fn warnings_are_errors(&self) -> bool {
+        self.warnings_are_errors
+    }
+
     pub(crate) fn new_trace(&self) -> usize {
-        let mut traces = self.execution_traces.borrow_mut();
+        let mut traces = self.execution_traces.lock().unwrap();
         traces.push(Vec::new());
         traces.len() - 1
     }
@@ -79,14 +130,131 @@ impl ValidationContext {
         self.components.get(id)
     }
 
+    pub(crate) fn order_constraints(&self, ids: &[ComponentID]) -> Vec<ComponentID> {
+        fn cost_of(descriptor: Option<&ComponentDescriptor>) -> u8 {
+            match descriptor {
+                Some(ComponentDescriptor::Sparql { .. }) => 10,
+                Some(ComponentDescriptor::Custom { .. }) => 9,
+                Some(ComponentDescriptor::Or { .. })
+                | Some(ComponentDescriptor::Xone { .. })
+                | Some(ComponentDescriptor::Not { .. })
+                | Some(ComponentDescriptor::And { .. }) => 8,
+                _ => 1,
+            }
+        }
+
+        let mut ordered: Vec<ComponentID> = ids.to_vec();
+        let ir_components = &self.shape_ir.components;
+        let model = &self.model;
+        ordered.sort_by_key(|id| {
+            let descriptor = ir_components
+                .get(id)
+                .or_else(|| model.get_component_descriptor(id));
+            cost_of(descriptor)
+        });
+        ordered
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn backend(&self) -> &impl GraphBackend<Error = String> {
+        &*self.backend
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn trace_sink(&self) -> &Arc<dyn TraceSink> {
+        &self.trace_sink
+    }
+
+    pub(crate) fn prepare_query(&self, query: &str) -> Result<PreparedSparqlQuery, String> {
+        self.backend.prepare_query(query)
+    }
+
+    pub(crate) fn objects_for_predicate(
+        &self,
+        subject: NamedOrBlankNodeRef<'_>,
+        predicate: NamedNodeRef<'_>,
+        graph: GraphNameRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        self.backend
+            .objects_for_predicate(subject, predicate, graph)
+    }
+
+    pub(crate) fn execute_prepared<'a>(
+        &'a self,
+        query_str: &str,
+        prepared: &'a PreparedSparqlQuery,
+        substitutions: &[Binding],
+        enforce_values_clause: bool,
+    ) -> Result<QueryResults<'a>, String> {
+        self.backend
+            .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
+    }
+
+    pub(crate) fn contains_quad(&self, quad: &Quad) -> Result<bool, String> {
+        self.backend.contains(quad)
+    }
+
+    pub(crate) fn quads_for_pattern(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+    ) -> Result<Vec<Quad>, String> {
+        self.backend
+            .quads_for_pattern(subject, predicate, object, graph)
+    }
+
+    pub(crate) fn insert_quads(&self, quads: &[Quad]) -> Result<(), String> {
+        self.backend.insert_quads(quads)
+    }
+
+    pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
+        self.model.sparql.prefixes_for_node(
+            node,
+            self.backend.store(),
+            self.model.env(),
+            self.shape_graph_iri_ref(),
+        )
+    }
+
+    pub fn trace_events(&self) -> Arc<Mutex<Vec<TraceEvent>>> {
+        Arc::clone(&self.trace_events)
+    }
+
+    pub fn shape_ir(&self) -> &ShapeIR {
+        &self.shape_ir
+    }
+
     pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Vec<Term>> {
-        self.advanced_target_cache.borrow().get(selector).cloned()
+        self.advanced_target_cache
+            .read()
+            .unwrap()
+            .get(selector)
+            .cloned()
     }
 
     pub(crate) fn store_advanced_target(&self, selector: &Term, nodes: &[Term]) {
         self.advanced_target_cache
-            .borrow_mut()
+            .write()
+            .unwrap()
             .insert(selector.clone(), nodes.to_vec());
+    }
+
+    pub(crate) fn cached_node_targets(&self, id: &ID) -> Option<Vec<Term>> {
+        self.node_target_cache.read().unwrap().get(id).cloned()
+    }
+
+    pub(crate) fn store_node_targets(&self, id: ID, nodes: Vec<Term>) {
+        self.node_target_cache.write().unwrap().insert(id, nodes);
+    }
+
+    pub(crate) fn cached_prop_targets(&self, id: &PropShapeID) -> Option<Vec<Term>> {
+        self.prop_target_cache.read().unwrap().get(id).cloned()
+    }
+
+    pub(crate) fn store_prop_targets(&self, id: PropShapeID, nodes: Vec<Term>) {
+        self.prop_target_cache.write().unwrap().insert(id, nodes);
     }
 
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
@@ -103,7 +271,8 @@ impl ValidationContext {
                 let label = self
                     .model
                     .nodeshape_id_lookup
-                    .borrow()
+                    .read()
+                    .unwrap()
                     .get_term(*id)
                     .map_or_else(
                         || format!("Unknown NodeShape ID: {:?}", id),
@@ -182,13 +351,15 @@ impl SourceShape {
             SourceShape::NodeShape(id) => ctx
                 .model
                 .nodeshape_id_lookup()
-                .borrow()
+                .read()
+                .unwrap()
                 .get_term(*id)
                 .cloned(),
             SourceShape::PropertyShape(id) => ctx
                 .model
                 .propshape_id_lookup()
-                .borrow()
+                .read()
+                .unwrap()
                 .get_term(*id)
                 .cloned(),
         }
@@ -275,6 +446,10 @@ impl Context {
 
     pub(crate) fn value_nodes_mut(&mut self) -> Option<&mut Vec<Term>> {
         self.value_nodes.as_mut()
+    }
+
+    pub(crate) fn value(&self) -> Option<&Term> {
+        self.value.as_ref()
     }
 
     pub(crate) fn source_shape(&self) -> SourceShape {

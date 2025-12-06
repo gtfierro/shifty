@@ -30,7 +30,8 @@ impl GraphvizOutput for NodeConstraintComponent {
         let shape_term_str = context
             .model
             .nodeshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),
@@ -76,8 +77,6 @@ impl ValidateComponent for NodeConstraintComponent {
                 SourceShape::NodeShape(*target_node_shape.identifier()),
                 c.trace_index(),
             );
-
-            let trace_len_before = trace.len();
             let outcome = check_conformance_for_node(
                 &mut value_node_as_context,
                 target_node_shape,
@@ -106,7 +105,6 @@ impl ValidateComponent for NodeConstraintComponent {
                     results.push(ComponentValidationResult::Fail(error_context, failure));
                 }
             }
-            trace.truncate(trace_len_before);
         }
 
         Ok(results)
@@ -163,7 +161,8 @@ impl GraphvizOutput for PropertyConstraintComponent {
         let shape_term_str = validation_context
             .model
             .propshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(*self.shape())
             .map_or_else(
                 || format!("MissingPropertyShape:{}", self.shape().0),
@@ -220,7 +219,8 @@ impl GraphvizOutput for QualifiedValueShapeComponent {
         let shape_term_str = context
             .model
             .nodeshape_id_lookup()
-            .borrow()
+            .read()
+            .unwrap()
             .get_term(self.shape)
             .map_or_else(
                 || format!("MissingNodeShape:{}", self.shape),
@@ -269,22 +269,25 @@ impl ValidateComponent for QualifiedValueShapeComponent {
             // Per SHACL spec, sibling shapes are only considered for counting and disjointness
             // if sh:qualifiedValueShapesDisjoint is true.
 
-            // Find the parent NodeShape from the execution trace.
-            let parent_node_shape_id = trace.iter().rev().find_map(|item| {
-                if let TraceItem::NodeShape(id) = item { Some(*id) } else { None }
-            }).ok_or_else(|| "Could not find parent node shape in execution trace for QualifiedValueShapeComponent".to_string())?;
+            if !matches!(c.source_shape(), SourceShape::PropertyShape(_)) {
+                return Err(
+                    "QualifiedValueShapeComponent must be attached to a PropertyShape".to_string(),
+                );
+            }
+
+            // Find the parent NodeShape from the execution trace. We need the NodeShape that
+            // introduced this property shape. Because traces start with the parent NodeShape and
+            // never pop entries, the first NodeShape recorded is always the parent for this
+            // property shape.
+            let parent_node_shape_id = trace
+                .iter()
+                .find_map(|item| if let TraceItem::NodeShape(id) = item { Some(*id) } else { None })
+                .ok_or_else(|| "Could not find parent node shape in execution trace for QualifiedValueShapeComponent".to_string())?;
 
             if let Some(parent_node_shape) = validation_context
                 .model
                 .get_node_shape_by_id(&parent_node_shape_id)
             {
-                if !matches!(c.source_shape(), SourceShape::PropertyShape(_)) {
-                    return Err(
-                        "QualifiedValueShapeComponent must be attached to a PropertyShape"
-                            .to_string(),
-                    );
-                };
-
                 // Iterate over the property shapes of the parent node shape to find all
                 // qualified value shapes, which are siblings.
                 for constraint_id in parent_node_shape.constraints() {
@@ -332,14 +335,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 c.trace_index(),
             );
 
-            let trace_len_before = trace.len();
             let result = check_conformance_for_node(
                 &mut value_node_as_context,
                 target_node_shape,
                 validation_context,
                 trace,
             )?;
-            trace.truncate(trace_len_before);
 
             let conforms_to_target = match result {
                 ConformanceReport::Conforms => true,
@@ -363,14 +364,12 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                         SourceShape::NodeShape(*sibling_shape.identifier()),
                         c.trace_index(),
                     );
-                    let trace_len_before = trace.len();
                     let result = check_conformance_for_node(
                         &mut sibling_check_context,
                         sibling_shape,
                         validation_context,
                         trace,
                     )?;
-                    trace.truncate(trace_len_before);
 
                     match result {
                         ConformanceReport::Conforms => {

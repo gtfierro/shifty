@@ -1,0 +1,14 @@
+/target
+.DS_Store
+/.aider*
+/.aider.tags.cache.v4/
+/.ontoenv/
+/expected.ttl
+/report.ttl
+/lib/expected.ttl
+/lib/report.ttl
+/got.ttl
+/output.ttl
+/python/.ontoenv/
+/profile.json.gz
+/flamegraph.svg

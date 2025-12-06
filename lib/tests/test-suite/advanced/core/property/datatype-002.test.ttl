@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:TestShape a sh:NodeShape ;
     sh:property ex:TestShape-value ;
     sh:targetNode ex:InvalidInstance1,
@@ -48,4 +49,3 @@ ex:InvalidInstance2 ex:value 42 .
 
 ex:TestShape-value sh:datatype xsd:string ;
     sh:path ex:value .
-

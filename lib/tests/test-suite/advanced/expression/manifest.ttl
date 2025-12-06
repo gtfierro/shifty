@@ -1,5 +1,6 @@
 @prefix mf: <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
 
+@base <urn:shacl-advanced-expression:> .
+
 <manifest.ttl> a mf:Manifest ;
     mf:include <booleans-001.test.ttl> .
-

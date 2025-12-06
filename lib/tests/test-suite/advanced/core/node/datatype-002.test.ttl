@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <datatype-002> a sht:Validate ;
     rdfs:label "Test of sh:datatype at node shape 002" ;
     mf:action [ sht:dataGraph <datatype-002.test.ttl> ;
@@ -35,4 +36,3 @@ ex:TestShape a sh:NodeShape ;
         "Hello",
         "Hallo"@de,
         "G'day"@en-AU .
-

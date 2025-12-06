@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:MyClass a rdfs:Class .
 
 ex:TestShape a sh:NodeShape ;
@@ -50,4 +51,3 @@ ex:InvalidInstance2 ex:myProperty "A",
 
 ex:TestShape-myProperty sh:maxCount 1 ;
     sh:path ex:myProperty .
-

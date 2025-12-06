@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:SubClass a rdfs:Class ;
     rdfs:label "Sub class" ;
     rdfs:subClassOf ex:SuperClass .
@@ -37,4 +38,3 @@ ex:ValidInstance a ex:SubClass ;
 
 ex:InvalidInstance a ex:SubClass ;
     rdfs:label "Invalid instance" .
-

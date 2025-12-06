@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Address a rdfs:Class ;
     rdfs:label "Address" ;
     rdfs:subClassOf rdfs:Resource .
@@ -70,4 +71,3 @@ ex:PersonShape-address-city sh:class ex:City ;
 
 ex:InvalidAddress a ex:Address ;
     ex:city ex:InvalidCity .
-

@@ -103,15 +103,14 @@ impl GraphvizOutput for SPARQLConstraintComponent {
         let shacl = SHACL::new();
         let subject = self.constraint_node.to_subject_ref();
         let select_query_opt = context
-            .model
-            .store()
             .quads_for_pattern(
                 Some(subject),
                 Some(shacl.select),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
+                Some(context.shape_graph_iri_ref()),
             )
-            .filter_map(Result::ok)
+            .unwrap_or_default()
+            .into_iter()
             .map(|q| q.object)
             .find_map(|object| match object {
                 Term::Literal(lit) => Some(lit.value().to_string()),
@@ -143,19 +142,18 @@ impl ValidateComponent for SPARQLConstraintComponent {
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let shacl = SHACL::new();
-        let sparql_services = context.model.sparql.as_ref();
+        let sparql_services = context.sparql_services();
         let constraint_subject = self.constraint_node.to_subject_ref();
 
         // 1. Check if deactivated
-        if let Some(Ok(deactivated_quad)) = context
-            .model
-            .store()
+        if let Some(deactivated_quad) = context
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.deactivated),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
-            )
+                Some(context.shape_graph_iri_ref()),
+            )?
+            .into_iter()
             .next()
         {
             if let Term::Literal(lit) = &deactivated_quad.object {
@@ -166,15 +164,14 @@ impl ValidateComponent for SPARQLConstraintComponent {
         }
 
         // 2. Get SELECT query
-        let mut select_query = if let Some(Ok(quad)) = context
-            .model
-            .store()
+        let mut select_query = if let Some(quad) = context
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.select),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
-            )
+                Some(context.shape_graph_iri_ref()),
+            )?
+            .into_iter()
             .next()
         {
             if let Term::Literal(lit) = &quad.object {
@@ -197,12 +194,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         )?;
 
         // Collect prefixes using the shared SPARQL services
-        let prefixes = sparql_services.prefixes_for_node(
-            &self.constraint_node,
-            context.model.store(),
-            context.model.env(),
-            context.model.shape_graph_iri_ref(),
-        )?;
+        let prefixes = context.prefixes_for_node(&self.constraint_node)?;
 
         // Handle $PATH substitution for property shapes
         let mut path_substitution_value: Option<String> = None;
@@ -252,8 +244,8 @@ impl ValidateComponent for SPARQLConstraintComponent {
             &optional_prebound_vars,
         )?;
 
-        let prepared_query = sparql_services
-            .prepared_query(&full_query_str)
+        let prepared_query = context
+            .prepare_query(&full_query_str)
             .map_err(|e| format!("Failed to prepare SPARQL constraint query: {}", e))?;
 
         // Prepare pre-bound variables
@@ -282,39 +274,32 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // Get messages
         let messages: Vec<Term> = context
-            .model
-            .store()
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.message),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
+                Some(context.shape_graph_iri_ref()),
+            )?
+            .into_iter()
             .map(|q| q.object)
             .collect();
 
         let severity = context
-            .model
-            .store()
             .quads_for_pattern(
                 Some(constraint_subject),
                 Some(shacl.severity),
                 None,
-                Some(context.model.shape_graph_iri_ref()),
-            )
-            .filter_map(Result::ok)
+                Some(context.shape_graph_iri_ref()),
+            )?
+            .into_iter()
             .map(|q| q.object)
-            .find_map(|term| Severity::from_term(&term));
+            .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
         // Execute query
-        match sparql_services.execute_with_substitutions(
-            &full_query_str,
-            &prepared_query,
-            context.model.store(),
-            &substitutions,
-            true,
-        ) {
+        let query_outcome =
+            context.execute_prepared(&full_query_str, &prepared_query, &substitutions, true);
+
+        match query_outcome {
             Ok(QueryResults::Solutions(solutions)) => {
                 let mut results = vec![];
                 let mut seen_solutions = HashSet::new();
@@ -486,7 +471,7 @@ impl ValidateComponent for CustomConstraintComponent {
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        let sparql_services = context.model.sparql.as_ref();
+        let sparql_services = context.sparql_services();
         let is_prop_shape = c.source_shape().as_prop_id().is_some();
 
         enum ValidatorScope {
@@ -661,8 +646,8 @@ impl ValidateComponent for CustomConstraintComponent {
             &optional_prebound_vars,
         )?;
 
-        let prepared_query = sparql_services
-            .prepared_query(&query_with_prefixes)
+        let prepared_query = context
+            .prepare_query(&query_with_prefixes)
             .map_err(|e| format!("Failed to prepare SPARQL validator query: {}", e))?;
 
         let mut results = Vec::new();
@@ -676,10 +661,9 @@ impl ValidateComponent for CustomConstraintComponent {
                             .push((Variable::new_unchecked("value"), value_node.clone()));
                     }
 
-                    match sparql_services.execute_with_substitutions(
+                    match context.execute_prepared(
                         &query_with_prefixes,
                         &prepared_query,
-                        context.model.store(),
                         &ask_substitutions,
                         true,
                     ) {
@@ -738,10 +722,9 @@ impl ValidateComponent for CustomConstraintComponent {
                 }
             }
         } else {
-            match sparql_services.execute_with_substitutions(
+            match context.execute_prepared(
                 &query_with_prefixes,
                 &prepared_query,
-                context.model.store(),
                 &substitutions,
                 true,
             ) {

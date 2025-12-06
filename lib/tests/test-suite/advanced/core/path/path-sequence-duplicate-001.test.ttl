@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:S a sh:NodeShape ;
     sh:property ex:SP ;
     sh:targetNode ex:A .
@@ -35,4 +36,3 @@ ex:SP a sh:PropertyShape ;
     sh:maxCount 1 ;
     sh:nodeKind sh:IRI ;
     sh:path ( ex:p1 ex:p2 ) .
-

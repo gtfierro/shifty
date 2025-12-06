@@ -1,0 +1,4 @@
+@prefix ex: <http://example.org/shacl-test/> .
+
+@base <urn:shacl-data-shapes:> .
+ex:i ex:message "HI"@en, "Hi"@en .

@@ -1,7 +1,6 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::ToSubjectRef;
-use crate::sparql::SparqlExecutor;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
@@ -72,16 +71,14 @@ impl ValidateComponent for ClassConstraintComponent {
 
         let mut results = Vec::new();
         let vns = c.value_nodes().cloned().unwrap();
-        let sparql_services = context.model.sparql.as_ref();
-        let prepared = sparql_services
-            .prepared_query(&self.query)
+        let prepared = context
+            .prepare_query(&self.query)
             .map_err(|e| format!("Failed to prepare class constraint query: {}", e))?;
 
         for vn in vns.iter() {
-            match sparql_services.execute_with_substitutions(
+            match context.execute_prepared(
                 &self.query,
                 &prepared,
-                context.model.store(),
                 &[(cc_var.clone(), vn.clone())],
                 false,
             ) {
@@ -455,7 +452,6 @@ impl GraphvizOutput for NodeKindConstraintComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::model::FeatureToggles;
     use crate::context::{Context, IDLookupTable, ShapesModel, SourceShape, ValidationContext};
     use crate::model::components::ComponentDescriptor;
     use crate::sparql::SparqlServices;
@@ -464,9 +460,9 @@ mod tests {
     use ontoenv::config::Config;
     use oxigraph::model::{Literal, NamedNode, Term};
     use oxigraph::store::Store;
-    use std::cell::RefCell;
+    use shacl_ir::FeatureToggles;
     use std::collections::HashMap;
-    use std::rc::Rc;
+    use std::sync::{Arc, RwLock};
 
     fn build_empty_validation_context() -> ValidationContext {
         let store = Store::new().expect("failed to create in-memory store");
@@ -483,10 +479,10 @@ mod tests {
         let env = OntoEnv::init(config, false).expect("failed to initialise OntoEnv");
 
         let model = ShapesModel {
-            nodeshape_id_lookup: RefCell::new(IDLookupTable::new()),
-            propshape_id_lookup: RefCell::new(IDLookupTable::new()),
-            component_id_lookup: RefCell::new(IDLookupTable::new()),
-            rule_id_lookup: RefCell::new(IDLookupTable::new()),
+            nodeshape_id_lookup: RwLock::new(IDLookupTable::new()),
+            propshape_id_lookup: RwLock::new(IDLookupTable::new()),
+            component_id_lookup: RwLock::new(IDLookupTable::new()),
+            rule_id_lookup: RwLock::new(IDLookupTable::new()),
             store,
             shape_graph_iri,
             node_shapes: HashMap::new(),
@@ -499,12 +495,12 @@ mod tests {
             node_shape_rules: HashMap::new(),
             prop_shape_rules: HashMap::new(),
             env,
-            sparql: Rc::new(SparqlServices::new()),
+            sparql: Arc::new(SparqlServices::new()),
             features: FeatureToggles::default(),
             original_values: None,
         };
 
-        ValidationContext::new(Rc::new(model), data_graph_iri)
+        ValidationContext::new(Arc::new(model), data_graph_iri, false)
     }
 
     #[test]

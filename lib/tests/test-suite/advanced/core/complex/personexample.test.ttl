@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <personexample> a sht:Validate ;
     rdfs:label "Test of personexample" ;
     mf:action [ sht:dataGraph <personexample.test.ttl> ;
@@ -72,4 +73,3 @@ _:n5289ed6dae574208a33741e1a2e758f3b4 sh:datatype xsd:string ;
     sh:maxCount 1 ;
     sh:path ex:ssn ;
     sh:pattern "^\\d{3}-\\d{2}-\\d{4}$" .
-

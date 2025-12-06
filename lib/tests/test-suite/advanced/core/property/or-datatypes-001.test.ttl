@@ -7,6 +7,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:TestShape a sh:NodeShape ;
     rdfs:label "Test shape" ;
     sh:property ex:TestShape-comment ;
@@ -39,7 +40,7 @@ ex:TestShape a sh:NodeShape ;
                     sh:resultSeverity sh:Violation ;
                     sh:sourceConstraintComponent sh:OrConstraintComponent ;
                     sh:sourceShape ex:TestShape-comment ;
-                    sh:value false ] ] ;
+                    sh:value "none"^^xsd:boolean ] ] ;
     mf:status sht:approved .
 
 ex:ValidResource1 a rdfs:Resource ;
@@ -54,10 +55,9 @@ ex:ValidResource1 a rdfs:Resource ;
 ex:InvalidResource1 a rdfs:Resource ;
     rdfs:label "Invalid resource1" ;
     rdfs:comment owl:Thing,
-        false,
+        "none"^^xsd:boolean,
         42,
         "A string" .
 
 ex:TestShape-comment sh:or ( [ sh:datatype xsd:string ] [ sh:datatype rdf:HTML ] [ sh:datatype rdf:langString ] [ sh:datatype xsd:boolean ] ) ;
     sh:path rdfs:comment .
-

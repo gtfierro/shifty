@@ -2,9 +2,12 @@
 #![deny(clippy::all)]
 
 // Publicly visible items
+pub mod backend;
 pub mod inference;
+pub mod ir;
 pub mod model;
 pub mod shape;
+pub mod trace;
 pub mod types;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
@@ -23,7 +26,7 @@ pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
 use crate::canonicalization::skolemize;
-use crate::context::model::{FeatureToggles, OriginalValueIndex};
+use crate::context::model::OriginalValueIndex;
 use crate::context::{
     render_heatmap_graphviz, render_shapes_graphviz, ParsingContext, ShapesModel, ValidationContext,
 };
@@ -31,14 +34,18 @@ use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
 use log::info;
 use ontoenv::api::OntoEnv;
+use ontoenv::api::ResolveTarget;
 use ontoenv::config::Config;
 use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
+use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
+use shacl_ir::FeatureToggles;
 use std::error::Error;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
+use url::Url;
 
 /// Represents the source of shapes or data, which can be either a local file or a named graph from an `OntoEnv`.
 #[derive(Debug)]
@@ -47,6 +54,8 @@ pub enum Source {
     File(PathBuf),
     /// The URI of a named graph.
     Graph(String),
+    /// An in-memory empty graph (used when a data graph is not needed).
+    Empty,
 }
 
 /// Configurable builder for constructing `Validator` instances.
@@ -59,6 +68,8 @@ pub struct ValidatorBuilder {
     enable_af: bool,
     enable_rules: bool,
     skip_invalid_rules: bool,
+    warnings_are_errors: bool,
+    do_imports: bool,
 }
 
 impl ValidatorBuilder {
@@ -73,6 +84,8 @@ impl ValidatorBuilder {
             enable_af: true,
             enable_rules: true,
             skip_invalid_rules: false,
+            warnings_are_errors: false,
+            do_imports: true,
         }
     }
 
@@ -119,6 +132,18 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Treat SHACL warnings as errors (default: false).
+    pub fn with_warnings_are_errors(mut self, warnings_as_errors: bool) -> Self {
+        self.warnings_are_errors = warnings_as_errors;
+        self
+    }
+
+    /// Whether to resolve and load owl:imports closures for shapes/data (default: true).
+    pub fn with_do_imports(mut self, do_imports: bool) -> Self {
+        self.do_imports = do_imports;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -130,6 +155,8 @@ impl ValidatorBuilder {
             enable_af,
             enable_rules,
             skip_invalid_rules,
+            warnings_are_errors,
+            do_imports,
         } = self;
 
         let shapes_source =
@@ -142,9 +169,81 @@ impl ValidatorBuilder {
         };
 
         let mut env: OntoEnv = OntoEnv::init(config, false)?;
-        let shapes_graph_iri = Self::add_source(&mut env, &shapes_source, "shapes")?;
-        let data_graph_iri = Self::add_source(&mut env, &data_source, "data")?;
-        let store = env.io().store().clone();
+        let (shapes_graph_iri, shapes_in_env) =
+            Self::add_source(&mut env, &shapes_source, "shapes")?;
+        let (data_graph_iri, data_in_env) = match &data_source {
+            Source::Empty => (
+                NamedNode::new("urn:shacl-rs:null-data")
+                    .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
+                false,
+            ),
+            _ => {
+                let (iri, in_env) = Self::add_source(&mut env, &data_source, "data")?;
+                (iri, in_env)
+            }
+        };
+        let store = if do_imports {
+            let store = Store::new().map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Error creating in-memory store: {}",
+                    e
+                ))) as Box<dyn Error>
+            })?;
+
+            // Always load shapes when available in env; load data only when it came from env too.
+            let mut import_graphs: Vec<&NamedNode> = Vec::new();
+            if shapes_in_env {
+                import_graphs.push(&shapes_graph_iri);
+            }
+            if data_in_env {
+                import_graphs.push(&data_graph_iri);
+            }
+
+            if import_graphs.is_empty() {
+                env.io().store().clone()
+            } else {
+                for iri in import_graphs {
+                    let graph_id =
+                        env.resolve(ResolveTarget::Graph(iri.clone()))
+                            .ok_or_else(|| {
+                                Box::new(std::io::Error::other(format!(
+                                    "Ontology not found for graph {}",
+                                    iri
+                                ))) as Box<dyn Error>
+                            })?;
+
+                    let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to build imports closure for {}: {}",
+                            iri, e
+                        ))) as Box<dyn Error>
+                    })?;
+                    if !closure_ids.contains(&graph_id) {
+                        closure_ids.push(graph_id.clone());
+                    }
+                    let union = env
+                        .get_union_graph(&closure_ids, Some(false), Some(false))
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to load union graph for {}: {}",
+                                iri, e
+                            ))) as Box<dyn Error>
+                        })?;
+
+                    for quad in union.dataset.iter() {
+                        store.insert(quad).map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to insert quad into store: {}",
+                                e
+                            ))) as Box<dyn Error>
+                        })?;
+                    }
+                }
+                store
+            }
+        } else {
+            env.io().store().clone()
+        };
 
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
@@ -170,7 +269,7 @@ impl ValidatorBuilder {
                 let base_ref = data_skolem_base.as_deref();
                 Some(OriginalValueIndex::from_path(path, base_ref)?)
             }
-            Source::Graph(_) => None,
+            Source::Graph(_) | Source::Empty => None,
         };
 
         let features = FeatureToggles {
@@ -186,7 +285,7 @@ impl ValidatorBuilder {
             features.clone(),
             original_values,
         )?;
-        let context = ValidationContext::new(Rc::new(model), data_graph_iri);
+        let context = ValidationContext::new(Arc::new(model), data_graph_iri, warnings_are_errors);
         Ok(Validator { context })
     }
 
@@ -209,41 +308,125 @@ impl ValidatorBuilder {
         env: &mut OntoEnv,
         source: &Source,
         label: &str,
-    ) -> Result<NamedNode, Box<dyn Error>> {
-        let graph_id = match source {
+    ) -> Result<(NamedNode, bool), Box<dyn Error>> {
+        let fallback_location = match source {
+            Source::File(path) => path.display().to_string(),
+            Source::Graph(uri) => uri.clone(),
+            Source::Empty => "<empty>".to_string(),
+        };
+
+        // Try OntoEnv first.
+        let from_env = match source {
             Source::Graph(uri) => env.add(
                 OntologyLocation::Url(uri.clone()),
                 Overwrite::Allow,
                 RefreshStrategy::Force,
-            )?,
+            ),
             Source::File(path) => env.add(
                 OntologyLocation::File(path.clone()),
                 Overwrite::Allow,
                 RefreshStrategy::Force,
-            )?,
+            ),
+            Source::Empty => {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "Empty source is not loadable for {} graph",
+                    label
+                ))))
+            }
         };
 
-        let ontology = env
-            .get_ontology(&graph_id)
-            .map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Failed to resolve {} graph: {}",
-                    label, e
-                ))) as Box<dyn Error>
+        // Resolve through OntoEnv when possible.
+        if let Ok(graph_id) = from_env {
+            if let Ok(ontology) = env.get_ontology(&graph_id) {
+                let graph_iri = ontology.name().clone();
+                let location = ontology
+                    .location()
+                    .map(|loc| loc.as_str().to_string())
+                    .unwrap_or_else(|| "<unknown>".into());
+                eprintln!(
+                    "Loaded {} graph {} (location {})",
+                    label, graph_iri, location
+                );
+                info!("Added {} graph: {}", label, graph_iri);
+                return Ok((graph_iri, true));
+            }
+        }
+
+        // Fallback: manual Turtle parse into the env store (keeps the graph name stable).
+        let path = match source {
+            Source::File(p) => p,
+            _ => {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "Failed to resolve {} graph {} via OntoEnv",
+                    label, fallback_location
+                ))))
+            }
+        };
+        let iri = Url::from_file_path(path)
+            .map_err(|_| {
+                std::io::Error::other(format!(
+                    "Failed to build file URL for {} graph at {}",
+                    label,
+                    path.display()
+                ))
             })?
-            .clone();
-        let graph_iri = ontology.name().clone();
-        let location = ontology
-            .location()
-            .map(|loc| loc.as_str().to_string())
-            .unwrap_or_else(|| "<unknown>".into());
+            .to_string();
+        let graph_iri = NamedNode::new(iri.clone()).map_err(|e| {
+            std::io::Error::other(format!(
+                "Invalid graph IRI for {} graph at {}: {}",
+                label,
+                path.display(),
+                e
+            ))
+        })?;
+
+        let content = std::fs::read_to_string(path).map_err(|read_err| {
+            std::io::Error::other(format!(
+                "Failed to read {} graph {}: {}",
+                label,
+                path.display(),
+                read_err
+            ))
+        })?;
+        let parser = RdfParser::from_format(RdfFormat::Turtle)
+            .with_base_iri(&iri)
+            .map_err(|parse_err| {
+                std::io::Error::other(format!(
+                    "Failed to prepare Turtle parser for {} graph {}: {}",
+                    label,
+                    path.display(),
+                    parse_err
+                ))
+            })?;
+        for quad in parser.for_reader(std::io::Cursor::new(content.as_bytes())) {
+            let quad = quad.map_err(|parse_err| {
+                std::io::Error::other(format!(
+                    "Failed to parse {} graph {}: {}",
+                    label,
+                    path.display(),
+                    parse_err
+                ))
+            })?;
+            env.io().store().insert(quad.as_ref()).map_err(|ins_err| {
+                std::io::Error::other(format!(
+                    "Failed to insert quad into {} graph {}: {}",
+                    label,
+                    path.display(),
+                    ins_err
+                ))
+            })?;
+        }
 
         eprintln!(
-            "Loaded {} graph {} (location {})",
-            label, graph_iri, location
+            "Loaded {} graph {} via fallback (location {})",
+            label, graph_iri, fallback_location
         );
-        info!("Added {} graph: {}", label, graph_iri);
-        Ok(graph_iri)
+        info!(
+            "Added {} graph via fallback: {} ({})",
+            label, graph_iri, fallback_location
+        );
+
+        Ok((graph_iri, false))
     }
 
     fn skolem_base(iri: &NamedNode) -> String {
@@ -442,8 +625,8 @@ impl Validator {
         render_heatmap_graphviz(&self.context, include_all_nodes)
     }
 
-    #[cfg(test)]
-    pub(crate) fn context(&self) -> &ValidationContext {
+    /// Exposes the underlying validation context for diagnostics (CLI, tooling).
+    pub fn context(&self) -> &ValidationContext {
         &self.context
     }
 }
@@ -538,7 +721,11 @@ ex:Alice a ex:Person ;
         let shapes_path_str = shapes_path.to_string_lossy().to_string();
         let data_path_str = data_path.to_string_lossy().to_string();
 
-        let validator = Validator::from_files(&shapes_path_str, &data_path_str)?;
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(PathBuf::from(shapes_path_str.clone())))
+            .with_data_source(Source::File(PathBuf::from(data_path_str.clone())))
+            .with_warnings_are_errors(true)
+            .build()?;
         let report = validator.validate();
         assert!(!report.conforms(), "Expected validation to fail");
 
@@ -667,8 +854,11 @@ ex:ThingB a ex:Thing ;
         fs::write(&shapes_path, shapes_ttl)?;
         fs::write(&data_path, data_ttl)?;
 
-        let validator =
-            Validator::from_files(shapes_path.to_str().unwrap(), data_path.to_str().unwrap())?;
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(PathBuf::from(shapes_path.clone())))
+            .with_data_source(Source::File(PathBuf::from(data_path.clone())))
+            .with_warnings_are_errors(true)
+            .build()?;
 
         // Template metadata registered.
         let template_iri = NamedNode::new("http://example.com/ns#MinLabelConstraint")?;

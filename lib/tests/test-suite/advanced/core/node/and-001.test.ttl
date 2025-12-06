@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Rectangle a rdfs:Class,
         sh:NodeShape ;
     rdfs:subClassOf rdfs:Resource ;
@@ -45,4 +46,3 @@ ex:InvalidRectangle1 a ex:Rectangle ;
 
 ex:InvalidRectangle2 a ex:Rectangle ;
     ex:width 2 .
-

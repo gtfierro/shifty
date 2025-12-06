@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:TestShape a sh:NodeShape ;
     sh:property ex:TestShape-property1 ;
     sh:targetNode ex:InvalidResource1,
@@ -59,4 +60,3 @@ ex:TestShape-property1 sh:disjoint ex:property2 ;
     sh:path ex:property1 .
 
 ex:property1 a rdf:Property .
-

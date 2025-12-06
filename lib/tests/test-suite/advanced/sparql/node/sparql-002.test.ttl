@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 ex:ValidCountry a ex:Country ;
     ex:germanLabel "Spanien"@de .
 
@@ -48,4 +49,3 @@ ex:LanguageExampleShape a sh:NodeShape,
 			""" ;
     sh:sparql ex:LanguageExampleShape ;
     sh:targetClass ex:Country .
-

@@ -1,0 +1,47 @@
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix ex: <http://example.org/shacl/tests/> .
+@prefix mf: <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sht: <http://www.w3.org/ns/shacl-test#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+@base <urn:shacl-data-shapes:> .
+<urn:path-unused-001.ttl> a mf:Manifest ;
+  mf:entries ( <path-unused-001> ) .
+
+  <path-unused-001> a sht:Validate ;
+  rdfs:label "Test with unused ill-formed path" ;
+  mf:action [
+      sht:dataGraph <urn:path-unused-001.ttl> ;
+      sht:shapesGraph <urn:path-unused-001.ttl> ] ;
+  mf:result [ a sh:ValidationReport ;
+      sh:conforms "false"^^xsd:boolean ;
+      sh:result [ a sh:ValidationResult ;
+          sh:focusNode ex:j ;
+          sh:value ex:j ;
+          sh:resultSeverity sh:Violation ;
+          sh:sourceShape ex:s1 ;
+          sh:sourceConstraintComponent sh:ClassConstraintComponent ] ] ;
+  mf:status sht:approved .
+
+# Inline shapes graph
+ex:s1 a sh:NodeShape ;
+ sh:targetNode ex:j, ex:i ;
+ sh:class ex:C .
+
+_:p1 sh:inversePath _:p2 .
+
+_:p2 sh:zeroOrMorePath ( _:p2 ) .
+
+_:p2 sh:zeroOrOnePath [ rdf:rest rdf:nil ] .
+
+_:p3 sh:alternativePath ( ex:p ) ;
+  rdfs:comment "invalid path" .
+
+# Inline data graph
+ex:i a ex:C .
+
+ex:j a ex:D .

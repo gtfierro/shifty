@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:MalePerson a rdfs:Class ;
     rdfs:label "Male person" ;
     rdfs:subClassOf rdfs:Resource .
@@ -47,4 +48,3 @@ ex:PersonShape-gender rdfs:label "gender" ;
     sh:datatype xsd:string ;
     sh:hasValue "male" ;
     sh:path ex:gender .
-

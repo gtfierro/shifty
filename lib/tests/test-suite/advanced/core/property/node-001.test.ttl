@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:Issue a rdfs:Class,
         sh:NodeShape ;
     rdfs:label "Issue" ;
@@ -78,4 +79,3 @@ ex:Issue-assignedTo sh:class ex:Person ;
 
 ex:Anon a ex:Person ;
     ex:firstName "Anon" .
-

@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 ex:MyClass a rdfs:Class ;
     rdfs:label "My class" .
 
@@ -281,4 +282,3 @@ _:nc3102c4c056844acb9314a47ec40df4db4 sh:nodeKind sh:IRI ;
 
 _:nc3102c4c056844acb9314a47ec40df4db6 sh:nodeKind sh:Literal ;
     sh:path ex:myProperty .
-

@@ -7,6 +7,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-sparql:> .
 <prefixes-001> a sht:Validate ;
     rdfs:label "Test of sh:prefixes 001" ;
     mf:action [ sht:dataGraph <prefixes-001.test.ttl> ;
@@ -47,4 +48,3 @@ ex:TestSPARQL sh:prefixes ex:TestPrefixes ;
 			$this ex:property ?value .
             FILTER (?value = test:Value) .
 		} """ .
-

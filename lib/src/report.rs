@@ -32,7 +32,7 @@ impl<'a> ValidationReport<'a> {
     ///
     /// Returns `true` if there were no validation failures, `false` otherwise.
     pub fn conforms(&self) -> bool {
-        self.builder.results.is_empty()
+        self.builder.conforms(self.context)
     }
 
     /// Returns the validation report as an `oxigraph::model::Graph`.
@@ -101,11 +101,55 @@ pub struct ValidationReportBuilder {
 }
 
 impl ValidationReportBuilder {
+    fn effective_severity(
+        context: &Context,
+        failure: &ValidationFailure,
+        validation_context: &ValidationContext,
+    ) -> Severity {
+        if let Some(severity) = &failure.severity {
+            return severity.clone();
+        }
+
+        match context.source_shape() {
+            SourceShape::NodeShape(id) => validation_context
+                .model
+                .get_node_shape_by_id(&id)
+                .map(|s| s.severity().clone())
+                .unwrap_or(Severity::Violation),
+            SourceShape::PropertyShape(id) => validation_context
+                .model
+                .get_prop_shape_by_id(&id)
+                .map(|s| s.severity().clone())
+                .unwrap_or(Severity::Violation),
+        }
+    }
+
+    pub(crate) fn conforms(&self, validation_context: &ValidationContext) -> bool {
+        self.results.iter().all(|(ctx, failure)| {
+            let sev = Self::effective_severity(ctx, failure, validation_context);
+            match sev {
+                Severity::Violation => false,
+                Severity::Warning => !validation_context.warnings_are_errors(),
+                Severity::Info => true,
+                Severity::Custom(_) => false,
+            }
+        })
+    }
     /// Creates a new, empty `ValidationReportBuilder`.
     pub fn new() -> Self {
         ValidationReportBuilder {
             results: Vec::new(),
         }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        ValidationReportBuilder {
+            results: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn merge(&mut self, other: ValidationReportBuilder) {
+        self.results.extend(other.results);
     }
 
     /// Adds a validation failure to the report.
@@ -142,7 +186,7 @@ impl ValidationReportBuilder {
         validation_context: &ValidationContext,
     ) -> HashMap<(String, String, String), usize> {
         let mut frequencies: HashMap<(String, String, String), usize> = HashMap::new();
-        let traces = validation_context.execution_traces.borrow();
+        let traces = validation_context.execution_traces.lock().unwrap();
         for (context, _) in &self.results {
             if let Some(trace) = traces.get(context.trace_index()) {
                 for item in trace {
@@ -193,7 +237,7 @@ impl ValidationReportBuilder {
             Term::from(sh.validation_report),
         ));
 
-        let conforms = self.results.is_empty();
+        let conforms = self.conforms(validation_context);
         graph.insert(&Triple::new(
             report_node.clone(),
             sh.conforms,
@@ -408,7 +452,7 @@ impl ValidationReportBuilder {
                 .push((context, failure));
         }
 
-        let traces = validation_context.execution_traces.borrow();
+        let traces = validation_context.execution_traces.lock().unwrap();
         for (focus_node, context_failure_pairs) in grouped_errors {
             println!("\nFocus Node: {}", focus_node);
             for (context, failure) in context_failure_pairs {
@@ -451,7 +495,7 @@ impl ValidationReportBuilder {
     pub(crate) fn print_traces(&self, validation_context: &ValidationContext) {
         println!("\nExecution Traces:");
         println!("-----------------");
-        let traces = validation_context.execution_traces.borrow();
+        let traces = validation_context.execution_traces.lock().unwrap();
         if traces.is_empty() {
             println!("No execution traces recorded.");
             return;
@@ -468,12 +512,6 @@ impl ValidationReportBuilder {
                 println!("  - {} ({}) - {}", item, item_type, label);
             }
         }
-    }
-
-    /// Merges results from another `ValidationReportBuilder` into this one.
-    #[allow(dead_code)]
-    pub(crate) fn merge(&mut self, other: ValidationReportBuilder) {
-        self.results.extend(other.results);
     }
 }
 
@@ -605,15 +643,14 @@ fn fetch_shape_messages(validation_context: &ValidationContext, term: &Term) -> 
     let shacl = SHACL::new();
     if let Some(subject_ref) = term_to_subject_ref(term) {
         validation_context
-            .model
-            .store()
             .quads_for_pattern(
                 Some(subject_ref),
                 Some(shacl.message),
                 None,
-                Some(validation_context.model.shape_graph_iri_ref()),
+                Some(validation_context.shape_graph_iri_ref()),
             )
-            .filter_map(Result::ok)
+            .unwrap_or_default()
+            .into_iter()
             .map(|q| q.object)
             .collect()
     } else {
@@ -646,7 +683,6 @@ fn clone_path_term_from_shapes_graph_inner(
     let new_bn_term: Term = BlankNode::default().into();
     memo.insert(term.clone(), new_bn_term.clone());
 
-    let store = validation_context.model.store();
     let sh = SHACL::new();
 
     let subject_ref = match term {
@@ -655,9 +691,9 @@ fn clone_path_term_from_shapes_graph_inner(
         _ => unreachable!(),
     };
 
-    for q in store
+    for q in validation_context
         .quads_for_pattern(Some(subject_ref), None, None, None)
-        .flatten()
+        .unwrap_or_default()
     {
         let pred = q.predicate;
 

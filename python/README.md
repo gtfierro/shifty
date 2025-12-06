@@ -19,25 +19,51 @@ README as the PyPI long description, so keep it up to date when the bindings cha
 
 ## Usage
 
-The extension currently exports two entrypoints that mirror the CLI subcommands:
+The extension exports two entrypoints that mirror the CLI subcommands:
 
 ```python
 import shacl_rs
 
-conforms, results_graph, report = shacl_rs.validate(
+# Validation. When you request diagnostics, a fourth element is returned.
+conforms, results_graph, report_text, diag = shacl_rs.validate(
     data_graph,
     shapes_graph,
     run_inference=True,
-    inference_max_iterations=8,
+    inference={"min_iterations": 1, "max_iterations": 8},
+    graphviz=True,
+    heatmap=True,
+    trace_events=True,
+    return_inference_outcome=True,
 )
+print(diag["graphviz"])        # DOT for the shapes graph
+print(diag["heatmap"])         # DOT for the execution heatmap
+print(diag["trace_events"][0]) # First trace event (dict)
+print(diag["inference_outcome"])
 
-inferred_graph = shacl_rs.infer(
+# Inference-only. Diagnostics are returned as a second element when requested.
+inferred_graph, diag = shacl_rs.infer(
     data_graph,
     shapes_graph,
     min_iterations=1,
     max_iterations=4,
+    graphviz=True,
+    return_inference_outcome=True,
 )
+print(diag["inference_outcome"]["triples_added"])
 ```
+
+Key options (mirroring the CLI flags):
+
+- `skip_invalid_rules` (default: `False`), `warnings_are_errors`, `do_imports`
+- Inference knobs: `min_iterations`, `max_iterations`, `run_until_converged`/`no_converge`,
+  `error_on_blank_nodes`, `debug`; the `inference={...}` dict still works and aliases like
+  `inference_min_iterations` remain.
+- Diagnostics: `graphviz` (DOT for shapes), `heatmap` + `heatmap_all` (execution heatmap, triggers
+  a validation pass), `trace_events`, `trace_file`, `trace_jsonl`, `return_inference_outcome`
+  (adds iteration/insert counts).
+
+If you omit all diagnostics, `validate` returns `(conforms, results_graph, report_text)` and
+`infer` returns the inferred `rdflib.Graph` just like before.
 
 See `example.py` and `brick.py` in this directory for full RDFlib/OntoEnv examples.
 

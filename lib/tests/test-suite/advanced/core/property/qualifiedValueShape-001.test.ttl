@@ -6,6 +6,7 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-core:> .
 <qualifiedValueShape-001> a sht:Validate ;
     rdfs:label "Test of sh:qualifiedValueShape at property shape 001" ;
     mf:action [ sht:dataGraph <qualifiedValueShape-001.test.ttl> ;
@@ -42,4 +43,3 @@ ex:Observation1 a ex:Observation ;
         [ ex:related_target [ ex:reference ex:something ] ;
             ex:related_type "has-component"^^ex:code ] ;
     sh:nodeShape ex:APGARObservationShape .
-

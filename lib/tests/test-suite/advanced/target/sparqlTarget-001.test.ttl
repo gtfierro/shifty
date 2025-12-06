@@ -8,6 +8,8 @@
 @prefix sht: <http://www.w3.org/ns/shacl-test#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+@base <urn:shacl-advanced-target:> .
+
 ex:GraphValidationTestCase a dash:GraphValidationTestCase ;
     dash:expectedResult [ a sh:ValidationReport ;
             sh:conforms false ;
@@ -24,10 +26,11 @@ ex:TestShape a sh:NodeShape ;
     sh:target [ a sh:SPARQLTarget ;
             sh:prefixes <http://datashapes.org/sh/tests/sparql/target/sparqlTarget-001.test> ;
             sh:select """
-      	SELECT ?this
-		WHERE {
-    		?this a owl:Thing .
-		}""" ] .
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT ?this
+WHERE {
+    ?this a owl:Thing .
+}""" ] .
 
 ex:ValidInstance1 a owl:Thing .
 
@@ -60,4 +63,3 @@ ex:TestShape-label rdfs:label "label" ;
     sh:datatype xsd:string ;
     sh:maxCount 0 ;
     sh:path rdfs:label .
-
