@@ -453,6 +453,7 @@ impl GraphvizOutput for NodeKindConstraintComponent {
 mod tests {
     use super::*;
     use crate::context::{Context, IDLookupTable, ShapesModel, SourceShape, ValidationContext};
+    use crate::ir;
     use crate::model::components::ComponentDescriptor;
     use crate::sparql::SparqlServices;
     use crate::types::{ComponentID, PropShapeID};
@@ -500,7 +501,9 @@ mod tests {
             original_values: None,
         };
 
-        ValidationContext::new(Arc::new(model), data_graph_iri, false)
+        let shape_ir =
+            ir::build_shape_ir(&model, None).expect("failed to build SHACL-IR for empty context");
+        ValidationContext::new(Arc::new(model), data_graph_iri, false, Arc::new(shape_ir))
     }
 
     #[test]

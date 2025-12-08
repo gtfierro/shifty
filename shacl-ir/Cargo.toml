@@ -8,3 +8,5 @@ description = "Declarative SHACL shape IR types"
 
 [dependencies]
 oxigraph = { version = "0.5.0" }
+serde = { version = "1.0", features = ["derive"] }
+oxrdf = { version = "=0.3.1", features = ["serde", "oxsdatatypes"] }

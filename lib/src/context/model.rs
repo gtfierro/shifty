@@ -16,7 +16,7 @@ use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
 use oxigraph::model::{Literal, Subject};
 use oxigraph::store::Store;
-use shacl_ir::FeatureToggles;
+use shacl_ir::{FeatureToggles, ShapeIR};
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
@@ -256,6 +256,97 @@ impl ShapesModel {
             sparql: final_ctx.sparql.clone(),
             features: final_ctx.features.clone(),
             original_values: final_ctx.original_values,
+        })
+    }
+
+    pub(crate) fn from_shape_ir(
+        shape_ir: ShapeIR,
+        store: Store,
+        env: OntoEnv,
+        original_values: Option<OriginalValueIndex>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let ShapeIR {
+            shape_graph,
+            node_shapes: node_shape_irs,
+            property_shapes: prop_shape_irs,
+            components,
+            component_templates,
+            shape_templates,
+            shape_template_cache,
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: _,
+            rules,
+            node_shape_rules,
+            prop_shape_rules,
+            features,
+            ..
+        } = shape_ir;
+
+        let mut nodeshape_lookup = IDLookupTable::<ID>::new();
+        for (id, term) in node_shape_terms {
+            nodeshape_lookup.insert(term, id);
+        }
+
+        let mut propshape_lookup = IDLookupTable::<PropShapeID>::new();
+        for (id, term) in property_shape_terms {
+            propshape_lookup.insert(term, id);
+        }
+
+        let node_shapes = node_shape_irs
+            .into_iter()
+            .map(|shape| {
+                (
+                    shape.id,
+                    NodeShape::new(
+                        shape.id,
+                        shape.targets,
+                        shape.constraints,
+                        Some(shape.severity),
+                        shape.deactivated,
+                    ),
+                )
+            })
+            .collect();
+
+        let prop_shapes = prop_shape_irs
+            .into_iter()
+            .map(|shape| {
+                (
+                    shape.id,
+                    PropertyShape::new(
+                        shape.id,
+                        shape.targets,
+                        shape.path,
+                        shape.path_term,
+                        shape.constraints,
+                        Some(shape.severity),
+                        shape.deactivated,
+                    ),
+                )
+            })
+            .collect();
+
+        Ok(ShapesModel {
+            nodeshape_id_lookup: RwLock::new(nodeshape_lookup),
+            propshape_id_lookup: RwLock::new(propshape_lookup),
+            component_id_lookup: RwLock::new(IDLookupTable::<ComponentID>::new()),
+            rule_id_lookup: RwLock::new(IDLookupTable::<RuleID>::new()),
+            store,
+            shape_graph_iri: shape_graph,
+            node_shapes,
+            prop_shapes,
+            component_descriptors: components,
+            component_templates,
+            shape_templates,
+            shape_template_cache,
+            rules,
+            node_shape_rules,
+            prop_shape_rules,
+            env,
+            sparql: Arc::new(SparqlServices::new()),
+            features,
+            original_values,
         })
     }
 

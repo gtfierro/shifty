@@ -38,6 +38,7 @@ impl ValidationContext {
         model: Arc<ShapesModel>,
         data_graph_iri: NamedNode,
         warnings_are_errors: bool,
+        shape_ir: Arc<ShapeIR>,
     ) -> Self {
         let data_graph_skolem_base = format!(
             "{}/.well-known/skolem/",
@@ -55,10 +56,6 @@ impl ValidationContext {
         ));
         let trace_events = Arc::new(Mutex::new(Vec::new()));
         let memory_sink = MemoryTraceSink::new(Arc::clone(&trace_events));
-        let shape_ir = Arc::new(crate::ir::build_shape_ir(
-            &model,
-            Some(data_graph_iri.clone()),
-        ));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
         let components: HashMap<ComponentID, Component> = model
             .component_descriptors

@@ -1,7 +1,8 @@
 use crate::context::model::ShapesModel;
 use crate::shape::{NodeShape, PropertyShape};
-use oxigraph::model::NamedNode;
+use oxigraph::model::{GraphName, NamedNode, Quad};
 use shacl_ir::{NodeShapeIR, PropertyShapeIR, ShapeIR};
+use std::collections::HashMap;
 
 fn node_ir(shape: &NodeShape) -> NodeShapeIR {
     NodeShapeIR {
@@ -25,11 +26,39 @@ fn prop_ir(shape: &PropertyShape) -> PropertyShapeIR {
     }
 }
 
-pub(crate) fn build_shape_ir(model: &ShapesModel, data_graph: Option<NamedNode>) -> ShapeIR {
+pub(crate) fn build_shape_ir(
+    model: &ShapesModel,
+    data_graph: Option<NamedNode>,
+) -> Result<ShapeIR, String> {
     let node_shapes = model.node_shapes.values().map(node_ir).collect();
     let property_shapes = model.prop_shapes.values().map(prop_ir).collect();
 
-    ShapeIR {
+    let node_shape_terms: HashMap<_, _> = {
+        let lookup = model.nodeshape_id_lookup.read().unwrap();
+        model
+            .node_shapes
+            .keys()
+            .filter_map(|id| lookup.get_term(*id).cloned().map(|term| (*id, term)))
+            .collect()
+    };
+
+    let property_shape_terms: HashMap<_, _> = {
+        let lookup = model.propshape_id_lookup.read().unwrap();
+        model
+            .prop_shapes
+            .keys()
+            .filter_map(|id| lookup.get_term(*id).cloned().map(|term| (*id, term)))
+            .collect()
+    };
+
+    let shape_graph = GraphName::NamedNode(model.shape_graph_iri.clone());
+    let shape_quads = model
+        .store
+        .quads_for_pattern(None, None, None, Some(shape_graph.as_ref()))
+        .map(|res| res.map_err(|e| e.to_string()))
+        .collect::<Result<Vec<Quad>, _>>()?;
+
+    Ok(ShapeIR {
         shape_graph: model.shape_graph_iri.clone(),
         data_graph,
         node_shapes,
@@ -37,11 +66,15 @@ pub(crate) fn build_shape_ir(model: &ShapesModel, data_graph: Option<NamedNode>)
         components: model.component_descriptors.clone(),
         component_templates: model.component_templates.clone(),
         shape_templates: model.shape_templates.clone(),
+        shape_template_cache: model.shape_template_cache.clone(),
+        node_shape_terms,
+        property_shape_terms,
+        shape_quads,
         rules: model.rules.clone(),
         node_shape_rules: model.node_shape_rules.clone(),
         prop_shape_rules: model.prop_shape_rules.clone(),
         features: model.features.clone(),
-    }
+    })
 }
 
 // Re-export IR types for downstream callers.

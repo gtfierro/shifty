@@ -1,0 +1,22 @@
+[package]
+name = "ts-generator"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shacl = { workspace = true }
+shacl-ir = { path = "../../shacl-ir" }
+oxigraph = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

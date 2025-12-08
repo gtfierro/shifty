@@ -2039,6 +2039,7 @@ dependencies = [
  "oxiri",
  "oxsdatatypes",
  "rand 0.9.2",
+ "serde",
  "thiserror 2.0.17",
 ]
 
@@ -3043,6 +3044,7 @@ dependencies = [
  "petgraph",
  "rayon",
  "regex",
+ "serde_json",
  "sha2",
  "shacl-ir",
  "spargebra",
@@ -3055,6 +3057,8 @@ name = "shacl-ir"
 version = "0.1.0"
 dependencies = [
  "oxigraph",
+ "oxrdf",
+ "serde",
 ]
 
 [[package]]

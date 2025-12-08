@@ -1,5 +1,6 @@
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::components::ComponentDescriptor;
+use crate::planning::{build_validation_plan, ShapeRef};
 use crate::report::ValidationReportBuilder;
 use crate::runtime::{ComponentValidationResult, ToSubjectRef};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
@@ -19,35 +20,50 @@ pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBu
 
     let mut report_builder = ValidationReportBuilder::with_capacity(128);
 
-    // Node shapes sequential, but each shape parallelises over its focus nodes.
-    for node_ir in &context.shape_ir().node_shapes {
-        let shape = context
-            .model
-            .get_node_shape_by_id(&node_ir.id)
-            .ok_or_else(|| {
-                format!(
-                    "Node shape {:?} referenced in IR but missing from model",
-                    node_ir.id
-                )
-            })?;
-        shape.process_targets(context, &mut report_builder)?;
-    }
+    let plan = build_validation_plan(context.shape_ir());
+    let tree_reports: Result<Vec<ValidationReportBuilder>, String> = plan
+        .trees
+        .par_iter()
+        .map(|tree| {
+            let mut local_report = ValidationReportBuilder::with_capacity(8);
+            for shape_ref in &tree.shapes {
+                run_plan_shape(*shape_ref, context, &mut local_report)?;
+            }
+            Ok(local_report)
+        })
+        .collect();
 
-    // Property shapes still sequential for now (can be parallelised later if needed).
-    for prop_ir in &context.shape_ir().property_shapes {
-        let shape = context
-            .model
-            .get_prop_shape_by_id(&prop_ir.id)
-            .ok_or_else(|| {
-                format!(
-                    "Property shape {:?} referenced in IR but missing from model",
-                    prop_ir.id
-                )
-            })?;
-        shape.process_targets(context, &mut report_builder)?;
+    for builder in tree_reports? {
+        report_builder.merge(builder);
     }
 
     Ok(report_builder)
+}
+
+fn run_plan_shape(
+    shape_ref: ShapeRef,
+    context: &ValidationContext,
+    report_builder: &mut ValidationReportBuilder,
+) -> Result<(), String> {
+    match shape_ref {
+        ShapeRef::Node(id) => {
+            if let Some(shape) = context.model.get_node_shape_by_id(&id) {
+                shape.process_targets(context, report_builder)
+            } else {
+                Err(format!("Planned node shape {:?} not found in model", id))
+            }
+        }
+        ShapeRef::Property(id) => {
+            if let Some(shape) = context.model.get_prop_shape_by_id(&id) {
+                shape.process_targets(context, report_builder)
+            } else {
+                Err(format!(
+                    "Planned property shape {:?} not found in model",
+                    id
+                ))
+            }
+        }
+    }
 }
 
 fn canonicalize_value_nodes(
@@ -380,43 +396,52 @@ impl ValidateShape for PropertyShape {
             return Ok(());
         }
 
-        for focus_node in focus_nodes {
-            let mut target_context = Context::new(
-                focus_node.clone(),
-                None,
-                Some(vec![focus_node.clone()]),
-                SourceShape::PropertyShape(*self.identifier()),
-                context.new_trace(),
-            );
-            let trace_index = target_context.trace_index();
-            context
-                .trace_sink
-                .record(TraceEvent::EnterPropertyShape(*self.identifier()));
+        let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
+            .par_iter()
+            .map(|focus_node| {
+                let mut local_report = ValidationReportBuilder::with_capacity(8);
+                let mut target_context = Context::new(
+                    focus_node.clone(),
+                    None,
+                    Some(vec![focus_node.clone()]),
+                    SourceShape::PropertyShape(*self.identifier()),
+                    context.new_trace(),
+                );
+                let trace_index = target_context.trace_index();
+                context
+                    .trace_sink
+                    .record(TraceEvent::EnterPropertyShape(*self.identifier()));
 
-            let mut local_trace: Vec<TraceItem> = Vec::new();
+                let mut local_trace: Vec<TraceItem> = Vec::new();
 
-            match self.validate(&mut target_context, context, &mut local_trace) {
-                Ok(validation_results) => {
-                    for result in validation_results {
-                        if let ComponentValidationResult::Fail(ctx, failure) = result {
-                            report_builder.add_failure(&ctx, failure);
+                match self.validate(&mut target_context, context, &mut local_trace) {
+                    Ok(validation_results) => {
+                        for result in validation_results {
+                            if let ComponentValidationResult::Fail(ctx, failure) = result {
+                                local_report.add_failure(&ctx, failure);
+                            }
                         }
                     }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
-                Err(e) => {
-                    // This is a processing error, not a validation failure. Propagate it.
-                    return Err(e);
-                }
-            }
 
-            {
-                let mut traces = context.execution_traces.lock().unwrap();
-                if let Some(slot) = traces.get_mut(trace_index) {
-                    *slot = local_trace;
-                } else {
-                    traces.push(local_trace);
+                {
+                    let mut traces = context.execution_traces.lock().unwrap();
+                    if let Some(slot) = traces.get_mut(trace_index) {
+                        *slot = local_trace;
+                    } else {
+                        traces.push(local_trace);
+                    }
                 }
-            }
+
+                Ok(local_report)
+            })
+            .collect();
+
+        for builder in focus_reports? {
+            report_builder.merge(builder);
         }
         Ok(())
     }
