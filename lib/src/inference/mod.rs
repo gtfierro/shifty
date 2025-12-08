@@ -757,7 +757,7 @@ fn named_or_blank_to_term(subject: NamedOrBlankNode) -> Result<Term, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Source, Validator};
+    use crate::{backend::GraphBackend, Source, Validator};
     use oxigraph::model::{Literal, NamedNode, Quad, Term};
     use std::fs;
     use std::path::PathBuf;
@@ -970,6 +970,7 @@ ex:Focus ex:value "foo" .
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
         assert!(context
+            .backend
             .store()
             .contains(quad.as_ref())
             .expect("quad lookup"));

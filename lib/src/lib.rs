@@ -590,7 +590,7 @@ impl Validator {
         for quad_res in
             self.context
                 .model
-                .store()
+                .store
                 .quads_for_pattern(None, None, None, Some(graph.as_ref()))
         {
             let quad = quad_res.map_err(|e| format!("Failed to read data graph: {}", e))?;

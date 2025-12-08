@@ -10,7 +10,6 @@ use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
-use oxigraph::store::Store;
 use shacl_ir::ShapeIR;
 use std::collections::HashMap;
 use std::fmt;
@@ -106,10 +105,6 @@ impl ValidationContext {
 
     pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
         self.backend.shapes_graph()
-    }
-
-    pub(crate) fn store(&self) -> &Store {
-        self.backend.store()
     }
 
     pub(crate) fn sparql_services(&self) -> &SparqlServices {
@@ -213,7 +208,7 @@ impl ValidationContext {
         self.model.sparql.prefixes_for_node(
             node,
             self.backend.store(),
-            self.model.env(),
+            &self.model.env,
             self.shape_graph_iri_ref(),
         )
     }
@@ -458,9 +453,5 @@ impl Context {
 
     pub(crate) fn trace_index(&self) -> usize {
         self.trace_index
-    }
-
-    pub(crate) fn set_trace_index(&mut self, index: usize) {
-        self.trace_index = index;
     }
 }

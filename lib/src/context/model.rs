@@ -259,19 +259,6 @@ impl ShapesModel {
         })
     }
 
-    pub(crate) fn store(&self) -> &Store {
-        &self.store
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn env(&self) -> &OntoEnv {
-        &self.env
-    }
-
-    pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
-        GraphNameRef::NamedNode(self.shape_graph_iri.as_ref())
-    }
-
     pub(crate) fn nodeshape_id_lookup(&self) -> &RwLock<IDLookupTable<ID>> {
         &self.nodeshape_id_lookup
     }
