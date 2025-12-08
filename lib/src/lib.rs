@@ -173,7 +173,7 @@ impl ValidatorBuilder {
             Self::add_source(&mut env, &shapes_source, "shapes")?;
         let (data_graph_iri, data_in_env) = match &data_source {
             Source::Empty => (
-                NamedNode::new("urn:shacl-rs:null-data")
+                NamedNode::new("urn:shifty:null-data")
                     .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
                 false,
             ),

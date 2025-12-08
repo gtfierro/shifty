@@ -1,6 +1,6 @@
 # SHACL-RS v2 Design
 
-This document proposes a ground‑up “v2” of shacl-rs that cleanly separates parsing from evaluation, enables both compiled and interpreted validators, and keeps today’s mostly-working behaviour as a safety net while we refactor.
+This document proposes a ground‑up “v2” of shifty that cleanly separates parsing from evaluation, enables both compiled and interpreted validators, and keeps today’s mostly-working behaviour as a safety net while we refactor.
 
 ## Goals
 - Clean separation: parsing produces a pure shapes/data IR with no evaluation concerns; evaluation consumes that IR through a stable API.

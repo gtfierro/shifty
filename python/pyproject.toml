@@ -3,9 +3,9 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "shacl-rs"
+name = "shifty"
 version = "0.1.0"
-description = "Python bindings for the shacl-rs validation engine"
+description = "Python bindings for the shifty validation engine"
 authors = [{ name = "Gabe Fierro", email = "gtfierro@mines.edu" }]
 requires-python = ">=3.11"
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/gtfierro/shacl-rs"
+Repository = "https://github.com/gtfierro/shifty"
 
 [tool.maturin]
 bindings = "pyo3"

@@ -3,9 +3,9 @@ This is an experiment to see how well I could create a SHACL/SHACL-AF implementa
 
 ---
 
-# shacl-rs
+# shifty
 
-`shacl-rs` is a Rust implementation of the Shapes Constraint Language (SHACL) with two crates:
+`shifty` is a Rust implementation of the Shapes Constraint Language (SHACL) with two crates:
 
 - `lib/`: reusable validation engine
 - `cli/`: end-user binary that wraps the engine with visualization and debugging tools

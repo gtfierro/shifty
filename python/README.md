@@ -1,6 +1,6 @@
-# shacl-rs Python bindings
+# shifty Python bindings
 
-This crate packages the `shacl-rs` validator as a CPython extension using
+This crate packages the `shifty` validator as a CPython extension using
 [`PyO3`](https://pyo3.rs). It exposes the `shacl_rs` module for RDFlib-centric workflows
 while reusing the same Rust engine that powers the CLI.
 

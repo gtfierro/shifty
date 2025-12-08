@@ -6,7 +6,7 @@ license.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "shacl"
+name = "shifty"
 path = "src/main.rs"
 doc = false
 
