@@ -1,0 +1,196 @@
+@prefix g36: <http://data.ashrae.org/standard223/1.0/extensions/g36#> .
+@prefix mysystem: <http://data.ashrae.org/standard223/1.0/data/guideline36-2021-A-8#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtqk: <http://qudt.org/vocab/quantitykind/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+mysystem: a owl:Ontology ;
+    rdfs:label "" ;
+    owl:imports <http://data.ashrae.org/standard223/1.0/model/all> .
+
+mysystem:DualDuctDischargeSensor a s223:DualDuctTerminal,
+        g36:DualDuctTerminalWithDischargeSensor ;
+    rdfs:label "Dualductdischargesensor" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-cold-deck-in,
+        mysystem:DualDuctDischargeSensor-hot-deck-in,
+        mysystem:DualDuctDischargeSensor-out ;
+    s223:contains mysystem:DualDuctDischargeSensor-cold-deck-damper,
+        mysystem:DualDuctDischargeSensor-hot-deck-damper,
+        mysystem:DualDuctDischargeSensor-junction .
+
+mysystem:DualDuctDischargeSensor-cold-deck-damper-actuator a s223:Actuator ;
+    rdfs:label "Dualductdischargesensor Cold Deck Damper Actuator" ;
+    s223:actuatedByProperty mysystem:DualDuctDischargeSensor-cold-deck-damper-command ;
+    s223:actuates mysystem:DualDuctDischargeSensor-cold-deck-damper .
+
+mysystem:DualDuctDischargeSensor-discharge-air-flow-sensor a s223:Sensor ;
+    rdfs:label "Dualductdischargesensor Discharge Air Flow Sensor" ;
+    s223:hasObservationLocation mysystem:DualDuctDischargeSensor-out ;
+    s223:observes mysystem:DualDuctDischargeSensor-discharge-air-flow .
+
+mysystem:DualDuctDischargeSensor-hot-deck-damper-actuator a s223:Actuator ;
+    rdfs:label "Dualductdischargesensor Hot Deck Damper Actuator" ;
+    s223:actuatedByProperty mysystem:DualDuctDischargeSensor-hot-deck-damper-command ;
+    s223:actuates mysystem:DualDuctDischargeSensor-hot-deck-damper .
+
+mysystem:PhysicalSpace a s223:PhysicalSpace ;
+    rdfs:label "Physicalspace" ;
+    s223:encloses mysystem:PhysicalSpace-hvac-domain .
+
+mysystem:zone a s223:Zone,
+        g36:Zone ;
+    rdfs:label "Zone" ;
+    s223:hasDomain s223:Domain-HVAC ;
+    s223:hasDomainSpace mysystem:PhysicalSpace-hvac-domain ;
+    s223:hasProperty mysystem:zone-co2-concentration,
+        mysystem:zone-temp .
+
+mysystem:DualDuctDischargeSensor-cold-deck-damper-in a s223:InletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Cold Deck Damper In" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:DualDuctDischargeSensor-cold-deck-in .
+
+mysystem:DualDuctDischargeSensor-cold-deck-damper-out a s223:OutletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Cold Deck Damper Out" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-duct-after-cold-deck-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-cold-deck-damper-position a s223:QuantifiableObservableProperty ;
+    rdfs:label "Dualductdischargesensor Cold Deck Damper Position" ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:DualDuctDischargeSensor-hot-deck-damper-in a s223:InletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Hot Deck Damper In" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:DualDuctDischargeSensor-hot-deck-in .
+
+mysystem:DualDuctDischargeSensor-hot-deck-damper-out a s223:OutletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Hot Deck Damper Out" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-duct-after-hot-deck-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-hot-deck-damper-position a s223:QuantifiableObservableProperty ;
+    rdfs:label "Dualductdischargesensor Hot Deck Damper Position" ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:DualDuctDischargeSensor-junction a s223:Junction ;
+    rdfs:label "Dualductdischargesensor Junction" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-junction-in-1,
+        mysystem:DualDuctDischargeSensor-junction-in-2,
+        mysystem:DualDuctDischargeSensor-junction-out ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-junction-in-1 a s223:InletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Junction In 1" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-duct-after-hot-deck-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-junction-in-2 a s223:InletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Junction In 2" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-duct-after-cold-deck-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-junction-out a s223:OutletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Junction Out" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:DualDuctDischargeSensor-out .
+
+mysystem:PhysicalSpace-hvac-domain-in a s223:InletConnectionPoint ;
+    rdfs:label "Physicalspace Hvac Domain In" ;
+    s223:cnx mysystem:dual-duct-supply-to-room-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:PhysicalSpace-hvac-domain-out a s223:OutletConnectionPoint ;
+    rdfs:label "Physicalspace Hvac Domain Out" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:zone-co2-concentration a s223:QuantifiableObservableProperty ;
+    rdfs:label "Zone Co2 Concentration" ;
+    s223:ofMedium s223:Fluid-Air ;
+    s223:ofSubstance s223:Constituent-CO2 ;
+    qudt:hasQuantityKind qudtqk:MoleFraction ;
+    qudt:hasUnit unit:PPM .
+
+mysystem:zone-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Zone Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:DualDuctDischargeSensor-cold-deck-damper a s223:Damper,
+        g36:Damper ;
+    rdfs:label "Dualductdischargesensor Cold Deck Damper" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-cold-deck-damper-in,
+        mysystem:DualDuctDischargeSensor-cold-deck-damper-out ;
+    s223:hasProperty mysystem:DualDuctDischargeSensor-cold-deck-damper-command,
+        mysystem:DualDuctDischargeSensor-cold-deck-damper-position ;
+    s223:hasRole s223:Role-Cooling,
+        s223:Role-Supply .
+
+mysystem:DualDuctDischargeSensor-cold-deck-damper-command a s223:QuantifiableActuatableProperty ;
+    rdfs:label "Dualductdischargesensor Cold Deck Damper Command" ;
+    s223:hasAspect s223:Binary-Position ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:DualDuctDischargeSensor-cold-deck-in a s223:InletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Cold Deck In" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-discharge-air-flow a s223:QuantifiableObservableProperty ;
+    rdfs:label "Dualductdischargesensor Discharge Air Flow" ;
+    s223:hasAspect s223:Role-Discharge ;
+    qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+    qudt:hasUnit unit:FT3-PER-MIN .
+
+mysystem:DualDuctDischargeSensor-duct-after-cold-deck-damper a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Dualductdischargesensor Duct After Cold Deck Damper" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-duct-after-hot-deck-damper a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Dualductdischargesensor Duct After Hot Deck Damper" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-hot-deck-damper a s223:Damper,
+        g36:Damper ;
+    rdfs:label "Dualductdischargesensor Hot Deck Damper" ;
+    s223:cnx mysystem:DualDuctDischargeSensor-hot-deck-damper-in,
+        mysystem:DualDuctDischargeSensor-hot-deck-damper-out ;
+    s223:hasProperty mysystem:DualDuctDischargeSensor-hot-deck-damper-command,
+        mysystem:DualDuctDischargeSensor-hot-deck-damper-position ;
+    s223:hasRole s223:Role-Heating,
+        s223:Role-Supply .
+
+mysystem:DualDuctDischargeSensor-hot-deck-damper-command a s223:QuantifiableActuatableProperty ;
+    rdfs:label "Dualductdischargesensor Hot Deck Damper Command" ;
+    s223:hasAspect s223:Binary-Position ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:DualDuctDischargeSensor-hot-deck-in a s223:InletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Hot Deck In" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:PhysicalSpace-hvac-domain a s223:DomainSpace ;
+    rdfs:label "Physicalspace Hvac Domain" ;
+    s223:cnx mysystem:PhysicalSpace-hvac-domain-in,
+        mysystem:PhysicalSpace-hvac-domain-out ;
+    s223:hasDomain s223:Domain-HVAC .
+
+mysystem:dual-duct-supply-to-room-connection a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Dual Duct Supply To Room Connection" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:DualDuctDischargeSensor-out a s223:OutletConnectionPoint ;
+    rdfs:label "Dualductdischargesensor Out" ;
+    s223:cnx mysystem:dual-duct-supply-to-room-connection ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:hasProperty mysystem:DualDuctDischargeSensor-discharge-air-flow .
+

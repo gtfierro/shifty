@@ -1,0 +1,1238 @@
+# baseURI: http://example.org/HPL
+# imports: http://data.ashrae.org/standard223/1.0/model/all
+# prefix: HPL
+
+@prefix HPL: <http://example.org/HPL#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://example.org/HPL>
+  a owl:Ontology ;
+  owl:imports <http://data.ashrae.org/standard223/1.0/model/all> ;
+  owl:versionInfo "Created with TopBraid Composer" ;
+.
+HPL:ASHP_Func
+  a s223:Function ;
+  s223:hasInput HPL:id_power ;
+  s223:hasInput HPL:od_power ;
+  rdfs:label "ASHP Func" ;
+.
+HPL:Accumulator
+  a s223:Equipment ;
+  s223:cnx HPL:Accumulator_OCP ;
+  rdfs:label "Accumulator" ;
+.
+HPL:Accumulator_CP_1_Pres
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "101325"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "Accumulator CP 1 Press" ;
+.
+HPL:Accumulator_CP_1_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Accumulator CP 1 Temp" ;
+.
+HPL:Accumulator_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Accumulator ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Accumulator ICP" ;
+.
+HPL:Accumulator_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:R_Connection_3 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Accumulator OCP" ;
+.
+HPL:ChamberBlower
+  a s223:Fan ;
+  s223:cnx HPL:ChamberBlower_OCP ;
+  rdfs:label "Chamber blower" ;
+.
+HPL:ChamberBlower_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:ChamberBlower ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Chamber blower ICP" ;
+.
+HPL:ChamberBlower_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:IA_Connection_6 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Chamber blower OCP" ;
+.
+HPL:Chamber_DomainSpace
+  a s223:DomainSpace ;
+  s223:cnx HPL:Chamber_OCP ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "Chamber domain space" ;
+.
+HPL:Chamber_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Chamber_DomainSpace ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Chamber ICP" ;
+.
+HPL:Chamber_OCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Chamber OCP" ;
+.
+HPL:Compressor
+  a s223:Equipment ;
+  s223:cnx HPL:Compressor_OCP ;
+  rdfs:label "Compressor" ;
+.
+HPL:Compressor_CP_2_Pres
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "Compressor CP 2 Pres" ;
+.
+HPL:Compressor_CP_2_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Compressor CP 2 Temp" ;
+.
+HPL:Compressor_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Compressor ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Compressor ICP" ;
+.
+HPL:Compressor_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:R_Connection_4 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Compressor OCP" ;
+.
+HPL:Compressor_Power
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Power> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/W> ;
+  rdfs:label "Compressor Power" ;
+.
+HPL:Compressor_Temp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Compressor Temp" ;
+.
+HPL:ExpansionValve_1
+  a s223:Valve ;
+  s223:hasConnectionPoint HPL:ExpansionValve_1_CP_1 ;
+  s223:hasConnectionPoint HPL:ExpansionValve_1_CP_2 ;
+  rdfs:label "Expansion Valve 1" ;
+.
+HPL:ExpansionValve_1_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:ExpansionValve_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Expansion valve 1 CP 1" ;
+.
+HPL:ExpansionValve_1_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_7 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Expansion valve 1 CP 2" ;
+.
+HPL:ExpansionValve_1_CP_2_Pres
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "101325"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "Expansion valve 1 CP 2 Press" ;
+.
+HPL:ExpansionValve_1_CP_2_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Expansion valve 1 CP 2 Temp" ;
+.
+HPL:ExpansionValve_1_CP_2_Temp_Sat
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Expansion valve 1 CP 2 Temp Sat" ;
+.
+HPL:ExpansionValve_2
+  a s223:Valve ;
+  s223:hasConnectionPoint HPL:ExpansionValve_2_CP_1 ;
+  s223:hasConnectionPoint HPL:ExpansionValve_2_CP_2 ;
+  rdfs:label "Expansion valve 2" ;
+.
+HPL:ExpansionValve_2_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:ExpansionValve_2 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Expansion valve 2 CP 1" ;
+.
+HPL:ExpansionValve_2_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_11 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Expansion valve 2 CP 2" ;
+.
+HPL:Fan_Indoor
+  a s223:Fan ;
+  s223:cnx HPL:Fan_Indoor_OCP ;
+  rdfs:label "Fan 1" ;
+.
+HPL:Fan_Indoor_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Fan_Indoor ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Fan Indoor ICP" ;
+.
+HPL:Fan_Indoor_OCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo HPL:IA_Unit_A_OCP ;
+  rdfs:label "Fan Indoor OCP" ;
+.
+HPL:Fan_Outdoor
+  a s223:Fan ;
+  s223:cnx HPL:Fan_Outdoor_OCP ;
+  rdfs:label "Fan Outdoor" ;
+.
+HPL:Fan_Outdoor_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Fan_Outdoor ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Fan Outdoor ICP" ;
+.
+HPL:Fan_Outdoor_OCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo HPL:OA_Unit_A_OCP ;
+  rdfs:label "Fan Outdoor OCP" ;
+.
+HPL:Filter
+  a s223:Equipment ;
+  s223:cnx HPL:Filter_CP_2 ;
+  rdfs:label "Filter" ;
+.
+HPL:Filter_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:Filter ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Filter CP 1" ;
+.
+HPL:Filter_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_8 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Filter CP 2" ;
+.
+HPL:FinnedHeatExchanger
+  a s223:HeatExchanger ;
+  s223:cnx HPL:FinnedHeatExchanger_A_OCP ;
+  s223:hasConnectionPoint HPL:FinnedHeatExchanger_R_CP_1 ;
+  s223:hasConnectionPoint HPL:FinnedHeatExchanger_R_CP_2 ;
+  s223:hasRole s223:Role-Condenser ;
+  rdfs:label "Finned heat exchanger" ;
+.
+HPL:FinnedHeatExchanger_A_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:FinnedHeatExchanger ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo HPL:OA_Unit_A_ICP ;
+  rdfs:label "OA ICP" ;
+.
+HPL:FinnedHeatExchanger_A_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:OA_Connection_2 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Finned heat exchanger A OCP" ;
+.
+HPL:FinnedHeatExchanger_R_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:FinnedHeatExchanger ;
+  s223:cnx HPL:R_Connection_5 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Finned heat exchanger R CP 1" ;
+.
+HPL:FinnedHeatExchanger_R_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  s223:isConnectionPointOf HPL:FinnedHeatExchanger ;
+  rdfs:label "Finned heat exchanger R CP 2" ;
+.
+HPL:FinnedHeatExchanger_R_Pres
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "Finned heat exchanger R Pres" ;
+.
+HPL:FinnedHeatExchanger_R_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Finned heat exchanger R Temp" ;
+.
+HPL:FinnedHeatExchanger_R_Temp_Sat
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Finned heat exchanger R Temp Sat" ;
+.
+HPL:FlowMeter
+  a s223:Equipment ;
+  s223:cnx HPL:FlowMeter_CP_2 ;
+  rdfs:label "Flow meter" ;
+.
+HPL:FlowMeter_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:FlowMeter ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Flow meter CP 1" ;
+.
+HPL:FlowMeter_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_9 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Flow meter CP 2" ;
+.
+HPL:HeatExchanger
+  a s223:Coil ;
+  s223:cnx HPL:HeatExchanger_A_ICP ;
+  s223:cnx HPL:HeatExchanger_A_OCP ;
+  s223:cnx HPL:HeatExchanger_R_CP_2 ;
+  s223:hasRole s223:Role-Evaporator ;
+  rdfs:label "Heat Exchanger" ;
+.
+HPL:HeatExchanger_A_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:HeatExchanger ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo HPL:IA_Unit_A_ICP ;
+  rdfs:label "Heat exchanger 1 Air ICP" ;
+.
+HPL:HeatExchanger_A_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:IA_Connection_2 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Heat Exchanger Return Air Outlet Connection Point" ;
+.
+HPL:HeatExchanger_R_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:HeatExchanger ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Heat Exchanger Refrigerant Connection Point 1" ;
+.
+HPL:HeatExchanger_R_CP_1_Pres
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "Heat exchanger R CP 1 Pres" ;
+.
+HPL:HeatExchanger_R_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:Segment_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Heat Exchanger Refrigerant Connection Point 2" ;
+.
+HPL:HeatExchanger_R_CP_2_Pres
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "101325"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "CC 1 R CP 2 Pres" ;
+.
+HPL:HeatExchanger_R_CP_2_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Heat exchanger R CP 2 Temp" ;
+.
+HPL:HeatExchanger_R_CP_2_Temp_Sat
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Heat exchanger R CP 2 Temp Sat" ;
+.
+HPL:HeatExchanger_Temp_1
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Heat Exchanger Temp 1" ;
+.
+HPL:HeatExchanger_Temp_2
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Heat Exchanger Temp 2" ;
+.
+HPL:IA_Connection_1
+  a s223:Duct ;
+  s223:cnx HPL:Chamber_OCP ;
+  s223:cnx HPL:IA_Unit_A_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Return ;
+  rdfs:label "IA Connection 1" ;
+.
+HPL:IA_Connection_2
+  a s223:Duct ;
+  s223:cnx HPL:Fan_Indoor_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "IA Connection 2" ;
+.
+HPL:IA_Connection_3
+  a s223:Duct ;
+  s223:cnx HPL:Mixer_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "IA Connection 3" ;
+.
+HPL:IA_Connection_4
+  a s223:Duct ;
+  s223:cnx HPL:Straightener_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "IA Connection 4" ;
+.
+HPL:IA_Connection_5
+  a s223:Duct ;
+  s223:cnx HPL:ChamberBlower_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "IA Connection 5" ;
+.
+HPL:IA_Connection_6
+  a s223:Duct ;
+  s223:cnx HPL:Chamber_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "IA Connection 6" ;
+.
+HPL:IA_Unit
+  a s223:Equipment ;
+  s223:contains HPL:ExpansionValve_2 ;
+  s223:contains HPL:Fan_Indoor ;
+  s223:contains HPL:HeatExchanger ;
+  s223:contains HPL:SightGlass ;
+  s223:hasConnectionPoint HPL:IA_Unit_A_ICP ;
+  s223:hasConnectionPoint HPL:IA_Unit_A_OCP ;
+  s223:hasConnectionPoint HPL:IA_Unit_R_CP_1 ;
+  s223:hasConnectionPoint HPL:IA_Unit_R_CP_2 ;
+  rdfs:label "IA Unit" ;
+.
+HPL:IA_Unit_A_ICP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "IA Unit A ICP" ;
+.
+HPL:IA_Unit_A_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:IA_Connection_3 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "IA Unit A OCP" ;
+.
+HPL:IA_Unit_R_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "IA Unit R CP 1" ;
+.
+HPL:IA_Unit_R_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "IA Unit R CP 2" ;
+.
+HPL:Inlet_OA
+  a s223:Equipment ;
+  s223:cnx HPL:Inlet_OA_OCP ;
+  rdfs:label "Inlet outdoor air" ;
+.
+HPL:Inlet_OA_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:OA_Connection_1 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Inlet OA OCP" ;
+.
+HPL:Jnc_1_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Segment_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Jnc 1 ICP" ;
+.
+HPL:Jnc_1_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:Segment_2 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Jnc 1 OCP" ;
+.
+HPL:Junction_1
+  a s223:Junction ;
+  s223:cnx HPL:Jnc_1_ICP ;
+  s223:cnx HPL:Jnc_1_OCP ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Junction 1" ;
+.
+HPL:Mixer
+  a s223:Equipment ;
+  s223:cnx HPL:Mixer_OCP ;
+  rdfs:label "Mixer" ;
+.
+HPL:Mixer_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Mixer ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Mixer ICP" ;
+.
+HPL:Mixer_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:IA_Connection_4 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Mixer OCP" ;
+.
+HPL:OA_Connection_1
+  a s223:Duct ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "OA Connection 1" ;
+.
+HPL:OA_Connection_1_Temp_1
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 1 Temp 1" ;
+.
+HPL:OA_Connection_1_Temp_2
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 1 Temp 2" ;
+.
+HPL:OA_Connection_1_Temp_3
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 1 Temp 3" ;
+.
+HPL:OA_Connection_1_Temp_4
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 1 Temp 4" ;
+.
+HPL:OA_Connection_1_Temp_5
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 1 Temp 5" ;
+.
+HPL:OA_Connection_1_Temp_6
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Quantifiable observable property 1" ;
+.
+HPL:OA_Connection_2
+  a s223:Duct ;
+  s223:cnx HPL:Fan_Outdoor_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Discharge ;
+  rdfs:label "OA Connection 2" ;
+.
+HPL:OA_Connection_3
+  a s223:Duct ;
+  s223:cnx HPL:Outlet_OA_ICP ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasRole s223:Role-Discharge ;
+  rdfs:label "OA Connection 3" ;
+.
+HPL:OA_Connection_3_Temp_1
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 3 Temp 1" ;
+.
+HPL:OA_Connection_3_Temp_2
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "OA Connection 3 Temp 2" ;
+.
+HPL:OA_Unit
+  a s223:Equipment ;
+  s223:contains HPL:Accumulator ;
+  s223:contains HPL:Compressor ;
+  s223:contains HPL:Fan_Outdoor ;
+  s223:contains HPL:FinnedHeatExchanger ;
+  s223:contains HPL:RV ;
+  s223:hasConnectionPoint HPL:OA_Unit_A_ICP ;
+  s223:hasConnectionPoint HPL:OA_Unit_A_OCP ;
+  s223:hasConnectionPoint HPL:OA_Unit_R_CP_1 ;
+  s223:hasConnectionPoint HPL:OA_Unit_R_CP_2 ;
+  rdfs:label "OA Unit" ;
+.
+HPL:OA_Unit_A_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:OA_Connection_1 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "OA Unit A ICP" ;
+.
+HPL:OA_Unit_A_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:OA_Connection_3 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "OA Unit A OCP" ;
+.
+HPL:OA_Unit_R_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "OA Unit R CP 1" ;
+.
+HPL:OA_Unit_R_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_6 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "OA Unit R CP 2" ;
+.
+HPL:Outlet_IA
+  a s223:Equipment ;
+  rdfs:label "Outlet indoor air" ;
+.
+HPL:Outlet_OA
+  a s223:Equipment ;
+  rdfs:label "Outlet outdoor air" ;
+.
+HPL:Outlet_OA_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Outlet_OA ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Outlet OA ICP" ;
+.
+HPL:PressureSensor_1
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:Segment_1 ;
+  s223:observes HPL:HeatExchanger_R_CP_2_Pres ;
+  rdfs:label "Pressure sensor 1" ;
+.
+HPL:PressureSensor_2
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:Segment_2 ;
+  s223:observes HPL:RV_CP_3_Pres ;
+  rdfs:label "Pressure sensor 2" ;
+.
+HPL:PressureSensor_3
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_2 ;
+  s223:observes HPL:Accumulator_CP_1_Pres ;
+  rdfs:label "Pressure sensor 3" ;
+.
+HPL:PressureSensor_4
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_7 ;
+  s223:observes HPL:ExpansionValve_1_CP_2_Pres ;
+  rdfs:label "Pressure sensor 4" ;
+.
+HPL:PressureSensor_5
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_10 ;
+  s223:observes HPL:SightGlass_CP_2_Pres ;
+  rdfs:label "Pressure sensor 5" ;
+.
+HPL:PressureSensor_6
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_11 ;
+  s223:observes HPL:HeatExchanger_R_CP_1_Pres ;
+  rdfs:label "Pressure sensor 6" ;
+.
+HPL:PressureSensor_7
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_4 ;
+  s223:observes HPL:Compressor_CP_2_Pres ;
+  rdfs:label "Pressure sensor 7" ;
+.
+HPL:PressureSensor_8
+  a s223:PressureSensor ;
+  s223:hasObservationLocation HPL:FinnedHeatExchanger ;
+  s223:observes HPL:FinnedHeatExchanger_R_Pres ;
+  rdfs:label "Pressure sensor 8" ;
+.
+HPL:RV
+  a s223:Valve ;
+  s223:cnx HPL:RV_CP_R_5 ;
+  s223:hasConnectionPoint HPL:RV_OCP_R_2 ;
+  rdfs:label "RV" ;
+.
+HPL:RV_CP_3_Pres
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "101325"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "RV CP 3 Press" ;
+.
+HPL:RV_CP_3_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "RV CP 3 Temp" ;
+.
+HPL:RV_CP_R_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:RV ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "RV CP R 1" ;
+.
+HPL:RV_CP_R_5
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_5 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "RV CP R 5" ;
+.
+HPL:RV_ICP_R_4
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:RV ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "RV ICP R 4" ;
+.
+HPL:RV_OCP_R_2
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:R_Connection_2 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "RV OCP R 2" ;
+.
+HPL:R_Connection_10
+  a s223:Pipe ;
+  s223:cnx HPL:ExpansionValve_2_CP_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 10" ;
+.
+HPL:R_Connection_11
+  a s223:Pipe ;
+  s223:cnx HPL:HeatExchanger_R_CP_1 ;
+  s223:cnx HPL:IA_Unit_R_CP_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 11" ;
+.
+HPL:R_Connection_2
+  a s223:Pipe ;
+  s223:cnx HPL:Accumulator_ICP ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 2" ;
+.
+HPL:R_Connection_3
+  a s223:Pipe ;
+  s223:cnx HPL:Compressor_ICP ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 3" ;
+.
+HPL:R_Connection_4
+  a s223:Pipe ;
+  s223:cnx HPL:RV_ICP_R_4 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  s223:hasRole s223:Role-Discharge ;
+  rdfs:label "R Connection 4" ;
+.
+HPL:R_Connection_5
+  a s223:Pipe ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 5" ;
+.
+HPL:R_Connection_6
+  a s223:Pipe ;
+  s223:cnx HPL:ExpansionValve_1_CP_1 ;
+  s223:cnx HPL:FinnedHeatExchanger_R_CP_2 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 6" ;
+.
+HPL:R_Connection_7
+  a s223:Pipe ;
+  s223:cnx HPL:Filter_CP_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 7" ;
+.
+HPL:R_Connection_8
+  a s223:Pipe ;
+  s223:cnx HPL:FlowMeter_CP_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 8" ;
+.
+HPL:R_Connection_8_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "R Connection 8 Temp" ;
+.
+HPL:R_Connection_9
+  a s223:Pipe ;
+  s223:cnx HPL:SightGlass_CP_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "R Connection 9" ;
+.
+HPL:R_Connection_9_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "R Connection 9 Temp" ;
+.
+HPL:Segment_1
+  a s223:Connection ;
+  s223:cnx HPL:IA_Unit_R_CP_2 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Segment 1" ;
+.
+HPL:Segment_2
+  a s223:Connection ;
+  s223:cnx HPL:OA_Unit_R_CP_1 ;
+  s223:cnx HPL:RV_CP_R_1 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Segment 2" ;
+.
+HPL:Sensor_1
+  a s223:Sensor ;
+  s223:hasObservationLocation HPL:Compressor_ICP ;
+  s223:observes HPL:Compressor_Power ;
+  rdfs:label "Sensor 1" ;
+.
+HPL:SightGlass
+  a s223:Equipment ;
+  s223:cnx HPL:SightGlass_CP_2 ;
+  rdfs:label "Sight glass" ;
+.
+HPL:SightGlass_CP_1
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:SightGlass ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Sight glass CP 1" ;
+.
+HPL:SightGlass_CP_2
+  a s223:BidirectionalConnectionPoint ;
+  s223:cnx HPL:R_Connection_10 ;
+  s223:hasMedium s223:Constituent-Glycol ;
+  rdfs:label "Sight glass CP 2" ;
+.
+HPL:SightGlass_CP_2_Pres
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "101325"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Pressure> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/PA> ;
+  rdfs:label "Sight glass CP 2 Pres" ;
+.
+HPL:SightGlass_CP_2_Temp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "Sight glass CP 2 " ;
+.
+HPL:Straightener
+  a s223:Equipment ;
+  s223:cnx HPL:Straightener_OCP ;
+  rdfs:label "Straightener" ;
+.
+HPL:Straightener_ICP
+  a s223:InletConnectionPoint ;
+  s223:cnx HPL:Straightener ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Straightener ICP" ;
+.
+HPL:Straightener_OCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx HPL:IA_Connection_5 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Straightener OCP" ;
+.
+HPL:TC_1_Temp_1
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "72"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 1 Temperature 1" ;
+.
+HPL:TC_1_Temp_2
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "72"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 1 Temp 2" ;
+.
+HPL:TC_1_Temp_3
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "72"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 1 Temp 3" ;
+.
+HPL:TC_1_Temp_4
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 1 Temp 4" ;
+.
+HPL:TC_1_Temp_5
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "72"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 1 Temp 5" ;
+.
+HPL:TC_2_Temp_1
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "74"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 2 Temp 1" ;
+.
+HPL:TC_2_Temp_2
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "74"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 2 Temp 2" ;
+.
+HPL:TC_2_Temp_3
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "74"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 2 Temp 3" ;
+.
+HPL:TC_2_Temp_4
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "74"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 2 Temp 4" ;
+.
+HPL:TC_2_Temp_5
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "74"^^xsd:decimal ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  qudt:hasUnit <http://qudt.org/vocab/unit/DEG_F> ;
+  rdfs:label "TC 2 Temp 5" ;
+.
+HPL:TemperatureSensor_1
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_1 ;
+  s223:observes HPL:TC_1_Temp_1 ;
+  rdfs:label "Temperature sensor 1" ;
+.
+HPL:TemperatureSensor_10
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_5 ;
+  s223:observes HPL:TC_2_Temp_5 ;
+  rdfs:label "Temperature sensor 10" ;
+.
+HPL:TemperatureSensor_11
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:Segment_1 ;
+  s223:observes HPL:HeatExchanger_R_CP_2_Temp ;
+  rdfs:label "Temperature sensor 11" ;
+.
+HPL:TemperatureSensor_11_sat
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:Segment_1 ;
+  s223:observes HPL:HeatExchanger_R_CP_2_Temp_Sat ;
+  rdfs:label "TemperatureSensor 11 sat" ;
+.
+HPL:TemperatureSensor_12
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:Segment_2 ;
+  s223:observes HPL:RV_CP_3_Temp ;
+  rdfs:label "Temperature sensor 12" ;
+.
+HPL:TemperatureSensor_13
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_2 ;
+  s223:observes HPL:Accumulator_CP_1_Temp ;
+  rdfs:label "Temperature sensor 13" ;
+.
+HPL:TemperatureSensor_14
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_4 ;
+  s223:observes HPL:Compressor_CP_2_Temp ;
+  rdfs:label "Temperature sensor 14" ;
+.
+HPL:TemperatureSensor_15
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:FinnedHeatExchanger ;
+  s223:observes HPL:FinnedHeatExchanger_R_Temp ;
+  rdfs:label "Temperature sensor 15" ;
+.
+HPL:TemperatureSensor_16
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_7 ;
+  s223:observes HPL:ExpansionValve_1_CP_2_Temp ;
+  rdfs:label "Temperature sensor 16" ;
+.
+HPL:TemperatureSensor_17
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_8 ;
+  s223:observes HPL:R_Connection_8_Temp ;
+  rdfs:label "Temperature sensor 17" ;
+.
+HPL:TemperatureSensor_18
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_9 ;
+  s223:observes HPL:R_Connection_9_Temp ;
+  rdfs:label "Temperature sensor 18" ;
+.
+HPL:TemperatureSensor_19
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_10 ;
+  s223:observes HPL:SightGlass_CP_2_Temp ;
+  rdfs:label "Temperature sensor 19" ;
+.
+HPL:TemperatureSensor_2
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_1 ;
+  s223:observes HPL:TC_1_Temp_2 ;
+  rdfs:label "Temperature sensor 2" ;
+.
+HPL:TemperatureSensor_20
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Connection_1 ;
+  s223:observes HPL:OA_Connection_1_Temp_1 ;
+  rdfs:label "Temperature sensor 20" ;
+.
+HPL:TemperatureSensor_21
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Connection_1 ;
+  s223:observes HPL:OA_Connection_1_Temp_2 ;
+  rdfs:label "Temperature sensor 21" ;
+.
+HPL:TemperatureSensor_22
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Connection_1 ;
+  s223:observes HPL:OA_Connection_1_Temp_3 ;
+  rdfs:label "Temperature sensor 22" ;
+.
+HPL:TemperatureSensor_23
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Connection_1 ;
+  s223:observes HPL:OA_Connection_1_Temp_4 ;
+  rdfs:label "Temperature sensor 23" ;
+.
+HPL:TemperatureSensor_24
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:HeatExchanger ;
+  s223:observes HPL:HeatExchanger_Temp_1 ;
+  rdfs:label "Temperature sensor 24" ;
+.
+HPL:TemperatureSensor_25
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:HeatExchanger ;
+  s223:observes HPL:HeatExchanger_Temp_2 ;
+  rdfs:label "Temperature sensor 25" ;
+.
+HPL:TemperatureSensor_26
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Connection_3 ;
+  s223:observes HPL:OA_Connection_3_Temp_1 ;
+  rdfs:label "Temperature sensor 26" ;
+.
+HPL:TemperatureSensor_27
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Connection_3 ;
+  s223:observes HPL:OA_Connection_3_Temp_2 ;
+  rdfs:label "Temperature sensor 27" ;
+.
+HPL:TemperatureSensor_28
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:Compressor ;
+  s223:observes HPL:Compressor_Temp ;
+  rdfs:label "Temperature sensor 28" ;
+.
+HPL:TemperatureSensor_29
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:R_Connection_7 ;
+  s223:observes HPL:ExpansionValve_1_CP_2_Temp_Sat ;
+  rdfs:label "Temperature sensor 29" ;
+.
+HPL:TemperatureSensor_3
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_1 ;
+  s223:observes HPL:TC_1_Temp_3 ;
+  rdfs:label "Temperature sensor 3" ;
+.
+HPL:TemperatureSensor_30
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:FinnedHeatExchanger ;
+  s223:observes HPL:FinnedHeatExchanger_R_Temp_Sat ;
+  rdfs:label "Temperature sensor 30" ;
+.
+HPL:TemperatureSensor_4
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_1 ;
+  s223:observes HPL:TC_1_Temp_4 ;
+  rdfs:label "Temperature sensor 4" ;
+.
+HPL:TemperatureSensor_5
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_1 ;
+  s223:observes HPL:TC_1_Temp_5 ;
+  rdfs:label "Temperature sensor 5" ;
+.
+HPL:TemperatureSensor_6
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_5 ;
+  s223:observes HPL:TC_2_Temp_1 ;
+  rdfs:label "Temperature sensor 6" ;
+.
+HPL:TemperatureSensor_7
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_5 ;
+  s223:observes HPL:TC_2_Temp_2 ;
+  rdfs:label "Temperature sensor 7" ;
+.
+HPL:TemperatureSensor_8
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_5 ;
+  s223:observes HPL:TC_2_Temp_3 ;
+  rdfs:label "Temperature sensor 8" ;
+.
+HPL:TemperatureSensor_9
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_5 ;
+  s223:observes HPL:TC_2_Temp_4 ;
+  rdfs:label "Temperature sensor 9" ;
+.
+HPL:TestRoom
+  a s223:PhysicalSpace ;
+  s223:encloses HPL:Chamber_DomainSpace ;
+  rdfs:label "Test room" ;
+.
+HPL:id_power
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Power> ;
+  rdfs:label "id power" ;
+.
+HPL:id_power_sens
+  a s223:Sensor ;
+  s223:hasObservationLocation HPL:IA_Unit ;
+  s223:observes HPL:id_power ;
+  rdfs:label "id power sens" ;
+.
+HPL:oa_temp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  rdfs:label "oa temp" ;
+.
+HPL:oa_temp_dp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/RelativeHumidity> ;
+  rdfs:label "oa temp dp" ;
+.
+HPL:oa_temp_dp_sens
+  a s223:HumiditySensor ;
+  s223:hasObservationLocation HPL:OA_Unit ;
+  s223:observes HPL:oa_temp_dp ;
+  rdfs:label "oa temp dp sens" ;
+.
+HPL:oa_temp_sens
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:OA_Unit ;
+  s223:observes HPL:oa_temp ;
+  rdfs:label "oa temp sens" ;
+.
+HPL:od_power
+  a s223:QuantifiableObservableProperty ;
+  a ref:csvReference ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Power> ;
+  rdfs:label "od power" ;
+  ref:csvColumnID "od_power" ;
+  ref:csvFileLocation "https://raw.githubusercontent.com/ZhelunChen/HILFT-ASHP-DEMO/main/data/Atlanta/Eff/Default/data.csv" ;
+.
+HPL:od_power_sens
+  a s223:Sensor ;
+  s223:hasObservationLocation HPL:OA_Unit ;
+  s223:observes HPL:od_power ;
+  rdfs:label "od power sens" ;
+.
+HPL:ref_flow
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFlowRate> ;
+  rdfs:label "ref flow" ;
+.
+HPL:ref_flow_sens
+  a s223:FlowSensor ;
+  s223:hasObservationLocation HPL:R_Connection_6 ;
+  s223:observes HPL:ref_flow ;
+  rdfs:label "ref flow sens" ;
+.
+HPL:sa_flow
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFlowRate> ;
+  rdfs:label "sa flow" ;
+.
+HPL:sa_flow_sens
+  a s223:FlowSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_3 ;
+  s223:observes HPL:sa_flow ;
+  rdfs:label "sa flow sens" ;
+.
+HPL:sa_temp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  rdfs:label "sa temp" ;
+.
+HPL:sa_temp_dp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/RelativeHumidity> ;
+  rdfs:label "sa temp dp" ;
+.
+HPL:sa_temp_dp_sens
+  a s223:HumiditySensor ;
+  s223:hasObservationLocation HPL:IA_Connection_3 ;
+  s223:observes HPL:sa_temp_dp ;
+  rdfs:label "sa temp dp sens" ;
+.
+HPL:sa_temp_sens
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:IA_Connection_3 ;
+  s223:observes HPL:sa_temp ;
+  rdfs:label "sa temp sens" ;
+.
+HPL:zn_temp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ;
+  rdfs:label "zn temp" ;
+.
+HPL:zn_temp_dp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind <http://qudt.org/vocab/quantitykind/RelativeHumidity> ;
+  rdfs:label "zn temp dp" ;
+.
+HPL:zn_temp_dp_sens
+  a s223:HumiditySensor ;
+  s223:hasObservationLocation HPL:Chamber_DomainSpace ;
+  s223:observes HPL:zn_temp_dp ;
+  rdfs:label "zn temp dp sens" ;
+.
+HPL:zn_temp_sens
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation HPL:Chamber_DomainSpace ;
+  s223:observes HPL:zn_temp ;
+  rdfs:label "zn temp sens" ;
+.

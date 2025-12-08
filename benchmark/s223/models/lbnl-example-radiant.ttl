@@ -1,0 +1,2433 @@
+@prefix bldg: <urn:ex/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+
+bldg:2WC6VvJu15 a s223:PhysicalSpace,
+        bldg:LgS0wi9o600 ;
+    s223:encloses bldg:0JY0g7qM114,
+        bldg:5CujzlPl16,
+        bldg:GxMYJptn341,
+        bldg:JZpXRk7j85,
+        bldg:THyJShKb260,
+        bldg:aXesx0LV529,
+        bldg:ywRM1Vq0375 .
+
+bldg:4KMPWde1702 a s223:CoolingTower ;
+    s223:hasConnectionPoint bldg:1QvuLF5X334,
+        bldg:mOTBZ7kZ629 .
+
+bldg:4fh7GlSA277 a s223:Radiator ;
+    s223:hasConnectionPoint bldg:m328k0r2185,
+        bldg:uKsKkrvC278 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:5UNy471G309 a s223:Zone ;
+    s223:hasDomainSpace bldg:qVpgASw8541 .
+
+bldg:7uMFVlpB414 a s223:Zone ;
+    s223:hasDomainSpace bldg:GN1Awftu326 .
+
+bldg:9HlAep9P682 a s223:AirHandlingUnit ;
+    s223:hasConnectionPoint bldg:RAqCG5XN150,
+        bldg:T0BGoPjX523,
+        bldg:a70uE0SG549,
+        bldg:k4hs5wzV366,
+        bldg:sqU19ImJ557 .
+
+bldg:9yEVbeo749 a s223:Boiler ;
+    s223:hasConnectionPoint bldg:64umgWqg145,
+        bldg:6qsRXQuh547,
+        bldg:IFF17HlG91,
+        bldg:POYOG4vH50,
+        bldg:PQ6g1VTo146,
+        bldg:RnxgaPCJ313,
+        bldg:X7qGsxWN226,
+        bldg:XejeTmGZ430,
+        bldg:dG8Mb14K157,
+        bldg:qQaQbyXN143,
+        bldg:teY5U5E9122,
+        bldg:wOwVISrs322 .
+
+bldg:A3fJ9N6v218 a s223:RadiantPanel ;
+    s223:connectsTo bldg:x3i2Av0y635 ;
+    s223:hasConnectionPoint bldg:4L9brF9m219,
+        bldg:kyIAgAAq325 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:BRYT4HS582 a s223:Radiator ;
+    s223:hasConnectionPoint bldg:Naj2IY7u422,
+        bldg:lYkEQ56t74 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:CeQVdON421 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:JgZmP7W1222,
+        bldg:YANvPsKv403,
+        bldg:qbFfbY0q563 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:0gFo5WiV610,
+        bldg:1d3ButSO206,
+        bldg:623nVIDX242,
+        bldg:6Fc389nI683,
+        bldg:6xOWNSi5686,
+        bldg:8TRSm0yb694,
+        bldg:8vNnM3Q9281,
+        bldg:9vm07mJo303,
+        bldg:BDhOHrV4294,
+        bldg:Bavy4RGh300,
+        bldg:BmRoDMbH282,
+        bldg:CFGTr5PD703,
+        bldg:DKILFFQg141,
+        bldg:DSsuai6P305,
+        bldg:DwHnH9VM188,
+        bldg:FnaIubRR671,
+        bldg:H4CKNZX3327,
+        bldg:Ian93K3n253,
+        bldg:IlzCfdpJ178,
+        bldg:IoXA6pCO482,
+        bldg:IykIHrA6406,
+        bldg:JRYQ0Pkj668,
+        bldg:OH6sK9Pi653,
+        bldg:OVduJYen223,
+        bldg:OitazoMi33,
+        bldg:PfhSCbDw369,
+        bldg:Psto09XI268,
+        bldg:RwSEFHRv725,
+        bldg:Ryebz4nq625,
+        bldg:SHR7NmsT202,
+        bldg:VADCR37f329,
+        bldg:VWN27D7i700,
+        bldg:WRK2mKVC518,
+        bldg:X4sMFe5s315,
+        bldg:XOUN8kPW704,
+        bldg:YXuvqR93680,
+        bldg:Z2DoAd6l729,
+        bldg:ZqVdMHjN120,
+        bldg:aspofRVz673,
+        bldg:bv1gEnHC516,
+        bldg:e4vIsiWl468,
+        bldg:gTkJSV5q144,
+        bldg:hArHF3vQ332,
+        bldg:hb1yL0CD489,
+        bldg:sOUr0Ft7551,
+        bldg:tx9vvKaN643,
+        bldg:v5eUBPH9688,
+        bldg:w7kgo2O9515,
+        bldg:x8qpC6do22,
+        bldg:yeMJuIf6110 .
+
+bldg:DXSDOtO44 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:2cqxRHOT374,
+        bldg:DQeszBU4308,
+        bldg:vzBlE2To67 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:6bnkvlNt652,
+        bldg:8FwuIKiz400,
+        bldg:8owrUlCy488,
+        bldg:9lxcZAhj411,
+        bldg:A5gxOk7I246,
+        bldg:CN4cei2d469,
+        bldg:Cdu8B5yL721,
+        bldg:DOizSdRW263,
+        bldg:F94V6Wtc568,
+        bldg:HHwN4gbR458,
+        bldg:JT9zW0JH460,
+        bldg:LDW4IsdM175,
+        bldg:LfrKDvtR494,
+        bldg:NOqAyVrz95,
+        bldg:NRqvpWO2538,
+        bldg:Om2ZBTlu348,
+        bldg:RBZT3LgB60,
+        bldg:Sc4tvhjD675,
+        bldg:VsFuWvhR696,
+        bldg:WuPU14KR314,
+        bldg:XicToC0o163,
+        bldg:XilF683D52,
+        bldg:Y9zqxDV9439,
+        bldg:Ygf9AVps395,
+        bldg:Zxvrq94N58,
+        bldg:b0Vw0Hfu661,
+        bldg:dpBtyGVs426,
+        bldg:h1HJVDHg627,
+        bldg:imGQbxsN364,
+        bldg:kDRE3DUv730,
+        bldg:kTFJDV86733,
+        bldg:kisv88nM617,
+        bldg:kqvBWN1q116,
+        bldg:lLG59Xtj103,
+        bldg:oK7zxF7U231,
+        bldg:oP0BiWJF666,
+        bldg:qDTHKvJG274,
+        bldg:qrABXzO35,
+        bldg:rBKk78MR654,
+        bldg:rKgzP8aC597,
+        bldg:sBA1j4j7681,
+        bldg:sHGQmLJJ284,
+        bldg:uZvUst1d249,
+        bldg:v7wMzubD603,
+        bldg:vCckh3qm171,
+        bldg:vSIJ8NlE383,
+        bldg:yWBwpMko108,
+        bldg:yYXAVD56701 .
+
+bldg:EBetWC7f210 a s223:Zone ;
+    s223:hasDomainSpace bldg:5CujzlPl16 ;
+    s223:hasProperty bldg:8tnBfbam717,
+        bldg:AMx4OqwR585,
+        bldg:BK38QZsU378,
+        bldg:BkPwVqqD211,
+        bldg:Bw820R5q564,
+        bldg:EQAcxCp6184,
+        bldg:Sdefyk2F453,
+        bldg:jQzoNFpE449,
+        bldg:soPsVTmS509 .
+
+bldg:EM0QAwDp48 a s223:Zone ;
+    s223:hasDomainSpace bldg:n1QHuHay156 .
+
+bldg:EiEjRcRv192 a s223:Zone ;
+    s223:hasDomainSpace bldg:LBuzrYpq381 ;
+    s223:hasProperty bldg:5dbM7uSg140,
+        bldg:AhiUXtGc158,
+        bldg:FLhQGoyk285,
+        bldg:W3TZaen0193,
+        bldg:XbxjbVGO440,
+        bldg:k2TI3Lop94,
+        bldg:k9jK8rib299,
+        bldg:lFg52ycl676,
+        bldg:qk0KEHEs152 .
+
+bldg:FlU5gMK67 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:TzXsNquA709,
+        bldg:b5o6D1k8312,
+        bldg:kHNazrP9535 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:1N1LiQjR623,
+        bldg:35Vl1WY6655,
+        bldg:6uFG5dzK443,
+        bldg:7EVSWwel54,
+        bldg:AGz0uigg616,
+        bldg:BOMzANzv609,
+        bldg:Bars4Qiw640,
+        bldg:BweTdcZc734,
+        bldg:EZSlzZGK728,
+        bldg:Ff6v2gRS687,
+        bldg:HxYjpkgw723,
+        bldg:IGxjFfcJ391,
+        bldg:Id6omeaY618,
+        bldg:IhEJlHfg266,
+        bldg:KVjm1suN40,
+        bldg:L345iKtf230,
+        bldg:NMGVJRjp6,
+        bldg:NVxddJYc526,
+        bldg:Ol8WqVxj630,
+        bldg:Oq2zp9cV592,
+        bldg:RKFQ0gQm301,
+        bldg:TDqABU0r96,
+        bldg:U1hZGouA105,
+        bldg:UKCR4ikt506,
+        bldg:UaBfI98z181,
+        bldg:UmpHiiaF684,
+        bldg:UoqkY0I8311,
+        bldg:WCO1s9k6371,
+        bldg:XFJXcuzI641,
+        bldg:Yd312zEW8,
+        bldg:Ylc18ast79,
+        bldg:YvDRN9UO586,
+        bldg:dRbzd96q624,
+        bldg:gHnnB5M8660,
+        bldg:gZeCtbpn88,
+        bldg:h1vC0T9f261,
+        bldg:kD0JJ9d8467,
+        bldg:nOEfljZj247,
+        bldg:qymdKzVx183,
+        bldg:tKWo2E74174,
+        bldg:ud7J9AVE472,
+        bldg:wkXGo4i4293,
+        bldg:xyPniRv8689 .
+
+bldg:GyNZ5oT6216 a s223:AirHandlingUnit ;
+    s223:hasConnectionPoint bldg:6ilvIvzU565,
+        bldg:GdX6ebua93,
+        bldg:fRZgGyXp407,
+        bldg:uY62VM2Z212,
+        bldg:ycc1XAmy539 .
+
+bldg:H2LAY2wT576 a s223:PhysicalSpace ;
+    s223:encloses bldg:eiSIqkv6577,
+        bldg:gubXNnu8132 .
+
+bldg:HJ6g8Opk362 a s223:Zone ;
+    s223:hasDomainSpace bldg:alHbJI1n65 .
+
+bldg:HVMX0VgY179 a s223:Zone ;
+    s223:hasDomainSpace bldg:THyJShKb260 ;
+    s223:hasProperty bldg:1pUH4c86591,
+        bldg:GeLznk7B608,
+        bldg:IbkWeJJ392,
+        bldg:ThWLqthY418,
+        bldg:UirruOFD180,
+        bldg:aSxGPlEF321,
+        bldg:iXytWfe3466,
+        bldg:rVI4kFO4715,
+        bldg:vpv124Ym692 .
+
+bldg:JcPIqSNT224 a s223:PhysicalSpace,
+        bldg:LgS0wi9o600 ;
+    s223:encloses bldg:69YmeewV225,
+        bldg:LBuzrYpq381,
+        bldg:S2mP0f6B130,
+        bldg:SxEQX4sJ169,
+        bldg:fQh3EPhM279,
+        bldg:hhEGdtVl86,
+        bldg:uI19exSc276 .
+
+bldg:M01nd9ca252 a s223:RadiantPanel ;
+    s223:connectsTo bldg:yBDnSRGq448 ;
+    s223:hasConnectionPoint bldg:OATdW6VI72,
+        bldg:mloUlnTr344 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:NSjn3s8A55 a s223:RadiantPanel ;
+    s223:connectsTo bldg:wNOVnIZF56 ;
+    s223:hasConnectionPoint bldg:a4DCmbwh420,
+        bldg:oyQ1DgZx70 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:OS9Tcln3232 a s223:Zone ;
+    s223:hasDomainSpace bldg:5bZE9KPU398 ;
+    s223:hasProperty bldg:1Q1AM8pQ271,
+        bldg:Icnst2fT462,
+        bldg:N1dhYFHB248,
+        bldg:c55ERd9O579,
+        bldg:h2TDS8tK491,
+        bldg:kzfTJ9bq477,
+        bldg:mqVBj8y7583,
+        bldg:uJHqili6555 .
+
+bldg:Q4ZIosAN679 a s223:PhysicalSpace ;
+    s223:encloses bldg:MsfDn2du239 .
+
+bldg:RRLiWA4b254 a s223:PhysicalSpace,
+        bldg:LgS0wi9o600 ;
+    s223:encloses bldg:0ENdeWZ9507,
+        bldg:1D9PCTvO190,
+        bldg:7hDuwsKa433,
+        bldg:Bw5SFPyQ153,
+        bldg:kCgqoP9T255,
+        bldg:l92k62No339,
+        bldg:nrvPmabu351 .
+
+bldg:RRYmKwS4356 a s223:RadiantPanel ;
+    s223:connectsTo bldg:utCNURKY464 ;
+    s223:hasConnectionPoint bldg:CsJNd2CT297,
+        bldg:aldnlUFo357 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:S8VHhLfO2 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:glgoIDP1637,
+        bldg:rL5z0LAt522,
+        bldg:sToCrRbp11 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:1cXCTJDb532,
+        bldg:2gF8c7HB390,
+        bldg:3XTGvWWC324,
+        bldg:5bqVizuS121,
+        bldg:5tB9MMZg731,
+        bldg:6QbfmhT7556,
+        bldg:6vdhAWUy53,
+        bldg:96mgbLhR698,
+        bldg:9IuE6aD4408,
+        bldg:CjlWK9CJ614,
+        bldg:CvcDVwXb732,
+        bldg:DB4jPnBR182,
+        bldg:Dkr0wcGv575,
+        bldg:DpuKlvDH359,
+        bldg:FYM9ZDRH162,
+        bldg:GPHBK44m546,
+        bldg:Kz0pPiAz447,
+        bldg:LR9ZdCft270,
+        bldg:MrxJTMzK533,
+        bldg:PpGVDH2W693,
+        bldg:RLHZynfX361,
+        bldg:RjjrHgIU104,
+        bldg:Sl1pl6Fd257,
+        bldg:WGa88KpK100,
+        bldg:ZRPEBwtF605,
+        bldg:ZotMqDuZ658,
+        bldg:bAO38ew0659,
+        bldg:bmwNDMBo189,
+        bldg:dIA9WbxS503,
+        bldg:dLiXXfRO677,
+        bldg:eB82ESsz572,
+        bldg:hEsPEO3q57,
+        bldg:kGOIcLN369,
+        bldg:kM7guewr611,
+        bldg:kRmHNN413,
+        bldg:keSLYNqb292,
+        bldg:kj3sqdkV172,
+        bldg:pLsIXJvM306,
+        bldg:s2Ljc1TA14,
+        bldg:u6Y7JUSp382,
+        bldg:yEgZyQ1Q323,
+        bldg:yWDcNzn566,
+        bldg:zMrwrAr4487 .
+
+bldg:T7LM5xzx37 a s223:Zone ;
+    s223:hasDomainSpace bldg:FYIcJaa7151 ;
+    s223:hasProperty bldg:FaMdMTDp711,
+        bldg:ObuUXMwL470,
+        bldg:R3ED751E437,
+        bldg:eEFGKLjU634,
+        bldg:ioTvjCUk620,
+        bldg:mONm5u1W486,
+        bldg:mxsELDK0631,
+        bldg:t96sYoEt672 .
+
+bldg:TEJjxq1c286 a s223:RadiantPanel ;
+    s223:connectsTo bldg:JgoL9Asa43 ;
+    s223:hasConnectionPoint bldg:hqp0aUUN168,
+        bldg:tGPgeyRr355 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:TnR45TCh195 a s223:AirHandlingUnit ;
+    s223:hasConnectionPoint bldg:A6MsqLEa196,
+        bldg:C5x2eg5n552,
+        bldg:RM965Pre245,
+        bldg:krojkNhZ123,
+        bldg:zfZqPzxh78 .
+
+bldg:WC0BsOaT287 a s223:RadiantPanel ;
+    s223:connectsTo bldg:Xb2Umhee578 ;
+    s223:hasConnectionPoint bldg:6xP216Xu27,
+        bldg:sKh9n6ON367 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:Xi1WhJ3I441 a s223:RadiantPanel ;
+    s223:connectsTo bldg:Eyayq3X6573 ;
+    s223:hasConnectionPoint bldg:DRxxau5r601,
+        bldg:LBWzUtoZ442 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:YQO439uv421 a s223:RadiantPanel ;
+    s223:connectsTo bldg:Mbq5Pbrh384 ;
+    s223:hasConnectionPoint bldg:BfCfCErP353,
+        bldg:z7sTel3w320 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:YfKInAXy198 a s223:RadiantPanel ;
+    s223:connectsTo bldg:D85kMkpV199 ;
+    s223:hasConnectionPoint bldg:LZjshvIF340,
+        bldg:lvpLQvmp354 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:YnNEbwbe435 a s223:Zone ;
+    s223:hasDomainSpace bldg:2YHhZBOC436 .
+
+bldg:bF38CIiV111 a s223:RadiantPanel ;
+    s223:connectsTo bldg:foQtkGTm51 ;
+    s223:hasConnectionPoint bldg:UzGWRDPZ9,
+        bldg:qZg3DGvk316 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:dXw6Kjnx97 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:2LtLpWoS161,
+        bldg:GpbWkzvj272,
+        bldg:YNHhSLEz619 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:00lblN3b663,
+        bldg:1GemDqHO419,
+        bldg:390hdDbr412,
+        bldg:A2H0TcSR265,
+        bldg:AiHjJ42V505,
+        bldg:BzEVKtGn517,
+        bldg:Drg7wuMG545,
+        bldg:EQzB53f7638,
+        bldg:Erja8lFx642,
+        bldg:NKmzChn3695,
+        bldg:NMAquvNL525,
+        bldg:QBVEFGr2508,
+        bldg:UsclunZI160,
+        bldg:WWEb07ge475,
+        bldg:YWSLXpyI380,
+        bldg:ZWTrzHXg197,
+        bldg:aCEZqY31726,
+        bldg:ahCEQS5L674,
+        bldg:ampN5M6z155,
+        bldg:b7quGGYu304,
+        bldg:ce1QTuYQ645,
+        bldg:chYXc2Hf209,
+        bldg:d47mkgmr598,
+        bldg:dLtagbpO102,
+        bldg:eUE5e5PX665,
+        bldg:eYVjKc2H376,
+        bldg:faUBFM0r328,
+        bldg:g2hpUjqr205,
+        bldg:hc3Dbncd465,
+        bldg:iF4Ps693455,
+        bldg:it3gOFqs346,
+        bldg:j2H3mPKN459,
+        bldg:kZgm2SrI167,
+        bldg:lE8LcZi7133,
+        bldg:lxP4dWSz534,
+        bldg:naKaiFiR735,
+        bldg:p1e1yE3a690,
+        bldg:qDolTSzw237,
+        bldg:qswxGnQs203,
+        bldg:tgKrO5QJ562,
+        bldg:u9A3JC4v396,
+        bldg:vsUKymXq349,
+        bldg:vu9zOfwM424,
+        bldg:xe6iyHRh124,
+        bldg:xkPNWwGl511,
+        bldg:xzJt4dlA106,
+        bldg:yv7T4UKl283,
+        bldg:zsHPjPeK213 .
+
+bldg:doT5p7ZM136 a s223:RadiantPanel ;
+    s223:connectsTo bldg:oDz0RwQF295 ;
+    s223:hasConnectionPoint bldg:KJ4qilWW90,
+        bldg:SBePB6sI137 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:drBt1yyH12 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:8LRMDIfu1,
+        bldg:FILtUqua61,
+        bldg:Ni3KygW6134 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:1CWTJYeA543,
+        bldg:1qMuBhWI559,
+        bldg:1v9cB6HE724,
+        bldg:43FVUfSO513,
+        bldg:4IPWQXwG499,
+        bldg:4rXTsvl8626,
+        bldg:63lsoErD333,
+        bldg:7Dp2H8cV28,
+        bldg:8GlKOd4x501,
+        bldg:9eavFwUT510,
+        bldg:A8C7sDb8542,
+        bldg:BGW6QV5a365,
+        bldg:EZz9fZQp228,
+        bldg:EcN8rl11338,
+        bldg:EjMMSC6o457,
+        bldg:FLmmbtyv593,
+        bldg:KAPsditQ705,
+        bldg:QyQPIkcv290,
+        bldg:TwCN5osY633,
+        bldg:VC3B19c0165,
+        bldg:VJOop015269,
+        bldg:VjTSmMZe302,
+        bldg:XFKgdwEK13,
+        bldg:YyHEB35D215,
+        bldg:YyQj2Iy8401,
+        bldg:Z0tP1UUY63,
+        bldg:b0bYoR4s235,
+        bldg:dXclVeMM68,
+        bldg:eeOB8MgU258,
+        bldg:gi7rudNl471,
+        bldg:hHvHDqHX706,
+        bldg:hbzBi4s3496,
+        bldg:huBkPTt347,
+        bldg:jzaXcBgr18,
+        bldg:k7bZLWZl77,
+        bldg:k9SCuzPO639,
+        bldg:kFseE2Gu259,
+        bldg:oXR1MWiT358,
+        bldg:ou68VyQC75,
+        bldg:ovbb4ZUN667,
+        bldg:pq7k6P56580,
+        bldg:rwcACieq343,
+        bldg:u0Qbladg394,
+        bldg:vU3ur82K446,
+        bldg:ysvOnPUf402,
+        bldg:z8ZzNk0059 .
+
+bldg:driXRZqK707 a s223:Zone ;
+    s223:hasDomainSpace bldg:Aejif8Bk444 .
+
+bldg:eZrpP16Q45 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:B6FE30H9431,
+        bldg:JVdCCRwo139,
+        bldg:YrAIzI2Z636 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:0Datvs9j649,
+        bldg:2B46jcnq484,
+        bldg:358Rg26I241,
+        bldg:4Rrrzu8X112,
+        bldg:8H70yf2W500,
+        bldg:8gtPpClW347,
+        bldg:92GZ21qy669,
+        bldg:A28yMdjI727,
+        bldg:CnMwKxSw722,
+        bldg:DI4zZZaK596,
+        bldg:FdCuGpKh318,
+        bldg:IHwsXFEd148,
+        bldg:LLIjTbes480,
+        bldg:Lc7fmxrR558,
+        bldg:NCfjE3sy388,
+        bldg:PYXNUT4z622,
+        bldg:QDuOrrDB450,
+        bldg:QepA5FxZ177,
+        bldg:RMUkjBlQ650,
+        bldg:RUjlJS2G451,
+        bldg:TVcbqnuL495,
+        bldg:VxztVz7U678,
+        bldg:W6gKcA3D588,
+        bldg:WPqT5Y5a243,
+        bldg:XtEgfFzK714,
+        bldg:Y58UmaUu621,
+        bldg:aEEVP7EU628,
+        bldg:aW3DdhoM10,
+        bldg:gLk9yKEE492,
+        bldg:gNnrVXOC80,
+        bldg:iIxfp8YJ19,
+        bldg:k3wwPhlD256,
+        bldg:nydMm2sy99,
+        bldg:oXRs7bN0244,
+        bldg:oxaZfQm7173,
+        bldg:pmrl70MT697,
+        bldg:rMyJfCZe149,
+        bldg:rjJMVdMH497,
+        bldg:sWZHD9Rv718,
+        bldg:tU9Eoc89553,
+        bldg:u0vowooI587,
+        bldg:uFrX7xnE289,
+        bldg:uIXkCjxk262,
+        bldg:unnwX96V612,
+        bldg:upm0PChq392,
+        bldg:vdeJpxV6519,
+        bldg:wXGXACOn615,
+        bldg:yj2FqHQf46 .
+
+bldg:hGXqODdL31 a s223:Zone ;
+    s223:hasDomainSpace bldg:2coGaBww416 ;
+    s223:hasProperty bldg:1frPZKIH560,
+        bldg:FH3r8YjZ498,
+        bldg:NZwPcqUe32,
+        bldg:ShD9cTbT657,
+        bldg:gVvM2yT0584,
+        bldg:mFL9S4d381,
+        bldg:xOLTWPRc201,
+        bldg:xoor51GZ656 .
+
+bldg:hUSURY3X127 a s223:HeatPump,
+        s223:Zone ;
+    s223:hasConnectionPoint bldg:Bpb9K4vR147,
+        bldg:hWbmQhsU632,
+        bldg:wuTdQPXM240 ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 ;
+    s223:hasProperty bldg:1XPHwVI2372,
+        bldg:3KHzYIQn589,
+        bldg:3RWWROUA44,
+        bldg:3guQLld1613,
+        bldg:BzI358uK548,
+        bldg:EECalLEb691,
+        bldg:F3HACdVG566,
+        bldg:IRYKNJSk554,
+        bldg:JQ8nKjpn317,
+        bldg:M03T1Osh590,
+        bldg:OGMHzt1c415,
+        bldg:P1T4KDUx413,
+        bldg:PDUdG6M7567,
+        bldg:POBSnoEX220,
+        bldg:PsIURTJR98,
+        bldg:SNM2CkIx432,
+        bldg:THQzcGJ2699,
+        bldg:VqQDkbdh119,
+        bldg:Xl587ek2331,
+        bldg:Z7Y7K9Wz473,
+        bldg:aayxLNPa135,
+        bldg:abO6cJpI126,
+        bldg:cSYfdDrm581,
+        bldg:cVIxcjt6428,
+        bldg:cco5G0ww109,
+        bldg:dM8fVsB1128,
+        bldg:dNyDIb1f30,
+        bldg:eG3zyZ9q227,
+        bldg:ecd7CKje544,
+        bldg:jg3A1UJs363,
+        bldg:jovDhEAu490,
+        bldg:lWLKQe4Q20,
+        bldg:liyqPmCq646,
+        bldg:nXI8C3KK296,
+        bldg:nu6PS7KL142,
+        bldg:pLGKDRau531,
+        bldg:rb0HCcHX479,
+        bldg:sFwGVsbt454,
+        bldg:tXlEbFF417,
+        bldg:xbWBjIUV685,
+        bldg:ySSX5ktC648 .
+
+bldg:j2E0NtQd23 a s223:RadiantPanel ;
+    s223:connectsTo bldg:DJcv3yHv24 ;
+    s223:hasConnectionPoint bldg:KDRab1lr370,
+        bldg:SrkSOnTF89 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:jqQQfeHc34 a s223:Zone ;
+    s223:hasDomainSpace bldg:kCgqoP9T255 ;
+    s223:hasProperty bldg:Dz882TVg512,
+        bldg:FIfPcag7716,
+        bldg:IFWMjzpU234,
+        bldg:IgMImfKa425,
+        bldg:MZfM68z576,
+        bldg:MnXu0zCr521,
+        bldg:RWLoSYzL125,
+        bldg:m7ruFhFk35,
+        bldg:wPjv4TDv194 .
+
+bldg:kXY7Y7uO514 a s223:Zone ;
+    s223:hasDomainSpace bldg:uK99O8dv602 .
+
+bldg:lPREuXaH41 a s223:Zone ;
+    s223:hasDomainSpace bldg:gubXNnu8132 ;
+    s223:hasProperty bldg:5gTCdYxj397,
+        bldg:8sUaqqEN251,
+        bldg:9XJ6mxlF607,
+        bldg:HK7lUNlx570,
+        bldg:Ogvl9IxI221,
+        bldg:Xj6uikWe288,
+        bldg:i5FC279i42,
+        bldg:yGOCEGrc574 .
+
+bldg:lSgvUV7o719 a owl:Ontology .
+
+bldg:mwajtYV6335 a s223:RadiantPanel ;
+    s223:connectsTo bldg:CjzaIXkb84 ;
+    s223:hasConnectionPoint bldg:YKbncoJN336,
+        bldg:fVWrrgPi606 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:nJz2JbY4214 a s223:Zone ;
+    s223:hasDomainSpace bldg:1qhU5SQs664 ;
+    s223:hasProperty bldg:8us4wZoB527,
+        bldg:AIazYboH310,
+        bldg:BQJOnp4Z405,
+        bldg:QJLvDdC4720,
+        bldg:UhFyLjeu478,
+        bldg:XUnvZPVH379,
+        bldg:ZXs8g4EQ710,
+        bldg:xXQ2COqa476 .
+
+bldg:o2ysteT1207 a s223:Zone ;
+    s223:hasDomainSpace bldg:nrvPmabu351 ;
+    s223:hasProperty bldg:Byn6E8gO452,
+        bldg:H6rIevrr217,
+        bldg:HKS1Km7t417,
+        bldg:XTtqLoYq62,
+        bldg:bPzPfE0b208,
+        bldg:gwDTFBgu386,
+        bldg:ikpIYzy6267,
+        bldg:jvwVpeCP113,
+        bldg:x7dyDalR662 .
+
+bldg:pW93ftfA275 a s223:Zone ;
+    s223:hasDomainSpace bldg:uI19exSc276 ;
+    s223:hasProperty bldg:AENjN3gP485,
+        bldg:Pn0dKdfh410,
+        bldg:UO8KAp1R385,
+        bldg:XNOVp9HT504,
+        bldg:am0psWhp536,
+        bldg:o0zvQeQ9399,
+        bldg:qjEpY9zm713,
+        bldg:rqZiPUZz599,
+        bldg:zAqEeio8537 .
+
+bldg:pqSPBSJS429 a s223:RadiantPanel ;
+    s223:connectsTo bldg:A1vqK9o3474 ;
+    s223:hasConnectionPoint bldg:7Yn4H59D273,
+        bldg:ppGOzxUO461 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:qXHhpZMf38 a s223:HeatExchanger ;
+    s223:hasConnectionPoint bldg:1JpP6zXv670,
+        bldg:1KK5lI2d83,
+        bldg:1yoTn6BP186,
+        bldg:2GPPHY5B129,
+        bldg:2ME0tCwW456,
+        bldg:68PIcWok524,
+        bldg:78Qbi7Fo352,
+        bldg:AOowjS3s200,
+        bldg:Apko0TOe520,
+        bldg:BiKiJvUX264,
+        bldg:BmiW3IeK330,
+        bldg:CJ1DEcTJ550,
+        bldg:HnEWaTyu25,
+        bldg:ICJhYnMh502,
+        bldg:NzYF9trZ71,
+        bldg:Pj1x4yV9368,
+        bldg:RsJOTyRV373,
+        bldg:SWdxEIhn26,
+        bldg:VaZzJCtS350,
+        bldg:XGPv8y1i250,
+        bldg:XfllCghn64,
+        bldg:Xx7MnV9M582,
+        bldg:aR68jkur483,
+        bldg:amTwuuDu463,
+        bldg:auqKqKUP540,
+        bldg:b5tdvVHM39,
+        bldg:bjwSmEDY138,
+        bldg:dLYt0KIT319,
+        bldg:dv8t7etb101,
+        bldg:hlzlZfkY164,
+        bldg:ihjgobmS409,
+        bldg:mOefS7S2337,
+        bldg:t0oRv7hG233,
+        bldg:uCwEUFeI345,
+        bldg:uVlW5FMz445,
+        bldg:vGQfwGxo176,
+        bldg:y62223k0107,
+        bldg:yBpJjQAV389 .
+
+bldg:sFMBEBah434 a s223:Zone ;
+    s223:hasDomainSpace bldg:eiSIqkv6577 ;
+    s223:hasProperty bldg:g3qzAIYU159,
+        bldg:lHKbBogi360,
+        bldg:qC7RydYR236 .
+
+bldg:uWc5AOae481 a s223:RadiantPanel ;
+    s223:connectsTo bldg:OqJYFPtO561 ;
+    s223:hasConnectionPoint bldg:6bLp9flF404,
+        bldg:pv235IR9229 ;
+    s223:hasRole s223:Role-Heating .
+
+bldg:ueUwq5xJ131 a s223:PhysicalSpace ;
+    s223:encloses bldg:2YHhZBOC436,
+        bldg:Aejif8Bk444,
+        bldg:GN1Awftu326,
+        bldg:Z1aIUfiR29,
+        bldg:alHbJI1n65,
+        bldg:cy6UgObH571,
+        bldg:eiSIqkv6577,
+        bldg:gubXNnu8132,
+        bldg:n1QHuHay156,
+        bldg:qVpgASw8541,
+        bldg:uK99O8dv602,
+        bldg:yMqYCWkP117 .
+
+bldg:vJiTzAfk238 a s223:Zone ;
+    s223:hasDomainSpace bldg:MsfDn2du239 .
+
+bldg:vYSg3OhF644 a s223:Zone ;
+    s223:hasDomainSpace bldg:cy6UgObH571 .
+
+bldg:xZAFKF8w493 a s223:Zone ;
+    s223:hasDomainSpace bldg:yMqYCWkP117 .
+
+bldg:xbzvq4ck647 a s223:Zone ;
+    s223:hasDomainSpace bldg:Z1aIUfiR29 .
+
+bldg:00lblN3b663 a s223:Property .
+
+bldg:0Datvs9j649 a s223:Property .
+
+bldg:0gFo5WiV610 a s223:Property .
+
+bldg:1CWTJYeA543 a s223:Property .
+
+bldg:1GemDqHO419 a s223:Property .
+
+bldg:1JpP6zXv670 a s223:InletConnectionPoint ;
+    s223:cnx bldg:lvpLQvmp354 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:1KK5lI2d83 a s223:InletConnectionPoint ;
+    s223:cnx bldg:SrkSOnTF89 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:1N1LiQjR623 a s223:Property .
+
+bldg:1Q1AM8pQ271 a s223:Property .
+
+bldg:1QvuLF5X334 a s223:InletConnectionPoint ;
+    s223:cnx bldg:t0oRv7hG233 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:1XPHwVI2372 a s223:Property .
+
+bldg:1cXCTJDb532 a s223:Property .
+
+bldg:1d3ButSO206 a s223:Property .
+
+bldg:1frPZKIH560 a s223:Property .
+
+bldg:1pUH4c86591 a s223:Property .
+
+bldg:1qMuBhWI559 a s223:Property .
+
+bldg:1qhU5SQs664 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:1v9cB6HE724 a s223:Property .
+
+bldg:1yoTn6BP186 a s223:InletConnectionPoint ;
+    s223:cnx bldg:oyQ1DgZx70 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:2B46jcnq484 a s223:Property .
+
+bldg:2GPPHY5B129 a s223:InletConnectionPoint ;
+    s223:cnx bldg:T0BGoPjX523 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:2ME0tCwW456 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:SBePB6sI137 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:2coGaBww416 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:2gF8c7HB390 a s223:Property .
+
+bldg:358Rg26I241 a s223:Property .
+
+bldg:35Vl1WY6655 a s223:Property .
+
+bldg:390hdDbr412 a s223:Property .
+
+bldg:3KHzYIQn589 a s223:Property .
+
+bldg:3RWWROUA44 a s223:Property .
+
+bldg:3XTGvWWC324 a s223:Property .
+
+bldg:3guQLld1613 a s223:Property .
+
+bldg:43FVUfSO513 a s223:Property .
+
+bldg:4IPWQXwG499 a s223:Property .
+
+bldg:4Rrrzu8X112 a s223:Property .
+
+bldg:4rXTsvl8626 a s223:Property .
+
+bldg:5bZE9KPU398 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:5bqVizuS121 a s223:Property .
+
+bldg:5dbM7uSg140 a s223:Property .
+
+bldg:5gTCdYxj397 a s223:Property .
+
+bldg:5tB9MMZg731 a s223:Property .
+
+bldg:623nVIDX242 a s223:Property .
+
+bldg:63lsoErD333 a s223:Property .
+
+bldg:64umgWqg145 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:68PIcWok524 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:mloUlnTr344 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:6Fc389nI683 a s223:Property .
+
+bldg:6QbfmhT7556 a s223:Property .
+
+bldg:6bnkvlNt652 a s223:Property .
+
+bldg:6ilvIvzU565 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:zBJaEiY8569 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:6qsRXQuh547 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:2cqxRHOT374 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:6uFG5dzK443 a s223:Property .
+
+bldg:6vdhAWUy53 a s223:Property .
+
+bldg:6xOWNSi5686 a s223:Property .
+
+bldg:78Qbi7Fo352 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:a4DCmbwh420 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:7Dp2H8cV28 a s223:Property .
+
+bldg:7EVSWwel54 a s223:Property .
+
+bldg:8FwuIKiz400 a s223:Property .
+
+bldg:8GlKOd4x501 a s223:Property .
+
+bldg:8H70yf2W500 a s223:Property .
+
+bldg:8LRMDIfu1 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:u2Gofjuj36 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:8TRSm0yb694 a s223:Property .
+
+bldg:8gtPpClW347 a s223:Property .
+
+bldg:8owrUlCy488 a s223:Property .
+
+bldg:8sUaqqEN251 a s223:Property .
+
+bldg:8tnBfbam717 a s223:Property .
+
+bldg:8us4wZoB527 a s223:Property .
+
+bldg:8vNnM3Q9281 a s223:Property .
+
+bldg:92GZ21qy669 a s223:Property .
+
+bldg:96mgbLhR698 a s223:Property .
+
+bldg:9IuE6aD4408 a s223:Property .
+
+bldg:9XJ6mxlF607 a s223:Property .
+
+bldg:9eavFwUT510 a s223:Property .
+
+bldg:9lxcZAhj411 a s223:Property .
+
+bldg:9vm07mJo303 a s223:Property .
+
+bldg:A1vqK9o3474 a s223:Zone ;
+    s223:hasDomainSpace bldg:fQh3EPhM279 .
+
+bldg:A28yMdjI727 a s223:Property .
+
+bldg:A2H0TcSR265 a s223:Property .
+
+bldg:A5gxOk7I246 a s223:Property .
+
+bldg:A6MsqLEa196 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:7ogANx6y438,
+        bldg:LPYiKKft166,
+        bldg:YGy0DlLD291 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:A8C7sDb8542 a s223:Property .
+
+bldg:AENjN3gP485 a s223:Property .
+
+bldg:AGz0uigg616 a s223:Property .
+
+bldg:AIazYboH310 a s223:Property .
+
+bldg:AMx4OqwR585 a s223:Property .
+
+bldg:AOowjS3s200 a s223:InletConnectionPoint ;
+    s223:cnx bldg:RM965Pre245 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:AhiUXtGc158 a s223:Property .
+
+bldg:AiHjJ42V505 a s223:Property .
+
+bldg:Apko0TOe520 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:pv235IR9229 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:B6FE30H9431 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:BDhOHrV4294 a s223:Property .
+
+bldg:BGW6QV5a365 a s223:Property .
+
+bldg:BK38QZsU378 a s223:Property .
+
+bldg:BOMzANzv609 a s223:Property .
+
+bldg:BQJOnp4Z405 a s223:Property .
+
+bldg:Bars4Qiw640 a s223:Property .
+
+bldg:Bavy4RGh300 a s223:Property .
+
+bldg:BiKiJvUX264 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:zfZqPzxh78 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:BkPwVqqD211 a s223:Property .
+
+bldg:BmRoDMbH282 a s223:Property .
+
+bldg:BmiW3IeK330 a s223:InletConnectionPoint ;
+    s223:cnx bldg:KJ4qilWW90 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Bw820R5q564 a s223:Property .
+
+bldg:BweTdcZc734 a s223:Property .
+
+bldg:Byn6E8gO452 a s223:Property .
+
+bldg:BzEVKtGn517 a s223:Property .
+
+bldg:BzI358uK548 a s223:Property .
+
+bldg:C5x2eg5n552 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:CFGTr5PD703 a s223:Property .
+
+bldg:CJ1DEcTJ550 a s223:InletConnectionPoint ;
+    s223:cnx bldg:6bLp9flF404 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:CN4cei2d469 a s223:Property .
+
+bldg:Cdu8B5yL721 a s223:Property .
+
+bldg:CjlWK9CJ614 a s223:Property .
+
+bldg:CjzaIXkb84 a s223:Zone ;
+    s223:hasDomainSpace bldg:JZpXRk7j85 .
+
+bldg:CnMwKxSw722 a s223:Property .
+
+bldg:CvcDVwXb732 a s223:Property .
+
+bldg:D85kMkpV199 a s223:Zone ;
+    s223:hasDomainSpace bldg:hhEGdtVl86 .
+
+bldg:DB4jPnBR182 a s223:Property .
+
+bldg:DI4zZZaK596 a s223:Property .
+
+bldg:DJcv3yHv24 a s223:Zone ;
+    s223:hasDomainSpace bldg:l92k62No339 .
+
+bldg:DKILFFQg141 a s223:Property .
+
+bldg:DOizSdRW263 a s223:Property .
+
+bldg:DQeszBU4308 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:DSsuai6P305 a s223:Property .
+
+bldg:Dkr0wcGv575 a s223:Property .
+
+bldg:DpuKlvDH359 a s223:Property .
+
+bldg:Drg7wuMG545 a s223:Property .
+
+bldg:DwHnH9VM188 a s223:Property .
+
+bldg:Dz882TVg512 a s223:Property .
+
+bldg:EECalLEb691 a s223:Property .
+
+bldg:EQAcxCp6184 a s223:Property .
+
+bldg:EQzB53f7638 a s223:Property .
+
+bldg:EZSlzZGK728 a s223:Property .
+
+bldg:EZz9fZQp228 a s223:Property .
+
+bldg:EcN8rl11338 a s223:Property .
+
+bldg:EjMMSC6o457 a s223:Property .
+
+bldg:Erja8lFx642 a s223:Property .
+
+bldg:Eyayq3X6573 a s223:Zone ;
+    s223:hasDomainSpace bldg:Bw5SFPyQ153 .
+
+bldg:F3HACdVG566 a s223:Property .
+
+bldg:F94V6Wtc568 a s223:Property .
+
+bldg:FH3r8YjZ498 a s223:Property .
+
+bldg:FILtUqua61 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:FIfPcag7716 a s223:Property .
+
+bldg:FLhQGoyk285 a s223:Property .
+
+bldg:FLmmbtyv593 a s223:Property .
+
+bldg:FYIcJaa7151 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:FYM9ZDRH162 a s223:Property .
+
+bldg:FaMdMTDp711 a s223:Property .
+
+bldg:FdCuGpKh318 a s223:Property .
+
+bldg:Ff6v2gRS687 a s223:Property .
+
+bldg:FnaIubRR671 a s223:Property .
+
+bldg:GPHBK44m546 a s223:Property .
+
+bldg:GeLznk7B608 a s223:Property .
+
+bldg:GpbWkzvj272 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:H4CKNZX3327 a s223:Property .
+
+bldg:H6rIevrr217 a s223:Property .
+
+bldg:HHwN4gbR458 a s223:Property .
+
+bldg:HK7lUNlx570 a s223:Property .
+
+bldg:HKS1Km7t417 a s223:Property .
+
+bldg:HnEWaTyu25 a s223:InletConnectionPoint ;
+    s223:cnx bldg:ppGOzxUO461 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:HxYjpkgw723 a s223:Property .
+
+bldg:ICJhYnMh502 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:ycc1XAmy539 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:IFF17HlG91 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:YrAIzI2Z636 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:IFWMjzpU234 a s223:Property .
+
+bldg:IGxjFfcJ391 a s223:Property .
+
+bldg:IHwsXFEd148 a s223:Property .
+
+bldg:IRYKNJSk554 a s223:Property .
+
+bldg:Ian93K3n253 a s223:Property .
+
+bldg:IbkWeJJ392 a s223:Property .
+
+bldg:Icnst2fT462 a s223:Property .
+
+bldg:Id6omeaY618 a s223:Property .
+
+bldg:IgMImfKa425 a s223:Property .
+
+bldg:IhEJlHfg266 a s223:Property .
+
+bldg:IlzCfdpJ178 a s223:Property .
+
+bldg:IoXA6pCO482 a s223:Property .
+
+bldg:IykIHrA6406 a s223:Property .
+
+bldg:JQ8nKjpn317 a s223:Property .
+
+bldg:JRYQ0Pkj668 a s223:Property .
+
+bldg:JT9zW0JH460 a s223:Property .
+
+bldg:JVdCCRwo139 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:HJNxzNTm377 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:JgZmP7W1222 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:QiSa40Uc204 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:JgoL9Asa43 a s223:Zone ;
+    s223:hasDomainSpace bldg:0ENdeWZ9507 .
+
+bldg:KAPsditQ705 a s223:Property .
+
+bldg:KVjm1suN40 a s223:Property .
+
+bldg:Kz0pPiAz447 a s223:Property .
+
+bldg:L345iKtf230 a s223:Property .
+
+bldg:LDW4IsdM175 a s223:Property .
+
+bldg:LLIjTbes480 a s223:Property .
+
+bldg:LR9ZdCft270 a s223:Property .
+
+bldg:Lc7fmxrR558 a s223:Property .
+
+bldg:LfrKDvtR494 a s223:Property .
+
+bldg:M03T1Osh590 a s223:Property .
+
+bldg:MZfM68z576 a s223:Property .
+
+bldg:Mbq5Pbrh384 a s223:Zone ;
+    s223:hasDomainSpace bldg:ywRM1Vq0375 .
+
+bldg:MnXu0zCr521 a s223:Property .
+
+bldg:MrxJTMzK533 a s223:Property .
+
+bldg:N1dhYFHB248 a s223:Property .
+
+bldg:NCfjE3sy388 a s223:Property .
+
+bldg:NKmzChn3695 a s223:Property .
+
+bldg:NMAquvNL525 a s223:Property .
+
+bldg:NMGVJRjp6 a s223:Property .
+
+bldg:NOqAyVrz95 a s223:Property .
+
+bldg:NRqvpWO2538 a s223:Property .
+
+bldg:NVxddJYc526 a s223:Property .
+
+bldg:NZwPcqUe32 a s223:Property .
+
+bldg:Naj2IY7u422 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:Zs8tKbZd423 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:NzYF9trZ71 a s223:InletConnectionPoint ;
+    s223:cnx bldg:OATdW6VI72 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:OGMHzt1c415 a s223:Property .
+
+bldg:OH6sK9Pi653 a s223:Property .
+
+bldg:OVduJYen223 a s223:Property .
+
+bldg:ObuUXMwL470 a s223:Property .
+
+bldg:Ogvl9IxI221 a s223:Property .
+
+bldg:OitazoMi33 a s223:Property .
+
+bldg:Ol8WqVxj630 a s223:Property .
+
+bldg:Om2ZBTlu348 a s223:Property .
+
+bldg:Oq2zp9cV592 a s223:Property .
+
+bldg:OqJYFPtO561 a s223:Zone ;
+    s223:hasDomainSpace bldg:1D9PCTvO190 .
+
+bldg:P1T4KDUx413 a s223:Property .
+
+bldg:PDUdG6M7567 a s223:Property .
+
+bldg:POBSnoEX220 a s223:Property .
+
+bldg:POYOG4vH50 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:sToCrRbp11 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:PQ6g1VTo146 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:Bpb9K4vR147 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:PYXNUT4z622 a s223:Property .
+
+bldg:PfhSCbDw369 a s223:Property .
+
+bldg:Pj1x4yV9368 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:LZjshvIF340 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Pn0dKdfh410 a s223:Property .
+
+bldg:PpGVDH2W693 a s223:Property .
+
+bldg:PsIURTJR98 a s223:Property .
+
+bldg:Psto09XI268 a s223:Property .
+
+bldg:QBVEFGr2508 a s223:Property .
+
+bldg:QDuOrrDB450 a s223:Property .
+
+bldg:QJLvDdC4720 a s223:Property .
+
+bldg:QepA5FxZ177 a s223:Property .
+
+bldg:QyQPIkcv290 a s223:Property .
+
+bldg:R3ED751E437 a s223:Property .
+
+bldg:RBZT3LgB60 a s223:Property .
+
+bldg:RKFQ0gQm301 a s223:Property .
+
+bldg:RLHZynfX361 a s223:Property .
+
+bldg:RMUkjBlQ650 a s223:Property .
+
+bldg:RUjlJS2G451 a s223:Property .
+
+bldg:RWLoSYzL125 a s223:Property .
+
+bldg:RjjrHgIU104 a s223:Property .
+
+bldg:RnxgaPCJ313 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:YANvPsKv403 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:RsJOTyRV373 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:sKh9n6ON367 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:RwSEFHRv725 a s223:Property .
+
+bldg:Ryebz4nq625 a s223:Property .
+
+bldg:SHR7NmsT202 a s223:Property .
+
+bldg:SNM2CkIx432 a s223:Property .
+
+bldg:SWdxEIhn26 a s223:InletConnectionPoint ;
+    s223:cnx bldg:6xP216Xu27 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Sc4tvhjD675 a s223:Property .
+
+bldg:Sdefyk2F453 a s223:Property .
+
+bldg:ShD9cTbT657 a s223:Property .
+
+bldg:Sl1pl6Fd257 a s223:Property .
+
+bldg:TDqABU0r96 a s223:Property .
+
+bldg:THQzcGJ2699 a s223:Property .
+
+bldg:TVcbqnuL495 a s223:Property .
+
+bldg:ThWLqthY418 a s223:Property .
+
+bldg:TwCN5osY633 a s223:Property .
+
+bldg:TzXsNquA709 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:U1hZGouA105 a s223:Property .
+
+bldg:UKCR4ikt506 a s223:Property .
+
+bldg:UO8KAp1R385 a s223:Property .
+
+bldg:UaBfI98z181 a s223:Property .
+
+bldg:UhFyLjeu478 a s223:Property .
+
+bldg:UirruOFD180 a s223:Property .
+
+bldg:UmpHiiaF684 a s223:Property .
+
+bldg:UoqkY0I8311 a s223:Property .
+
+bldg:UsclunZI160 a s223:Property .
+
+bldg:VADCR37f329 a s223:Property .
+
+bldg:VC3B19c0165 a s223:Property .
+
+bldg:VJOop015269 a s223:Property .
+
+bldg:VWN27D7i700 a s223:Property .
+
+bldg:VaZzJCtS350 a s223:InletConnectionPoint ;
+    s223:cnx bldg:kyIAgAAq325 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:VjTSmMZe302 a s223:Property .
+
+bldg:VqQDkbdh119 a s223:Property .
+
+bldg:VsFuWvhR696 a s223:Property .
+
+bldg:VxztVz7U678 a s223:Property .
+
+bldg:W3TZaen0193 a s223:Property .
+
+bldg:W6gKcA3D588 a s223:Property .
+
+bldg:WCO1s9k6371 a s223:Property .
+
+bldg:WGa88KpK100 a s223:Property .
+
+bldg:WPqT5Y5a243 a s223:Property .
+
+bldg:WRK2mKVC518 a s223:Property .
+
+bldg:WWEb07ge475 a s223:Property .
+
+bldg:WuPU14KR314 a s223:Property .
+
+bldg:X4sMFe5s315 a s223:Property .
+
+bldg:X7qGsxWN226 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:fRZgGyXp407 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:XFJXcuzI641 a s223:Property .
+
+bldg:XFKgdwEK13 a s223:Property .
+
+bldg:XGPv8y1i250 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:UzGWRDPZ9 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:XNOVp9HT504 a s223:Property .
+
+bldg:XOUN8kPW704 a s223:Property .
+
+bldg:XTtqLoYq62 a s223:Property .
+
+bldg:XUnvZPVH379 a s223:Property .
+
+bldg:Xb2Umhee578 a s223:Zone ;
+    s223:hasDomainSpace bldg:aXesx0LV529 .
+
+bldg:XbxjbVGO440 a s223:Property .
+
+bldg:XejeTmGZ430 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:Ni3KygW6134 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:XfllCghn64 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:aldnlUFo357 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:XicToC0o163 a s223:Property .
+
+bldg:XilF683D52 a s223:Property .
+
+bldg:Xj6uikWe288 a s223:Property .
+
+bldg:Xl587ek2331 a s223:Property .
+
+bldg:XtEgfFzK714 a s223:Property .
+
+bldg:Xx7MnV9M582 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:sqU19ImJ557 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Y58UmaUu621 a s223:Property .
+
+bldg:Y9zqxDV9439 a s223:Property .
+
+bldg:YNHhSLEz619 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:DIzYHxOI118 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:YWSLXpyI380 a s223:Property .
+
+bldg:YXuvqR93680 a s223:Property .
+
+bldg:Yd312zEW8 a s223:Property .
+
+bldg:Ygf9AVps395 a s223:Property .
+
+bldg:Ylc18ast79 a s223:Property .
+
+bldg:YvDRN9UO586 a s223:Property .
+
+bldg:YyHEB35D215 a s223:Property .
+
+bldg:YyQj2Iy8401 a s223:Property .
+
+bldg:Z0tP1UUY63 a s223:Property .
+
+bldg:Z2DoAd6l729 a s223:Property .
+
+bldg:Z7Y7K9Wz473 a s223:Property .
+
+bldg:ZRPEBwtF605 a s223:Property .
+
+bldg:ZWTrzHXg197 a s223:Property .
+
+bldg:ZXs8g4EQ710 a s223:Property .
+
+bldg:ZotMqDuZ658 a s223:Property .
+
+bldg:ZqVdMHjN120 a s223:Property .
+
+bldg:Zxvrq94N58 a s223:Property .
+
+bldg:a70uE0SG549 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:7ogANx6y438,
+        bldg:I4kSJoAo387,
+        bldg:Wz33MaP8307 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:aCEZqY31726 a s223:Property .
+
+bldg:aEEVP7EU628 a s223:Property .
+
+bldg:aR68jkur483 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:KDRab1lr370 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:aSxGPlEF321 a s223:Property .
+
+bldg:aW3DdhoM10 a s223:Property .
+
+bldg:aayxLNPa135 a s223:Property .
+
+bldg:abO6cJpI126 a s223:Property .
+
+bldg:ahCEQS5L674 a s223:Property .
+
+bldg:am0psWhp536 a s223:Property .
+
+bldg:amTwuuDu463 a s223:InletConnectionPoint ;
+    s223:cnx bldg:fVWrrgPi606 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:ampN5M6z155 a s223:Property .
+
+bldg:aspofRVz673 a s223:Property .
+
+bldg:auqKqKUP540 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:4L9brF9m219 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:b0Vw0Hfu661 a s223:Property .
+
+bldg:b0bYoR4s235 a s223:Property .
+
+bldg:b5tdvVHM39 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:tGPgeyRr355 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:b7quGGYu304 a s223:Property .
+
+bldg:bAO38ew0659 a s223:Property .
+
+bldg:bPzPfE0b208 a s223:Property .
+
+bldg:bjwSmEDY138 a s223:InletConnectionPoint ;
+    s223:cnx bldg:LBWzUtoZ442 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:bmwNDMBo189 a s223:Property .
+
+bldg:bv1gEnHC516 a s223:Property .
+
+bldg:c55ERd9O579 a s223:Property .
+
+bldg:cSYfdDrm581 a s223:Property .
+
+bldg:cVIxcjt6428 a s223:Property .
+
+bldg:cco5G0ww109 a s223:Property .
+
+bldg:ce1QTuYQ645 a s223:Property .
+
+bldg:chYXc2Hf209 a s223:Property .
+
+bldg:d47mkgmr598 a s223:Property .
+
+bldg:dG8Mb14K157 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:b5o6D1k8312 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:dIA9WbxS503 a s223:Property .
+
+bldg:dLYt0KIT319 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:z7sTel3w320 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:dLiXXfRO677 a s223:Property .
+
+bldg:dLtagbpO102 a s223:Property .
+
+bldg:dM8fVsB1128 a s223:Property .
+
+bldg:dNyDIb1f30 a s223:Property .
+
+bldg:dRbzd96q624 a s223:Property .
+
+bldg:dXclVeMM68 a s223:Property .
+
+bldg:dpBtyGVs426 a s223:Property .
+
+bldg:dv8t7etb101 a s223:InletConnectionPoint ;
+    s223:cnx bldg:CsJNd2CT297 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:e4vIsiWl468 a s223:Property .
+
+bldg:eB82ESsz572 a s223:Property .
+
+bldg:eEFGKLjU634 a s223:Property .
+
+bldg:eG3zyZ9q227 a s223:Property .
+
+bldg:eUE5e5PX665 a s223:Property .
+
+bldg:eYVjKc2H376 a s223:Property .
+
+bldg:ecd7CKje544 a s223:Property .
+
+bldg:eeOB8MgU258 a s223:Property .
+
+bldg:faUBFM0r328 a s223:Property .
+
+bldg:foQtkGTm51 a s223:Zone ;
+    s223:hasDomainSpace bldg:S2mP0f6B130 .
+
+bldg:g2hpUjqr205 a s223:Property .
+
+bldg:g3qzAIYU159 a s223:Property .
+
+bldg:gHnnB5M8660 a s223:Property .
+
+bldg:gLk9yKEE492 a s223:Property .
+
+bldg:gNnrVXOC80 a s223:Property .
+
+bldg:gTkJSV5q144 a s223:Property .
+
+bldg:gVvM2yT0584 a s223:Property .
+
+bldg:gZeCtbpn88 a s223:Property .
+
+bldg:gi7rudNl471 a s223:Property .
+
+bldg:glgoIDP1637 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:gwDTFBgu386 a s223:Property .
+
+bldg:h1HJVDHg627 a s223:Property .
+
+bldg:h1vC0T9f261 a s223:Property .
+
+bldg:h2TDS8tK491 a s223:Property .
+
+bldg:hArHF3vQ332 a s223:Property .
+
+bldg:hEsPEO3q57 a s223:Property .
+
+bldg:hHvHDqHX706 a s223:Property .
+
+bldg:hWbmQhsU632 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:oxQSXazW393 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:hb1yL0CD489 a s223:Property .
+
+bldg:hbzBi4s3496 a s223:Property .
+
+bldg:hc3Dbncd465 a s223:Property .
+
+bldg:hlzlZfkY164 a s223:InletConnectionPoint ;
+    s223:cnx bldg:qZg3DGvk316 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:huBkPTt347 a s223:Property .
+
+bldg:i5FC279i42 a s223:Property .
+
+bldg:iF4Ps693455 a s223:Property .
+
+bldg:iIxfp8YJ19 a s223:Property .
+
+bldg:iXytWfe3466 a s223:Property .
+
+bldg:ihjgobmS409 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:DRxxau5r601 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:ikpIYzy6267 a s223:Property .
+
+bldg:imGQbxsN364 a s223:Property .
+
+bldg:ioTvjCUk620 a s223:Property .
+
+bldg:it3gOFqs346 a s223:Property .
+
+bldg:j2H3mPKN459 a s223:Property .
+
+bldg:jQzoNFpE449 a s223:Property .
+
+bldg:jg3A1UJs363 a s223:Property .
+
+bldg:jovDhEAu490 a s223:Property .
+
+bldg:jvwVpeCP113 a s223:Property .
+
+bldg:jzaXcBgr18 a s223:Property .
+
+bldg:k2TI3Lop94 a s223:Property .
+
+bldg:k3wwPhlD256 a s223:Property .
+
+bldg:k4hs5wzV366 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:k7bZLWZl77 a s223:Property .
+
+bldg:k9SCuzPO639 a s223:Property .
+
+bldg:k9jK8rib299 a s223:Property .
+
+bldg:kD0JJ9d8467 a s223:Property .
+
+bldg:kDRE3DUv730 a s223:Property .
+
+bldg:kFseE2Gu259 a s223:Property .
+
+bldg:kGOIcLN369 a s223:Property .
+
+bldg:kHNazrP9535 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:Bu4g61ix595 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:kM7guewr611 a s223:Property .
+
+bldg:kRmHNN413 a s223:Property .
+
+bldg:kTFJDV86733 a s223:Property .
+
+bldg:kZgm2SrI167 a s223:Property .
+
+bldg:keSLYNqb292 a s223:Property .
+
+bldg:kisv88nM617 a s223:Property .
+
+bldg:kj3sqdkV172 a s223:Property .
+
+bldg:kqvBWN1q116 a s223:Property .
+
+bldg:kzfTJ9bq477 a s223:Property .
+
+bldg:lE8LcZi7133 a s223:Property .
+
+bldg:lFg52ycl676 a s223:Property .
+
+bldg:lHKbBogi360 a s223:Property .
+
+bldg:lLG59Xtj103 a s223:Property .
+
+bldg:lWLKQe4Q20 a s223:Property .
+
+bldg:lYkEQ56t74 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:liyqPmCq646 a s223:Property .
+
+bldg:lxP4dWSz534 a s223:Property .
+
+bldg:m328k0r2185 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:TBNExYHv73 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:m7ruFhFk35 a s223:Property .
+
+bldg:mFL9S4d381 a s223:Property .
+
+bldg:mONm5u1W486 a s223:Property .
+
+bldg:mOTBZ7kZ629 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:y62223k0107 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:mOefS7S2337 a s223:InletConnectionPoint ;
+    s223:cnx bldg:GdX6ebua93 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:mqVBj8y7583 a s223:Property .
+
+bldg:mxsELDK0631 a s223:Property .
+
+bldg:nOEfljZj247 a s223:Property .
+
+bldg:nXI8C3KK296 a s223:Property .
+
+bldg:naKaiFiR735 a s223:Property .
+
+bldg:nu6PS7KL142 a s223:Property .
+
+bldg:nydMm2sy99 a s223:Property .
+
+bldg:o0zvQeQ9399 a s223:Property .
+
+bldg:oDz0RwQF295 a s223:Zone ;
+    s223:hasDomainSpace bldg:GxMYJptn341 .
+
+bldg:oK7zxF7U231 a s223:Property .
+
+bldg:oP0BiWJF666 a s223:Property .
+
+bldg:oXR1MWiT358 a s223:Property .
+
+bldg:oXRs7bN0244 a s223:Property .
+
+bldg:ou68VyQC75 a s223:Property .
+
+bldg:ovbb4ZUN667 a s223:Property .
+
+bldg:oxaZfQm7173 a s223:Property .
+
+bldg:p1e1yE3a690 a s223:Property .
+
+bldg:pLGKDRau531 a s223:Property .
+
+bldg:pLsIXJvM306 a s223:Property .
+
+bldg:pmrl70MT697 a s223:Property .
+
+bldg:pq7k6P56580 a s223:Property .
+
+bldg:qC7RydYR236 a s223:Property .
+
+bldg:qDTHKvJG274 a s223:Property .
+
+bldg:qDolTSzw237 a s223:Property .
+
+bldg:qQaQbyXN143 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:2LtLpWoS161 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:qbFfbY0q563 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:qjEpY9zm713 a s223:Property .
+
+bldg:qk0KEHEs152 a s223:Property .
+
+bldg:qrABXzO35 a s223:Property .
+
+bldg:qswxGnQs203 a s223:Property .
+
+bldg:qymdKzVx183 a s223:Property .
+
+bldg:rBKk78MR654 a s223:Property .
+
+bldg:rKgzP8aC597 a s223:Property .
+
+bldg:rL5z0LAt522 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:6NN28wB9298 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:rMyJfCZe149 a s223:Property .
+
+bldg:rVI4kFO4715 a s223:Property .
+
+bldg:rb0HCcHX479 a s223:Property .
+
+bldg:rjJMVdMH497 a s223:Property .
+
+bldg:rqZiPUZz599 a s223:Property .
+
+bldg:rwcACieq343 a s223:Property .
+
+bldg:s2Ljc1TA14 a s223:Property .
+
+bldg:sBA1j4j7681 a s223:Property .
+
+bldg:sFwGVsbt454 a s223:Property .
+
+bldg:sHGQmLJJ284 a s223:Property .
+
+bldg:sOUr0Ft7551 a s223:Property .
+
+bldg:sWZHD9Rv718 a s223:Property .
+
+bldg:soPsVTmS509 a s223:Property .
+
+bldg:t96sYoEt672 a s223:Property .
+
+bldg:tKWo2E74174 a s223:Property .
+
+bldg:tU9Eoc89553 a s223:Property .
+
+bldg:tXlEbFF417 a s223:Property .
+
+bldg:teY5U5E9122 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:krojkNhZ123 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:tgKrO5QJ562 a s223:Property .
+
+bldg:tx9vvKaN643 a s223:Property .
+
+bldg:u0Qbladg394 a s223:Property .
+
+bldg:u0vowooI587 a s223:Property .
+
+bldg:u6Y7JUSp382 a s223:Property .
+
+bldg:u9A3JC4v396 a s223:Property .
+
+bldg:uCwEUFeI345 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:YKbncoJN336 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:uFrX7xnE289 a s223:Property .
+
+bldg:uIXkCjxk262 a s223:Property .
+
+bldg:uJHqili6555 a s223:Property .
+
+bldg:uKsKkrvC278 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:uVlW5FMz445 a s223:InletConnectionPoint ;
+    s223:cnx bldg:BfCfCErP353 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:uY62VM2Z212 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:uZvUst1d249 a s223:Property .
+
+bldg:ud7J9AVE472 a s223:Property .
+
+bldg:unnwX96V612 a s223:Property .
+
+bldg:upm0PChq392 a s223:Property .
+
+bldg:utCNURKY464 a s223:Zone ;
+    s223:hasDomainSpace bldg:0JY0g7qM114 .
+
+bldg:v5eUBPH9688 a s223:Property .
+
+bldg:v7wMzubD603 a s223:Property .
+
+bldg:vCckh3qm171 a s223:Property .
+
+bldg:vGQfwGxo176 a s223:InletConnectionPoint ;
+    s223:cnx bldg:hqp0aUUN168 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:vSIJ8NlE383 a s223:Property .
+
+bldg:vU3ur82K446 a s223:Property .
+
+bldg:vdeJpxV6519 a s223:Property .
+
+bldg:vpv124Ym692 a s223:Property .
+
+bldg:vsUKymXq349 a s223:Property .
+
+bldg:vu9zOfwM424 a s223:Property .
+
+bldg:vzBlE2To67 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:ZQWKM3Xf427 ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:w7kgo2O9515 a s223:Property .
+
+bldg:wNOVnIZF56 a s223:Zone ;
+    s223:hasDomainSpace bldg:69YmeewV225 .
+
+bldg:wOwVISrs322 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:RAqCG5XN150 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:wPjv4TDv194 a s223:Property .
+
+bldg:wXGXACOn615 a s223:Property .
+
+bldg:wkXGo4i4293 a s223:Property .
+
+bldg:wuTdQPXM240 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:x3i2Av0y635 a s223:Zone ;
+    s223:hasDomainSpace bldg:SxEQX4sJ169 .
+
+bldg:x7dyDalR662 a s223:Property .
+
+bldg:x8qpC6do22 a s223:Property .
+
+bldg:xOLTWPRc201 a s223:Property .
+
+bldg:xXQ2COqa476 a s223:Property .
+
+bldg:xbWBjIUV685 a s223:Property .
+
+bldg:xe6iyHRh124 a s223:Property .
+
+bldg:xkPNWwGl511 a s223:Property .
+
+bldg:xoor51GZ656 a s223:Property .
+
+bldg:xyPniRv8689 a s223:Property .
+
+bldg:xzJt4dlA106 a s223:Property .
+
+bldg:yBDnSRGq448 a s223:Zone ;
+    s223:hasDomainSpace bldg:7hDuwsKa433 .
+
+bldg:yBpJjQAV389 a s223:OutletConnectionPoint ;
+    s223:cnx bldg:7Yn4H59D273 ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:yEgZyQ1Q323 a s223:Property .
+
+bldg:yGOCEGrc574 a s223:Property .
+
+bldg:ySSX5ktC648 a s223:Property .
+
+bldg:yWBwpMko108 a s223:Property .
+
+bldg:yWDcNzn566 a s223:Property .
+
+bldg:yYXAVD56701 a s223:Property .
+
+bldg:yeMJuIf6110 a s223:Property .
+
+bldg:yj2FqHQf46 a s223:Property .
+
+bldg:ysvOnPUf402 a s223:Property .
+
+bldg:yv7T4UKl283 a s223:Property .
+
+bldg:z8ZzNk0059 a s223:Property .
+
+bldg:zAqEeio8537 a s223:Property .
+
+bldg:zMrwrAr4487 a s223:Property .
+
+bldg:zsHPjPeK213 a s223:Property .
+
+bldg:0ENdeWZ9507 a s223:DomainSpace ;
+    rdfs:label "pCAgkItV708" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:0JY0g7qM114 a s223:DomainSpace ;
+    rdfs:label "UTDsJ6Hg115" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:1D9PCTvO190 a s223:DomainSpace ;
+    rdfs:label "b9ArGhGz191" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:2LtLpWoS161 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:2YHhZBOC436 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:ZQWKM3Xf427 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:2cqxRHOT374 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:4L9brF9m219 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:5CujzlPl16 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:I4kSJoAo387 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:69YmeewV225 a s223:DomainSpace ;
+    rdfs:label "eA8iSgwt651" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:6NN28wB9298 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:6bLp9flF404 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:6xP216Xu27 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:7Yn4H59D273 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:7hDuwsKa433 a s223:DomainSpace ;
+    rdfs:label "bkEZNng1604" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:Aejif8Bk444 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:HJNxzNTm377 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:BfCfCErP353 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Bpb9K4vR147 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Bu4g61ix595 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:Bw5SFPyQ153 a s223:DomainSpace ;
+    rdfs:label "hVUyErhf154" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:CsJNd2CT297 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:DIzYHxOI118 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:DRxxau5r601 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:GN1Awftu326 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:oxQSXazW393 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:GdX6ebua93 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:GxMYJptn341 a s223:DomainSpace ;
+    rdfs:label "GJKlopxp342" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:HJNxzNTm377 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:I4kSJoAo387 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:JZpXRk7j85 a s223:DomainSpace ;
+    rdfs:label "jepLXNMI594" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:KDRab1lr370 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:KJ4qilWW90 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:LBWzUtoZ442 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:LBuzrYpq381 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:LPYiKKft166 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:LZjshvIF340 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:MsfDn2du239 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:zBJaEiY8569 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:Ni3KygW6134 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:OATdW6VI72 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:QiSa40Uc204 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:RAqCG5XN150 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:RM965Pre245 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:S2mP0f6B130 a s223:DomainSpace ;
+    rdfs:label "2WPqsT1F187" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:SBePB6sI137 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:SrkSOnTF89 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:SxEQX4sJ169 a s223:DomainSpace ;
+    rdfs:label "FSBWEB23170" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:T0BGoPjX523 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:TBNExYHv73 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:THyJShKb260 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:LPYiKKft166 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:UzGWRDPZ9 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:Wz33MaP8307 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:YANvPsKv403 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:YGy0DlLD291 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:YKbncoJN336 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:YrAIzI2Z636 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:ZQWKM3Xf427 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:Zs8tKbZd423 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:a4DCmbwh420 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:aXesx0LV529 a s223:DomainSpace ;
+    rdfs:label "GlT4F9es530" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:alHbJI1n65 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:6NN28wB9298 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:aldnlUFo357 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:b5o6D1k8312 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:cy6UgObH571 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:Bu4g61ix595 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:fQh3EPhM279 a s223:DomainSpace ;
+    rdfs:label "kSCh7Ung280" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:fRZgGyXp407 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:fVWrrgPi606 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:hhEGdtVl86 a s223:DomainSpace ;
+    rdfs:label "30zahk8587" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:hqp0aUUN168 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:kCgqoP9T255 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:Wz33MaP8307 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:krojkNhZ123 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:kyIAgAAq325 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:l92k62No339 a s223:DomainSpace ;
+    rdfs:label "yETunHMe528" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:lvpLQvmp354 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:mloUlnTr344 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:n1QHuHay156 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:TBNExYHv73 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:nrvPmabu351 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:YGy0DlLD291 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:oxQSXazW393 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:oyQ1DgZx70 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:ppGOzxUO461 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:pv235IR9229 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:qVpgASw8541 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:QiSa40Uc204 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:qZg3DGvk316 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:sKh9n6ON367 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:sToCrRbp11 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:sqU19ImJ557 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:t0oRv7hG233 a s223:OutletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:tGPgeyRr355 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:u2Gofjuj36 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:uI19exSc276 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:uK99O8dv602 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:u2Gofjuj36 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:y62223k0107 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:yMqYCWkP117 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:DIzYHxOI118 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:ycc1XAmy539 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:ywRM1Vq0375 a s223:DomainSpace ;
+    rdfs:label "hDVQCsAu712" ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:z7sTel3w320 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:zBJaEiY8569 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:zfZqPzxh78 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Water .
+
+bldg:7ogANx6y438 a s223:InletConnectionPoint ;
+    s223:hasMedium s223:Fluid-Air .
+
+bldg:eiSIqkv6577 a s223:DomainSpace ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:gubXNnu8132 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:7ogANx6y438 ;
+    s223:hasDomain s223:Domain-HVAC .
+
+bldg:Z1aIUfiR29 a s223:DomainSpace ;
+    s223:hasConnectionPoint bldg:Zs8tKbZd423 ;
+    s223:hasDomain s223:Domain-HVAC .
+

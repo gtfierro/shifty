@@ -12,3 +12,4 @@
 /python/.ontoenv/
 /profile.json.gz
 /flamegraph.svg
+*.pyc

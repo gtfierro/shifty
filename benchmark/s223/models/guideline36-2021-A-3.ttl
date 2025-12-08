@@ -1,0 +1,309 @@
+@prefix g36: <http://data.ashrae.org/standard223/1.0/extensions/g36#> .
+@prefix mysystem: <http://data.ashrae.org/standard223/1.0/data/guideline36-2021-A-3#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtqk: <http://qudt.org/vocab/quantitykind/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+mysystem: a owl:Ontology ;
+    rdfs:label "" ;
+    owl:imports <http://data.ashrae.org/standard223/1.0/model/all> .
+
+mysystem:ParallelFpuConstantFan a s223:FanPoweredTerminal,
+        g36:FanPoweredTerminal ;
+    rdfs:label "Parallelfpuconstantfan" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-air-out,
+        mysystem:ParallelFpuConstantFan-hot-water-in,
+        mysystem:ParallelFpuConstantFan-hot-water-out,
+        mysystem:ParallelFpuConstantFan-return-air-from-plenum-in,
+        mysystem:ParallelFpuConstantFan-supply-air-in ;
+    s223:contains mysystem:ParallelFpuConstantFan-damper,
+        mysystem:ParallelFpuConstantFan-fan,
+        mysystem:ParallelFpuConstantFan-junction,
+        mysystem:ParallelFpuConstantFan-reheat-coil,
+        mysystem:ParallelFpuConstantFan-reheat-coil-valve .
+
+mysystem:ParallelFpuConstantFan-damper-actuator a s223:Actuator ;
+    rdfs:label "Parallelfpuconstantfan Damper Actuator" ;
+    s223:actuatedByProperty mysystem:ParallelFpuConstantFan-damper-command ;
+    s223:actuates mysystem:ParallelFpuConstantFan-damper .
+
+mysystem:ParallelFpuConstantFan-discharge-air-temp-sensor a s223:Sensor ;
+    rdfs:label "Parallelfpuconstantfan Discharge Air Temp Sensor" ;
+    s223:hasObservationLocation mysystem:ParallelFpuConstantFan-air-out ;
+    s223:observes mysystem:ParallelFpuConstantFan-discharge-air-temp .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-return-water-temp-sensor a s223:Sensor ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Return Water Temp Sensor" ;
+    s223:hasObservationLocation mysystem:ParallelFpuConstantFan-reheat-coil-water-out ;
+    s223:observes mysystem:ParallelFpuConstantFan-reheat-coil-return-water-temp .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-supply-water-temp-sensor a s223:Sensor ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Supply Water Temp Sensor" ;
+    s223:hasObservationLocation mysystem:ParallelFpuConstantFan-reheat-coil-water-in ;
+    s223:observes mysystem:ParallelFpuConstantFan-reheat-coil-supply-water-temp .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-valve-actuator a s223:Actuator ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Valve Actuator" ;
+    s223:actuatedByProperty mysystem:ParallelFpuConstantFan-reheat-coil-valve-command ;
+    s223:actuates mysystem:ParallelFpuConstantFan-reheat-coil-valve .
+
+mysystem:ParallelFpuConstantFan-supply-air-flow-sensor a s223:Sensor ;
+    rdfs:label "Parallelfpuconstantfan Supply Air Flow Sensor" ;
+    s223:hasObservationLocation mysystem:ParallelFpuConstantFan-supply-air-in ;
+    s223:observes mysystem:ParallelFpuConstantFan-supply-air-flow .
+
+mysystem:PhysicalSpace a s223:PhysicalSpace ;
+    rdfs:label "Physicalspace" ;
+    s223:encloses mysystem:PhysicalSpace-hvac-domain .
+
+mysystem:zone a s223:Zone,
+        g36:Zone ;
+    rdfs:label "Zone" ;
+    s223:hasDomain s223:Domain-HVAC ;
+    s223:hasDomainSpace mysystem:PhysicalSpace-hvac-domain ;
+    s223:hasProperty mysystem:zone-co2-concentration,
+        mysystem:zone-temp .
+
+mysystem:ParallelFpuConstantFan-damper-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Damper In" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:ParallelFpuConstantFan-supply-air-in .
+
+mysystem:ParallelFpuConstantFan-damper-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Damper Out" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-duct-after-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-damper-position a s223:QuantifiableObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Damper Position" ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:ParallelFpuConstantFan-fan a s223:Fan,
+        g36:Fan ;
+    rdfs:label "Parallelfpuconstantfan Fan" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-fan-in,
+        mysystem:ParallelFpuConstantFan-fan-out ;
+    s223:hasProperty mysystem:ParallelFpuConstantFan-fan-start-cmd,
+        mysystem:ParallelFpuConstantFan-fan-start-status .
+
+mysystem:ParallelFpuConstantFan-fan-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Fan In" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-duct-after-reheat-coil ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-fan-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Fan Out" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-duct-after-fan ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-fan-start-cmd a s223:EnumeratedActuatableProperty ;
+    rdfs:label "Parallelfpuconstantfan Fan Start Cmd" ;
+    s223:hasEnumerationKind s223:Binary-OnOff .
+
+mysystem:ParallelFpuConstantFan-fan-start-status a s223:EnumeratedObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Fan Start Status" ;
+    s223:hasEnumerationKind s223:Binary-OnOff .
+
+mysystem:ParallelFpuConstantFan-junction a s223:Junction ;
+    rdfs:label "Parallelfpuconstantfan Junction" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-junction-in-1,
+        mysystem:ParallelFpuConstantFan-junction-in-2,
+        mysystem:ParallelFpuConstantFan-junction-out ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-junction-in-1 a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Junction In 1" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-duct-after-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-junction-in-2 a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Junction In 2" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-duct-after-fan ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-junction-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Junction Out" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:ParallelFpuConstantFan-air-out .
+
+mysystem:ParallelFpuConstantFan-reheat-coil a s223:HeatingCoil,
+        g36:HotWaterCoil ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-reheat-coil-air-in,
+        mysystem:ParallelFpuConstantFan-reheat-coil-air-out,
+        mysystem:ParallelFpuConstantFan-reheat-coil-water-in,
+        mysystem:ParallelFpuConstantFan-reheat-coil-water-out ;
+    s223:hasProperty mysystem:ParallelFpuConstantFan-reheat-coil-return-water-temp,
+        mysystem:ParallelFpuConstantFan-reheat-coil-supply-water-temp ;
+    s223:hasRole s223:Role-Heating .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-air-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Air In" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:ParallelFpuConstantFan-return-air-from-plenum-in .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-air-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Air Out" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-duct-after-reheat-coil ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-valve-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Valve In" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-pipe-hot-water-return-before-valve ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-valve-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Valve Out" ;
+    s223:hasMedium s223:Fluid-Water ;
+    s223:mapsTo mysystem:ParallelFpuConstantFan-hot-water-out .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-valve-position a s223:QuantifiableObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Valve Position" ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:PhysicalSpace-hvac-domain-in a s223:InletConnectionPoint ;
+    rdfs:label "Physicalspace Hvac Domain In" ;
+    s223:cnx mysystem:fpu-supply-to-room-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:PhysicalSpace-hvac-domain-out a s223:OutletConnectionPoint ;
+    rdfs:label "Physicalspace Hvac Domain Out" ;
+    s223:cnx mysystem:room-return-to-fpu-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:zone-co2-concentration a s223:QuantifiableObservableProperty ;
+    rdfs:label "Zone Co2 Concentration" ;
+    s223:ofMedium s223:Fluid-Air ;
+    s223:ofSubstance s223:Constituent-CO2 ;
+    qudt:hasQuantityKind qudtqk:MoleFraction ;
+    qudt:hasUnit unit:PPM .
+
+mysystem:zone-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Zone Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:ParallelFpuConstantFan-damper a s223:Damper,
+        g36:Damper ;
+    rdfs:label "Parallelfpuconstantfan Damper" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-damper-in,
+        mysystem:ParallelFpuConstantFan-damper-out ;
+    s223:hasProperty mysystem:ParallelFpuConstantFan-damper-command,
+        mysystem:ParallelFpuConstantFan-damper-position .
+
+mysystem:ParallelFpuConstantFan-damper-command a s223:QuantifiableActuatableProperty ;
+    rdfs:label "Parallelfpuconstantfan Damper Command" ;
+    s223:hasAspect s223:Binary-Position ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:ParallelFpuConstantFan-discharge-air-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Discharge Air Temp" ;
+    s223:hasAspect s223:Role-Discharge ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:ParallelFpuConstantFan-duct-after-damper a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Parallelfpuconstantfan Duct After Damper" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-duct-after-fan a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Parallelfpuconstantfan Duct After Fan" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-duct-after-reheat-coil a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Parallelfpuconstantfan Duct After Reheat Coil" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-hot-water-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Hot Water In" ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:ParallelFpuConstantFan-hot-water-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Hot Water Out" ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:ParallelFpuConstantFan-pipe-hot-water-return-before-valve a s223:Connection,
+        s223:Pipe ;
+    rdfs:label "Parallelfpuconstantfan Pipe Hot Water Return Before Valve" ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-return-water-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Return Water Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-supply-water-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Supply Water Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-valve a s223:Valve,
+        g36:HotWaterValve ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Valve" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-reheat-coil-valve-in,
+        mysystem:ParallelFpuConstantFan-reheat-coil-valve-out ;
+    s223:hasProperty mysystem:ParallelFpuConstantFan-reheat-coil-valve-command,
+        mysystem:ParallelFpuConstantFan-reheat-coil-valve-position .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-valve-command a s223:QuantifiableActuatableProperty ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Valve Command" ;
+    s223:hasAspect s223:Binary-Position ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-water-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Water In" ;
+    s223:hasMedium s223:Fluid-Water ;
+    s223:mapsTo mysystem:ParallelFpuConstantFan-hot-water-in .
+
+mysystem:ParallelFpuConstantFan-reheat-coil-water-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Reheat Coil Water Out" ;
+    s223:cnx mysystem:ParallelFpuConstantFan-pipe-hot-water-return-before-valve ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:ParallelFpuConstantFan-return-air-from-plenum-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Return Air From Plenum In" ;
+    s223:cnx mysystem:room-return-to-fpu-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-supply-air-flow a s223:QuantifiableObservableProperty ;
+    rdfs:label "Parallelfpuconstantfan Supply Air Flow" ;
+    s223:hasAspect s223:Role-Supply ;
+    qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+    qudt:hasUnit unit:FT3-PER-MIN .
+
+mysystem:PhysicalSpace-hvac-domain a s223:DomainSpace ;
+    rdfs:label "Physicalspace Hvac Domain" ;
+    s223:cnx mysystem:PhysicalSpace-hvac-domain-in,
+        mysystem:PhysicalSpace-hvac-domain-out ;
+    s223:hasDomain s223:Domain-HVAC .
+
+mysystem:fpu-supply-to-room-connection a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Fpu Supply To Room Connection" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:room-return-to-fpu-connection a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Room Return To Fpu Connection" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:ParallelFpuConstantFan-air-out a s223:OutletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Air Out" ;
+    s223:cnx mysystem:fpu-supply-to-room-connection ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:hasProperty mysystem:ParallelFpuConstantFan-discharge-air-temp .
+
+mysystem:ParallelFpuConstantFan-supply-air-in a s223:InletConnectionPoint ;
+    rdfs:label "Parallelfpuconstantfan Supply Air In" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:hasProperty mysystem:ParallelFpuConstantFan-supply-air-flow .

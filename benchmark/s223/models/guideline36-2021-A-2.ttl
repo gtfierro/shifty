@@ -1,0 +1,245 @@
+@prefix g36: <http://data.ashrae.org/standard223/1.0/extensions/g36#> .
+@prefix mysystem: <http://data.ashrae.org/standard223/1.0/data/guideline36-2021-A-2#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtqk: <http://qudt.org/vocab/quantitykind/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+mysystem: a owl:Ontology ;
+    rdfs:label "" ;
+    owl:imports <http://data.ashrae.org/standard223/1.0/model/all> .
+
+mysystem:PhysicalSpace a s223:PhysicalSpace ;
+    rdfs:label "Physicalspace" ;
+    s223:encloses mysystem:PhysicalSpace-hvac-domain .
+
+mysystem:VAVWithReheat a s223:SingleDuctTerminal,
+        g36:VAVWithReheat ;
+    rdfs:label "Vavwithreheat" ;
+    s223:cnx mysystem:VAVWithReheat-air-in,
+        mysystem:VAVWithReheat-air-out,
+        mysystem:VAVWithReheat-hot-water-in,
+        mysystem:VAVWithReheat-hot-water-out ;
+    s223:contains mysystem:VAVWithReheat-damper,
+        mysystem:VAVWithReheat-reheat-coil,
+        mysystem:VAVWithReheat-reheat-coil-valve .
+
+mysystem:VAVWithReheat-damper-actuator a s223:Actuator ;
+    rdfs:label "Vavwithreheat Damper Actuator" ;
+    s223:actuatedByProperty mysystem:VAVWithReheat-damper-command ;
+    s223:actuates mysystem:VAVWithReheat-damper .
+
+mysystem:VAVWithReheat-discharge-air-flow-sensor a s223:Sensor ;
+    rdfs:label "Vavwithreheat Discharge Air Flow Sensor" ;
+    s223:hasObservationLocation mysystem:VAVWithReheat-air-in ;
+    s223:observes mysystem:VAVWithReheat-discharge-air-flow .
+
+mysystem:VAVWithReheat-discharge-air-temp-sensor a s223:Sensor ;
+    rdfs:label "Vavwithreheat Discharge Air Temp Sensor" ;
+    s223:hasObservationLocation mysystem:VAVWithReheat-air-out ;
+    s223:observes mysystem:VAVWithReheat-discharge-air-temp .
+
+mysystem:VAVWithReheat-reheat-coil-return-water-temp-sensor a s223:Sensor ;
+    rdfs:label "Vavwithreheat Reheat Coil Return Water Temp Sensor" ;
+    s223:hasObservationLocation mysystem:VAVWithReheat-reheat-coil-water-out ;
+    s223:observes mysystem:VAVWithReheat-reheat-coil-return-water-temp .
+
+mysystem:VAVWithReheat-reheat-coil-supply-water-temp-sensor a s223:Sensor ;
+    rdfs:label "Vavwithreheat Reheat Coil Supply Water Temp Sensor" ;
+    s223:hasObservationLocation mysystem:VAVWithReheat-reheat-coil-water-in ;
+    s223:observes mysystem:VAVWithReheat-reheat-coil-supply-water-temp .
+
+mysystem:VAVWithReheat-reheat-coil-valve-actuator a s223:Actuator ;
+    rdfs:label "Vavwithreheat Reheat Coil Valve Actuator" ;
+    s223:actuatedByProperty mysystem:VAVWithReheat-reheat-coil-valve-command ;
+    s223:actuates mysystem:VAVWithReheat-reheat-coil-valve .
+
+mysystem:zone a s223:Zone,
+        g36:Zone ;
+    rdfs:label "Zone" ;
+    s223:hasDomain s223:Domain-HVAC ;
+    s223:hasDomainSpace mysystem:PhysicalSpace-hvac-domain ;
+    s223:hasProperty mysystem:zone-co2-concentration,
+        mysystem:zone-temp .
+
+mysystem:PhysicalSpace-hvac-domain-in a s223:InletConnectionPoint ;
+    rdfs:label "Physicalspace Hvac Domain In" ;
+    s223:cnx mysystem:vav-supply-to-room-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:PhysicalSpace-hvac-domain-out a s223:OutletConnectionPoint ;
+    rdfs:label "Physicalspace Hvac Domain Out" ;
+    s223:cnx mysystem:room-return-to-vav-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:VAVWithReheat-damper-in a s223:InletConnectionPoint ;
+    rdfs:label "Vavwithreheat Damper In" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:VAVWithReheat-air-in .
+
+mysystem:VAVWithReheat-damper-out a s223:OutletConnectionPoint ;
+    rdfs:label "Vavwithreheat Damper Out" ;
+    s223:cnx mysystem:VAVWithReheat-duct-after-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:VAVWithReheat-damper-position a s223:QuantifiableObservableProperty ;
+    rdfs:label "Vavwithreheat Damper Position" ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:VAVWithReheat-reheat-coil a s223:HeatingCoil,
+        g36:HotWaterCoil ;
+    rdfs:label "Vavwithreheat Reheat Coil" ;
+    s223:cnx mysystem:VAVWithReheat-reheat-coil-air-in,
+        mysystem:VAVWithReheat-reheat-coil-air-out,
+        mysystem:VAVWithReheat-reheat-coil-water-in,
+        mysystem:VAVWithReheat-reheat-coil-water-out ;
+    s223:hasProperty mysystem:VAVWithReheat-reheat-coil-return-water-temp,
+        mysystem:VAVWithReheat-reheat-coil-supply-water-temp ;
+    s223:hasRole s223:Role-Heating .
+
+mysystem:VAVWithReheat-reheat-coil-air-in a s223:InletConnectionPoint ;
+    rdfs:label "Vavwithreheat Reheat Coil Air In" ;
+    s223:cnx mysystem:VAVWithReheat-duct-after-damper ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:VAVWithReheat-reheat-coil-air-out a s223:OutletConnectionPoint ;
+    rdfs:label "Vavwithreheat Reheat Coil Air Out" ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:mapsTo mysystem:VAVWithReheat-air-out .
+
+mysystem:VAVWithReheat-reheat-coil-valve-in a s223:InletConnectionPoint ;
+    rdfs:label "Vavwithreheat Reheat Coil Valve In" ;
+    s223:cnx mysystem:VAVWithReheat-pipe-hot-water-return-before-valve ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:VAVWithReheat-reheat-coil-valve-out a s223:OutletConnectionPoint ;
+    rdfs:label "Vavwithreheat Reheat Coil Valve Out" ;
+    s223:hasMedium s223:Fluid-Water ;
+    s223:mapsTo mysystem:VAVWithReheat-hot-water-out .
+
+mysystem:VAVWithReheat-reheat-coil-valve-position a s223:QuantifiableObservableProperty ;
+    rdfs:label "Vavwithreheat Reheat Coil Valve Position" ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:zone-co2-concentration a s223:QuantifiableObservableProperty ;
+    rdfs:label "Zone Co2 Concentration" ;
+    s223:ofMedium s223:Fluid-Air ;
+    s223:ofSubstance s223:Constituent-CO2 ;
+    qudt:hasQuantityKind qudtqk:MoleFraction ;
+    qudt:hasUnit unit:PPM .
+
+mysystem:zone-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Zone Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:PhysicalSpace-hvac-domain a s223:DomainSpace ;
+    rdfs:label "Physicalspace Hvac Domain" ;
+    s223:cnx mysystem:PhysicalSpace-hvac-domain-in,
+        mysystem:PhysicalSpace-hvac-domain-out ;
+    s223:hasDomain s223:Domain-HVAC .
+
+mysystem:VAVWithReheat-damper a s223:Damper,
+        g36:Damper ;
+    rdfs:label "Vavwithreheat Damper" ;
+    s223:cnx mysystem:VAVWithReheat-damper-in,
+        mysystem:VAVWithReheat-damper-out ;
+    s223:hasProperty mysystem:VAVWithReheat-damper-command,
+        mysystem:VAVWithReheat-damper-position .
+
+mysystem:VAVWithReheat-damper-command a s223:QuantifiableActuatableProperty ;
+    rdfs:label "Vavwithreheat Damper Command" ;
+    s223:hasAspect s223:Binary-Position ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:VAVWithReheat-discharge-air-flow a s223:QuantifiableObservableProperty ;
+    rdfs:label "Vavwithreheat Discharge Air Flow" ;
+    s223:hasAspect s223:Role-Discharge ;
+    qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+    qudt:hasUnit unit:FT3-PER-MIN .
+
+mysystem:VAVWithReheat-discharge-air-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Vavwithreheat Discharge Air Temp" ;
+    s223:hasAspect s223:Role-Discharge ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:VAVWithReheat-duct-after-damper a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Vavwithreheat Duct After Damper" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:VAVWithReheat-hot-water-in a s223:InletConnectionPoint ;
+    rdfs:label "Vavwithreheat Hot Water In" ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:VAVWithReheat-hot-water-out a s223:OutletConnectionPoint ;
+    rdfs:label "Vavwithreheat Hot Water Out" ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:VAVWithReheat-pipe-hot-water-return-before-valve a s223:Connection,
+        s223:Pipe ;
+    rdfs:label "Vavwithreheat Pipe Hot Water Return Before Valve" ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:VAVWithReheat-reheat-coil-return-water-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Vavwithreheat Reheat Coil Return Water Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:VAVWithReheat-reheat-coil-supply-water-temp a s223:QuantifiableObservableProperty ;
+    rdfs:label "Vavwithreheat Reheat Coil Supply Water Temp" ;
+    qudt:hasQuantityKind qudtqk:Temperature ;
+    qudt:hasUnit unit:DEG_C .
+
+mysystem:VAVWithReheat-reheat-coil-valve a s223:Valve,
+        g36:HotWaterValve ;
+    rdfs:label "Vavwithreheat Reheat Coil Valve" ;
+    s223:cnx mysystem:VAVWithReheat-reheat-coil-valve-in,
+        mysystem:VAVWithReheat-reheat-coil-valve-out ;
+    s223:hasProperty mysystem:VAVWithReheat-reheat-coil-valve-command,
+        mysystem:VAVWithReheat-reheat-coil-valve-position .
+
+mysystem:VAVWithReheat-reheat-coil-valve-command a s223:QuantifiableActuatableProperty ;
+    rdfs:label "Vavwithreheat Reheat Coil Valve Command" ;
+    s223:hasAspect s223:Binary-Position ;
+    qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+    qudt:hasUnit unit:PERCENT .
+
+mysystem:VAVWithReheat-reheat-coil-water-in a s223:InletConnectionPoint ;
+    rdfs:label "Vavwithreheat Reheat Coil Water In" ;
+    s223:hasMedium s223:Fluid-Water ;
+    s223:mapsTo mysystem:VAVWithReheat-hot-water-in .
+
+mysystem:VAVWithReheat-reheat-coil-water-out a s223:OutletConnectionPoint ;
+    rdfs:label "Vavwithreheat Reheat Coil Water Out" ;
+    s223:cnx mysystem:VAVWithReheat-pipe-hot-water-return-before-valve ;
+    s223:hasMedium s223:Fluid-Water .
+
+mysystem:room-return-to-vav-connection a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Room Return To Vav Connection" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:vav-supply-to-room-connection a s223:Connection,
+        s223:Duct ;
+    rdfs:label "Vav Supply To Room Connection" ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:VAVWithReheat-air-in a s223:InletConnectionPoint ;
+    rdfs:label "Vavwithreheat Air In" ;
+    s223:cnx mysystem:room-return-to-vav-connection ;
+    s223:hasMedium s223:Fluid-Air .
+
+mysystem:VAVWithReheat-air-out a s223:OutletConnectionPoint ;
+    rdfs:label "Vavwithreheat Air Out" ;
+    s223:cnx mysystem:vav-supply-to-room-connection ;
+    s223:hasMedium s223:Fluid-Air ;
+    s223:hasProperty mysystem:VAVWithReheat-discharge-air-flow,
+        mysystem:VAVWithReheat-discharge-air-temp .
+
