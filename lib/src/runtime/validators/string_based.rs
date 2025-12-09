@@ -460,45 +460,41 @@ impl ValidateComponent for LanguageInConstraintComponent {
                     if allowed_langs.is_empty() {
                         ctx.with_value(value_node.clone());
                         let failure = ValidationFailure {
-                                component_id,
-                                failed_value_node: Some(value_node.clone()),
-                                message: format!(
-                                    "Value {:?} fails sh:languageIn constraint because the list of allowed languages is empty.",
-                                    value_node
-                                ),
-                                result_path: None,
-                                source_constraint: None,
-
-                                severity: None,
-
-                                message_terms: Vec::new(),
-                            };
-                        return Some(ComponentValidationResult::Fail(ctx, failure));
-                    }
-
-                    let matched = allowed_langs
-                        .iter()
-                        .any(|allowed_lang| lang_matches(lit_lang, allowed_lang));
-                    if !matched {
-                        ctx.with_value(value_node.clone());
-                        let failure = ValidationFailure {
                             component_id,
                             failed_value_node: Some(value_node.clone()),
                             message: format!(
-                                "Language tag '{}' of value {:?} is not in the allowed list {:?}.",
-                                lit_lang, value_node, allowed_langs
+                                "Value {:?} fails sh:languageIn constraint because the list of allowed languages is empty.",
+                                value_node
                             ),
                             result_path: None,
                             source_constraint: None,
-
                             severity: None,
-
                             message_terms: Vec::new(),
                         };
-                        return Some(ComponentValidationResult::Fail(ctx, failure));
+                        Some(ComponentValidationResult::Fail(ctx, failure))
+                    } else {
+                        let matched = allowed_langs
+                            .iter()
+                            .any(|allowed_lang| lang_matches(lit_lang, allowed_lang));
+                        if !matched {
+                            ctx.with_value(value_node.clone());
+                            let failure = ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!(
+                                    "Language tag '{}' of value {:?} is not in the allowed list {:?}.",
+                                    lit_lang, value_node, allowed_langs
+                                ),
+                                result_path: None,
+                                source_constraint: None,
+                                severity: None,
+                                message_terms: Vec::new(),
+                            };
+                            Some(ComponentValidationResult::Fail(ctx, failure))
+                        } else {
+                            None
+                        }
                     }
-
-                    None
                 }
                 _ => {
                     ctx.with_value(value_node.clone());
@@ -516,7 +512,7 @@ impl ValidateComponent for LanguageInConstraintComponent {
 
                         message_terms: Vec::new(),
                     };
-                    return Some(ComponentValidationResult::Fail(ctx, failure));
+                    Some(ComponentValidationResult::Fail(ctx, failure))
                 }
             },
         );

@@ -914,8 +914,8 @@ ex:ThingB a ex:Thing ;
         fs::write(&data_path, data_ttl)?;
 
         let validator = Validator::builder()
-            .with_shapes_source(Source::File(PathBuf::from(shapes_path.clone())))
-            .with_data_source(Source::File(PathBuf::from(data_path.clone())))
+            .with_shapes_source(Source::File(shapes_path.clone()))
+            .with_data_source(Source::File(data_path.clone()))
             .with_warnings_are_errors(true)
             .build()?;
 

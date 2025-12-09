@@ -66,13 +66,13 @@ impl ValidationContext {
                         definition,
                         parameter_values,
                     } => {
-                        let cache_key = custom_component_cache_key(&definition, &parameter_values);
+                        let cache_key = custom_component_cache_key(definition, parameter_values);
                         let cached = custom_cache.entry(cache_key).or_insert_with(|| {
-                            build_custom_constraint_component(&definition, &parameter_values)
+                            build_custom_constraint_component(definition, parameter_values)
                         });
                         Component::CustomConstraint(cached.clone())
                     }
-                    _ => build_component_from_descriptor(&descriptor),
+                    _ => build_component_from_descriptor(descriptor),
                 };
                 (*id, component)
             })

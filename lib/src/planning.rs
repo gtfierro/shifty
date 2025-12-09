@@ -13,15 +13,9 @@ pub(crate) struct ShapeTreePlan {
     pub(crate) shapes: Vec<ShapeRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct ValidationPlan {
     pub(crate) trees: Vec<ShapeTreePlan>,
-}
-
-impl Default for ValidationPlan {
-    fn default() -> Self {
-        ValidationPlan { trees: Vec::new() }
-    }
 }
 
 pub(crate) fn build_validation_plan(shape_ir: &ShapeIR) -> ValidationPlan {

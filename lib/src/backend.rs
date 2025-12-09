@@ -152,7 +152,7 @@ impl GraphBackend for OxigraphBackend {
         object: Option<&Term>,
         graph: Option<GraphNameRef<'_>>,
     ) -> Result<Vec<Quad>, Self::Error> {
-        let subject_ref = subject.map(|s| s.into());
+        let subject_ref = subject;
         let object_ref: Option<TermRef<'_>> = object.map(|t| match t {
             Term::NamedNode(nn) => nn.as_ref().into(),
             Term::BlankNode(bn) => bn.as_ref().into(),

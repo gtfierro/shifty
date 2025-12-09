@@ -693,7 +693,7 @@ impl<'a> InferenceEngine<'a> {
         }
 
         self.context
-            .insert_quads(&[quad.clone()])
+            .insert_quads(std::slice::from_ref(&quad))
             .map_err(|e| InferenceError::RuleExecution {
                 rule_id,
                 message: e,
