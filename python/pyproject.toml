@@ -29,6 +29,7 @@ include = [
     "pyproject.toml",
     "src/**",
     "build.rs",
+    "shacl_rs.pyi",
 ]
 
 [tool.uv]

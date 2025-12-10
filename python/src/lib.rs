@@ -744,6 +744,8 @@ fn execute_validate(
     }
 }
 
+/// Cache of ShapeIR artifacts that allows repeated inference/validation
+/// without rebuilding validators from scratch.
 #[pyclass(name = "ShapeIrCache")]
 struct PyShapeIrCache {
     shape_ir: ShapeIR,
@@ -751,6 +753,7 @@ struct PyShapeIrCache {
 
 #[pymethods]
 impl PyShapeIrCache {
+    /// Run SHACL rule inference using the cached ShapeIR.
     #[pyo3(signature=(data_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
     fn infer(
         &self,
@@ -809,6 +812,7 @@ impl PyShapeIrCache {
         )
     }
 
+    /// Validate data using the cached ShapeIR and optionally run inference.
     #[pyo3(signature=(data_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
     fn validate(
         &self,
@@ -880,6 +884,7 @@ impl PyShapeIrCache {
     }
 }
 
+/// Build and cache the ShapeIR for a SHACL shapes graph.
 #[pyfunction(signature=(shapes_graph, *, enable_af=true, enable_rules=true, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true))]
 fn generate_ir(
     py: Python<'_>,
@@ -910,6 +915,7 @@ fn generate_ir(
     Ok(PyShapeIrCache { shape_ir })
 }
 
+/// Run SHACL rules to infer additional triples, optionally with diagnostics.
 #[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
 fn infer(
     py: Python<'_>,
@@ -968,6 +974,7 @@ fn infer(
     )
 }
 
+/// Validate data against SHACL shapes, with optional inference and diagnostics.
 #[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
 fn validate(
     py: Python<'_>,
