@@ -1,7 +1,7 @@
 # shifty Python bindings
 
 This crate packages the `shifty` validator as a CPython extension using
-[`PyO3`](https://pyo3.rs). It exposes the `shacl_rs` module for RDFlib-centric workflows
+[`PyO3`](https://pyo3.rs). It exposes the `shifty` module for RDFlib-centric workflows
 while reusing the same Rust engine that powers the CLI.
 
 ## Installation
@@ -19,13 +19,13 @@ README as the PyPI long description, so keep it up to date when the bindings cha
 
 ## Usage
 
-The extension exports two entrypoints that mirror the CLI subcommands:
+The extension exports one-shot helpers plus a `CompiledShapeGraph` cache that mirrors the CLI subcommands:
 
 ```python
-import shacl_rs
+import shifty
 
 # Validation. When you request diagnostics, a fourth element is returned.
-conforms, results_graph, report_text, diag = shacl_rs.validate(
+conforms, results_graph, report_text, diag = shifty.validate(
     data_graph,
     shapes_graph,
     run_inference=True,
@@ -41,7 +41,7 @@ print(diag["trace_events"][0]) # First trace event (dict)
 print(diag["inference_outcome"])
 
 # Inference-only. Diagnostics are returned as a second element when requested.
-inferred_graph, diag = shacl_rs.infer(
+inferred_graph, diag = shifty.infer(
     data_graph,
     shapes_graph,
     min_iterations=1,
@@ -50,6 +50,16 @@ inferred_graph, diag = shacl_rs.infer(
     return_inference_outcome=True,
 )
 print(diag["inference_outcome"]["triples_added"])
+
+# Cache shapes once, then reuse them across datasets.
+compiled = shifty.generate_ir(
+    shapes_graph,
+    skip_invalid_rules=True,
+    warnings_are_errors=False,
+    do_imports=True,
+)
+conforms, _, _, diag = compiled.validate(data_graph, run_inference=True)
+print("Compiled cache conforms?", conforms)
 ```
 
 Key options (mirroring the CLI flags):

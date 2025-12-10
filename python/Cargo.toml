@@ -11,7 +11,7 @@ documentation.workspace = true
 readme = "README.md"
 
 [lib]
-name = "shacl_rs"
+name = "shifty"
 crate-type = ["cdylib"]
 
 [dependencies]

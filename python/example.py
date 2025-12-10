@@ -1,9 +1,9 @@
-"""End-to-end usage examples for the :mod:`shacl_rs` Python bindings."""
+"""End-to-end usage examples for the :mod:`shifty` Python bindings."""
 
 from __future__ import annotations
 
 from rdflib import Graph, Literal, Namespace, RDF, RDFS
-import shacl_rs  # built via `uvx maturin develop` inside python/
+import shifty  # built via `uvx maturin develop` inside python/
 
 EX = Namespace("http://example.com/ns#")
 
@@ -46,7 +46,7 @@ def build_shapes_graph() -> Graph:
 def demonstrate_validate(data: Graph, shapes: Graph) -> None:
     """Run vanilla validation and log the results."""
 
-    conforms, results_graph, results_text = shacl_rs.validate(data, shapes)
+    conforms, results_graph, results_text = shifty.validate(data, shapes)
     print("Conforms?", conforms)
     print("Results triples:", len(results_graph))
     print(results_text)
@@ -55,21 +55,21 @@ def demonstrate_validate(data: Graph, shapes: Graph) -> None:
 def demonstrate_infer(data: Graph, shapes: Graph) -> None:
     """Run SHACL rule inference before validation."""
 
-    inferred = shacl_rs.infer(data, shapes)
+    inferred = shifty.infer(data, shapes)
     print("Inferred triples:", len(inferred))
 
 
 def demonstrate_advanced_options(data: Graph, shapes: Graph) -> None:
     """Showcase inference options and diagnostics returned by ``validate``."""
 
-    conforms, _, _ = shacl_rs.validate(
+    conforms, _, _ = shifty.validate(
         data,
         shapes,
         inference={"min_iterations": 1, "max_iterations": 4, "debug": True},
     )
     print("Conforms with inference options?", conforms)
 
-    conforms2, _, _, diag = shacl_rs.validate(
+    conforms2, _, _, diag = shifty.validate(
         data,
         shapes,
         run_inference=True,

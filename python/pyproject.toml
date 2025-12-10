@@ -20,7 +20,7 @@ Repository = "https://github.com/gtfierro/shifty"
 
 [tool.maturin]
 bindings = "pyo3"
-module-name = "shacl_rs"
+module-name = "shifty"
 
 [tool.maturin.sdist]
 include = [
@@ -29,7 +29,7 @@ include = [
     "pyproject.toml",
     "src/**",
     "build.rs",
-    "shacl_rs.pyi",
+    "shifty.pyi",
 ]
 
 [tool.uv]

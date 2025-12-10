@@ -746,13 +746,13 @@ fn execute_validate(
 
 /// Cache of ShapeIR artifacts that allows repeated inference/validation
 /// without rebuilding validators from scratch.
-#[pyclass(name = "ShapeIrCache")]
-struct PyShapeIrCache {
+#[pyclass(name = "CompiledShapeGraph")]
+struct PyCompiledShapeGraph {
     shape_ir: ShapeIR,
 }
 
 #[pymethods]
-impl PyShapeIrCache {
+impl PyCompiledShapeGraph {
     /// Run SHACL rule inference using the cached ShapeIR.
     #[pyo3(signature=(data_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
     fn infer(
@@ -894,7 +894,7 @@ fn generate_ir(
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
     do_imports: bool,
-) -> PyResult<PyShapeIrCache> {
+    ) -> PyResult<PyCompiledShapeGraph> {
     let temp_dir = tempdir().map_err(map_err)?;
     let shapes_path = write_graph_to_file(py, shapes_graph, temp_dir.path(), "shapes.ttl")?;
     let config = build_env_config(temp_dir.path())?;
@@ -912,7 +912,7 @@ fn generate_ir(
 
     let mut shape_ir = validator.context().shape_ir().clone();
     shape_ir.data_graph = None;
-    Ok(PyShapeIrCache { shape_ir })
+    Ok(PyCompiledShapeGraph { shape_ir })
 }
 
 /// Run SHACL rules to infer additional triples, optionally with diagnostics.
@@ -1048,8 +1048,8 @@ fn validate(
 
 /// Python module definition.
 #[pymodule]
-fn shacl_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyShapeIrCache>()?;
+fn shifty(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyCompiledShapeGraph>()?;
     m.add_function(wrap_pyfunction!(generate_ir, m)?)?;
     m.add_function(wrap_pyfunction!(infer, m)?)?;
     m.add_function(wrap_pyfunction!(validate, m)?)?;

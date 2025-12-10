@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import rdflib
-import shacl_rs
+import shifty
 
 ROOT = Path(__file__).parent
 
@@ -18,7 +18,9 @@ def load_graph(filename: str) -> rdflib.Graph:
     return graph
 
 
-def validate_with_cache(cache: shacl_rs.ShapeIrCache, data_graph: rdflib.Graph) -> None:
+def validate_with_cache(
+    cache: shifty.CompiledShapeGraph, data_graph: rdflib.Graph
+) -> None:
     """Run validation from a cached IR and print diagnostics."""
 
     conforms, _report_graph, report_text, diagnostics = cache.validate(
@@ -41,7 +43,9 @@ def validate_with_cache(cache: shacl_rs.ShapeIrCache, data_graph: rdflib.Graph) 
         print("Inference stats:", diagnostics.get("inference_outcome"))
 
 
-def infer_with_cache(cache: shacl_rs.ShapeIrCache, data_graph: rdflib.Graph) -> None:
+def infer_with_cache(
+    cache: shifty.CompiledShapeGraph, data_graph: rdflib.Graph
+) -> None:
     """Run inference from cached IR and show summary metrics."""
 
     inferred_graph, inference_diag = cache.infer(
@@ -61,7 +65,7 @@ def main() -> None:
     shapes_graph = load_graph("shapes.ttl")
     data_graph = load_graph("data.ttl")
 
-    cache = shacl_rs.generate_ir(
+    cache = shifty.generate_ir(
         shapes_graph,
         skip_invalid_rules=True,
         warnings_are_errors=False,

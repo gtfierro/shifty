@@ -6,7 +6,7 @@ from typing import Sequence
 
 from ontoenv import OntoEnv
 from rdflib import Graph
-import shacl_rs
+import shifty
 import sys
 
 ENV = OntoEnv()
@@ -30,10 +30,10 @@ def run_shacl_pipeline(model_path: str, env: OntoEnv = ENV) -> bool:
     print(f"Imported ontologies for SHACL shape graph: {imported}")
 
     print("Running SHACL inference...")
-    inferred = shacl_rs.infer(model_graph, shape_graph)
+    inferred = shifty.infer(model_graph, shape_graph)
     print(inferred.serialize(format="turtle"))
 
-    valid, _results_graph, report_string = shacl_rs.validate(
+    valid, _results_graph, report_string = shifty.validate(
         model_graph, shape_graph, inference={"debug": True}
     )
     print("Validation Report:")
