@@ -894,7 +894,7 @@ fn generate_ir(
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
     do_imports: bool,
-    ) -> PyResult<PyCompiledShapeGraph> {
+) -> PyResult<PyCompiledShapeGraph> {
     let temp_dir = tempdir().map_err(map_err)?;
     let shapes_path = write_graph_to_file(py, shapes_graph, temp_dir.path(), "shapes.ttl")?;
     let config = build_env_config(temp_dir.path())?;
