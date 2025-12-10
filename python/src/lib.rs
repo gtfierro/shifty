@@ -13,6 +13,7 @@ use pyo3::wrap_pyfunction;
 use serde_json::json;
 use shacl::trace::TraceEvent;
 use shacl::{InferenceConfig, Source, Validator};
+use shacl_ir::ShapeIR;
 use tempfile::tempdir;
 
 fn map_err<E: std::fmt::Display>(err: E) -> PyErr {
@@ -80,6 +81,33 @@ fn build_validator_from_graphs(
         .map_err(map_err)?;
 
     Ok(validator)
+}
+
+fn build_validator_from_ir(
+    py: Python<'_>,
+    shape_ir: &ShapeIR,
+    data_graph: &Bound<'_, PyAny>,
+    enable_af: bool,
+    enable_rules: bool,
+    skip_invalid_rules: bool,
+    warnings_are_errors: bool,
+    do_imports: bool,
+) -> PyResult<Validator> {
+    let temp_dir = tempdir().map_err(map_err)?;
+    let data_path = write_graph_to_file(py, data_graph, temp_dir.path(), "data.ttl")?;
+    let config = build_env_config(temp_dir.path())?;
+
+    Validator::builder()
+        .with_shape_ir(shape_ir.clone())
+        .with_data_source(Source::File(data_path))
+        .with_env_config(config)
+        .with_af_enabled(enable_af)
+        .with_rules_enabled(enable_rules)
+        .with_skip_invalid_rules(skip_invalid_rules)
+        .with_warnings_are_errors(warnings_are_errors)
+        .with_do_imports(do_imports)
+        .build()
+        .map_err(map_err)
 }
 
 fn build_inference_config(
@@ -354,22 +382,14 @@ fn graph_from_data(py: Python<'_>, data: &str, format: &str) -> PyResult<Py<PyAn
     Ok(graph.into())
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
-fn infer(
+fn execute_infer(
     py: Python<'_>,
-    data_graph: &Bound<'_, PyAny>,
-    shapes_graph: &Bound<'_, PyAny>,
+    validator: Validator,
     min_iterations: Option<usize>,
     max_iterations: Option<usize>,
     run_until_converged: Option<bool>,
-    no_converge: Option<bool>,
     error_on_blank_nodes: Option<bool>,
-    enable_af: bool,
-    enable_rules: bool,
     debug: Option<bool>,
-    skip_invalid_rules: Option<bool>,
-    warnings_are_errors: Option<bool>,
-    do_imports: Option<bool>,
     graphviz: bool,
     heatmap: bool,
     heatmap_all: bool,
@@ -378,16 +398,6 @@ fn infer(
     trace_jsonl: Option<PathBuf>,
     return_inference_outcome: bool,
 ) -> PyResult<Py<PyAny>> {
-    let validator = build_validator_from_graphs(
-        py,
-        shapes_graph,
-        data_graph,
-        enable_af,
-        enable_rules,
-        skip_invalid_rules.unwrap_or(false),
-        warnings_are_errors.unwrap_or(false),
-        do_imports.unwrap_or(true),
-    )?;
     let should_collect_traces =
         trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
     let trace_buf = if should_collect_traces {
@@ -396,12 +406,6 @@ fn infer(
         None
     };
 
-    let run_until_converged = resolve_run_until(
-        run_until_converged,
-        no_converge,
-        "run_until_converged",
-        "no_converge",
-    )?;
     let config = build_inference_config(
         min_iterations,
         max_iterations,
@@ -424,7 +428,6 @@ fn infer(
     }
 
     if heatmap {
-        // Populate traces before generating the heatmap.
         let _report = validator.validate();
         let heatmap_dot = validator
             .to_graphviz_heatmap(heatmap_all)
@@ -463,11 +466,17 @@ fn infer(
     }
 }
 
-#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
-fn validate(
-    py: Python<'_>,
-    data_graph: &Bound<'_, PyAny>,
-    shapes_graph: &Bound<'_, PyAny>,
+struct PreparedInferenceSettings {
+    run_inference: bool,
+    min_iterations: Option<usize>,
+    max_iterations: Option<usize>,
+    run_until_converged: Option<bool>,
+    error_on_blank_nodes: Option<bool>,
+    debug: Option<bool>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_inference_settings(
     run_inference: bool,
     inference: Option<&Bound<'_, PyAny>>,
     min_iterations: Option<usize>,
@@ -479,39 +488,9 @@ fn validate(
     inference_no_converge: Option<bool>,
     error_on_blank_nodes: Option<bool>,
     inference_error_on_blank_nodes: Option<bool>,
-    enable_af: bool,
-    enable_rules: bool,
     debug: Option<bool>,
     inference_debug: Option<bool>,
-    skip_invalid_rules: Option<bool>,
-    warnings_are_errors: Option<bool>,
-    do_imports: Option<bool>,
-    graphviz: bool,
-    heatmap: bool,
-    heatmap_all: bool,
-    trace_events: bool,
-    trace_file: Option<PathBuf>,
-    trace_jsonl: Option<PathBuf>,
-    return_inference_outcome: bool,
-) -> PyResult<Py<PyAny>> {
-    let validator = build_validator_from_graphs(
-        py,
-        shapes_graph,
-        data_graph,
-        enable_af,
-        enable_rules,
-        skip_invalid_rules.unwrap_or(false),
-        warnings_are_errors.unwrap_or(false),
-        do_imports.unwrap_or(true),
-    )?;
-    let should_collect_traces =
-        trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
-    let trace_buf = if should_collect_traces {
-        Some(validator.context().trace_events())
-    } else {
-        None
-    };
-
+) -> PyResult<PreparedInferenceSettings> {
     let mut min_iterations = resolve_alias(
         min_iterations,
         inference_min_iterations,
@@ -538,7 +517,7 @@ fn validate(
 
     if let Some(obj) = inference {
         if obj.is_none() {
-            // no-op
+            // No additional options provided
         } else if obj.is_instance_of::<PyBool>() {
             let flag = obj.extract::<bool>()?;
             if should_run_inference && !flag {
@@ -658,13 +637,44 @@ fn validate(
         "inference_no_converge",
     )?;
 
-    let (report, inference_outcome) = if should_run_inference {
+    Ok(PreparedInferenceSettings {
+        run_inference: should_run_inference,
+        min_iterations,
+        max_iterations,
+        run_until_converged,
+        error_on_blank_nodes,
+        debug,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_validate(
+    py: Python<'_>,
+    validator: Validator,
+    settings: PreparedInferenceSettings,
+    graphviz: bool,
+    heatmap: bool,
+    heatmap_all: bool,
+    trace_events: bool,
+    trace_file: Option<PathBuf>,
+    trace_jsonl: Option<PathBuf>,
+    return_inference_outcome: bool,
+) -> PyResult<Py<PyAny>> {
+    let should_collect_traces =
+        trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
+    let trace_buf = if should_collect_traces {
+        Some(validator.context().trace_events())
+    } else {
+        None
+    };
+
+    let (report, inference_outcome) = if settings.run_inference {
         let config = build_inference_config(
-            min_iterations,
-            max_iterations,
-            run_until_converged,
-            error_on_blank_nodes,
-            debug,
+            settings.min_iterations,
+            settings.max_iterations,
+            settings.run_until_converged,
+            settings.error_on_blank_nodes,
+            settings.debug,
         )?;
         match validator.validate_with_inference(config) {
             Ok((outcome, report)) => (report, Some(outcome)),
@@ -673,6 +683,7 @@ fn validate(
     } else {
         (validator.validate(), None)
     };
+
     let conforms = report.conforms();
     let report_turtle = report.to_turtle().map_err(map_err)?;
     let report_graph = graph_from_data(py, &report_turtle, "turtle")?;
@@ -733,9 +744,306 @@ fn validate(
     }
 }
 
+#[pyclass(name = "ShapeIrCache")]
+struct PyShapeIrCache {
+    shape_ir: ShapeIR,
+}
+
+#[pymethods]
+impl PyShapeIrCache {
+    #[pyo3(signature=(data_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+    fn infer(
+        &self,
+        py: Python<'_>,
+        data_graph: &Bound<'_, PyAny>,
+        min_iterations: Option<usize>,
+        max_iterations: Option<usize>,
+        run_until_converged: Option<bool>,
+        no_converge: Option<bool>,
+        error_on_blank_nodes: Option<bool>,
+        enable_af: bool,
+        enable_rules: bool,
+        debug: Option<bool>,
+        skip_invalid_rules: Option<bool>,
+        warnings_are_errors: Option<bool>,
+        do_imports: Option<bool>,
+        graphviz: bool,
+        heatmap: bool,
+        heatmap_all: bool,
+        trace_events: bool,
+        trace_file: Option<PathBuf>,
+        trace_jsonl: Option<PathBuf>,
+        return_inference_outcome: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let validator = build_validator_from_ir(
+            py,
+            &self.shape_ir,
+            data_graph,
+            enable_af,
+            enable_rules,
+            skip_invalid_rules.unwrap_or(false),
+            warnings_are_errors.unwrap_or(false),
+            do_imports.unwrap_or(true),
+        )?;
+        let run_until_converged = resolve_run_until(
+            run_until_converged,
+            no_converge,
+            "run_until_converged",
+            "no_converge",
+        )?;
+        execute_infer(
+            py,
+            validator,
+            min_iterations,
+            max_iterations,
+            run_until_converged,
+            error_on_blank_nodes,
+            debug,
+            graphviz,
+            heatmap,
+            heatmap_all,
+            trace_events,
+            trace_file,
+            trace_jsonl,
+            return_inference_outcome,
+        )
+    }
+
+    #[pyo3(signature=(data_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+    fn validate(
+        &self,
+        py: Python<'_>,
+        data_graph: &Bound<'_, PyAny>,
+        run_inference: bool,
+        inference: Option<&Bound<'_, PyAny>>,
+        min_iterations: Option<usize>,
+        max_iterations: Option<usize>,
+        run_until_converged: Option<bool>,
+        no_converge: Option<bool>,
+        inference_min_iterations: Option<usize>,
+        inference_max_iterations: Option<usize>,
+        inference_no_converge: Option<bool>,
+        error_on_blank_nodes: Option<bool>,
+        inference_error_on_blank_nodes: Option<bool>,
+        enable_af: bool,
+        enable_rules: bool,
+        debug: Option<bool>,
+        inference_debug: Option<bool>,
+        skip_invalid_rules: Option<bool>,
+        warnings_are_errors: Option<bool>,
+        do_imports: Option<bool>,
+        graphviz: bool,
+        heatmap: bool,
+        heatmap_all: bool,
+        trace_events: bool,
+        trace_file: Option<PathBuf>,
+        trace_jsonl: Option<PathBuf>,
+        return_inference_outcome: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let validator = build_validator_from_ir(
+            py,
+            &self.shape_ir,
+            data_graph,
+            enable_af,
+            enable_rules,
+            skip_invalid_rules.unwrap_or(false),
+            warnings_are_errors.unwrap_or(false),
+            do_imports.unwrap_or(true),
+        )?;
+        let settings = prepare_inference_settings(
+            run_inference,
+            inference,
+            min_iterations,
+            max_iterations,
+            run_until_converged,
+            no_converge,
+            inference_min_iterations,
+            inference_max_iterations,
+            inference_no_converge,
+            error_on_blank_nodes,
+            inference_error_on_blank_nodes,
+            debug,
+            inference_debug,
+        )?;
+        execute_validate(
+            py,
+            validator,
+            settings,
+            graphviz,
+            heatmap,
+            heatmap_all,
+            trace_events,
+            trace_file,
+            trace_jsonl,
+            return_inference_outcome,
+        )
+    }
+}
+
+#[pyfunction(signature=(shapes_graph, *, enable_af=true, enable_rules=true, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true))]
+fn generate_ir(
+    py: Python<'_>,
+    shapes_graph: &Bound<'_, PyAny>,
+    enable_af: bool,
+    enable_rules: bool,
+    skip_invalid_rules: bool,
+    warnings_are_errors: bool,
+    do_imports: bool,
+) -> PyResult<PyShapeIrCache> {
+    let temp_dir = tempdir().map_err(map_err)?;
+    let shapes_path = write_graph_to_file(py, shapes_graph, temp_dir.path(), "shapes.ttl")?;
+    let config = build_env_config(temp_dir.path())?;
+    let validator = Validator::builder()
+        .with_shapes_source(Source::File(shapes_path))
+        .with_data_source(Source::Empty)
+        .with_env_config(config)
+        .with_af_enabled(enable_af)
+        .with_rules_enabled(enable_rules)
+        .with_skip_invalid_rules(skip_invalid_rules)
+        .with_warnings_are_errors(warnings_are_errors)
+        .with_do_imports(do_imports)
+        .build()
+        .map_err(map_err)?;
+
+    let mut shape_ir = validator.context().shape_ir().clone();
+    shape_ir.data_graph = None;
+    Ok(PyShapeIrCache { shape_ir })
+}
+
+#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+fn infer(
+    py: Python<'_>,
+    data_graph: &Bound<'_, PyAny>,
+    shapes_graph: &Bound<'_, PyAny>,
+    min_iterations: Option<usize>,
+    max_iterations: Option<usize>,
+    run_until_converged: Option<bool>,
+    no_converge: Option<bool>,
+    error_on_blank_nodes: Option<bool>,
+    enable_af: bool,
+    enable_rules: bool,
+    debug: Option<bool>,
+    skip_invalid_rules: Option<bool>,
+    warnings_are_errors: Option<bool>,
+    do_imports: Option<bool>,
+    graphviz: bool,
+    heatmap: bool,
+    heatmap_all: bool,
+    trace_events: bool,
+    trace_file: Option<PathBuf>,
+    trace_jsonl: Option<PathBuf>,
+    return_inference_outcome: bool,
+) -> PyResult<Py<PyAny>> {
+    let validator = build_validator_from_graphs(
+        py,
+        shapes_graph,
+        data_graph,
+        enable_af,
+        enable_rules,
+        skip_invalid_rules.unwrap_or(false),
+        warnings_are_errors.unwrap_or(false),
+        do_imports.unwrap_or(true),
+    )?;
+    let run_until_converged = resolve_run_until(
+        run_until_converged,
+        no_converge,
+        "run_until_converged",
+        "no_converge",
+    )?;
+    execute_infer(
+        py,
+        validator,
+        min_iterations,
+        max_iterations,
+        run_until_converged,
+        error_on_blank_nodes,
+        debug,
+        graphviz,
+        heatmap,
+        heatmap_all,
+        trace_events,
+        trace_file,
+        trace_jsonl,
+        return_inference_outcome,
+    )
+}
+
+#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+fn validate(
+    py: Python<'_>,
+    data_graph: &Bound<'_, PyAny>,
+    shapes_graph: &Bound<'_, PyAny>,
+    run_inference: bool,
+    inference: Option<&Bound<'_, PyAny>>,
+    min_iterations: Option<usize>,
+    max_iterations: Option<usize>,
+    run_until_converged: Option<bool>,
+    no_converge: Option<bool>,
+    inference_min_iterations: Option<usize>,
+    inference_max_iterations: Option<usize>,
+    inference_no_converge: Option<bool>,
+    error_on_blank_nodes: Option<bool>,
+    inference_error_on_blank_nodes: Option<bool>,
+    enable_af: bool,
+    enable_rules: bool,
+    debug: Option<bool>,
+    inference_debug: Option<bool>,
+    skip_invalid_rules: Option<bool>,
+    warnings_are_errors: Option<bool>,
+    do_imports: Option<bool>,
+    graphviz: bool,
+    heatmap: bool,
+    heatmap_all: bool,
+    trace_events: bool,
+    trace_file: Option<PathBuf>,
+    trace_jsonl: Option<PathBuf>,
+    return_inference_outcome: bool,
+) -> PyResult<Py<PyAny>> {
+    let validator = build_validator_from_graphs(
+        py,
+        shapes_graph,
+        data_graph,
+        enable_af,
+        enable_rules,
+        skip_invalid_rules.unwrap_or(false),
+        warnings_are_errors.unwrap_or(false),
+        do_imports.unwrap_or(true),
+    )?;
+    let settings = prepare_inference_settings(
+        run_inference,
+        inference,
+        min_iterations,
+        max_iterations,
+        run_until_converged,
+        no_converge,
+        inference_min_iterations,
+        inference_max_iterations,
+        inference_no_converge,
+        error_on_blank_nodes,
+        inference_error_on_blank_nodes,
+        debug,
+        inference_debug,
+    )?;
+
+    execute_validate(
+        py,
+        validator,
+        settings,
+        graphviz,
+        heatmap,
+        heatmap_all,
+        trace_events,
+        trace_file,
+        trace_jsonl,
+        return_inference_outcome,
+    )
+}
+
 /// Python module definition.
 #[pymodule]
 fn shacl_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyShapeIrCache>()?;
+    m.add_function(wrap_pyfunction!(generate_ir, m)?)?;
     m.add_function(wrap_pyfunction!(infer, m)?)?;
     m.add_function(wrap_pyfunction!(validate, m)?)?;
     Ok(())

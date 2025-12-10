@@ -12,6 +12,21 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shacl_ir::ShapeIR, String>> {
+    let is_ir = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("ir"))
+        .unwrap_or(false);
+    if !is_ir {
+        return None;
+    }
+
+    Some(
+        ir_cache::read_shape_ir(path)
+            .map_err(|e| format!("Failed to read SHACL-IR cache {}: {}", path.display(), e)),
+    )
+}
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -119,6 +134,11 @@ enum ValidateOutputFormat {
 }
 
 #[derive(Parser)]
+#[clap(group(
+    clap::ArgGroup::new("shapes_input")
+        .required(true)
+        .args(&["shapes_file", "shapes_graph", "shacl_ir"]),
+))]
 struct ValidateArgs {
     #[clap(flatten)]
     common: CommonArgs,
@@ -169,6 +189,11 @@ struct ValidateArgs {
 }
 
 #[derive(Parser)]
+#[clap(group(
+    clap::ArgGroup::new("shapes_input")
+        .required(true)
+        .args(&["shapes_file", "shapes_graph", "shacl_ir"]),
+))]
 struct InferenceArgs {
     #[clap(flatten)]
     common: CommonArgs,
@@ -287,13 +312,18 @@ fn get_validator(
         let shape_ir = ir_cache::read_shape_ir(path)
             .map_err(|e| format!("Failed to read SHACL-IR cache: {}", e))?;
         builder = builder.with_shape_ir(shape_ir);
-    } else {
-        let shapes_source = if let Some(path) = &common.shapes.shapes_file {
-            Source::File(path.clone())
+    } else if let Some(path) = &common.shapes.shapes_file {
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
         } else {
-            Source::Graph(common.shapes.shapes_graph.clone().unwrap())
-        };
-        builder = builder.with_shapes_source(shapes_source);
+            builder = builder.with_shapes_source(Source::File(path.clone()));
+        }
+    } else if let Some(graph) = &common.shapes.shapes_graph {
+        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else {
+        return Err(
+            "shapes input must be provided via --shapes-file, --shapes-graph, or --shacl-ir".into(),
+        );
     }
 
     builder
@@ -307,14 +337,20 @@ fn get_validator_shapes_only(
     warnings_are_errors: bool,
     do_imports: bool,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
-    let shapes_source = if let Some(path) = &shapes.shapes_file {
-        Source::File(path.clone())
+    let mut builder = ValidatorBuilder::new();
+    if let Some(path) = &shapes.shapes_file {
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
+        } else {
+            builder = builder.with_shapes_source(Source::File(path.clone()));
+        }
+    } else if let Some(graph) = &shapes.shapes_graph {
+        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
     } else {
-        Source::Graph(shapes.shapes_graph.clone().unwrap())
-    };
+        return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
+    }
 
-    ValidatorBuilder::new()
-        .with_shapes_source(shapes_source)
+    builder
         .with_data_source(Source::Empty)
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)

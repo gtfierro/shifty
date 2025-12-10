@@ -48,6 +48,8 @@ jobs:
           args: --release --out dist --manifest-path python/Cargo.toml --zig
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
+        env:
+          RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -55,6 +57,8 @@ jobs:
           args: --release --out dist --manifest-path python/Cargo.toml --zig -i python3.13t
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
+        env:
+          RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
