@@ -14,16 +14,9 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi  # ensure libc++ symbols are available for oxrocksdb
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install libc++
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libc++-dev libc++abi-dev
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
