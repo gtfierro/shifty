@@ -12,6 +12,13 @@ This is an experiment to see how well I could create a SHACL/SHACL-AF implementa
 
 The workspace also ships with Python bindings (`python/`) so the same validator can run inside a notebook or existing RDFlib pipeline.
 
+## Highlights
+
+- `generate-ir` writes a `shacl-ir` cache so every invocation of `validate` or `inference` can skip reparsing the shapes graph and reuse the cached `ShapeIR`.
+- `heat`, `trace`, `visualize-heatmap`, and `pdf-heatmap` commands expose component frequencies, execution traces, and heatmap diagnostics for validation runs.
+- All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`inference` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
+- `ARCHITECTURE.md` documents the validation pipeline end-to-end, and `AGENTS.md` captures the repository contribution guidelines.
+
 ## Building
 
 ```bash
@@ -30,15 +37,20 @@ cargo test --workspace
 
 Run `cargo run -p cli -- --help` to see every subcommand. The most common entry points are:
 
-- `validate`: run SHACL validation (optionally with rule inference)
-- `inference`: emit only the triples inferred by SHACL rules
-- `graphviz` / `graphviz-heatmap`: output DOT graphs for shapes or execution counts
-- `pdf` / `pdf-heatmap`: render the DOT graphs directly to PDF
+- `validate`: run SHACL validation (optionally with rule inference) and optionally emit reports, DOT graphs, or traces.
+- `infer`: emit the triples inferred by SHACL rules (Graphviz and PDF outputs are also supported).
+- `visualize`: dump the DOT for the shapes (add `--pdf <FILE>` to render that DOT directly to PDF instead).
+- `visualize-heatmap`: dump the execution heatmap DOT (add `--pdf <FILE>` to render the heatmap to PDF, optionally including non-executed nodes via `--all`).
+- `heat`: validate the data and print a table of component/node/property invocation frequencies.
+- `trace`: validate the data and dump every execution trace collected during validation.
+- `generate-ir`: parse a shapes graph and write the `shacl-ir` artifact that other commands can reuse via `--shacl-ir path/to/cache`.
 
 You can now request the visualization artifacts directly from `validate` or `inference` by appending:
 
 - `--graphviz` to print the DOT description after execution
 - `--pdf-heatmap heatmap.pdf [--pdf-heatmap-all]` to write the heatmap PDF (the inference command will trigger a validation pass when this flag is set)
+
+All commands accept the shared `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports` flags so you can skip problematic constructs, treat warnings as failures, or avoid resolving `owl:imports` when working in offline environments.
 
 ### Validation example
 
@@ -71,6 +83,27 @@ cargo run -p cli -- \
 ```
 
 Use `--union` to emit the original data plus inferred triples.
+
+## SHACL-IR caching
+
+The CLI ships with a `generate-ir` subcommand that parses the shapes graph, serializes the resulting `ShapeIR`, and writes it to disk. This makes repeated validations much faster because `validate`, `inference`, `heat`, and `trace` can all consume the `--shacl-ir cache.ttl` artifact instead of reparsing the shapes every time. The helper crate under `shacl-ir/` defines the serde-friendly IR data structures, so the cache can also be shared between the CLI and other embedders.
+
+```bash
+cargo run -p cli -- generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
+cargo run -p cli -- validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
+```
+
+## Diagnostics & tracing
+
+The CLI offers several commands to inspect validation behavior without rerunning validation from scratch:
+
+- `heat` prints a tab-separated table of component/node/property invocation counts so you can find the hot spots that fired most frequently.
+- `trace` dumps every execution trace recorded during validation, which prints the per-shape/component path that led to each failure.
+`visualize-heatmap` reuses the same execution trace buffer to visualize how shapes were hit across the validator; add `--pdf <FILE>` to the command to render the heatmap to a PDF instead of printing the DOT.
+
+Both `visualize` and `visualize-heatmap` expose a `--pdf` option so you can produce PDFs from the same DOT stream (the Graphviz output is still the default when `--pdf` is not provided). Every command still respects the shared `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports` flags so you can treat warnings as failures or run without resolving `owl:imports`.
+
+Both `validate` and `inference` can emit Graphviz (`--graphviz`) or PDF heatmaps (`--pdf-heatmap`) on demand.
 
 ## Python API
 
@@ -188,6 +221,13 @@ lib/      # core validator crate (exported as `shacl`)
 cli/      # command-line interface
 python/   # PyO3 bindings and RDFlib examples
 docs/     # additional design docs and profiles
+shacl-ir/ # serde-backed ShapeIR crate for caching parsed shapes
+scripts/  # helper scripts (Python tooling, benchmarks, etc.)
 ```
 
 Need help? Open an issue or discussion in this repo with the failing SHACL shapes and data.
+
+## Docs & guidelines
+
+- `ARCHITECTURE.md` describes the full validation lifecycle, the component wiring, and the instrumentation pipeline.
+- `AGENTS.md` captures the current repository guidelines, coding expectations, and testing commands for contributors.
