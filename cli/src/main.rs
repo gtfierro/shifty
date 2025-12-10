@@ -4,13 +4,29 @@ use graphviz_rust::exec_dot;
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
+use shacl::ir_cache;
 use shacl::trace::TraceEvent;
 use shacl::{InferenceConfig, Source, Validator, ValidatorBuilder};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shacl_ir::ShapeIR, String>> {
+    let is_ir = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("ir"))
+        .unwrap_or(false);
+    if !is_ir {
+        return None;
+    }
+
+    Some(
+        ir_cache::read_shape_ir(path)
+            .map_err(|e| format!("Failed to read SHACL-IR cache {}: {}", path.display(), e)),
+    )
+}
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -19,11 +35,6 @@ struct Cli {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-    clap::ArgGroup::new("shapes_source")
-        .required(true)
-        .args(&["shapes_file", "shapes_graph"]),
-))]
 struct ShapesSourceCli {
     /// Path to the shapes file
     #[arg(short, long, value_name = "FILE")]
@@ -50,6 +61,35 @@ struct DataSourceCli {
     data_graph: Option<String>,
 }
 
+#[derive(Parser)]
+struct GenerateIrArgs {
+    #[clap(flatten)]
+    shapes: ShapesSourceCli,
+
+    /// Skip invalid SHACL constructs when generating the IR
+    #[arg(long)]
+    skip_invalid_rules: bool,
+
+    /// Treat SHACL warnings as errors when generating the IR
+    #[arg(long)]
+    warnings_are_errors: bool,
+
+    /// Disable resolving owl:imports for the shapes graph while generating the IR
+    #[arg(long)]
+    no_imports: bool,
+
+    /// Output path for the serialized SHACL-IR file
+    #[arg(short, long, value_name = "FILE")]
+    output_file: PathBuf,
+}
+
+#[derive(Parser, Debug, Clone, Default)]
+struct ShaclIrArgs {
+    /// Path to a serialized SHACL-IR artifact (optional)
+    #[arg(long, value_name = "FILE")]
+    shacl_ir: Option<PathBuf>,
+}
+
 #[derive(Parser, Debug)]
 struct CommonArgs {
     #[clap(flatten)]
@@ -71,31 +111,17 @@ struct CommonArgs {
 }
 
 #[derive(Parser)]
-struct GraphvizArgs {
+struct VisualizeArgs {
     #[clap(flatten)]
     common: CommonArgs,
-}
 
-#[derive(Parser)]
-struct PdfArgs {
-    #[clap(flatten)]
-    shapes: ShapesSourceCli,
+    /// Emit the Graphviz DOT description (default behavior when --pdf is not provided)
+    #[arg(long, conflicts_with = "pdf")]
+    graphviz: bool,
 
-    /// Skip invalid SHACL constructs (log and continue)
-    #[arg(long)]
-    skip_invalid_rules: bool,
-
-    /// Treat SHACL warnings as errors (default: false)
-    #[arg(long)]
-    warnings_are_errors: bool,
-
-    /// Disable resolving owl:imports for shapes graph (default: do imports)
-    #[arg(long)]
-    no_imports: bool,
-
-    /// Path to the output PDF file
-    #[arg(short, long, value_name = "FILE")]
-    output_file: PathBuf,
+    /// Path to the output PDF file (mutually exclusive with --graphviz)
+    #[arg(long, value_name = "FILE", conflicts_with = "graphviz")]
+    pdf: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]
@@ -108,11 +134,18 @@ enum ValidateOutputFormat {
 }
 
 #[derive(Parser)]
+#[clap(group(
+    clap::ArgGroup::new("shapes_input")
+        .required(true)
+        .args(&["shapes_file", "shapes_graph", "shacl_ir"]),
+))]
 struct ValidateArgs {
     #[clap(flatten)]
     common: CommonArgs,
     #[clap(flatten)]
     trace: TraceOutputArgs,
+    #[clap(flatten)]
+    shacl_ir: ShaclIrArgs,
 
     /// The output format for the validation report
     #[arg(long, value_enum, default_value_t = ValidateOutputFormat::Turtle)]
@@ -156,11 +189,18 @@ struct ValidateArgs {
 }
 
 #[derive(Parser)]
+#[clap(group(
+    clap::ArgGroup::new("shapes_input")
+        .required(true)
+        .args(&["shapes_file", "shapes_graph", "shacl_ir"]),
+))]
 struct InferenceArgs {
     #[clap(flatten)]
     common: CommonArgs,
     #[clap(flatten)]
     trace: TraceOutputArgs,
+    #[clap(flatten)]
+    shacl_ir: ShaclIrArgs,
 
     /// Minimum iterations for inference
     #[arg(long)]
@@ -210,27 +250,21 @@ struct HeatArgs {
 }
 
 #[derive(Parser)]
-struct GraphvizHeatmapArgs {
+struct VisualizeHeatmapArgs {
     #[clap(flatten)]
     common: CommonArgs,
 
     /// Include all shapes and components, even those not executed
     #[arg(long)]
     all: bool,
-}
 
-#[derive(Parser)]
-struct PdfHeatmapArgs {
-    #[clap(flatten)]
-    common: CommonArgs,
+    /// Emit the Graphviz DOT description (default behavior when --pdf is not provided)
+    #[arg(long, conflicts_with = "pdf")]
+    graphviz: bool,
 
-    /// Path to the output PDF file
-    #[arg(short, long, value_name = "FILE")]
-    output_file: PathBuf,
-
-    /// Include all shapes and components, even those not executed
-    #[arg(long)]
-    all: bool,
+    /// Path to the output PDF file (mutually exclusive with --graphviz)
+    #[arg(long, value_name = "FILE", conflicts_with = "graphviz")]
+    pdf: Option<PathBuf>,
 }
 
 #[derive(Parser)]
@@ -241,45 +275,58 @@ struct TraceCmdArgs {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Output the Graphviz DOT string of the shape graph
-    Graphviz(GraphvizArgs),
-    /// Generate a PDF of the shape graph using Graphviz
-    Pdf(PdfArgs),
+    /// Output the Graphviz DOT string of the shape graph (or write it as a PDF via --pdf)
+    Visualize(VisualizeArgs),
     /// Validate the data against the shapes and output a frequency table of component invocations
     Heat(HeatArgs),
-    /// Validate the data and output a graphviz heatmap of the shape graph
-    #[command(name = "graphviz-heatmap")]
-    GraphvizHeatmap(GraphvizHeatmapArgs),
-    /// Generate a PDF of the shape graph heatmap using Graphviz
-    #[command(name = "pdf-heatmap")]
-    PdfHeatmap(PdfHeatmapArgs),
+    /// Validate the data and output a graphviz heatmap of the shape graph (or write it as a PDF via --pdf)
+    #[command(name = "visualize-heatmap")]
+    VisualizeHeatmap(VisualizeHeatmapArgs),
+    /// Generate a serialized SHACL-IR artifact for reuse
+    GenerateIr(GenerateIrArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
     /// Run SHACL rule inference without performing validation
-    Inference(InferenceArgs),
+    Infer(InferenceArgs),
     /// Print the execution traces for debugging
     Trace(TraceCmdArgs),
 }
 
-fn get_validator(common: &CommonArgs) -> Result<Validator, Box<dyn std::error::Error>> {
-    let shapes_source = if let Some(path) = &common.shapes.shapes_file {
-        Source::File(path.clone())
-    } else {
-        Source::Graph(common.shapes.shapes_graph.clone().unwrap())
-    };
-
+fn get_validator(
+    common: &CommonArgs,
+    shacl_ir_path: Option<&PathBuf>,
+) -> Result<Validator, Box<dyn std::error::Error>> {
     let data_source = if let Some(path) = &common.data.data_file {
         Source::File(path.clone())
     } else {
         Source::Graph(common.data.data_graph.clone().unwrap())
     };
 
-    ValidatorBuilder::new()
-        .with_shapes_source(shapes_source)
+    let mut builder = ValidatorBuilder::new()
         .with_data_source(data_source)
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
-        .with_do_imports(!common.no_imports)
+        .with_do_imports(!common.no_imports);
+
+    if let Some(path) = shacl_ir_path {
+        let shape_ir = ir_cache::read_shape_ir(path)
+            .map_err(|e| format!("Failed to read SHACL-IR cache: {}", e))?;
+        builder = builder.with_shape_ir(shape_ir);
+    } else if let Some(path) = &common.shapes.shapes_file {
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
+        } else {
+            builder = builder.with_shapes_source(Source::File(path.clone()));
+        }
+    } else if let Some(graph) = &common.shapes.shapes_graph {
+        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else {
+        return Err(
+            "shapes input must be provided via --shapes-file, --shapes-graph, or --shacl-ir".into(),
+        );
+    }
+
+    builder
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
@@ -290,14 +337,20 @@ fn get_validator_shapes_only(
     warnings_are_errors: bool,
     do_imports: bool,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
-    let shapes_source = if let Some(path) = &shapes.shapes_file {
-        Source::File(path.clone())
+    let mut builder = ValidatorBuilder::new();
+    if let Some(path) = &shapes.shapes_file {
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
+        } else {
+            builder = builder.with_shapes_source(Source::File(path.clone()));
+        }
+    } else if let Some(graph) = &shapes.shapes_graph {
+        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
     } else {
-        Source::Graph(shapes.shapes_graph.clone().unwrap())
-    };
+        return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
+    }
 
-    ValidatorBuilder::new()
-        .with_shapes_source(shapes_source)
+    builder
         .with_data_source(Source::Empty)
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
@@ -434,44 +487,64 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
     Ok(())
 }
 
+fn run_validation_then_get_heatmap_dot(
+    validator: &Validator,
+    include_all_nodes: bool,
+) -> Result<String, String> {
+    let _report = validator.validate();
+    validator.to_graphviz_heatmap(include_all_nodes)
+}
+
+fn write_pdf_from_dot(
+    dot_string: String,
+    output_file: &Path,
+    description: &str,
+) -> Result<(), String> {
+    let output_file_path_str = output_file.to_str().ok_or("Invalid output file path")?;
+    let cmd_args = vec![
+        CommandArg::Format(Format::Pdf),
+        CommandArg::Output(output_file_path_str.to_string()),
+    ];
+
+    exec_dot(dot_string, cmd_args).map_err(|e| format!("Graphviz execution error: {}", e))?;
+
+    println!("{} generated at: {}", description, output_file.display());
+    Ok(())
+}
+
+fn emit_validator_traces(validator: &Validator, args: &TraceOutputArgs) -> Result<(), String> {
+    if !args.requested() {
+        return Ok(());
+    }
+
+    let trace_buf = validator.context().trace_events();
+    let events = trace_buf
+        .lock()
+        .ok()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+
+    emit_trace_outputs(&events, args).map_err(|e| format!("Failed to emit trace outputs: {}", e))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Graphviz(args) => {
-            let validator = get_validator(&args.common)?;
+        Commands::Visualize(args) => {
+            let validator = get_validator(&args.common, None)?;
             let dot_string = validator.to_graphviz()?;
-            println!("{}", dot_string);
-        }
-        Commands::Pdf(args) => {
-            let validator = get_validator_shapes_only(
-                &args.shapes,
-                args.skip_invalid_rules,
-                args.warnings_are_errors,
-                !args.no_imports,
-            )?;
-            let dot_string = validator.to_graphviz()?;
+            let wants_graphviz = args.graphviz || args.pdf.is_none();
 
-            let output_format = Format::Pdf;
-            let output_file_path_str = args
-                .output_file
-                .to_str()
-                .ok_or("Invalid output file path")?;
-
-            let cmd_args = vec![
-                CommandArg::Format(output_format),
-                CommandArg::Output(output_file_path_str.to_string()),
-            ];
-
-            exec_dot(dot_string, cmd_args)
-                .map_err(|e| format!("Graphviz execution error: {}", e))?;
-
-            println!("PDF generated at: {}", args.output_file.display());
+            if wants_graphviz {
+                println!("{}", dot_string);
+            } else if let Some(pdf_path) = args.pdf {
+                write_pdf_from_dot(dot_string, &pdf_path, "PDF")?;
+            }
         }
         Commands::Validate(args) => {
-            let validator = get_validator(&args.common)?;
-            let trace_buf = validator.context().trace_events();
+            let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
             let (report, inference_outcome) = if args.run_inference {
                 let config = build_inference_config(
                     args.inference_min_iterations,
@@ -520,29 +593,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(pdf_path) = args.pdf_heatmap.as_ref() {
                 let dot_string = validator.to_graphviz_heatmap(args.pdf_heatmap_all)?;
-                let output_file_path_str = pdf_path
-                    .to_str()
-                    .ok_or("Invalid heatmap output file path")?;
-                let cmd_args = vec![
-                    CommandArg::Format(Format::Pdf),
-                    CommandArg::Output(output_file_path_str.to_string()),
-                ];
-                exec_dot(dot_string, cmd_args)
-                    .map_err(|e| format!("Graphviz execution error: {}", e))?;
-                println!("PDF heatmap generated at: {}", pdf_path.display());
+                write_pdf_from_dot(dot_string, pdf_path, "PDF heatmap")?;
             }
 
-            if args.trace.requested() {
-                let events = trace_buf
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
-                emit_trace_outputs(&events, &args.trace).map_err(io::Error::other)?;
-            }
+            emit_validator_traces(&validator, &args.trace)?;
         }
-        Commands::Inference(args) => {
-            let validator = get_validator(&args.common)?;
+        Commands::Infer(args) => {
+            let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
             let config = build_inference_config(
                 args.min_iterations,
                 args.max_iterations,
@@ -586,34 +643,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if let Some(pdf_path) = args.pdf_heatmap.as_ref() {
-                // Need a validation pass to populate execution traces for the heatmap
-                let _report = validator.validate();
-                let dot_string = validator.to_graphviz_heatmap(args.pdf_heatmap_all)?;
-                let output_file_path_str = pdf_path
-                    .to_str()
-                    .ok_or("Invalid heatmap output file path")?;
-                let cmd_args = vec![
-                    CommandArg::Format(Format::Pdf),
-                    CommandArg::Output(output_file_path_str.to_string()),
-                ];
-                exec_dot(dot_string, cmd_args)
-                    .map_err(|e| format!("Graphviz execution error: {}", e))?;
-                println!("PDF heatmap generated at: {}", pdf_path.display());
+                let dot_string =
+                    run_validation_then_get_heatmap_dot(&validator, args.pdf_heatmap_all)?;
+                write_pdf_from_dot(dot_string, pdf_path, "PDF heatmap")?;
             }
 
-            // Emit trace events if requested.
-            if args.trace.requested() {
-                let trace_buf = validator.context().trace_events();
-                let events = trace_buf
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
-                emit_trace_outputs(&events, &args.trace).map_err(io::Error::other)?;
-            }
+            emit_validator_traces(&validator, &args.trace)?;
         }
         Commands::Heat(args) => {
-            let validator = get_validator(&args.common)?;
+            let validator = get_validator(&args.common, None)?;
             let report = validator.validate();
 
             let frequencies: HashMap<(String, String, String), usize> =
@@ -627,41 +665,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}\t{}\t{}\t{}", id, label, item_type, count);
             }
         }
-        Commands::GraphvizHeatmap(args) => {
-            let validator = get_validator(&args.common)?;
-            // Run validation first to populate execution traces used by graphviz_heatmap.
-            // include_all_nodes == args.all: when true, include shapes/components that did not execute.
-            let _report = validator.validate();
+        Commands::VisualizeHeatmap(args) => {
+            let validator = get_validator(&args.common, None)?;
+            let dot_string = run_validation_then_get_heatmap_dot(&validator, args.all)?;
+            let wants_graphviz = args.graphviz || args.pdf.is_none();
 
-            let dot_string = validator.to_graphviz_heatmap(args.all)?;
-            println!("{}", dot_string);
+            if wants_graphviz {
+                println!("{}", dot_string);
+            } else if let Some(pdf_path) = args.pdf {
+                write_pdf_from_dot(dot_string, &pdf_path, "PDF heatmap")?;
+            }
         }
-        Commands::PdfHeatmap(args) => {
-            let validator = get_validator(&args.common)?;
-            // Run validation first to populate execution traces used by graphviz_heatmap.
-            // include_all_nodes == args.all: when true, include shapes/components that did not execute.
-            let _report = validator.validate();
-
-            let dot_string = validator.to_graphviz_heatmap(args.all)?;
-
-            let output_format = Format::Pdf;
-            let output_file_path_str = args
-                .output_file
-                .to_str()
-                .ok_or("Invalid output file path")?;
-
-            let cmd_args = vec![
-                CommandArg::Format(output_format),
-                CommandArg::Output(output_file_path_str.to_string()),
-            ];
-
-            exec_dot(dot_string, cmd_args)
-                .map_err(|e| format!("Graphviz execution error: {}", e))?;
-
-            println!("PDF heatmap generated at: {}", args.output_file.display());
+        Commands::GenerateIr(args) => {
+            let validator = get_validator_shapes_only(
+                &args.shapes,
+                args.skip_invalid_rules,
+                args.warnings_are_errors,
+                !args.no_imports,
+            )?;
+            let mut shape_ir = validator.context().shape_ir().clone();
+            shape_ir.data_graph = None;
+            ir_cache::write_shape_ir(&args.output_file, &shape_ir)
+                .map_err(|e| format!("Failed to write SHACL-IR cache: {}", e))?;
+            println!("Wrote SHACL-IR cache to {}", args.output_file.display());
         }
         Commands::Trace(args) => {
-            let validator = get_validator(&args.common)?;
+            let validator = get_validator(&args.common, None)?;
             // Run validation to populate execution traces
             let report = validator.validate();
 

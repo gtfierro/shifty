@@ -372,6 +372,7 @@ dependencies = [
  "oxigraph",
  "serde_json",
  "shacl",
+ "shacl-ir",
 ]
 
 [[package]]
@@ -2039,6 +2040,7 @@ dependencies = [
  "oxiri",
  "oxsdatatypes",
  "rand 0.9.2",
+ "serde",
  "thiserror 2.0.17",
 ]
 
@@ -2433,6 +2435,7 @@ dependencies = [
  "pyo3",
  "serde_json",
  "shacl",
+ "shacl-ir",
  "tempfile",
 ]
 
@@ -3043,6 +3046,7 @@ dependencies = [
  "petgraph",
  "rayon",
  "regex",
+ "serde_json",
  "sha2",
  "shacl-ir",
  "spargebra",
@@ -3055,6 +3059,8 @@ name = "shacl-ir"
 version = "0.1.0"
 dependencies = [
  "oxigraph",
+ "oxrdf",
+ "serde",
 ]
 
 [[package]]
@@ -3510,6 +3516,19 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "ts-generator"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "oxigraph",
+ "serde",
+ "serde_json",
+ "shacl",
+ "shacl-ir",
+ "tempfile",
+]
 
 [[package]]
 name = "typenum"

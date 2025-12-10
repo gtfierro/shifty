@@ -135,12 +135,6 @@ impl ValidationReportBuilder {
             }
         })
     }
-    /// Creates a new, empty `ValidationReportBuilder`.
-    pub fn new() -> Self {
-        ValidationReportBuilder {
-            results: Vec::new(),
-        }
-    }
 
     pub fn with_capacity(capacity: usize) -> Self {
         ValidationReportBuilder {

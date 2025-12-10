@@ -80,10 +80,16 @@ fn collect_tests_from_manifest(
 }
 
 fn skip_reason(test: &TestCase) -> Option<&'static str> {
-    let data_path = test.data_graph_path.to_string_lossy();
-    let shapes_path = test.shapes_graph_path.to_string_lossy();
     let advanced_expr = "/advanced/expression/";
-    if data_path.contains(advanced_expr) || shapes_path.contains(advanced_expr) {
+    if test
+        .data_graph_path
+        .to_string_lossy()
+        .contains(advanced_expr)
+        || test
+            .shapes_graph_path
+            .to_string_lossy()
+            .contains(advanced_expr)
+    {
         return Some("SHACL-AF expressions not supported yet");
     }
     // if data_path.contains("data-shapes-test-suite") || shapes_path.contains("data-shapes-test-suite")

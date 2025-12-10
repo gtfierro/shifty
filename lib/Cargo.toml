@@ -25,6 +25,7 @@ spargebra = "0.4"
 ntest = "0.9.3"
 ontoenv = "0.4.0-a9"
 shacl-ir = { path = "../shacl-ir" }
+serde_json.workspace = true
 
 [build-dependencies]
 oxigraph.workspace = true

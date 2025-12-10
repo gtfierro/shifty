@@ -10,7 +10,6 @@ use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
-use oxigraph::store::Store;
 use shacl_ir::ShapeIR;
 use std::collections::HashMap;
 use std::fmt;
@@ -39,6 +38,7 @@ impl ValidationContext {
         model: Arc<ShapesModel>,
         data_graph_iri: NamedNode,
         warnings_are_errors: bool,
+        shape_ir: Arc<ShapeIR>,
     ) -> Self {
         let data_graph_skolem_base = format!(
             "{}/.well-known/skolem/",
@@ -56,10 +56,6 @@ impl ValidationContext {
         ));
         let trace_events = Arc::new(Mutex::new(Vec::new()));
         let memory_sink = MemoryTraceSink::new(Arc::clone(&trace_events));
-        let shape_ir = Arc::new(crate::ir::build_shape_ir(
-            &model,
-            Some(data_graph_iri.clone()),
-        ));
         let mut custom_cache: HashMap<String, CustomConstraintComponent> = HashMap::new();
         let components: HashMap<ComponentID, Component> = model
             .component_descriptors
@@ -70,13 +66,13 @@ impl ValidationContext {
                         definition,
                         parameter_values,
                     } => {
-                        let cache_key = custom_component_cache_key(&definition, &parameter_values);
+                        let cache_key = custom_component_cache_key(definition, parameter_values);
                         let cached = custom_cache.entry(cache_key).or_insert_with(|| {
-                            build_custom_constraint_component(&definition, &parameter_values)
+                            build_custom_constraint_component(definition, parameter_values)
                         });
                         Component::CustomConstraint(cached.clone())
                     }
-                    _ => build_component_from_descriptor(&descriptor),
+                    _ => build_component_from_descriptor(descriptor),
                 };
                 (*id, component)
             })
@@ -106,10 +102,6 @@ impl ValidationContext {
 
     pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
         self.backend.shapes_graph()
-    }
-
-    pub(crate) fn store(&self) -> &Store {
-        self.backend.store()
     }
 
     pub(crate) fn sparql_services(&self) -> &SparqlServices {
@@ -213,7 +205,7 @@ impl ValidationContext {
         self.model.sparql.prefixes_for_node(
             node,
             self.backend.store(),
-            self.model.env(),
+            &self.model.env,
             self.shape_graph_iri_ref(),
         )
     }
@@ -458,9 +450,5 @@ impl Context {
 
     pub(crate) fn trace_index(&self) -> usize {
         self.trace_index
-    }
-
-    pub(crate) fn set_trace_index(&mut self, index: usize) {
-        self.trace_index = index;
     }
 }

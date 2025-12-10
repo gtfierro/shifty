@@ -4,7 +4,7 @@ members = [
     "cli",
     "python",
     "shacl-ir"
-]
+, "crates/ts-generator"]
 resolver = "2"
 
 [workspace.package]
@@ -14,9 +14,9 @@ license = "BSD-3-Clause"
 edition = "2021"
 description = "A Shapes Constraint Language (SHACL) validator written in Rust"
 readme = "README.md"
-repository = "https://github.com/gtfierro/shacl-rs"
-homepage = "https://github.com/gtfierro/shacl-rs"
-documentation = "https://github.com/gtfierro/shacl-rs#readme"
+repository = "https://github.com/gtfierro/shifty"
+homepage = "https://github.com/gtfierro/shifty"
+documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
 oxigraph = "0.5.0"
@@ -32,6 +32,7 @@ sha2 = "0.10.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3"
+oxrdf = { version = "=0.3.1", features = ["serde", "oxsdatatypes"] }
 
 [profile.release]
 debug = true

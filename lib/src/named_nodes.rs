@@ -47,8 +47,6 @@ pub(crate) struct SHACL {
     pub(crate) target_subjects_of: NamedNodeRef<'static>,
     pub(crate) target: NamedNodeRef<'static>,
     pub(crate) target_validator: NamedNodeRef<'static>,
-    pub(crate) target_shape: NamedNodeRef<'static>,
-    pub(crate) filter_shape: NamedNodeRef<'static>,
 
     pub(crate) equals: NamedNodeRef<'static>,
     pub(crate) disjoint: NamedNodeRef<'static>,
@@ -76,7 +74,6 @@ pub(crate) struct SHACL {
 
     // SPARQL
     pub(crate) select: NamedNodeRef<'static>,
-    pub(crate) ask: NamedNodeRef<'static>,
     pub(crate) deactivated: NamedNodeRef<'static>,
     pub(crate) message: NamedNodeRef<'static>,
     pub(crate) sparql: NamedNodeRef<'static>,
@@ -181,8 +178,6 @@ impl SHACL {
             target: NamedNodeRef::new("http://www.w3.org/ns/shacl#target").unwrap(),
             target_validator: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetValidator")
                 .unwrap(),
-            target_shape: NamedNodeRef::new("http://www.w3.org/ns/shacl#targetShape").unwrap(),
-            filter_shape: NamedNodeRef::new("http://www.w3.org/ns/shacl#filterShape").unwrap(),
 
             equals: NamedNodeRef::new("http://www.w3.org/ns/shacl#equals").unwrap(),
             disjoint: NamedNodeRef::new("http://www.w3.org/ns/shacl#disjoint").unwrap(),
@@ -216,7 +211,6 @@ impl SHACL {
 
             // SPARQL
             select: NamedNodeRef::new("http://www.w3.org/ns/shacl#select").unwrap(),
-            ask: NamedNodeRef::new("http://www.w3.org/ns/shacl#ask").unwrap(),
             deactivated: NamedNodeRef::new("http://www.w3.org/ns/shacl#deactivated").unwrap(),
             message: NamedNodeRef::new("http://www.w3.org/ns/shacl#message").unwrap(),
             sparql: NamedNodeRef::new("http://www.w3.org/ns/shacl#sparql").unwrap(),

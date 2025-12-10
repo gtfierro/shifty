@@ -5,6 +5,7 @@
 pub mod backend;
 pub mod inference;
 pub mod ir;
+pub mod ir_cache;
 pub mod model;
 pub mod shape;
 pub mod trace;
@@ -19,6 +20,7 @@ pub(crate) mod context;
 pub(crate) mod named_nodes;
 pub(crate) mod optimize;
 pub(crate) mod parser;
+pub(crate) mod planning;
 pub(crate) mod report;
 pub(crate) mod runtime;
 pub(crate) mod sparql;
@@ -41,7 +43,7 @@ use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
-use shacl_ir::FeatureToggles;
+use shacl_ir::{FeatureToggles, ShapeIR};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,6 +72,7 @@ pub struct ValidatorBuilder {
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
     do_imports: bool,
+    shape_ir: Option<ShapeIR>,
 }
 
 impl ValidatorBuilder {
@@ -86,7 +89,14 @@ impl ValidatorBuilder {
             skip_invalid_rules: false,
             warnings_are_errors: false,
             do_imports: true,
+            shape_ir: None,
         }
+    }
+
+    /// Provide a precomputed SHACL-IR artifact (skips parsing shapes).
+    pub fn with_shape_ir(mut self, shape_ir: ShapeIR) -> Self {
+        self.shape_ir = Some(shape_ir);
+        self
     }
 
     /// Sets the shapes source used for validation.
@@ -157,10 +167,12 @@ impl ValidatorBuilder {
             skip_invalid_rules,
             warnings_are_errors,
             do_imports,
+            shape_ir,
         } = self;
 
-        let shapes_source =
-            shapes_source.ok_or_else(|| "shapes source must be specified".to_string())?;
+        if shape_ir.is_none() && shapes_source.is_none() {
+            return Err("shapes source must be specified".to_string().into());
+        }
         let data_source = data_source.ok_or_else(|| "data source must be specified".to_string())?;
 
         let config = match env_config {
@@ -169,11 +181,16 @@ impl ValidatorBuilder {
         };
 
         let mut env: OntoEnv = OntoEnv::init(config, false)?;
-        let (shapes_graph_iri, shapes_in_env) =
-            Self::add_source(&mut env, &shapes_source, "shapes")?;
+        let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
+            (ir.shape_graph.clone(), false)
+        } else {
+            let source =
+                shapes_source.ok_or_else(|| "shapes source must be specified".to_string())?;
+            Self::add_source(&mut env, &source, "shapes")?
+        };
         let (data_graph_iri, data_in_env) = match &data_source {
             Source::Empty => (
-                NamedNode::new("urn:shacl-rs:null-data")
+                NamedNode::new("urn:shifty:null-data")
                     .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
                 false,
             ),
@@ -245,6 +262,17 @@ impl ValidatorBuilder {
             env.io().store().clone()
         };
 
+        if let Some(ir) = shape_ir.as_ref() {
+            for quad in &ir.shape_quads {
+                store.insert(quad).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to inject shape quad into store: {}",
+                        e
+                    ))) as Box<dyn Error>
+                })?;
+            }
+        }
+
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
 
@@ -272,20 +300,51 @@ impl ValidatorBuilder {
             Source::Graph(_) | Source::Empty => None,
         };
 
+        if let Some(ir) = shape_ir.as_ref() {
+            info!(
+                "Loaded shapes graph <{}> from SHACL-IR cache",
+                ir.shape_graph
+            );
+        }
+
         let features = FeatureToggles {
             enable_af,
             enable_rules,
             skip_invalid_rules,
         };
-        let model = Self::build_shapes_model(
-            env,
-            store,
-            shapes_graph_iri.clone(),
-            data_graph_iri.clone(),
-            features.clone(),
-            original_values,
-        )?;
-        let context = ValidationContext::new(Arc::new(model), data_graph_iri, warnings_are_errors);
+
+        let mut cached_shape_ir = shape_ir;
+        if let Some(ir) = cached_shape_ir.as_mut() {
+            ir.data_graph = Some(data_graph_iri.clone());
+        }
+
+        let (model, shape_ir_arc) = if let Some(ir) = cached_shape_ir {
+            let model = ShapesModel::from_shape_ir(ir.clone(), store, env, original_values)?;
+            (model, Arc::new(ir))
+        } else {
+            let model = Self::build_shapes_model(
+                env,
+                store,
+                shapes_graph_iri.clone(),
+                data_graph_iri.clone(),
+                features.clone(),
+                original_values,
+            )?;
+            let shape_ir = crate::ir::build_shape_ir(&model, Some(data_graph_iri.clone()))
+                .map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to build SHACL-IR cache: {}",
+                        e
+                    ))) as Box<dyn Error>
+                })?;
+            (model, Arc::new(shape_ir))
+        };
+        let context = ValidationContext::new(
+            Arc::new(model),
+            data_graph_iri,
+            warnings_are_errors,
+            shape_ir_arc,
+        );
         Ok(Validator { context })
     }
 
@@ -590,7 +649,7 @@ impl Validator {
         for quad_res in
             self.context
                 .model
-                .store()
+                .store
                 .quads_for_pattern(None, None, None, Some(graph.as_ref()))
         {
             let quad = quad_res.map_err(|e| format!("Failed to read data graph: {}", e))?;
@@ -855,8 +914,8 @@ ex:ThingB a ex:Thing ;
         fs::write(&data_path, data_ttl)?;
 
         let validator = Validator::builder()
-            .with_shapes_source(Source::File(PathBuf::from(shapes_path.clone())))
-            .with_data_source(Source::File(PathBuf::from(data_path.clone())))
+            .with_shapes_source(Source::File(shapes_path.clone()))
+            .with_data_source(Source::File(data_path.clone()))
             .with_warnings_are_errors(true)
             .build()?;
 

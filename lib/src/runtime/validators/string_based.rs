@@ -1,8 +1,10 @@
 use crate::context::{sanitize_graphviz_string, Context, ValidationContext};
+use crate::runtime::validators::parallel_value_node_checks;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
@@ -46,43 +48,22 @@ impl ValidateComponent for MinLengthConstraintComponent {
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        let mut results = Vec::new();
-        if let Some(value_nodes) = c.value_nodes() {
-            for vn in value_nodes {
-                let len = match vn.as_ref() {
-                    TermRef::BlankNode(_) => {
-                        let mut error_context = c.clone();
-                        error_context.with_value(vn.clone());
-                        let message = format!(
-                            "Blank node {:?} found where string length constraints apply (minLength).",
-                            vn
-                        );
-                        let failure = ValidationFailure {
-                            component_id,
-                            failed_value_node: Some(vn.clone()),
-                            message,
-                            result_path: None,
-                            source_constraint: None,
-
-                            severity: None,
-
-                            message_terms: Vec::new(),
-                        };
-                        results.push(ComponentValidationResult::Fail(error_context, failure));
-                        continue;
-                    }
-                    TermRef::NamedNode(nn) => {
-                        if validation_context.is_data_skolem_iri(nn) {
-                            let mut error_context = c.clone();
-                            error_context.with_value(vn.clone());
-                            let message = format!(
-                                "Blank node {:?} found where string length constraints apply (minLength).",
-                                vn
-                            );
+        let results = c
+            .value_nodes()
+            .cloned()
+            .map(|value_nodes| {
+                let min_len = self.min_length as usize;
+                parallel_value_node_checks(value_nodes, c, move |value_node, mut ctx| {
+                    let len = match value_node.as_ref() {
+                        TermRef::BlankNode(_) => {
+                            ctx.with_value(value_node.clone());
                             let failure = ValidationFailure {
                                 component_id,
-                                failed_value_node: Some(vn.clone()),
-                                message,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!(
+                                    "Blank node {:?} found where string length constraints apply (minLength).",
+                                    value_node
+                                ),
                                 result_path: None,
                                 source_constraint: None,
 
@@ -90,35 +71,55 @@ impl ValidateComponent for MinLengthConstraintComponent {
 
                                 message_terms: Vec::new(),
                             };
-                            results.push(ComponentValidationResult::Fail(error_context, failure));
-                            continue;
+                            return Some(ComponentValidationResult::Fail(ctx, failure));
                         }
-                        nn.as_str().chars().count()
-                    }
-                    TermRef::Literal(literal) => literal.value().chars().count(),
-                };
-                if len < self.min_length as usize {
-                    let mut error_context = c.clone();
-                    error_context.with_value(vn.clone());
-                    let message = format!(
-                        "Value {:?} has length {} which is less than minLength {}.",
-                        vn, len, self.min_length
-                    );
-                    let failure = ValidationFailure {
-                        component_id,
-                        failed_value_node: Some(vn.clone()),
-                        message,
-                        result_path: None,
-                        source_constraint: None,
+                        TermRef::NamedNode(nn) => {
+                            if validation_context.is_data_skolem_iri(nn) {
+                                ctx.with_value(value_node.clone());
+                                let failure = ValidationFailure {
+                                    component_id,
+                                    failed_value_node: Some(value_node.clone()),
+                                    message: format!(
+                                        "Blank node {:?} found where string length constraints apply (minLength).",
+                                        value_node
+                                    ),
+                                    result_path: None,
+                                    source_constraint: None,
 
-                        severity: None,
+                                    severity: None,
 
-                        message_terms: Vec::new(),
+                                    message_terms: Vec::new(),
+                                };
+                                return Some(ComponentValidationResult::Fail(ctx, failure));
+                            }
+                            nn.as_str().chars().count()
+                        }
+                        TermRef::Literal(literal) => literal.value().chars().count(),
                     };
-                    results.push(ComponentValidationResult::Fail(error_context, failure));
-                }
-            }
-        }
+
+                    if len < min_len {
+                        ctx.with_value(value_node.clone());
+                        let failure = ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(value_node.clone()),
+                            message: format!(
+                                "Value {:?} has length {} which is less than minLength {}.",
+                                value_node, len, self.min_length
+                            ),
+                            result_path: None,
+                            source_constraint: None,
+
+                            severity: None,
+
+                            message_terms: Vec::new(),
+                        };
+                        return Some(ComponentValidationResult::Fail(ctx, failure));
+                    }
+
+                    None
+                })
+            })
+            .unwrap_or_default();
 
         Ok(results)
     }
@@ -161,43 +162,22 @@ impl ValidateComponent for MaxLengthConstraintComponent {
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        let mut results = Vec::new();
-        if let Some(value_nodes) = c.value_nodes() {
-            for vn in value_nodes {
-                let len = match vn.as_ref() {
-                    TermRef::BlankNode(_) => {
-                        let mut error_context = c.clone();
-                        error_context.with_value(vn.clone());
-                        let message = format!(
-                            "Blank node {:?} found where string length constraints apply (maxLength).",
-                            vn
-                        );
-                        let failure = ValidationFailure {
-                            component_id,
-                            failed_value_node: Some(vn.clone()),
-                            message,
-                            result_path: None,
-                            source_constraint: None,
-
-                            severity: None,
-
-                            message_terms: Vec::new(),
-                        };
-                        results.push(ComponentValidationResult::Fail(error_context, failure));
-                        continue;
-                    }
-                    TermRef::NamedNode(nn) => {
-                        if validation_context.is_data_skolem_iri(nn) {
-                            let mut error_context = c.clone();
-                            error_context.with_value(vn.clone());
-                            let message = format!(
-                                "Blank node {:?} found where string length constraints apply (maxLength).",
-                                vn
-                            );
+        let results = c
+            .value_nodes()
+            .cloned()
+            .map(|value_nodes| {
+                let max_len = self.max_length as usize;
+                parallel_value_node_checks(value_nodes, c, move |value_node, mut ctx| {
+                    let len = match value_node.as_ref() {
+                        TermRef::BlankNode(_) => {
+                            ctx.with_value(value_node.clone());
                             let failure = ValidationFailure {
                                 component_id,
-                                failed_value_node: Some(vn.clone()),
-                                message,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!(
+                                    "Blank node {:?} found where string length constraints apply (maxLength).",
+                                    value_node
+                                ),
                                 result_path: None,
                                 source_constraint: None,
 
@@ -205,35 +185,55 @@ impl ValidateComponent for MaxLengthConstraintComponent {
 
                                 message_terms: Vec::new(),
                             };
-                            results.push(ComponentValidationResult::Fail(error_context, failure));
-                            continue;
+                            return Some(ComponentValidationResult::Fail(ctx, failure));
                         }
-                        nn.as_str().chars().count()
-                    }
-                    TermRef::Literal(literal) => literal.value().chars().count(),
-                };
-                if len > self.max_length as usize {
-                    let mut error_context = c.clone();
-                    error_context.with_value(vn.clone());
-                    let message = format!(
-                        "Value {:?} has length {} which is greater than maxLength {}.",
-                        vn, len, self.max_length
-                    );
-                    let failure = ValidationFailure {
-                        component_id,
-                        failed_value_node: Some(vn.clone()),
-                        message,
-                        result_path: None,
-                        source_constraint: None,
+                        TermRef::NamedNode(nn) => {
+                            if validation_context.is_data_skolem_iri(nn) {
+                                ctx.with_value(value_node.clone());
+                                let failure = ValidationFailure {
+                                    component_id,
+                                    failed_value_node: Some(value_node.clone()),
+                                    message: format!(
+                                        "Blank node {:?} found where string length constraints apply (maxLength).",
+                                        value_node
+                                    ),
+                                    result_path: None,
+                                    source_constraint: None,
 
-                        severity: None,
+                                    severity: None,
 
-                        message_terms: Vec::new(),
+                                    message_terms: Vec::new(),
+                                };
+                                return Some(ComponentValidationResult::Fail(ctx, failure));
+                            }
+                            nn.as_str().chars().count()
+                        }
+                        TermRef::Literal(literal) => literal.value().chars().count(),
                     };
-                    results.push(ComponentValidationResult::Fail(error_context, failure));
-                }
-            }
-        }
+
+                    if len > max_len {
+                        ctx.with_value(value_node.clone());
+                        let failure = ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(value_node.clone()),
+                            message: format!(
+                                "Value {:?} has length {} which is greater than maxLength {}.",
+                                value_node, len, self.max_length
+                            ),
+                            result_path: None,
+                            source_constraint: None,
+
+                            severity: None,
+
+                            message_terms: Vec::new(),
+                        };
+                        return Some(ComponentValidationResult::Fail(ctx, failure));
+                    }
+
+                    None
+                })
+            })
+            .unwrap_or_default();
 
         Ok(results)
     }
@@ -299,19 +299,23 @@ impl ValidateComponent for PatternConstraintComponent {
             Err(e) => return Err(format!("Invalid regex pattern '{}': {}", self.pattern, e)),
         };
 
-        let mut results = Vec::new();
-        if let Some(value_nodes) = c.value_nodes() {
-            for vn in value_nodes {
-                let value_str = match vn.as_ref() {
+        let re = Arc::new(re);
+        let pattern_value = Arc::new(self.pattern.clone());
+        let flags_value = Arc::new(self.flags.clone());
+        let results = parallel_value_node_checks(
+            c.value_nodes().cloned().unwrap_or_default(),
+            c,
+            move |value_node, mut ctx| {
+                let value_str = match value_node.as_ref() {
                     TermRef::BlankNode(_) => {
-                        let mut error_context = c.clone();
-                        error_context.with_value(vn.clone());
-                        let message =
-                            format!("Blank node {:?} cannot be matched against a pattern.", vn);
+                        ctx.with_value(value_node.clone());
                         let failure = ValidationFailure {
                             component_id,
-                            failed_value_node: Some(vn.clone()),
-                            message,
+                            failed_value_node: Some(value_node.clone()),
+                            message: format!(
+                                "Blank node {:?} cannot be matched against a pattern.",
+                                value_node
+                            ),
                             result_path: None,
                             source_constraint: None,
 
@@ -319,19 +323,18 @@ impl ValidateComponent for PatternConstraintComponent {
 
                             message_terms: Vec::new(),
                         };
-                        results.push(ComponentValidationResult::Fail(error_context, failure));
-                        continue;
+                        return Some(ComponentValidationResult::Fail(ctx, failure));
                     }
                     TermRef::NamedNode(nn) => {
                         if validation_context.is_data_skolem_iri(nn) {
-                            let mut error_context = c.clone();
-                            error_context.with_value(vn.clone());
-                            let message =
-                                format!("Blank node {:?} cannot be matched against a pattern.", vn);
+                            ctx.with_value(value_node.clone());
                             let failure = ValidationFailure {
                                 component_id,
-                                failed_value_node: Some(vn.clone()),
-                                message,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!(
+                                    "Blank node {:?} cannot be matched against a pattern.",
+                                    value_node
+                                ),
                                 result_path: None,
                                 source_constraint: None,
 
@@ -339,8 +342,7 @@ impl ValidateComponent for PatternConstraintComponent {
 
                                 message_terms: Vec::new(),
                             };
-                            results.push(ComponentValidationResult::Fail(error_context, failure));
-                            continue;
+                            return Some(ComponentValidationResult::Fail(ctx, failure));
                         }
                         nn.as_str().to_string()
                     }
@@ -348,19 +350,21 @@ impl ValidateComponent for PatternConstraintComponent {
                 };
 
                 if !re.is_match(&value_str) {
-                    let mut error_context = c.clone();
-                    error_context.with_value(vn.clone());
+                    ctx.with_value(value_node.clone());
+                    let flag_suffix = flags_value
+                        .as_ref()
+                        .as_ref()
+                        .map(|f| format!(" with flags '{}'", f))
+                        .unwrap_or_default();
                     let message = format!(
                         "Value {:?} does not match pattern '{}'{}.",
-                        vn,
-                        self.pattern,
-                        self.flags
-                            .as_ref()
-                            .map_or("".to_string(), |f| format!(" with flags '{}'", f))
+                        value_node,
+                        pattern_value.as_str(),
+                        flag_suffix
                     );
                     let failure = ValidationFailure {
                         component_id,
-                        failed_value_node: Some(vn.clone()),
+                        failed_value_node: Some(value_node.clone()),
                         message,
                         result_path: None,
                         source_constraint: None,
@@ -369,10 +373,12 @@ impl ValidateComponent for PatternConstraintComponent {
 
                         message_terms: Vec::new(),
                     };
-                    results.push(ComponentValidationResult::Fail(error_context, failure));
+                    return Some(ComponentValidationResult::Fail(ctx, failure));
                 }
-            }
-        }
+
+                None
+            },
+        );
 
         Ok(results)
     }
@@ -443,52 +449,62 @@ impl ValidateComponent for LanguageInConstraintComponent {
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        let mut results = Vec::new();
-        if let Some(value_nodes) = c.value_nodes() {
-            for vn in value_nodes {
-                let mut fail = false;
-                let mut message = String::new();
-
-                match vn.as_ref() {
-                    TermRef::Literal(lit) => {
-                        let lit_lang = lit.language().unwrap_or("");
-                        if self.languages.is_empty() {
-                            fail = true;
-                            message = format!(
+        let languages = Arc::new(self.languages.clone());
+        let results = parallel_value_node_checks(
+            c.value_nodes().cloned().unwrap_or_default(),
+            c,
+            move |value_node, mut ctx| match value_node.as_ref() {
+                TermRef::Literal(literal) => {
+                    let lit_lang = literal.language().unwrap_or("");
+                    let allowed_langs = languages.as_ref();
+                    if allowed_langs.is_empty() {
+                        ctx.with_value(value_node.clone());
+                        let failure = ValidationFailure {
+                            component_id,
+                            failed_value_node: Some(value_node.clone()),
+                            message: format!(
                                 "Value {:?} fails sh:languageIn constraint because the list of allowed languages is empty.",
-                                vn
-                            );
-                        } else {
-                            let matched = self
-                                .languages
-                                .iter()
-                                .any(|allowed_lang| lang_matches(lit_lang, allowed_lang));
-                            if !matched {
-                                fail = true;
-                                message = format!(
+                                value_node
+                            ),
+                            result_path: None,
+                            source_constraint: None,
+                            severity: None,
+                            message_terms: Vec::new(),
+                        };
+                        Some(ComponentValidationResult::Fail(ctx, failure))
+                    } else {
+                        let matched = allowed_langs
+                            .iter()
+                            .any(|allowed_lang| lang_matches(lit_lang, allowed_lang));
+                        if !matched {
+                            ctx.with_value(value_node.clone());
+                            let failure = ValidationFailure {
+                                component_id,
+                                failed_value_node: Some(value_node.clone()),
+                                message: format!(
                                     "Language tag '{}' of value {:?} is not in the allowed list {:?}.",
-                                    lit_lang, vn, self.languages
-                                );
-                            }
+                                    lit_lang, value_node, allowed_langs
+                                ),
+                                result_path: None,
+                                source_constraint: None,
+                                severity: None,
+                                message_terms: Vec::new(),
+                            };
+                            Some(ComponentValidationResult::Fail(ctx, failure))
+                        } else {
+                            None
                         }
                     }
-                    _ => {
-                        // Not a literal, so it cannot conform to a languageIn constraint.
-                        fail = true;
-                        message = format!(
-                            "Value {:?} is not a literal, but sh:languageIn applies to literals.",
-                            vn
-                        );
-                    }
                 }
-
-                if fail {
-                    let mut error_context = c.clone();
-                    error_context.with_value(vn.clone());
+                _ => {
+                    ctx.with_value(value_node.clone());
                     let failure = ValidationFailure {
                         component_id,
-                        failed_value_node: Some(vn.clone()),
-                        message,
+                        failed_value_node: Some(value_node.clone()),
+                        message: format!(
+                            "Value {:?} is not a literal, but sh:languageIn applies to literals.",
+                            value_node
+                        ),
                         result_path: None,
                         source_constraint: None,
 
@@ -496,10 +512,10 @@ impl ValidateComponent for LanguageInConstraintComponent {
 
                         message_terms: Vec::new(),
                     };
-                    results.push(ComponentValidationResult::Fail(error_context, failure));
+                    Some(ComponentValidationResult::Fail(ctx, failure))
                 }
-            }
-        }
+            },
+        );
 
         Ok(results)
     }

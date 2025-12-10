@@ -6,7 +6,7 @@ license.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "shacl"
+name = "shifty"
 path = "src/main.rs"
 doc = false
 
@@ -14,6 +14,7 @@ doc = false
 clap.workspace = true
 graphviz-rust.workspace = true
 shacl.workspace = true
+shacl-ir = { path = "../shacl-ir" }
 oxigraph.workspace = true
 log = { workspace = true }
 env_logger = { workspace = true }

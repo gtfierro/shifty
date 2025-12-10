@@ -1,8 +1,9 @@
-use oxigraph::model::{NamedNode, Term};
+use oxigraph::model::{NamedNode, Quad, Term};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ---------------- IDs ----------------
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ID(pub u64);
 impl From<u64> for ID {
     fn from(item: u64) -> Self {
@@ -20,7 +21,7 @@ impl ID {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ComponentID(pub u64);
 impl From<u64> for ComponentID {
     fn from(item: u64) -> Self {
@@ -38,7 +39,7 @@ impl ComponentID {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuleID(pub u64);
 impl From<u64> for RuleID {
     fn from(item: u64) -> Self {
@@ -56,7 +57,7 @@ impl RuleID {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PropShapeID(pub u64);
 impl From<u64> for PropShapeID {
     fn from(item: u64) -> Self {
@@ -75,7 +76,7 @@ impl PropShapeID {
 }
 
 // ---------------- Paths ----------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Path {
     Simple(Term),
     Inverse(Box<Path>),
@@ -156,7 +157,7 @@ impl Path {
 }
 
 // ---------------- Targets ----------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Target {
     Class(Term),
     Node(Term),
@@ -166,7 +167,7 @@ pub enum Target {
 }
 
 // ---------------- Severity ----------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Severity {
     Info,
     Warning,
@@ -176,7 +177,7 @@ pub enum Severity {
 }
 
 // ---------------- Feature toggles ----------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureToggles {
     pub enable_af: bool,
     pub enable_rules: bool,
@@ -195,7 +196,7 @@ impl Default for FeatureToggles {
 // ---------------- Templates ----------------
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateParameter {
     pub subject: Term,
     pub path: NamedNode,
@@ -212,7 +213,7 @@ impl TemplateParameter {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TemplateValidators {
     pub validator: Option<SPARQLValidator>,
     pub node_validator: Option<SPARQLValidator>,
@@ -226,7 +227,7 @@ impl TemplateValidators {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentTemplateDefinition {
     pub iri: NamedNode,
     pub label: Option<String>,
@@ -244,7 +245,7 @@ impl ComponentTemplateDefinition {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeTemplateDefinition {
     pub iri: NamedNode,
     pub label: Option<String>,
@@ -255,14 +256,14 @@ pub struct ShapeTemplateDefinition {
     pub extra: BTreeMap<NamedNode, Vec<Term>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrefixDeclaration {
     pub prefix: String,
     pub namespace: String,
 }
 
 // ---------------- Components ----------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ComponentDescriptor {
     Node {
         shape: ID,
@@ -362,7 +363,7 @@ pub enum ComponentDescriptor {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Parameter {
     pub subject: Term,
     pub path: NamedNode,
@@ -374,7 +375,7 @@ pub struct Parameter {
     pub extra: BTreeMap<NamedNode, Vec<Term>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SPARQLValidator {
     pub query: String,
     pub is_ask: bool,
@@ -385,7 +386,7 @@ pub struct SPARQLValidator {
     pub require_path: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomConstraintComponentDefinition {
     pub iri: NamedNode,
     pub parameters: Vec<Parameter>,
@@ -400,10 +401,10 @@ pub struct CustomConstraintComponentDefinition {
 pub type ParameterBindings = HashMap<NamedNode, Vec<Term>>;
 
 // ---------------- Rules ----------------
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RuleOrder(pub f64);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Rule {
     Sparql(SparqlRule),
     Triple(TripleRule),
@@ -429,7 +430,7 @@ impl Rule {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparqlRule {
     pub id: RuleID,
     pub query: String,
@@ -439,7 +440,7 @@ pub struct SparqlRule {
     pub order: Option<RuleOrder>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TripleRule {
     pub id: RuleID,
     pub subject: TriplePatternTerm,
@@ -451,12 +452,12 @@ pub struct TripleRule {
     pub source_term: Term,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleCondition {
     NodeShape(ID),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TriplePatternTerm {
     This,
     Constant(Term),
@@ -469,7 +470,7 @@ impl TriplePatternTerm {
 }
 
 // ---------------- Shape IR ----------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeShapeIR {
     pub id: ID,
     pub targets: Vec<Target>,
@@ -478,7 +479,7 @@ pub struct NodeShapeIR {
     pub deactivated: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PropertyShapeIR {
     pub id: PropShapeID,
     pub targets: Vec<Target>,
@@ -489,7 +490,7 @@ pub struct PropertyShapeIR {
     pub deactivated: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeIR {
     pub shape_graph: NamedNode,
     pub data_graph: Option<NamedNode>,
@@ -498,6 +499,10 @@ pub struct ShapeIR {
     pub components: HashMap<ComponentID, ComponentDescriptor>,
     pub component_templates: HashMap<NamedNode, ComponentTemplateDefinition>,
     pub shape_templates: HashMap<NamedNode, ShapeTemplateDefinition>,
+    pub shape_template_cache: HashMap<String, ID>,
+    pub node_shape_terms: HashMap<ID, Term>,
+    pub property_shape_terms: HashMap<PropShapeID, Term>,
+    pub shape_quads: Vec<Quad>,
     pub rules: HashMap<RuleID, Rule>,
     pub node_shape_rules: HashMap<ID, Vec<RuleID>>,
     pub prop_shape_rules: HashMap<PropShapeID, Vec<RuleID>>,

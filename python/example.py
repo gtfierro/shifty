@@ -1,60 +1,97 @@
-from rdflib import Graph, Namespace, RDF, RDFS, Literal
-import shacl_rs  # built via `uvx maturin develop` inside python/
+"""End-to-end usage examples for the :mod:`shifty` Python bindings."""
+
+from __future__ import annotations
+
+from rdflib import Graph, Literal, Namespace, RDF, RDFS
+import shifty  # built via `uvx maturin develop` inside python/
 
 EX = Namespace("http://example.com/ns#")
 
-data = Graph()
-data.bind("ex", EX)
-data.add((EX.Person1, RDF.type, EX.Person))
-data.add((EX.Person1, RDFS.label, Literal("Alice")))
-data.add((EX.Person2, RDF.type, EX.Person))
 
-shapes = Graph()
-shapes.parse(
-  data="""
-      PREFIX sh: <http://www.w3.org/ns/shacl#>
-      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-      PREFIX ex: <http://example.com/ns#>
+def build_data_graph() -> Graph:
+    """Create a simple example dataset."""
 
-      ex:PersonShape
-          a sh:NodeShape ;
-          sh:targetClass ex:Person ;
-          sh:property [
-              sh:path rdfs:label ;
-              sh:minCount 1 ;
-              sh:maxCount 1 ;
-          ] .
-  """,
-  format="turtle",
-)
+    graph = Graph()
+    graph.bind("ex", EX)
+    graph.add((EX.Person1, RDF.type, EX.Person))
+    graph.add((EX.Person1, RDFS.label, Literal("Alice")))
+    graph.add((EX.Person2, RDF.type, EX.Person))
+    return graph
 
-# Run validation (no inference)
-conforms, results_graph, results_text = shacl_rs.validate(data, shapes)
-print(conforms)           # False
-print(results_text)       # Turtle SHACL report
-print(len(results_graph)) # Number of results triples
 
-# Run SHACL rules beforehand, returning only inferred triples
-inferred = shacl_rs.infer(data, shapes)
-print(len(inferred))      # New triples inferred by rules
+def build_shapes_graph() -> Graph:
+    """Create a SHACL shape that requires ``ex:Person`` to have one ``rdfs:label``."""
 
-# Run validation with grouped inference options
-conforms2, _, _ = shacl_rs.validate(
-    data,
-    shapes,
-    inference={"min_iterations": 1, "max_iterations": 4, "debug": True},
-)
-print(conforms2)
+    graph = Graph()
+    graph.parse(
+        data="""
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            PREFIX ex: <http://example.com/ns#>
 
-# Request diagnostics (graphviz + inference stats + traces as a dict)
-conforms3, _, _, diag = shacl_rs.validate(
-    data,
-    shapes,
-    run_inference=True,
-    graphviz=True,
-    trace_events=True,
-    return_inference_outcome=True,
-)
-print("Shapes DOT (first 80 chars):", diag["graphviz"][:80])
-print("Inference stats:", diag["inference_outcome"])
-print("Trace events count:", len(diag.get("trace_events", [])))
+            ex:PersonShape
+                a sh:NodeShape ;
+                sh:targetClass ex:Person ;
+                sh:property [
+                    sh:path rdfs:label ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1 ;
+                ] .
+        """,
+        format="turtle",
+    )
+    return graph
+
+
+def demonstrate_validate(data: Graph, shapes: Graph) -> None:
+    """Run vanilla validation and log the results."""
+
+    conforms, results_graph, results_text = shifty.validate(data, shapes)
+    print("Conforms?", conforms)
+    print("Results triples:", len(results_graph))
+    print(results_text)
+
+
+def demonstrate_infer(data: Graph, shapes: Graph) -> None:
+    """Run SHACL rule inference before validation."""
+
+    inferred = shifty.infer(data, shapes)
+    print("Inferred triples:", len(inferred))
+
+
+def demonstrate_advanced_options(data: Graph, shapes: Graph) -> None:
+    """Showcase inference options and diagnostics returned by ``validate``."""
+
+    conforms, _, _ = shifty.validate(
+        data,
+        shapes,
+        inference={"min_iterations": 1, "max_iterations": 4, "debug": True},
+    )
+    print("Conforms with inference options?", conforms)
+
+    conforms2, _, _, diag = shifty.validate(
+        data,
+        shapes,
+        run_inference=True,
+        graphviz=True,
+        trace_events=True,
+        return_inference_outcome=True,
+    )
+    print("Conforms with diagnostics?", conforms2)
+    print("Shapes DOT (first 80 chars):", diag.get("graphviz", "")[:80])
+    print("Inference stats:", diag.get("inference_outcome"))
+    print("Trace events count:", len(diag.get("trace_events", [])))
+
+
+def main() -> None:
+    """Run all demonstrations using pre-built graphs."""
+
+    data = build_data_graph()
+    shapes = build_shapes_graph()
+    demonstrate_validate(data, shapes)
+    demonstrate_infer(data, shapes)
+    demonstrate_advanced_options(data, shapes)
+
+
+if __name__ == "__main__":
+    main()
