@@ -109,14 +109,14 @@ Both `validate` and `infer` can emit Graphviz (`--graphviz`) or PDF heatmaps (`-
 
 Install the extension module with `uvx maturin develop` (or `maturin develop --release`) inside `python/`. The module mirrors the CLI workflow:
 
-- `generate_ir(shapes_graph, ...)` parses the shapes once and returns a `ShapeIrCache` Python object.
-- `ShapeIrCache.validate` / `.infer` reuse the cached IR and accept the same flags as the CLI `validate`/`infer` commands.
-- One-off helpers `shacl_rs.validate` and `shacl_rs.infer` still exist for quick runs when you don't need caching.
+- `generate_ir(shapes_graph, ...)` parses the shapes once and returns a `CompiledShapeGraph` Python object.
+- `CompiledShapeGraph.validate` / `.infer` reuse the cached IR and accept the same flags as the CLI `validate`/`infer` commands.
+- One-off helpers `shifty.validate` and `shifty.infer` still exist for quick runs when you don't need caching.
 
 ```python
-import shacl_rs
+import shifty
 
-cache = shacl_rs.generate_ir(
+cache = shifty.generate_ir(
     shapes_graph,
     skip_invalid_rules=True,
     warnings_are_errors=False,
@@ -142,10 +142,10 @@ cached_inferred, cached_diag = cache.infer(
 The standalone functions expose the same signatures:
 
 ```python
-import shacl_rs
+import shifty
 
 # Requesting diagnostics returns a second item; otherwise you get just the graph.
-inferred_graph, diag = shacl_rs.infer(
+inferred_graph, diag = shifty.infer(
     data_graph,
     shapes_graph,
     min_iterations=None,
@@ -168,7 +168,7 @@ inferred_graph, diag = shacl_rs.infer(
     return_inference_outcome=True,
 )
 
-conforms, results_graph, report_text, diag = shacl_rs.validate(
+conforms, results_graph, report_text, diag = shifty.validate(
     data_graph,
     shapes_graph,
     run_inference=False,
@@ -206,7 +206,7 @@ conforms, results_graph, report_text, diag = shacl_rs.validate(
 Example:
 
 ```python
-conforms, results_graph, report_text, diag = shacl_rs.validate(
+conforms, results_graph, report_text, diag = shifty.validate(
     data_graph,
     shapes_graph,
     inference={"min_iterations": 2, "max_iterations": 6, "debug": True},
@@ -225,7 +225,7 @@ print(diag["inference_outcome"]["triples_added"])
 ```python
 from rdflib import Graph
 from ontoenv import OntoEnv
-import shacl_rs
+import shifty
 
 env = OntoEnv()
 model_iri = env.add("https://example.com/model.ttl")
@@ -234,10 +234,10 @@ shapes_graph, imports = env.get_closure(model_iri)
 
 print(f"SHACL graph imports: {imports}")
 
-inferred = shacl_rs.infer(data_graph, shapes_graph, debug=True)
+inferred = shifty.infer(data_graph, shapes_graph, debug=True)
 print(inferred.serialize(format="turtle"))
 
-conforms, results_graph, report_text = shacl_rs.validate(
+conforms, results_graph, report_text = shifty.validate(
     data_graph,
     shapes_graph,
     inference={"max_iterations": 12, "debug": True},
