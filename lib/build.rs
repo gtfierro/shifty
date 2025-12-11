@@ -1,5 +1,5 @@
-use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{Graph, NamedNode, TermRef, TripleRef};
+use oxrdf::{Graph, NamedNode, TermRef, TripleRef};
+use oxrdfio::{RdfFormat, RdfParser};
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::error::Error;
 use std::fs::{self, File};

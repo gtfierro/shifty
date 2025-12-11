@@ -3039,6 +3039,8 @@ dependencies = [
  "ntest",
  "ontoenv",
  "oxigraph",
+ "oxrdf",
+ "oxrdfio",
  "oxsdatatypes",
  "papaya",
  "paste",
