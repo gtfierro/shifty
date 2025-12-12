@@ -442,8 +442,8 @@ impl ValidatorBuilder {
     fn default_config() -> Result<Config, Box<dyn Error>> {
         Config::builder()
             .root(std::env::current_dir()?)
-            .offline(true)
-            .no_search(true)
+            .offline(false)
+            .no_search(false)
             .temporary(true)
             .build()
             .map_err(|e| {
