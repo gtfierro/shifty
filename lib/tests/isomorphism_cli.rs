@@ -6,9 +6,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn unique_temp_dir() -> Result<PathBuf, Box<dyn Error>> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_nanos();
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let dir = std::env::temp_dir().join(format!("shifty_iso_test_{}", nanos));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
