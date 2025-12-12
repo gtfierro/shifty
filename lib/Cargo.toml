@@ -28,5 +28,6 @@ shacl-ir = { path = "../shacl-ir" }
 serde_json.workspace = true
 
 [build-dependencies]
-oxigraph.workspace = true
+oxrdf = { workspace = true }
+oxrdfio = "0.2.1"
 url = { version = "2" }
