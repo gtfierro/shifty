@@ -1,3 +1,4 @@
+use ontoenv::config::Config;
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
 use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
@@ -131,10 +132,18 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             .shapes_graph_path
             .to_str()
             .ok_or("Invalid shapes graph path")?;
+        let env_config = Config::builder()
+            .root(std::env::current_dir()?)
+            .offline(true)
+            .no_search(true)
+            .temporary(true)
+            .build()?;
+
         let validator = Validator::builder()
             .with_shapes_source(shifty::Source::File(PathBuf::from(shapes_graph_path)))
             .with_data_source(shifty::Source::File(PathBuf::from(data_graph_path)))
             .with_warnings_are_errors(true)
+            .with_env_config(env_config)
             .build()
             .map_err(|e| {
                 io::Error::other(format!(
