@@ -20,8 +20,8 @@ The script mirrors the old run_benchmarks.sh flow but adds:
 from __future__ import annotations
 
 import argparse
+import logging
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +38,7 @@ from rdflib.util import guess_format
 
 
 REPO_ROOT = Path(__file__).resolve().parent
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,7 +51,7 @@ class Measurement:
 
     # log post-init
     def __post_init__(self) -> None:
-        print(
+        LOGGER.info(
             f"[{self.platform}] {self.data_file.name} | "
             f"{self.triples} triples | run {self.run} | {self.seconds:.3f} s"
         )
@@ -97,12 +98,28 @@ def parse_args() -> argparse.Namespace:
         default="uv",
         help="uv executable to use for Python-based benchmarks.",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        help="Logging verbosity for benchmark progress messages.",
+    )
     return parser.parse_args()
+
+
+def configure_logging(level: str) -> None:
+    numeric_level = getattr(logging, level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Invalid log level: {level}")
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(levelname)s %(message)s",
+    )
 
 
 def run_checked(command: List[str], label: str) -> None:
     """Run a command and raise on failure, surfacing stdout/stderr for debugging."""
-    print(f"-> {label}: {' '.join(command)}")
+    LOGGER.info("-> %s: %s", label, " ".join(command))
     result = subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -110,11 +127,11 @@ def run_checked(command: List[str], label: str) -> None:
         text=True,
     )
     if result.returncode != 0:
-        print(f"Command failed with exit code {result.returncode}")
+        LOGGER.error("Command failed with exit code %s", result.returncode)
         if result.stdout:
-            print("stdout:\n", result.stdout)
+            LOGGER.debug("stdout:\n%s", result.stdout)
         if result.stderr:
-            print("stderr:\n", result.stderr, file=sys.stderr)
+            LOGGER.debug("stderr:\n%s", result.stderr)
         result.check_returncode()
 
 
@@ -129,11 +146,11 @@ def time_command(command: List[str]) -> float:
     )
     duration = time.perf_counter() - start
     if result.returncode != 0:
-        print(f"Command failed: {' '.join(command)}")
+        LOGGER.error("Command failed: %s", " ".join(command))
         if result.stdout:
-            print("stdout:\n", result.stdout)
+            LOGGER.debug("stdout:\n%s", result.stdout)
         if result.stderr:
-            print("stderr:\n", result.stderr, file=sys.stderr)
+            LOGGER.debug("stderr:\n%s", result.stderr)
         result.check_returncode()
     return duration
 
@@ -214,9 +231,13 @@ def benchmark_platforms(
         triples = triple_cache.setdefault(data_file, count_triples(data_file))
         for run_index in range(1, runs + 1):
             for platform, command_builder in commands.items():
-                print(
-                    f"[{platform}] {data_file.name} run {run_index}/{runs} "
-                    f"({triples} triples)"
+                LOGGER.info(
+                    "[%s] %s run %s/%s (%s triples)",
+                    platform,
+                    data_file.name,
+                    run_index,
+                    runs,
+                    triples,
                 )
                 seconds = time_command(command_builder(data_file))
                 measurements.append(
@@ -246,7 +267,7 @@ def save_results(measurements: List[Measurement], csv_path: Path) -> pd.DataFram
     )
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(csv_path, index=False)
-    print(f"Wrote timing data to {csv_path}")
+    LOGGER.info("Wrote timing data to %s", csv_path)
     return df
 
 
@@ -283,7 +304,7 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
     plt.legend()
     plt.tight_layout()
     plt.savefig(plot_path)
-    print(f"Saved plot to {plot_path}")
+    LOGGER.info("Saved plot to %s", plot_path)
 
 
 def print_summary(df: pd.DataFrame) -> None:
@@ -293,15 +314,21 @@ def print_summary(df: pd.DataFrame) -> None:
         .sort_values("mean")
         .reset_index()
     )
-    print("\nRuntime summary (seconds):")
+    LOGGER.info("Runtime summary (seconds):")
     for _, row in summary.iterrows():
         std = row["std"]
         std_val = 0.0 if pd.isna(std) else std
-        print(f"  {row['platform']:12s} mean={row['mean']:.3f} std={std_val:.3f}")
+        LOGGER.info(
+            "  %-12s mean=%.3f std=%.3f",
+            row["platform"],
+            row["mean"],
+            std_val,
+        )
 
 
 def main() -> None:
     args = parse_args()
+    configure_logging(args.log_level)
     models = collect_models(args.models_glob)
 
     shapes_file = (REPO_ROOT / args.shapes_file).resolve()
