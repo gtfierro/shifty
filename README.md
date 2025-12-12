@@ -1,5 +1,6 @@
 *Note*:  This is a nearly 100% GenAI generated codebase. The initial work was done with Gemini 2.5 Pro, and the later work was done with ChatGPT 5 with the Codex tool.
-This is an experiment to see how well I could create a SHACL/SHACL-AF implementation in Rust using AI tools.
+This is an experiment to see how well I could create a SHACL/SHACL-AF implementation in Rust using AI tools. The "sh" in "shifty" comes from the fact it is a SHACL 
+implementation, and the overall name is a pun on how shifty it is to vibecode a gigantic Rust project and use that for something as critical as "validation."
 
 ---
 
