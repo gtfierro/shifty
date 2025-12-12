@@ -383,9 +383,10 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 #[cfg(debug_assertions)]
                 if debug_prebinding {
                     let debug_label = format_term_for_label(&self.constraint_node);
-                    eprintln!(
+                    log::debug!(
                         "SPARQL constraint {} produced {} solutions",
-                        debug_label, solution_count
+                        debug_label,
+                        solution_count
                     );
                 }
                 Ok(results)

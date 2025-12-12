@@ -1,6 +1,7 @@
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
+use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
@@ -30,8 +31,69 @@ fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shacl_ir::ShapeIR, 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    /// Set the base log level (use -v / -q to adjust relative to this level)
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = LogLevel::Info,
+        global = true,
+        help = "error | warn | info | debug | trace"
+    )]
+    log_level: LogLevel,
+
+    /// Increase logging verbosity (can be used multiple times)
+    #[arg(short, long, action = ArgAction::Count, global = true)]
+    verbose: u8,
+
+    /// Decrease logging verbosity (can be used multiple times)
+    #[arg(short, long, action = ArgAction::Count, global = true)]
+    quiet: u8,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    fn to_filter(self) -> LevelFilter {
+        match self {
+            LogLevel::Error => LevelFilter::Error,
+            LogLevel::Warn => LevelFilter::Warn,
+            LogLevel::Info => LevelFilter::Info,
+            LogLevel::Debug => LevelFilter::Debug,
+            LogLevel::Trace => LevelFilter::Trace,
+        }
+    }
+}
+
+fn init_logging(base: LogLevel, verbose: u8, quiet: u8) {
+    let levels = [
+        LevelFilter::Error,
+        LevelFilter::Warn,
+        LevelFilter::Info,
+        LevelFilter::Debug,
+        LevelFilter::Trace,
+    ];
+
+    let base_idx = levels
+        .iter()
+        .position(|lvl| *lvl == base.to_filter())
+        .unwrap_or(2) as i8; // default to Info
+    let adjusted =
+        (base_idx + verbose as i8 - quiet as i8).clamp(0, (levels.len() - 1) as i8) as usize;
+
+    env_logger::Builder::from_default_env()
+        .format_target(false)
+        .filter_level(levels[adjusted])
+        .init();
 }
 
 #[derive(Parser, Debug)]
@@ -460,9 +522,9 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
     }
 
     if args.trace_events {
-        eprintln!("--- trace events ({} entries) ---", events.len());
+        info!("--- trace events ({} entries) ---", events.len());
         for ev in events {
-            eprintln!("{:?}", ev);
+            info!("{:?}", ev);
         }
     }
 
@@ -473,7 +535,7 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
         }
         fs::write(path, lines)
             .map_err(|e| format!("Failed to write trace file {}: {}", path.display(), e))?;
-        eprintln!("Wrote trace events to {}", path.display());
+        info!("Wrote trace events to {}", path.display());
     }
 
     if let Some(path) = args.trace_jsonl.as_ref() {
@@ -487,7 +549,7 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
         }
         fs::write(path, buf)
             .map_err(|e| format!("Failed to write trace jsonl {}: {}", path.display(), e))?;
-        eprintln!("Wrote trace events (JSONL) to {}", path.display());
+        info!("Wrote trace events (JSONL) to {}", path.display());
     }
 
     Ok(())
@@ -514,7 +576,7 @@ fn write_pdf_from_dot(
 
     exec_dot(dot_string, cmd_args).map_err(|e| format!("Graphviz execution error: {}", e))?;
 
-    println!("{} generated at: {}", description, output_file.display());
+    info!("{} generated at: {}", description, output_file.display());
     Ok(())
 }
 
@@ -534,8 +596,8 @@ fn emit_validator_traces(validator: &Validator, args: &TraceOutputArgs) -> Resul
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
     let cli = Cli::parse();
+    init_logging(cli.log_level, cli.verbose, cli.quiet);
 
     match cli.command {
         Commands::Visualize(args) => {
@@ -568,7 +630,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             if let Some(outcome) = inference_outcome {
-                eprintln!(
+                info!(
                     "Inference added {} triple(s) in {} iteration(s); converged={}",
                     outcome.triples_added, outcome.iterations_executed, outcome.converged
                 );
@@ -616,7 +678,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let outcome = validator
                 .run_inference_with_config(config)
                 .map_err(|e| format!("Inference failed: {}", e))?;
-            eprintln!(
+            info!(
                 "Inference added {} triple(s) in {} iteration(s); converged={}",
                 outcome.triples_added, outcome.iterations_executed, outcome.converged
             );
@@ -634,7 +696,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(path) = args.output_file {
                 fs::write(&path, &turtle_bytes)
                     .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
-                eprintln!(
+                info!(
                     "Wrote {} triple(s) to {}",
                     quads_to_emit.len(),
                     path.display()

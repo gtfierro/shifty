@@ -34,7 +34,7 @@ use crate::context::{
 };
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
-use log::info;
+use log::{debug, info};
 use ontoenv::api::OntoEnv;
 use ontoenv::api::ResolveTarget;
 use ontoenv::config::Config;
@@ -484,7 +484,7 @@ impl ValidatorBuilder {
                     .location()
                     .map(|loc| loc.as_str().to_string())
                     .unwrap_or_else(|| "<unknown>".into());
-                eprintln!(
+                debug!(
                     "Loaded {} graph {} (location {})",
                     label, graph_iri, location
                 );
@@ -558,7 +558,7 @@ impl ValidatorBuilder {
             })?;
         }
 
-        eprintln!(
+        debug!(
             "Loaded {} graph {} via fallback (location {})",
             label, graph_iri, fallback_location
         );

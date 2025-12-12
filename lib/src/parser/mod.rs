@@ -7,7 +7,7 @@ use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, SeverityExt, ID};
 use components::parse_components;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{
@@ -120,7 +120,7 @@ pub(crate) fn run_parser(context: &mut ParsingContext) -> Result<(), String> {
         .quads_for_pattern(None, Some(rdf.type_), Some(sh.property_shape.into()), None)
         .filter_map(Result::ok)
         .count();
-    eprintln!(
+    info!(
         "run_parser shape graph {} has {} property shape type triples (total across graphs {})",
         context.shape_graph_iri, property_shape_count, property_shape_total
     );
@@ -158,7 +158,7 @@ pub(crate) fn run_parser(context: &mut ParsingContext) -> Result<(), String> {
             }
         }
     }
-    eprintln!(
+    info!(
         "run_parser parsed node_shapes={} prop_shapes={}",
         context.node_shapes.len(),
         context.prop_shapes.len()
