@@ -74,6 +74,7 @@ pub struct ValidatorBuilder {
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
     do_imports: bool,
+    import_depth: i32,
     shape_ir: Option<ShapeIR>,
 }
 
@@ -92,6 +93,7 @@ impl ValidatorBuilder {
             skip_invalid_rules: false,
             warnings_are_errors: false,
             do_imports: true,
+            import_depth: -1,
             shape_ir: None,
         }
     }
@@ -164,6 +166,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Set the maximum owl:imports recursion depth (-1 = unlimited, 0 = only the root graph).
+    pub fn with_import_depth(mut self, import_depth: i32) -> Self {
+        self.import_depth = import_depth;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -178,6 +186,7 @@ impl ValidatorBuilder {
             skip_invalid_rules,
             warnings_are_errors,
             do_imports,
+            import_depth,
             shape_ir,
         } = self;
 
@@ -220,7 +229,7 @@ impl ValidatorBuilder {
                         shapes_graph_iri
                     ))) as Box<dyn Error>
                 })?;
-            let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+            let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
                 Box::new(std::io::Error::other(format!(
                     "Failed to build imports closure for shapes graph {}: {}",
                     shapes_graph_iri, e
@@ -242,7 +251,7 @@ impl ValidatorBuilder {
                         data_graph_iri
                     ))) as Box<dyn Error>
                 })?;
-            let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+            let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
                 Box::new(std::io::Error::other(format!(
                     "Failed to build imports closure for data graph {}: {}",
                     data_graph_iri, e

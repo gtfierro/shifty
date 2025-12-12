@@ -140,6 +140,10 @@ struct GenerateIrArgs {
     #[arg(long)]
     no_imports: bool,
 
+    /// Maximum owl:imports recursion depth for shapes (-1 = unlimited, 0 = only the root graph)
+    #[arg(long, default_value_t = -1)]
+    import_depth: i32,
+
     /// Output path for the serialized SHACL-IR file
     #[arg(short, long, value_name = "FILE")]
     output_file: PathBuf,
@@ -174,6 +178,10 @@ struct CommonArgs {
     /// Disable using the union of the shapes and data graphs for validation/inference
     #[arg(long)]
     no_union_graphs: bool,
+
+    /// Maximum owl:imports recursion depth (-1 = unlimited, 0 = only the root graph)
+    #[arg(long, default_value_t = -1)]
+    import_depth: i32,
 }
 
 #[derive(Parser)]
@@ -373,6 +381,7 @@ fn get_validator(
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
         .with_do_imports(!common.no_imports)
+        .with_import_depth(common.import_depth)
         .with_shapes_data_union(!common.no_union_graphs);
 
     if let Some(path) = shacl_ir_path {
@@ -403,6 +412,7 @@ fn get_validator_shapes_only(
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
     do_imports: bool,
+    import_depth: i32,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &shapes.shapes_file {
@@ -422,6 +432,7 @@ fn get_validator_shapes_only(
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
         .with_do_imports(do_imports)
+        .with_import_depth(import_depth)
         .with_shapes_data_union(true)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
@@ -750,6 +761,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.skip_invalid_rules,
                 args.warnings_are_errors,
                 !args.no_imports,
+                args.import_depth,
             )?;
             let mut shape_ir = validator.context().shape_ir().clone();
             shape_ir.data_graph = None;
