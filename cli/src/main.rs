@@ -108,6 +108,10 @@ struct CommonArgs {
     /// Disable resolving owl:imports for shapes/data graphs (default: do imports)
     #[arg(long)]
     no_imports: bool,
+
+    /// Disable using the union of the shapes and data graphs for validation/inference
+    #[arg(long)]
+    no_union_graphs: bool,
 }
 
 #[derive(Parser)]
@@ -306,7 +310,8 @@ fn get_validator(
         .with_data_source(data_source)
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
-        .with_do_imports(!common.no_imports);
+        .with_do_imports(!common.no_imports)
+        .with_shapes_data_union(!common.no_union_graphs);
 
     if let Some(path) = shacl_ir_path {
         let shape_ir = ir_cache::read_shape_ir(path)
@@ -355,6 +360,7 @@ fn get_validator_shapes_only(
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
         .with_do_imports(do_imports)
+        .with_shapes_data_union(true)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }

@@ -15,9 +15,10 @@ The workspace also ships with Python bindings (`python/`) so the same validator 
 
 ## Highlights
 
-- `generate-ir` writes a `shacl-ir` cache so every invocation of `validate` or `infer` can skip reparsing the shapes graph and reuse the cached `ShapeIR`.
+- `generate-ir` writes a `shacl-ir` cache so every invocation of `validate` or `infer` can skip reparsing the shapes graph and reuse the cached `ShapeIR`; the cache now includes the shapes graph (and resolved imports) so downstream runs don't need to reload shapes separately.
 - `heat`, `trace`, `visualize-heatmap`, and `pdf-heatmap` commands expose component frequencies, execution traces, and heatmap diagnostics for validation runs.
-- All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`infer` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
+- Validation and inference run against the union of the data graph **and** shapes graph by default; disable with `--no-union-graphs` if you want to keep them separate.
+- All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, `--no-imports`, and `--no-union-graphs`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`infer` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
 - `ARCHITECTURE.md` documents the validation pipeline end-to-end, and `AGENTS.md` captures the repository contribution guidelines.
 
 ## Building
@@ -52,6 +53,7 @@ You can now request the visualization artifacts directly from `validate` or `inf
 - `--pdf-heatmap heatmap.pdf [--pdf-heatmap-all]` to write the heatmap PDF (the `infer` command will trigger a validation pass when this flag is set)
 
 All commands accept the shared `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports` flags so you can skip problematic constructs, treat warnings as failures, or avoid resolving `owl:imports` when working in offline environments.
+`validate`, `infer`, and other data-bearing commands additionally accept `--no-union-graphs` to keep shapes and data separate (the default is to union them so targets and rules can see shapes triples alongside data).
 
 ### Validation example
 
@@ -93,6 +95,8 @@ The CLI ships with a `generate-ir` subcommand that parses the shapes graph, seri
 cargo run -p cli -- generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
 cargo run -p cli -- validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
 ```
+
+When you reuse a cached IR, validation and inference still run over the union of the shapes graph (captured in the cache) and the supplied data graph unless you pass `--no-union-graphs`.
 
 ## Diagnostics & tracing
 

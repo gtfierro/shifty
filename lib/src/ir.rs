@@ -29,6 +29,7 @@ fn prop_ir(shape: &PropertyShape) -> PropertyShapeIR {
 pub(crate) fn build_shape_ir(
     model: &ShapesModel,
     data_graph: Option<NamedNode>,
+    shape_graphs: &[NamedNode],
 ) -> Result<ShapeIR, String> {
     let node_shapes = model.node_shapes.values().map(node_ir).collect();
     let property_shapes = model.prop_shapes.values().map(prop_ir).collect();
@@ -51,12 +52,16 @@ pub(crate) fn build_shape_ir(
             .collect()
     };
 
-    let shape_graph = GraphName::NamedNode(model.shape_graph_iri.clone());
-    let shape_quads = model
-        .store
-        .quads_for_pattern(None, None, None, Some(shape_graph.as_ref()))
-        .map(|res| res.map_err(|e| e.to_string()))
-        .collect::<Result<Vec<Quad>, _>>()?;
+    let mut shape_quads: Vec<Quad> = Vec::new();
+    for graph in shape_graphs {
+        let graph_name = GraphName::NamedNode(graph.clone());
+        let mut graph_quads = model
+            .store
+            .quads_for_pattern(None, None, None, Some(graph_name.as_ref()))
+            .map(|res| res.map_err(|e| e.to_string()))
+            .collect::<Result<Vec<Quad>, _>>()?;
+        shape_quads.append(&mut graph_quads);
+    }
 
     Ok(ShapeIR {
         shape_graph: model.shape_graph_iri.clone(),

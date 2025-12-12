@@ -44,6 +44,7 @@ use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
 use shacl_ir::{FeatureToggles, ShapeIR};
+use std::collections::HashSet;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -67,6 +68,7 @@ pub struct ValidatorBuilder {
     env_config: Option<Config>,
     skolemize_shapes: bool,
     skolemize_data: bool,
+    use_shapes_graph_union: bool,
     enable_af: bool,
     enable_rules: bool,
     skip_invalid_rules: bool,
@@ -84,6 +86,7 @@ impl ValidatorBuilder {
             env_config: None,
             skolemize_shapes: true,
             skolemize_data: true,
+            use_shapes_graph_union: true,
             enable_af: true,
             enable_rules: true,
             skip_invalid_rules: false,
@@ -96,6 +99,13 @@ impl ValidatorBuilder {
     /// Provide a precomputed SHACL-IR artifact (skips parsing shapes).
     pub fn with_shape_ir(mut self, shape_ir: ShapeIR) -> Self {
         self.shape_ir = Some(shape_ir);
+        self
+    }
+
+    /// Controls whether the validator should treat the data graph as the union of the data and shapes graphs.
+    /// Defaults to `true`.
+    pub fn with_shapes_data_union(mut self, enabled: bool) -> Self {
+        self.use_shapes_graph_union = enabled;
         self
     }
 
@@ -162,6 +172,7 @@ impl ValidatorBuilder {
             env_config,
             skolemize_shapes,
             skolemize_data,
+            use_shapes_graph_union,
             enable_af,
             enable_rules,
             skip_invalid_rules,
@@ -199,6 +210,64 @@ impl ValidatorBuilder {
                 (iri, in_env)
             }
         };
+
+        let shapes_closure_ids = if do_imports && shapes_in_env {
+            let graph_id = env
+                .resolve(ResolveTarget::Graph(shapes_graph_iri.clone()))
+                .ok_or_else(|| {
+                    Box::new(std::io::Error::other(format!(
+                        "Ontology not found for shapes graph {}",
+                        shapes_graph_iri
+                    ))) as Box<dyn Error>
+                })?;
+            let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to build imports closure for shapes graph {}: {}",
+                    shapes_graph_iri, e
+                ))) as Box<dyn Error>
+            })?;
+            if !closure_ids.contains(&graph_id) {
+                closure_ids.push(graph_id.clone());
+            }
+            Some(closure_ids)
+        } else {
+            None
+        };
+        let data_closure_ids = if do_imports && data_in_env {
+            let graph_id = env
+                .resolve(ResolveTarget::Graph(data_graph_iri.clone()))
+                .ok_or_else(|| {
+                    Box::new(std::io::Error::other(format!(
+                        "Ontology not found for data graph {}",
+                        data_graph_iri
+                    ))) as Box<dyn Error>
+                })?;
+            let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to build imports closure for data graph {}: {}",
+                    data_graph_iri, e
+                ))) as Box<dyn Error>
+            })?;
+            if !closure_ids.contains(&graph_id) {
+                closure_ids.push(graph_id.clone());
+            }
+            Some(closure_ids)
+        } else {
+            None
+        };
+
+        let mut shape_graphs_for_union: Vec<NamedNode> = vec![shapes_graph_iri.clone()];
+        if let Some(ids) = &shapes_closure_ids {
+            for id in ids {
+                if let Ok(ont) = env.get_ontology(id) {
+                    let name = ont.name().clone();
+                    if !shape_graphs_for_union.iter().any(|g| g == &name) {
+                        shape_graphs_for_union.push(name);
+                    }
+                }
+            }
+        }
+
         let store = if do_imports {
             let store = Store::new().map_err(|e| {
                 Box::new(std::io::Error::other(format!(
@@ -207,62 +276,58 @@ impl ValidatorBuilder {
                 ))) as Box<dyn Error>
             })?;
 
-            // Always load shapes when available in env; load data only when it came from env too.
-            let mut import_graphs: Vec<&NamedNode> = Vec::new();
-            if shapes_in_env {
-                import_graphs.push(&shapes_graph_iri);
-            }
-            if data_in_env {
-                import_graphs.push(&data_graph_iri);
-            }
-
-            if import_graphs.is_empty() {
-                env.io().store().clone()
-            } else {
-                for iri in import_graphs {
-                    let graph_id =
-                        env.resolve(ResolveTarget::Graph(iri.clone()))
-                            .ok_or_else(|| {
-                                Box::new(std::io::Error::other(format!(
-                                    "Ontology not found for graph {}",
-                                    iri
-                                ))) as Box<dyn Error>
-                            })?;
-
-                    let mut closure_ids = env.get_closure(&graph_id, -1).map_err(|e| {
+            let mut populated = false;
+            if let Some(ids) = &shapes_closure_ids {
+                let union = env
+                    .get_union_graph(ids, Some(false), Some(false))
+                    .map_err(|e| {
                         Box::new(std::io::Error::other(format!(
-                            "Failed to build imports closure for {}: {}",
-                            iri, e
+                            "Failed to load union graph for shapes graph {}: {}",
+                            shapes_graph_iri, e
                         ))) as Box<dyn Error>
                     })?;
-                    if !closure_ids.contains(&graph_id) {
-                        closure_ids.push(graph_id.clone());
-                    }
-                    let union = env
-                        .get_union_graph(&closure_ids, Some(false), Some(false))
-                        .map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to load union graph for {}: {}",
-                                iri, e
-                            ))) as Box<dyn Error>
-                        })?;
-
-                    for quad in union.dataset.iter() {
-                        store.insert(quad).map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to insert quad into store: {}",
-                                e
-                            ))) as Box<dyn Error>
-                        })?;
-                    }
+                for quad in union.dataset.iter() {
+                    store.insert(quad).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to insert quad into store: {}",
+                            e
+                        ))) as Box<dyn Error>
+                    })?;
                 }
+                populated = true;
+            }
+            if let Some(ids) = &data_closure_ids {
+                let union = env
+                    .get_union_graph(ids, Some(false), Some(false))
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to load union graph for data graph {}: {}",
+                            data_graph_iri, e
+                        ))) as Box<dyn Error>
+                    })?;
+                for quad in union.dataset.iter() {
+                    store.insert(quad).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to insert quad into store: {}",
+                            e
+                        ))) as Box<dyn Error>
+                    })?;
+                }
+                populated = true;
+            }
+
+            if populated {
                 store
+            } else {
+                env.io().store().clone()
             }
         } else {
             env.io().store().clone()
         };
 
         if let Some(ir) = shape_ir.as_ref() {
+            shape_graphs_for_union =
+                Self::graph_names_from_quads(&ir.shape_quads, &shapes_graph_iri);
             for quad in &ir.shape_quads {
                 store.insert(quad).map_err(|e| {
                     Box::new(std::io::Error::other(format!(
@@ -273,19 +338,13 @@ impl ValidatorBuilder {
             }
         }
 
+        if shape_graphs_for_union.is_empty() {
+            shape_graphs_for_union.push(shapes_graph_iri.clone());
+        }
+        Self::dedup_graphs(&mut shape_graphs_for_union);
+
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
-
-        info!(
-            "Optimizing store with shape graph <{}> and data graph <{}>",
-            shapes_graph_iri, data_graph_iri
-        );
-        store.optimize().map_err(|e| {
-            Box::new(std::io::Error::other(format!(
-                "Error optimizing store: {}",
-                e
-            )))
-        })?;
 
         let data_skolem_base = if skolemize_data {
             Some(Self::skolem_base(&data_graph_iri))
@@ -330,15 +389,38 @@ impl ValidatorBuilder {
                 features.clone(),
                 original_values,
             )?;
-            let shape_ir = crate::ir::build_shape_ir(&model, Some(data_graph_iri.clone()))
-                .map_err(|e| {
-                    Box::new(std::io::Error::other(format!(
-                        "Failed to build SHACL-IR cache: {}",
-                        e
-                    ))) as Box<dyn Error>
-                })?;
+            let shape_ir = crate::ir::build_shape_ir(
+                &model,
+                Some(data_graph_iri.clone()),
+                &shape_graphs_for_union,
+            )
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to build SHACL-IR cache: {}",
+                    e
+                ))) as Box<dyn Error>
+            })?;
             (model, Arc::new(shape_ir))
         };
+
+        if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
+            Self::union_shapes_into_data_graph(
+                &model.store,
+                &shape_graphs_for_union,
+                &data_graph_iri,
+            )?;
+        }
+
+        info!(
+            "Optimizing store with shape graph <{}> and data graph <{}>",
+            shapes_graph_iri, data_graph_iri
+        );
+        model.store.optimize().map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Error optimizing store: {}",
+                e
+            )))
+        })?;
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
@@ -490,6 +572,62 @@ impl ValidatorBuilder {
 
     fn skolem_base(iri: &NamedNode) -> String {
         format!("{}/.well-known/skolem/", iri.as_str().trim_end_matches('/'))
+    }
+
+    fn dedup_graphs(graphs: &mut Vec<NamedNode>) {
+        let mut seen = HashSet::new();
+        graphs.retain(|g| seen.insert(g.clone()));
+    }
+
+    fn graph_names_from_quads(quads: &[Quad], fallback: &NamedNode) -> Vec<NamedNode> {
+        let mut graphs: Vec<NamedNode> = quads
+            .iter()
+            .filter_map(|q| match &q.graph_name {
+                GraphName::NamedNode(nn) => Some(nn.clone()),
+                _ => None,
+            })
+            .collect();
+
+        if graphs.is_empty() {
+            graphs.push(fallback.clone());
+        }
+
+        Self::dedup_graphs(&mut graphs);
+        graphs
+    }
+
+    fn union_shapes_into_data_graph(
+        store: &Store,
+        shape_graphs: &[NamedNode],
+        data_graph_iri: &NamedNode,
+    ) -> Result<(), Box<dyn Error>> {
+        for graph in shape_graphs {
+            if graph == data_graph_iri {
+                continue;
+            }
+            let graph_name = GraphName::NamedNode(graph.clone());
+            for quad_res in store.quads_for_pattern(None, None, None, Some(graph_name.as_ref())) {
+                let quad = quad_res.map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to read quad from graph {}: {}",
+                        graph, e
+                    ))) as Box<dyn Error>
+                })?;
+                let new_quad = Quad::new(
+                    quad.subject.clone(),
+                    quad.predicate.clone(),
+                    quad.object.clone(),
+                    GraphName::NamedNode(data_graph_iri.clone()),
+                );
+                store.insert(&new_quad).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to insert quad into union data graph: {}",
+                        e
+                    ))) as Box<dyn Error>
+                })?;
+            }
+        }
+        Ok(())
     }
 
     fn maybe_skolemize_graph(

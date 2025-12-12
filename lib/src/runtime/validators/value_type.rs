@@ -485,7 +485,7 @@ mod tests {
             component_id_lookup: RwLock::new(IDLookupTable::new()),
             rule_id_lookup: RwLock::new(IDLookupTable::new()),
             store,
-            shape_graph_iri,
+            shape_graph_iri: shape_graph_iri.clone(),
             node_shapes: HashMap::new(),
             prop_shapes: HashMap::new(),
             component_descriptors: HashMap::<ComponentID, ComponentDescriptor>::new(),
@@ -501,8 +501,8 @@ mod tests {
             original_values: None,
         };
 
-        let shape_ir =
-            ir::build_shape_ir(&model, None).expect("failed to build SHACL-IR for empty context");
+        let shape_ir = ir::build_shape_ir(&model, None, &[shape_graph_iri.clone()])
+            .expect("failed to build SHACL-IR for empty context");
         ValidationContext::new(Arc::new(model), data_graph_iri, false, Arc::new(shape_ir))
     }
 

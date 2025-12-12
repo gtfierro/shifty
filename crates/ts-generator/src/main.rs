@@ -1,9 +1,9 @@
 use clap::Parser;
 use oxigraph::model::Term;
 use serde::Serialize;
+use shacl_ir::{Path, Target};
 use shifty::Source;
 use shifty::{ir::IRComponentDescriptor as ComponentDescriptor, Validator};
-use shacl_ir::{Path, Target};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
