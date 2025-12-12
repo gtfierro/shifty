@@ -183,43 +183,9 @@ impl TargetEvalExt for Target {
                         .try_to_subject_ref()
                         .map_err(|e| format!("Invalid selector term {:?}: {}", selector, e))?;
 
-                    // Collect prefixes declared on the selector
-                    let mut prefixes = String::new();
-                    for decl in context.quads_for_pattern(
-                        Some(selector_ref),
-                        Some(sh.declare),
-                        None,
-                        Some(context.shape_graph_iri_ref()),
-                    )? {
-                        let decl_ref = decl.object.to_subject_ref();
-                        let prefix = context
-                            .quads_for_pattern(
-                                Some(decl_ref),
-                                Some(sh.prefix),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
-                            )?
-                            .into_iter()
-                            .find_map(|q| match q.object {
-                                Term::Literal(l) => Some(l.value().to_string()),
-                                _ => None,
-                            });
-                        let ns = context
-                            .quads_for_pattern(
-                                Some(decl_ref),
-                                Some(sh.namespace),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
-                            )?
-                            .into_iter()
-                            .find_map(|q| match q.object {
-                                Term::Literal(l) => Some(l.value().to_string()),
-                                _ => None,
-                            });
-                        if let (Some(pfx), Some(ns)) = (prefix, ns) {
-                            prefixes.push_str(&format!("PREFIX {}: <{}>\n", pfx, ns));
-                        }
-                    }
+                    let prefixes = context.prefixes_for_node(selector).map_err(|e| {
+                        format!("Failed to resolve prefixes for advanced target: {}", e)
+                    })?;
 
                     // sh:select branch
                     let select_q = context
@@ -247,7 +213,7 @@ impl TargetEvalExt for Target {
                     });
 
                     if let Some(select_q) = select_q {
-                        let query_str = if prefixes.is_empty() {
+                        let query_str = if prefixes.trim().is_empty() {
                             select_q.clone()
                         } else {
                             format!("{}\n{}", prefixes, select_q)
