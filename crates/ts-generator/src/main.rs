@@ -1,8 +1,8 @@
 use clap::Parser;
 use oxigraph::model::Term;
 use serde::Serialize;
-use shacl::Source;
-use shacl::{ir::IRComponentDescriptor as ComponentDescriptor, Validator};
+use shifty::Source;
+use shifty::{ir::IRComponentDescriptor as ComponentDescriptor, Validator};
 use shacl_ir::{Path, Target};
 use std::collections::{HashMap, HashSet};
 use std::fs;

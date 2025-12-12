@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let g1 = load_graph(&args[1])?;
     let g2 = load_graph(&args[2])?;
-    let iso = shacl::canonicalization::are_isomorphic(&g1, &g2);
+    let iso = shifty::canonicalization::are_isomorphic(&g1, &g2);
     println!("isomorphic: {}", iso);
     println!("g1 triples: {}", g1.len());
     println!("g2 triples: {}", g2.len());

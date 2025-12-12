@@ -11,8 +11,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use pyo3::wrap_pyfunction;
 use serde_json::json;
-use shacl::trace::TraceEvent;
-use shacl::{InferenceConfig, Source, Validator};
+use ::shifty::trace::TraceEvent;
+use ::shifty::{InferenceConfig, Source, Validator};
 use shacl_ir::ShapeIR;
 use tempfile::tempdir;
 

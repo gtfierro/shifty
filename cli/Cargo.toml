@@ -13,7 +13,7 @@ doc = false
 [dependencies]
 clap.workspace = true
 graphviz-rust.workspace = true
-shacl.workspace = true
+shifty.workspace = true
 shacl-ir = { path = "../shacl-ir" }
 oxigraph.workspace = true
 log = { workspace = true }

@@ -1,8 +1,8 @@
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
-use shacl::canonicalization::{are_isomorphic, deskolemize_graph};
-use shacl::test_utils::{list_includes, load_manifest, TestCase};
-use shacl::Validator;
+use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
+use shifty::test_utils::{list_includes, load_manifest, TestCase};
+use shifty::Validator;
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::io;
@@ -132,8 +132,8 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             .to_str()
             .ok_or("Invalid shapes graph path")?;
         let validator = Validator::builder()
-            .with_shapes_source(shacl::Source::File(PathBuf::from(shapes_graph_path)))
-            .with_data_source(shacl::Source::File(PathBuf::from(data_graph_path)))
+            .with_shapes_source(shifty::Source::File(PathBuf::from(shapes_graph_path)))
+            .with_data_source(shifty::Source::File(PathBuf::from(data_graph_path)))
             .with_warnings_are_errors(true)
             .build()
             .map_err(|e| {

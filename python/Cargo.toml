@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py311"] }
-shacl = { path = "../lib" }
+shifty = { path = "../lib" }
 shacl-ir = { path = "../shacl-ir" }
 oxigraph.workspace = true
 ontoenv = "0.4.0"

@@ -14,7 +14,7 @@ documentation.workspace = true
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-shacl = { workspace = true }
+shifty = { workspace = true }
 shacl-ir = { path = "../../shacl-ir" }
 oxigraph = { workspace = true }
 

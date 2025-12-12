@@ -1,4 +1,4 @@
-use shacl::Validator;
+use shifty::Validator;
 
 fn fixture_path(name: &str) -> String {
     format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)

@@ -4,7 +4,7 @@ This document explains the moving parts that make up the SHACL processor and how
 
 ## Crate Layout
 
-- `lib/` — the reusable validation engine. Its public `shacl::Validator` facade (`lib/src/lib.rs`) wires together parsing, optimization, validation, and reporting. Internally it is organised into modules such as `parser` (`parser/`), `optimize` (`optimize.rs`), `runtime` (`runtime/`), `validate` (`validate.rs`), and `report` (`report.rs`).
+- `lib/` — the reusable validation engine. Its public `shifty::Validator` facade (`lib/src/lib.rs`) wires together parsing, optimization, validation, and reporting. Internally it is organised into modules such as `parser` (`parser/`), `optimize` (`optimize.rs`), `runtime` (`runtime/`), `validate` (`validate.rs`), and `report` (`report.rs`).
 - `cli/` — the command-line interface (`cli/src/main.rs`) that exposes validation, tracing, and visualization commands. It consumes the `Validator` facade so the CLI stays thin while the engine evolves independently.
 - `lib/tests/test-suite/` — W3C-aligned fixtures that exercise the engine via integration tests.
 

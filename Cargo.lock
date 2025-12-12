@@ -371,8 +371,8 @@ dependencies = [
  "log",
  "oxigraph",
  "serde_json",
- "shacl",
  "shacl-ir",
+ "shifty",
 ]
 
 [[package]]
@@ -2434,8 +2434,8 @@ dependencies = [
  "oxigraph",
  "pyo3",
  "serde_json",
- "shacl",
  "shacl-ir",
+ "shifty",
  "tempfile",
 ]
 
@@ -3033,7 +3033,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "shacl"
+name = "shacl-ir"
+version = "0.2.0"
+dependencies = [
+ "oxigraph",
+ "oxrdf",
+ "serde",
+]
+
+[[package]]
+name = "shifty"
 version = "0.1.0"
 dependencies = [
  "log",
@@ -3052,15 +3061,6 @@ dependencies = [
  "spargebra",
  "url",
  "xxhash-rust",
-]
-
-[[package]]
-name = "shacl-ir"
-version = "0.1.0"
-dependencies = [
- "oxigraph",
- "oxrdf",
- "serde",
 ]
 
 [[package]]
@@ -3525,8 +3525,8 @@ dependencies = [
  "oxigraph",
  "serde",
  "serde_json",
- "shacl",
  "shacl-ir",
+ "shifty",
  "tempfile",
 ]
 
