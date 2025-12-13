@@ -144,6 +144,10 @@ struct GenerateIrArgs {
     #[arg(long, default_value_t = -1)]
     import_depth: i32,
 
+    /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
+    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
+    temporary: bool,
+
     /// Output path for the serialized SHACL-IR file
     #[arg(short, long, value_name = "FILE")]
     output_file: PathBuf,
@@ -182,6 +186,10 @@ struct CommonArgs {
     /// Maximum owl:imports recursion depth (-1 = unlimited, 0 = only the root graph)
     #[arg(long, default_value_t = -1)]
     import_depth: i32,
+
+    /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
+    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
+    temporary: bool,
 }
 
 #[derive(Parser)]
@@ -381,6 +389,7 @@ fn get_validator(
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
         .with_do_imports(!common.no_imports)
+        .with_temporary_env(common.temporary)
         .with_import_depth(common.import_depth)
         .with_shapes_data_union(!common.no_union_graphs);
 
@@ -413,6 +422,7 @@ fn get_validator_shapes_only(
     warnings_are_errors: bool,
     do_imports: bool,
     import_depth: i32,
+    temporary: bool,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &shapes.shapes_file {
@@ -432,6 +442,7 @@ fn get_validator_shapes_only(
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
         .with_do_imports(do_imports)
+        .with_temporary_env(temporary)
         .with_import_depth(import_depth)
         .with_shapes_data_union(true)
         .build()
@@ -762,6 +773,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.warnings_are_errors,
                 !args.no_imports,
                 args.import_depth,
+                args.temporary,
             )?;
             let mut shape_ir = validator.context().shape_ir().clone();
             shape_ir.data_graph = None;

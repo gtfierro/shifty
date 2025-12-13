@@ -34,7 +34,7 @@ use crate::context::{
 };
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
-use log::{debug, info};
+use log::{debug, info, warn};
 use ontoenv::api::OntoEnv;
 use ontoenv::api::ResolveTarget;
 use ontoenv::config::Config;
@@ -75,6 +75,7 @@ pub struct ValidatorBuilder {
     warnings_are_errors: bool,
     do_imports: bool,
     import_depth: i32,
+    temporary_env: bool,
     shape_ir: Option<ShapeIR>,
 }
 
@@ -94,6 +95,7 @@ impl ValidatorBuilder {
             warnings_are_errors: false,
             do_imports: true,
             import_depth: -1,
+            temporary_env: true,
             shape_ir: None,
         }
     }
@@ -172,6 +174,13 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Store OntoEnv data in a temporary directory (default: true). Set to false to
+    /// reuse a local OntoEnv cache if present.
+    pub fn with_temporary_env(mut self, temporary_env: bool) -> Self {
+        self.temporary_env = temporary_env;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -187,6 +196,7 @@ impl ValidatorBuilder {
             warnings_are_errors,
             do_imports,
             import_depth,
+            temporary_env,
             shape_ir,
         } = self;
 
@@ -197,10 +207,21 @@ impl ValidatorBuilder {
 
         let config = match env_config {
             Some(config) => config,
-            None => Self::default_config()?,
+            None => Self::default_config(temporary_env)?,
         };
 
-        let mut env: OntoEnv = OntoEnv::init(config, false)?;
+        let mut env: OntoEnv = match OntoEnv::init(config, false) {
+            Ok(env) => env,
+            Err(e) if !temporary_env => {
+                warn!(
+                    "Failed to open existing OntoEnv ({}); falling back to temporary store",
+                    e
+                );
+                let fallback_config = Self::default_config(true)?;
+                OntoEnv::init(fallback_config, false)?
+            }
+            Err(e) => return Err(e.into()),
+        };
         let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
             (ir.shape_graph.clone(), false)
         } else {
@@ -439,12 +460,12 @@ impl ValidatorBuilder {
         Ok(Validator { context })
     }
 
-    fn default_config() -> Result<Config, Box<dyn Error>> {
+    fn default_config(temporary: bool) -> Result<Config, Box<dyn Error>> {
         Config::builder()
             .root(std::env::current_dir()?)
             .offline(false)
             .no_search(false)
-            .temporary(true)
+            .temporary(temporary)
             .build()
             .map_err(|e| {
                 Box::new(std::io::Error::other(format!(
