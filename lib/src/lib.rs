@@ -39,6 +39,7 @@ use ontoenv::api::OntoEnv;
 use ontoenv::api::ResolveTarget;
 use ontoenv::config::Config;
 use ontoenv::ontology::OntologyLocation;
+use ontoenv::options::CacheMode;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
@@ -210,7 +211,7 @@ impl ValidatorBuilder {
             None => Self::default_config(temporary_env)?,
         };
 
-        let mut env: OntoEnv = match OntoEnv::init(config, false) {
+        let mut env: OntoEnv = match OntoEnv::open_or_init(config, false) {
             Ok(env) => env,
             Err(e) if !temporary_env => {
                 warn!(
@@ -441,16 +442,16 @@ impl ValidatorBuilder {
             )?;
         }
 
-        info!(
-            "Optimizing store with shape graph <{}> and data graph <{}>",
-            shapes_graph_iri, data_graph_iri
-        );
-        model.store.optimize().map_err(|e| {
-            Box::new(std::io::Error::other(format!(
-                "Error optimizing store: {}",
-                e
-            )))
-        })?;
+        //info!(
+        //    "Optimizing store with shape graph <{}> and data graph <{}>",
+        //    shapes_graph_iri, data_graph_iri
+        //);
+        //model.store.optimize().map_err(|e| {
+        //    Box::new(std::io::Error::other(format!(
+        //        "Error optimizing store: {}",
+        //        e
+        //    )))
+        //})?;
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
@@ -466,6 +467,7 @@ impl ValidatorBuilder {
             .offline(false)
             .no_search(false)
             .temporary(temporary)
+            .use_cached_ontologies(CacheMode::Enabled)
             .build()
             .map_err(|e| {
                 Box::new(std::io::Error::other(format!(
