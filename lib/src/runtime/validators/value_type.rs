@@ -470,10 +470,11 @@ mod tests {
         let shape_graph_iri = NamedNode::new("urn:shape").expect("invalid shape IRI");
         let data_graph_iri = NamedNode::new("urn:data").expect("invalid data IRI");
 
+        let root = std::env::temp_dir();
         let config = Config::builder()
-            .root(std::env::temp_dir())
+            .root(root)
+            .locations(Vec::new())
             .offline(true)
-            .no_search(true)
             .temporary(true)
             .build()
             .expect("failed to build OntoEnv config");

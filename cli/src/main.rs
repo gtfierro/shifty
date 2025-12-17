@@ -145,7 +145,7 @@ struct GenerateIrArgs {
     import_depth: i32,
 
     /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
-    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
+    #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
 
     /// Output path for the serialized SHACL-IR file
@@ -188,7 +188,7 @@ struct CommonArgs {
     import_depth: i32,
 
     /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
-    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
+    #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
 }
 

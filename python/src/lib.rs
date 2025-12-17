@@ -43,10 +43,11 @@ fn write_graph_to_file(
 }
 
 fn build_env_config(root: &Path) -> PyResult<Config> {
+    let root_path = root.to_path_buf();
     Config::builder()
-        .root(root.to_path_buf())
+        .root(root_path.clone())
+        .locations(vec![root_path])
         .offline(false)
-        .no_search(false)
         .temporary(true)
         .build()
         .map_err(map_err)

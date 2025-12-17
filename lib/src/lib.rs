@@ -462,10 +462,11 @@ impl ValidatorBuilder {
     }
 
     fn default_config(temporary: bool) -> Result<Config, Box<dyn Error>> {
+        let root = std::env::current_dir()?;
         Config::builder()
-            .root(std::env::current_dir()?)
+            .root(root.clone())
+            .locations(vec![root])
             .offline(false)
-            .no_search(false)
             .temporary(temporary)
             .use_cached_ontologies(CacheMode::Enabled)
             .build()

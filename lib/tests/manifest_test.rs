@@ -132,10 +132,11 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             .shapes_graph_path
             .to_str()
             .ok_or("Invalid shapes graph path")?;
+        let root = std::env::current_dir()?;
         let env_config = Config::builder()
-            .root(std::env::current_dir()?)
+            .root(root)
+            .locations(Vec::new())
             .offline(true)
-            .no_search(true)
             .temporary(true)
             .build()?;
 
