@@ -871,108 +871,113 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                     }
 
                     let mut parameters = vec![];
-                    let param_query = format!(
-                        "PREFIX sh: <http://www.w3.org/ns/shacl#>\nSELECT ?param ?path ?optional ?varName FROM <{}> WHERE {{ <{}> sh:parameter ?param . ?param sh:path ?path . OPTIONAL {{ ?param sh:optional ?optional }} OPTIONAL {{ ?param sh:varName ?varName }} }}",
-                        shapes_graph_iri,
-                        cc_iri.as_str()
-                    );
-
-                    let prepared_params = services
-                        .prepared_query(&param_query)
-                        .map_err(|e| format!("Failed to prepare parameter query: {}", e))?;
-
-                    if let Ok(QueryResults::Solutions(param_solutions)) = services
-                        .execute_with_substitutions(
-                            &param_query,
-                            &prepared_params,
-                            &context.store,
-                            &[],
-                            false,
+                    for param_quad in context
+                        .store
+                        .quads_for_pattern(
+                            Some(cc_iri.as_ref().into()),
+                            Some(shacl.parameter),
+                            None,
+                            Some(context.shape_graph_iri_ref()),
                         )
+                        .filter_map(Result::ok)
                     {
-                        for param_solution in param_solutions {
-                            if let Ok(p_sol) = param_solution {
-                                if let Some(Term::NamedNode(path)) = p_sol.get("path") {
-                                    let param_term = match p_sol.get("param") {
-                                        Some(term) => term.clone(),
-                                        None => continue,
-                                    };
-                                    let optional = p_sol
-                                        .get("optional")
-                                        .and_then(|t| match t {
-                                            Term::Literal(l) => match l.value() {
-                                                v if v.eq_ignore_ascii_case("true") || v == "1" => {
-                                                    Some(true)
-                                                }
-                                                v if v.eq_ignore_ascii_case("false")
-                                                    || v == "0" =>
-                                                {
-                                                    Some(false)
-                                                }
-                                                _ => None,
-                                            },
-                                            _ => None,
-                                        })
-                                        .unwrap_or(false);
-                                    let var_name =
-                                        p_sol.get("varName").and_then(|term| match term {
-                                            Term::Literal(lit) => Some(lit.value().to_string()),
-                                            _ => None,
-                                        });
-                                    let subject_ref = to_subject_ref(&param_term).ok();
-                                    let default_values: Vec<Term> =
-                                        if let Some(subject) = subject_ref {
-                                            context
-                                                .store
-                                                .quads_for_pattern(
-                                                    Some(subject),
-                                                    Some(shacl.default_value),
-                                                    None,
-                                                    Some(context.shape_graph_iri_ref()),
-                                                )
-                                                .filter_map(Result::ok)
-                                                .map(|q| q.object)
-                                                .collect()
-                                        } else {
-                                            Vec::new()
-                                        };
-                                    let name =
-                                        extract_template_literal(context, &param_term, shacl.name);
-                                    let description = extract_template_literal(
-                                        context,
-                                        &param_term,
-                                        shacl.description,
-                                    );
-                                    let extra = collect_template_extras(
-                                        context,
-                                        &param_term,
-                                        &[
-                                            shacl.path.into_owned(),
-                                            shacl.optional.into_owned(),
-                                            shacl.var_name.into_owned(),
-                                            shacl.default_value.into_owned(),
-                                            shacl.name.into_owned(),
-                                            shacl.description.into_owned(),
-                                        ],
-                                    );
-                                    parameters.push(Parameter {
-                                        subject: param_term.clone(),
-                                        path: path.clone(),
-                                        optional,
-                                        var_name,
-                                        default_values,
-                                        name,
-                                        description,
-                                        extra,
-                                    });
-                                    param_to_component
-                                        .entry(path.clone())
-                                        .or_default()
-                                        .push(cc_iri.clone());
+                        let param_term = param_quad.object;
+                        let param_subject = to_subject_ref(&param_term).map_err(|_| {
+                            format!(
+                                "Custom constraint parameter {:?} must be an IRI or blank node.",
+                                param_term
+                            )
+                        })?;
+                        let path = context
+                            .store
+                            .quads_for_pattern(
+                                Some(param_subject),
+                                Some(shacl.path),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .find_map(|q| match q.object {
+                                Term::NamedNode(nn) => Some(nn),
+                                _ => None,
+                            })
+                            .ok_or_else(|| {
+                                format!(
+                                    "Custom constraint parameter {:?} is missing sh:path.",
+                                    param_term
+                                )
+                            })?;
+                        let optional = context
+                            .store
+                            .quads_for_pattern(
+                                Some(param_subject),
+                                Some(shacl.optional),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .any(|q| match q.object {
+                                Term::Literal(ref lit) => {
+                                    let v = lit.value();
+                                    v.eq_ignore_ascii_case("true") || v == "1"
                                 }
-                            }
-                        }
+                                _ => false,
+                            });
+                        let default_values: Vec<Term> = context
+                            .store
+                            .quads_for_pattern(
+                                Some(param_subject),
+                                Some(shacl.default_value),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .map(|q| q.object)
+                            .collect();
+                        let var_name =
+                            extract_template_literal(context, &param_term, shacl.var_name);
+                        let name = extract_template_literal(context, &param_term, shacl.name);
+                        let description =
+                            extract_template_literal(context, &param_term, shacl.description);
+                        let extra = collect_template_extras(
+                            context,
+                            &param_term,
+                            &[
+                                shacl.path.into_owned(),
+                                shacl.optional.into_owned(),
+                                shacl.var_name.into_owned(),
+                                shacl.default_value.into_owned(),
+                                shacl.name.into_owned(),
+                                shacl.description.into_owned(),
+                            ],
+                        );
+                        parameters.push(Parameter {
+                            subject: param_term.clone(),
+                            path: path.clone(),
+                            optional,
+                            var_name,
+                            default_values,
+                            name,
+                            description,
+                            extra,
+                        });
+                        param_to_component
+                            .entry(path.clone())
+                            .or_default()
+                            .push(cc_iri.clone());
                     }
+
+                    parameters.sort_by(|a, b| {
+                        let order = a.path.as_str().cmp(b.path.as_str());
+                        if order != std::cmp::Ordering::Equal {
+                            return order;
+                        }
+                        let order = a.var_name.as_deref().cmp(&b.var_name.as_deref());
+                        if order != std::cmp::Ordering::Equal {
+                            return order;
+                        }
+                        a.subject.to_string().cmp(&b.subject.to_string())
+                    });
 
                     let mut validator = None;
                     let mut node_validator = None;

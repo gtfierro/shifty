@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use oxigraph::model::{
     BlankNode, GraphName, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode,
@@ -8,6 +9,7 @@ use oxigraph::model::{
 use super::{
     component_registry::COMPONENT_REGISTRY, parse_node_shape, ParsingContext, ToSubjectRef,
 };
+use crate::context::model::CustomComponentCache;
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::model::templates::{
@@ -79,11 +81,8 @@ pub(crate) fn parse_components(
     }
 
     if context.features.enable_af {
-        register_shape_templates(context)?;
-
-        let (custom_component_defs, param_to_component) =
-            parse_custom_constraint_components(context)?;
-        register_component_templates(context, &custom_component_defs)?;
+        let cache = get_or_init_custom_component_cache(context)?;
+        let param_to_component = &cache.param_to_component;
 
         let mut shape_predicates: HashSet<NamedNode> = pred_obj_pairs.keys().cloned().collect();
         for p in processed_predicates {
@@ -98,7 +97,7 @@ pub(crate) fn parse_components(
         }
 
         for cc_iri in component_candidates {
-            if let Some(cc_def) = custom_component_defs.get(&cc_iri) {
+            if let Some(cc_def) = cache.definitions.get(&cc_iri) {
                 let mut has_all_mandatory = true;
                 let mut parameter_values = HashMap::new();
 
@@ -114,7 +113,7 @@ pub(crate) fn parse_components(
                 }
 
                 if has_all_mandatory {
-                    let mut param_entries: Vec<String> = cc_def
+                    let param_entries: Vec<String> = cc_def
                         .parameters
                         .iter()
                         .map(|param| {
@@ -126,7 +125,6 @@ pub(crate) fn parse_components(
                             format!("{}={}", param.path.as_str(), values.join(","))
                         })
                         .collect();
-                    param_entries.sort();
                     let component_key = format!(
                         "CustomConstraint:{}|{}",
                         cc_iri.as_str(),
@@ -148,6 +146,33 @@ pub(crate) fn parse_components(
     }
 
     Ok(descriptors)
+}
+
+fn get_or_init_custom_component_cache(
+    context: &mut ParsingContext,
+) -> Result<Arc<CustomComponentCache>, String> {
+    if context.custom_component_cache.is_none() {
+        register_shape_templates(context)?;
+        let (mut custom_component_defs, param_to_component) =
+            parse_custom_constraint_components(context)?;
+        register_component_templates(context, &custom_component_defs)?;
+        for definition in custom_component_defs.values_mut() {
+            if definition.template.is_none() {
+                if let Some(template) = context.component_templates.get(&definition.iri).cloned() {
+                    definition.template = Some(template);
+                }
+            }
+        }
+        context.custom_component_cache = Some(Arc::new(CustomComponentCache {
+            definitions: custom_component_defs,
+            param_to_component,
+        }));
+    }
+    Ok(context
+        .custom_component_cache
+        .as_ref()
+        .expect("custom component cache must be initialized")
+        .clone())
 }
 
 fn validate_sparql_constraint_node(

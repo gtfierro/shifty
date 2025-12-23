@@ -1,7 +1,8 @@
 #![allow(deprecated)]
 use super::ids::IDLookupTable;
 use crate::model::{
-    components::ComponentDescriptor, ComponentTemplateDefinition, Rule, ShapeTemplateDefinition,
+    components::sparql::CustomConstraintComponentDefinition, components::ComponentDescriptor,
+    ComponentTemplateDefinition, Rule, ShapeTemplateDefinition,
 };
 use crate::optimize::Optimizer;
 use crate::parser;
@@ -176,6 +177,11 @@ pub struct ShapesModel {
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
     pub(crate) original_values: Option<OriginalValueIndex>,
+}
+
+pub(crate) struct CustomComponentCache {
+    pub(crate) definitions: HashMap<NamedNode, CustomConstraintComponentDefinition>,
+    pub(crate) param_to_component: HashMap<NamedNode, Vec<NamedNode>>,
 }
 
 impl ShapesModel {
@@ -396,6 +402,7 @@ pub(crate) struct ParsingContext {
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
     pub(crate) original_values: Option<OriginalValueIndex>,
+    pub(crate) custom_component_cache: Option<Arc<CustomComponentCache>>,
 }
 
 impl ParsingContext {
@@ -432,6 +439,7 @@ impl ParsingContext {
             sparql: Arc::new(SparqlServices::new()),
             features,
             original_values,
+            custom_component_cache: None,
         }
     }
 
