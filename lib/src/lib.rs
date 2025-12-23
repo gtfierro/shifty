@@ -442,16 +442,16 @@ impl ValidatorBuilder {
             )?;
         }
 
-        //info!(
-        //    "Optimizing store with shape graph <{}> and data graph <{}>",
-        //    shapes_graph_iri, data_graph_iri
-        //);
-        //model.store.optimize().map_err(|e| {
-        //    Box::new(std::io::Error::other(format!(
-        //        "Error optimizing store: {}",
-        //        e
-        //    )))
-        //})?;
+        info!(
+            "Optimizing store with shape graph <{}> and data graph <{}>",
+            shapes_graph_iri, data_graph_iri
+        );
+        model.store.optimize().map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Error optimizing store: {}",
+                e
+            )))
+        })?;
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
