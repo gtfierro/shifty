@@ -483,6 +483,17 @@ impl ValidatorBuilder {
         source: &Source,
         label: &str,
     ) -> Result<(NamedNode, bool), Box<dyn Error>> {
+        let file_path = match source {
+            Source::File(path) => {
+                let abs = if path.is_absolute() {
+                    path.clone()
+                } else {
+                    std::env::current_dir()?.join(path)
+                };
+                Some(abs)
+            }
+            _ => None,
+        };
         let fallback_location = match source {
             Source::File(path) => path.display().to_string(),
             Source::Graph(uri) => uri.clone(),
@@ -496,8 +507,13 @@ impl ValidatorBuilder {
                 Overwrite::Allow,
                 RefreshStrategy::Force,
             ),
-            Source::File(path) => env.add(
-                OntologyLocation::File(path.clone()),
+            Source::File(_) => env.add(
+                OntologyLocation::File(
+                    file_path
+                        .as_ref()
+                        .ok_or_else(|| std::io::Error::other("Missing file path"))?
+                        .clone(),
+                ),
                 Overwrite::Allow,
                 RefreshStrategy::Force,
             ),
@@ -527,8 +543,8 @@ impl ValidatorBuilder {
         }
 
         // Fallback: manual Turtle parse into the env store (keeps the graph name stable).
-        let path = match source {
-            Source::File(p) => p,
+        let path = match &file_path {
+            Some(p) => p,
             _ => {
                 return Err(Box::new(std::io::Error::other(format!(
                     "Failed to resolve {} graph {} via OntoEnv",
