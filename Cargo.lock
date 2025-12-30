@@ -1985,7 +1985,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "ontoenv"
-version = "0.5.0-a1"
+version = "0.5.0-a2"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2694,7 +2694,7 @@ dependencies = [
 
 [[package]]
 name = "rdf5d"
-version = "0.5.0-a1"
+version = "0.5.0-a2"
 dependencies = [
  "clap",
  "oxigraph",
