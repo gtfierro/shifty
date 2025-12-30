@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn node_kind_rejects_skolemised_blank_nodes_for_iri_or_literal() {
         let focus = NamedNode::new("urn:focus").unwrap();
-        let skolem_value = NamedNode::new("urn:data/.well-known/skolem/b1").unwrap();
+        let skolem_value = NamedNode::new("urn:data/.sk/b1").unwrap();
 
         let mut context = Context::new(
             Term::NamedNode(focus.clone()),

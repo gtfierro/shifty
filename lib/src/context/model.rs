@@ -7,6 +7,7 @@ use crate::model::{
 use crate::optimize::Optimizer;
 use crate::parser;
 use crate::shape::{NodeShape, PropertyShape};
+use crate::skolem::skolem_base;
 use crate::sparql::SparqlServices;
 use crate::types::{ComponentID, PropShapeID, RuleID, ID};
 use log::info;
@@ -201,10 +202,7 @@ impl ShapesModel {
         let dummy_data_graph_iri = NamedNode::new("urn:dummy:data_graph")?;
         let store = env.io().store().clone();
 
-        let shape_graph_base_iri = format!(
-            "{}/.well-known/skolem/",
-            shape_graph_iri.as_str().trim_end_matches('/')
-        );
+        let shape_graph_base_iri = skolem_base(&shape_graph_iri);
         info!(
             "Skolemizing shape graph <{}> with base IRI <{}>",
             shape_graph_iri, shape_graph_base_iri

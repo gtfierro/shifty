@@ -7,6 +7,7 @@ use oxigraph::store::{StorageError, Store};
 use petgraph::graph::{DiGraph, NodeIndex};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use crate::skolem::SKOLEM_MARKER;
 
 /// Converts an `oxigraph::model::Graph` to a `petgraph::graph::DiGraph`.
 ///
@@ -547,7 +548,6 @@ pub fn deskolemize_graph(graph: &Graph, base_iri: &str) -> Graph {
             return Some(&iri[base_iri.len()..]);
         }
 
-        const SKOLEM_MARKER: &str = "/.well-known/skolem/";
         iri.find(SKOLEM_MARKER)
             .map(|idx| &iri[idx + SKOLEM_MARKER.len()..])
     }

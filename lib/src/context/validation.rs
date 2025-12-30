@@ -5,6 +5,7 @@ use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
+use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
@@ -40,14 +41,8 @@ impl ValidationContext {
         warnings_are_errors: bool,
         shape_ir: Arc<ShapeIR>,
     ) -> Self {
-        let data_graph_skolem_base = format!(
-            "{}/.well-known/skolem/",
-            data_graph_iri.as_str().trim_end_matches('/')
-        );
-        let shape_graph_skolem_base = format!(
-            "{}/.well-known/skolem/",
-            model.shape_graph_iri.as_str().trim_end_matches('/')
-        );
+        let data_graph_skolem_base = skolem_base(&data_graph_iri);
+        let shape_graph_skolem_base = skolem_base(&model.shape_graph_iri);
         let backend = Arc::new(OxigraphBackend::new(
             model.store.clone(),
             data_graph_iri.clone(),

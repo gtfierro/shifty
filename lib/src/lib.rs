@@ -10,6 +10,7 @@ pub mod model;
 pub mod shape;
 pub mod trace;
 pub mod types;
+pub(crate) mod skolem;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
 pub use report::ValidationReport;
@@ -620,7 +621,7 @@ impl ValidatorBuilder {
     }
 
     fn skolem_base(iri: &NamedNode) -> String {
-        format!("{}/.well-known/skolem/", iri.as_str().trim_end_matches('/'))
+        skolem::skolem_base(iri)
     }
 
     fn dedup_graphs(graphs: &mut Vec<NamedNode>) {

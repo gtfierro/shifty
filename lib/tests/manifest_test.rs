@@ -165,10 +165,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
                     "Failed to create file URL for data graph",
                 )
             })?;
-        let data_base_iri = format!(
-            "{}/.well-known/skolem/",
-            data_graph_url.as_str().trim_end_matches('/')
-        );
+        let data_base_iri = format!("{}/.sk/", data_graph_url.as_str().trim_end_matches('/'));
         report_graph = deskolemize_graph(&report_graph, &data_base_iri);
 
         let shapes_graph_url = Url::from_file_path(test.shapes_graph_path.canonicalize()?)
@@ -178,10 +175,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
                     "Failed to create file URL for shapes graph",
                 )
             })?;
-        let shapes_base_iri = format!(
-            "{}/.well-known/skolem/",
-            shapes_graph_url.as_str().trim_end_matches('/')
-        );
+        let shapes_base_iri = format!("{}/.sk/", shapes_graph_url.as_str().trim_end_matches('/'));
         report_graph = deskolemize_graph(&report_graph, &shapes_base_iri);
 
         let report_turtle = graph_to_turtle(&report_graph).map_err(|e| {
