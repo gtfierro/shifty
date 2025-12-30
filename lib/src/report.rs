@@ -6,9 +6,9 @@ use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{
     BlankNode, Graph, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject,
-    NamedOrBlankNodeRef as SubjectRef, Term, Triple,
+    NamedOrBlankNodeRef as SubjectRef, Quad, Term, TermRef, Triple,
 };
-use std::collections::HashMap; // For using Term as a HashMap key
+use std::collections::{HashMap, HashSet}; // For using Term as a HashMap key
 use std::error::Error;
 
 /// Represents the result of a SHACL validation.
@@ -19,6 +19,13 @@ use std::error::Error;
 pub struct ValidationReport<'a> {
     builder: ValidationReportBuilder,
     context: &'a ValidationContext,
+}
+
+/// Options for assembling validation reports.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ValidationReportOptions {
+    /// Follow blank nodes referenced by the report and include their CBD.
+    pub follow_bnodes: bool,
 }
 
 impl<'a> ValidationReport<'a> {
@@ -40,14 +47,36 @@ impl<'a> ValidationReport<'a> {
         self.builder.to_graph(self.context)
     }
 
+    /// Returns the validation report as an `oxigraph::model::Graph`, applying the given options.
+    pub fn to_graph_with_options(&self, options: ValidationReportOptions) -> Graph {
+        self.builder.to_graph_with_options(self.context, options)
+    }
+
     /// Serializes the validation report to a string in the specified RDF format.
     pub fn to_rdf(&self, format: RdfFormat) -> Result<String, Box<dyn Error>> {
         self.builder.to_rdf(self.context, format)
     }
 
+    /// Serializes the validation report to a string in the specified RDF format, applying options.
+    pub fn to_rdf_with_options(
+        &self,
+        format: RdfFormat,
+        options: ValidationReportOptions,
+    ) -> Result<String, Box<dyn Error>> {
+        self.builder.to_rdf_with_options(self.context, format, options)
+    }
+
     /// Serializes the validation report to a string in Turtle format.
     pub fn to_turtle(&self) -> Result<String, Box<dyn Error>> {
         self.builder.to_turtle(self.context)
+    }
+
+    /// Serializes the validation report to a string in Turtle format, applying options.
+    pub fn to_turtle_with_options(
+        &self,
+        options: ValidationReportOptions,
+    ) -> Result<String, Box<dyn Error>> {
+        self.builder.to_turtle_with_options(self.context, options)
     }
 
     /// Dumps a summary of the validation report to the console for debugging.
@@ -221,6 +250,15 @@ impl ValidationReportBuilder {
 
     /// Constructs an `oxigraph::model::Graph` representing the validation report.
     pub fn to_graph(&self, validation_context: &ValidationContext) -> Graph {
+        self.to_graph_with_options(validation_context, ValidationReportOptions::default())
+    }
+
+    /// Constructs an `oxigraph::model::Graph` representing the validation report, applying options.
+    pub fn to_graph_with_options(
+        &self,
+        validation_context: &ValidationContext,
+        options: ValidationReportOptions,
+    ) -> Graph {
         let mut graph = Graph::new();
         let report_node: Subject = BlankNode::default().into();
         let sh = SHACL::new();
@@ -386,6 +424,10 @@ impl ValidationReportBuilder {
             }
         }
 
+        if options.follow_bnodes {
+            follow_bnodes_in_report(&mut graph, validation_context);
+        }
+
         graph
     }
 
@@ -395,7 +437,17 @@ impl ValidationReportBuilder {
         validation_context: &ValidationContext,
         format: RdfFormat,
     ) -> Result<String, Box<dyn Error>> {
-        let graph = self.to_graph(validation_context);
+        self.to_rdf_with_options(validation_context, format, ValidationReportOptions::default())
+    }
+
+    /// Serializes the validation report to a string in the specified RDF format, applying options.
+    pub(crate) fn to_rdf_with_options(
+        &self,
+        validation_context: &ValidationContext,
+        format: RdfFormat,
+        options: ValidationReportOptions,
+    ) -> Result<String, Box<dyn Error>> {
+        let graph = self.to_graph_with_options(validation_context, options);
         let mut writer = Vec::new();
         let mut serializer = RdfSerializer::from_format(format)
             .with_prefix("sh", "http://www.w3.org/ns/shacl#")?
@@ -415,7 +467,20 @@ impl ValidationReportBuilder {
         &self,
         validation_context: &ValidationContext,
     ) -> Result<String, Box<dyn Error>> {
-        self.to_rdf(validation_context, RdfFormat::Turtle)
+        self.to_rdf_with_options(
+            validation_context,
+            RdfFormat::Turtle,
+            ValidationReportOptions::default(),
+        )
+    }
+
+    /// Serializes the validation report to a string in Turtle format, applying options.
+    pub(crate) fn to_turtle_with_options(
+        &self,
+        validation_context: &ValidationContext,
+        options: ValidationReportOptions,
+    ) -> Result<String, Box<dyn Error>> {
+        self.to_rdf_with_options(validation_context, RdfFormat::Turtle, options)
     }
 
     /// Dumps a summary of the validation report to the console for debugging.
@@ -719,4 +784,93 @@ fn clone_path_term_from_shapes_graph_inner(
     }
 
     new_bn_term
+}
+
+fn follow_bnodes_in_report(graph: &mut Graph, validation_context: &ValidationContext) {
+    let mut queue: Vec<Term> = Vec::new();
+    let mut seen: HashSet<Term> = HashSet::new();
+
+    for t in graph.iter() {
+        match t.subject {
+            SubjectRef::BlankNode(bn) => {
+                let term = Term::BlankNode(bn.into_owned());
+                if seen.insert(term.clone()) {
+                    queue.push(term);
+                }
+            }
+            SubjectRef::NamedNode(nn) => {
+                if validation_context.is_data_skolem_iri(nn)
+                    || validation_context.is_shape_skolem_iri(nn)
+                {
+                    let term = Term::NamedNode(nn.into_owned());
+                    if seen.insert(term.clone()) {
+                        queue.push(term);
+                    }
+                }
+            }
+        }
+        match t.object {
+            TermRef::BlankNode(bn) => {
+                let term = Term::BlankNode(bn.into_owned());
+                if seen.insert(term.clone()) {
+                    queue.push(term);
+                }
+            }
+            TermRef::NamedNode(nn) => {
+                if validation_context.is_data_skolem_iri(nn)
+                    || validation_context.is_shape_skolem_iri(nn)
+                {
+                    let term = Term::NamedNode(nn.into_owned());
+                    if seen.insert(term.clone()) {
+                        queue.push(term);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    while let Some(term) = queue.pop() {
+        let subject_ref = match &term {
+            Term::BlankNode(bn) => SubjectRef::BlankNode(bn.as_ref()),
+            Term::NamedNode(nn) => SubjectRef::NamedNode(nn.as_ref()),
+            _ => continue,
+        };
+        for graph_ref in [
+            validation_context.data_graph_iri_ref(),
+            validation_context.shape_graph_iri_ref(),
+        ] {
+            let quads = validation_context
+                .quads_for_pattern(Some(subject_ref), None, None, Some(graph_ref))
+                .unwrap_or_default();
+            for quad in quads {
+                let Quad {
+                    subject,
+                    predicate,
+                    object,
+                    ..
+                } = quad;
+                graph.insert(&Triple::new(subject, predicate, object.clone()));
+                match object {
+                    Term::BlankNode(obj_bn) => {
+                        let term = Term::BlankNode(obj_bn);
+                        if seen.insert(term.clone()) {
+                            queue.push(term);
+                        }
+                    }
+                    Term::NamedNode(obj_nn) => {
+                        if validation_context.is_data_skolem_iri(obj_nn.as_ref())
+                            || validation_context.is_shape_skolem_iri(obj_nn.as_ref())
+                        {
+                            let term = Term::NamedNode(obj_nn);
+                            if seen.insert(term.clone()) {
+                                queue.push(term);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }

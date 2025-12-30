@@ -13,7 +13,7 @@ pub mod types;
 pub(crate) mod skolem;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
-pub use report::ValidationReport;
+pub use report::{ValidationReport, ValidationReportOptions};
 
 // Internal modules.
 pub mod canonicalization;

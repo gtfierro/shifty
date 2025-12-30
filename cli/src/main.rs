@@ -7,7 +7,7 @@ use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
 use shifty::ir_cache;
 use shifty::trace::TraceEvent;
-use shifty::{InferenceConfig, Source, Validator, ValidatorBuilder};
+use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
@@ -232,6 +232,10 @@ struct ValidateArgs {
     /// The output format for the validation report
     #[arg(long, value_enum, default_value_t = ValidateOutputFormat::Turtle)]
     format: ValidateOutputFormat,
+
+    /// Follow blank nodes referenced in the report and include their CBD
+    #[arg(long)]
+    follow_bnodes: bool,
 
     /// Run SHACL rule inference before validation
     #[arg(long)]
@@ -658,20 +662,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
+            let report_options = ValidationReportOptions {
+                follow_bnodes: args.follow_bnodes,
+            };
+
             match args.format {
                 ValidateOutputFormat::Turtle => {
-                    let report_str = report.to_turtle()?;
+                    let report_str = report.to_turtle_with_options(report_options)?;
                     println!("{}", report_str);
                 }
                 ValidateOutputFormat::Dump => {
                     report.dump();
                 }
                 ValidateOutputFormat::RdfXml => {
-                    let report_str = report.to_rdf(RdfFormat::RdfXml)?;
+                    let report_str = report.to_rdf_with_options(RdfFormat::RdfXml, report_options)?;
                     println!("{}", report_str);
                 }
                 ValidateOutputFormat::NTriples => {
-                    let report_str = report.to_rdf(RdfFormat::NTriples)?;
+                    let report_str =
+                        report.to_rdf_with_options(RdfFormat::NTriples, report_options)?;
                     println!("{}", report_str);
                 }
             }
