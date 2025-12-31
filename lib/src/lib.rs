@@ -8,9 +8,9 @@ pub mod ir;
 pub mod ir_cache;
 pub mod model;
 pub mod shape;
+pub(crate) mod skolem;
 pub mod trace;
 pub mod types;
-pub(crate) mod skolem;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
 pub use report::{ValidationReport, ValidationReportOptions};

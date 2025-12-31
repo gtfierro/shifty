@@ -1,3 +1,4 @@
+use crate::skolem::SKOLEM_MARKER;
 use log::debug;
 use oxigraph::model::{
     BlankNode, Graph, GraphNameRef, NamedNode, NamedOrBlankNode as Subject,
@@ -7,7 +8,6 @@ use oxigraph::store::{StorageError, Store};
 use petgraph::graph::{DiGraph, NodeIndex};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use crate::skolem::SKOLEM_MARKER;
 
 /// Converts an `oxigraph::model::Graph` to a `petgraph::graph::DiGraph`.
 ///

@@ -675,7 +675,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     report.dump();
                 }
                 ValidateOutputFormat::RdfXml => {
-                    let report_str = report.to_rdf_with_options(RdfFormat::RdfXml, report_options)?;
+                    let report_str =
+                        report.to_rdf_with_options(RdfFormat::RdfXml, report_options)?;
                     println!("{}", report_str);
                 }
                 ValidateOutputFormat::NTriples => {

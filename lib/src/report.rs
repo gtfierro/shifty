@@ -63,7 +63,8 @@ impl<'a> ValidationReport<'a> {
         format: RdfFormat,
         options: ValidationReportOptions,
     ) -> Result<String, Box<dyn Error>> {
-        self.builder.to_rdf_with_options(self.context, format, options)
+        self.builder
+            .to_rdf_with_options(self.context, format, options)
     }
 
     /// Serializes the validation report to a string in Turtle format.
@@ -437,7 +438,11 @@ impl ValidationReportBuilder {
         validation_context: &ValidationContext,
         format: RdfFormat,
     ) -> Result<String, Box<dyn Error>> {
-        self.to_rdf_with_options(validation_context, format, ValidationReportOptions::default())
+        self.to_rdf_with_options(
+            validation_context,
+            format,
+            ValidationReportOptions::default(),
+        )
     }
 
     /// Serializes the validation report to a string in the specified RDF format, applying options.
