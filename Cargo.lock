@@ -1986,6 +1986,8 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "ontoenv"
 version = "0.5.0-a2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a523a769c5804898caf98a0ae8f986284fe23dcc9a09ae9529783dbb29cfcc4b"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2695,6 +2697,8 @@ dependencies = [
 [[package]]
 name = "rdf5d"
 version = "0.5.0-a2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc37c5a92b7ca1451f391452379ec96e3649c480498c3bf14de97c828dd89f10"
 dependencies = [
  "clap",
  "oxigraph",

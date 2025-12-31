@@ -19,6 +19,6 @@ pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py311"] }
 shifty = { path = "../lib" }
 shacl-ir = { path = "../shacl-ir" }
 oxigraph.workspace = true
-ontoenv = { path = "../../ontoenv-rs/lib" }
+ontoenv = "0.5.0-a2"
 tempfile = "3"
 serde_json.workspace = true
