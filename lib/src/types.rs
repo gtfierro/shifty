@@ -298,14 +298,10 @@ impl SeverityExt for Severity {
 
 /// A trait for converting `Term` or `TermRef` into `SubjectRef`.
 pub(crate) trait ToSubjectRef {
-    fn to_subject_ref(&self) -> NamedOrBlankNodeRef<'_>;
     fn try_to_subject_ref(&self) -> Result<NamedOrBlankNodeRef<'_>, String>;
 }
 
 impl ToSubjectRef for Term {
-    fn to_subject_ref(&self) -> NamedOrBlankNodeRef<'_> {
-        self.try_to_subject_ref().expect("Invalid subject term")
-    }
     fn try_to_subject_ref(&self) -> Result<NamedOrBlankNodeRef<'_>, String> {
         match self {
             Term::NamedNode(n) => Ok(NamedOrBlankNodeRef::NamedNode(n.as_ref())),
@@ -316,13 +312,6 @@ impl ToSubjectRef for Term {
 }
 
 impl<'a> ToSubjectRef for TermRef<'a> {
-    fn to_subject_ref(&self) -> NamedOrBlankNodeRef<'a> {
-        match self {
-            TermRef::NamedNode(n) => NamedOrBlankNodeRef::NamedNode(*n),
-            TermRef::BlankNode(b) => NamedOrBlankNodeRef::BlankNode(*b),
-            _ => panic!("Invalid subject term {:?}", self),
-        }
-    }
     fn try_to_subject_ref(&self) -> Result<NamedOrBlankNodeRef<'a>, String> {
         match self {
             TermRef::NamedNode(n) => Ok(NamedOrBlankNodeRef::NamedNode(*n)),
