@@ -23,6 +23,7 @@ pub struct ValidationContext {
     data_graph_skolem_base: String,
     shape_graph_skolem_base: String,
     pub(crate) warnings_are_errors: bool,
+    pub(crate) skip_sparql_blank_targets: bool,
     pub(crate) execution_traces: Mutex<Vec<Vec<TraceItem>>>,
     pub(crate) components: Arc<HashMap<ComponentID, Component>>,
     pub(crate) advanced_target_cache: RwLock<HashMap<Term, Vec<Term>>>,
@@ -39,6 +40,7 @@ impl ValidationContext {
         model: Arc<ShapesModel>,
         data_graph_iri: NamedNode,
         warnings_are_errors: bool,
+        skip_sparql_blank_targets: bool,
         shape_ir: Arc<ShapeIR>,
     ) -> Self {
         let data_graph_skolem_base = skolem_base(&data_graph_iri);
@@ -79,6 +81,7 @@ impl ValidationContext {
             data_graph_skolem_base,
             shape_graph_skolem_base,
             warnings_are_errors,
+            skip_sparql_blank_targets,
             execution_traces: Mutex::new(Vec::new()),
             components: Arc::new(components),
             advanced_target_cache: RwLock::new(HashMap::new()),
@@ -105,6 +108,10 @@ impl ValidationContext {
 
     pub(crate) fn warnings_are_errors(&self) -> bool {
         self.warnings_are_errors
+    }
+
+    pub(crate) fn skip_sparql_blank_targets(&self) -> bool {
+        self.skip_sparql_blank_targets
     }
 
     pub(crate) fn new_trace(&self) -> usize {

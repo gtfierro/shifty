@@ -183,6 +183,10 @@ struct CommonArgs {
     #[arg(long)]
     no_union_graphs: bool,
 
+    /// Allow SPARQL constraints to run when the focus node is a blank node
+    #[arg(long)]
+    allow_sparql_blank_targets: bool,
+
     /// Maximum owl:imports recursion depth (-1 = unlimited, 0 = only the root graph)
     #[arg(long, default_value_t = -1)]
     import_depth: i32,
@@ -392,6 +396,7 @@ fn get_validator(
         .with_data_source(data_source)
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
+        .with_skip_sparql_blank_targets(!common.allow_sparql_blank_targets)
         .with_do_imports(!common.no_imports)
         .with_temporary_env(common.temporary)
         .with_import_depth(common.import_depth)

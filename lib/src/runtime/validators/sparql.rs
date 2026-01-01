@@ -145,6 +145,15 @@ impl ValidateComponent for SPARQLConstraintComponent {
         let sparql_services = context.sparql_services();
         let constraint_subject = self.constraint_node.to_subject_ref();
 
+        if context.skip_sparql_blank_targets() && matches!(c.focus_node(), Term::BlankNode(_)) {
+            debug!(
+                "Skipping SPARQL constraint {} for blank focus node {}",
+                format_term_for_label(&self.constraint_node),
+                format_term_for_label(c.focus_node())
+            );
+            return Ok(vec![]);
+        }
+
         // 1. Check if deactivated
         if let Some(deactivated_quad) = context
             .quads_for_pattern(
@@ -474,6 +483,15 @@ impl ValidateComponent for CustomConstraintComponent {
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let sparql_services = context.sparql_services();
         let is_prop_shape = c.source_shape().as_prop_id().is_some();
+
+        if context.skip_sparql_blank_targets() && matches!(c.focus_node(), Term::BlankNode(_)) {
+            debug!(
+                "Skipping custom SPARQL constraint {} for blank focus node {}",
+                self.definition.iri,
+                format_term_for_label(c.focus_node())
+            );
+            return Ok(vec![]);
+        }
 
         enum ValidatorScope {
             Node,

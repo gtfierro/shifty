@@ -504,7 +504,13 @@ mod tests {
 
         let shape_ir = ir::build_shape_ir(&model, None, std::slice::from_ref(&shape_graph_iri))
             .expect("failed to build SHACL-IR for empty context");
-        ValidationContext::new(Arc::new(model), data_graph_iri, false, Arc::new(shape_ir))
+        ValidationContext::new(
+            Arc::new(model),
+            data_graph_iri,
+            false,
+            true,
+            Arc::new(shape_ir),
+        )
     }
 
     #[test]

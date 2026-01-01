@@ -75,6 +75,7 @@ pub struct ValidatorBuilder {
     enable_rules: bool,
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
+    skip_sparql_blank_targets: bool,
     do_imports: bool,
     import_depth: i32,
     temporary_env: bool,
@@ -95,6 +96,7 @@ impl ValidatorBuilder {
             enable_rules: true,
             skip_invalid_rules: false,
             warnings_are_errors: false,
+            skip_sparql_blank_targets: true,
             do_imports: true,
             import_depth: -1,
             temporary_env: true,
@@ -164,6 +166,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Skip SPARQL-based constraints when the focus node is a blank node (default: true).
+    pub fn with_skip_sparql_blank_targets(mut self, skip: bool) -> Self {
+        self.skip_sparql_blank_targets = skip;
+        self
+    }
+
     /// Whether to resolve and load owl:imports closures for shapes/data (default: true).
     pub fn with_do_imports(mut self, do_imports: bool) -> Self {
         self.do_imports = do_imports;
@@ -196,6 +204,7 @@ impl ValidatorBuilder {
             enable_rules,
             skip_invalid_rules,
             warnings_are_errors,
+            skip_sparql_blank_targets,
             do_imports,
             import_depth,
             temporary_env,
@@ -457,6 +466,7 @@ impl ValidatorBuilder {
             Arc::new(model),
             data_graph_iri,
             warnings_are_errors,
+            skip_sparql_blank_targets,
             shape_ir_arc,
         );
         Ok(Validator { context })
