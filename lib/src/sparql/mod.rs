@@ -1239,10 +1239,7 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                         if strict {
                             return Err(err);
                         }
-                        warn!(
-                            "Skipping custom constraint component {}: {}",
-                            cc_iri, err
-                        );
+                        warn!("Skipping custom constraint component {}: {}", cc_iri, err);
                     }
                 }
             }
