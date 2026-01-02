@@ -226,11 +226,14 @@ def benchmark_platforms(
 
     measurements: List[Measurement] = []
     triple_cache: dict[Path, int] = {}
+    model_list = list(models)
+    total_models = len(model_list)
 
-    for data_file in models:
+    for model_index, data_file in enumerate(model_list, start=1):
+        LOGGER.info("Model %s/%s: %s", model_index, total_models, data_file.name)
         triples = triple_cache.setdefault(data_file, count_triples(data_file))
-        for run_index in range(1, runs + 1):
-            for platform, command_builder in commands.items():
+        for platform, command_builder in commands.items():
+            for run_index in range(1, runs + 1):
                 LOGGER.info(
                     "[%s] %s run %s/%s (%s triples)",
                     platform,
