@@ -10,11 +10,11 @@ use crate::sparql::{
     SparqlExecutor,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
+use log::debug;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{QueryResults, Variable};
 use std::collections::{HashMap, HashSet};
-use log::debug;
 
 fn query_mentions_var(query: &str, var: &str) -> bool {
     fn contains(query: &str, prefix: char, var: &str) -> bool {
