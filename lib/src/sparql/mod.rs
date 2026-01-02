@@ -6,7 +6,7 @@ use crate::model::components::sparql::{
 };
 use crate::named_nodes::{RDF, SHACL};
 use crate::types::Severity;
-use log::{debug, warn};
+use log::warn;
 use ontoenv::api::{OntoEnv, ResolveTarget};
 use oxigraph::model::{
     GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef as SubjectRef, Term,
