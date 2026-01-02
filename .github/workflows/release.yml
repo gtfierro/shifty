@@ -1,0 +1,231 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-cli:
+    name: Build CLI (${{ matrix.asset }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            asset: linux-x86_64
+          - runner: windows-latest
+            asset: windows-x86_64
+          - runner: macos-15
+            asset: macos-aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build -p cli --release
+      - name: Package CLI (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/release/shifty "dist/shifty-${{ matrix.asset }}"
+          tar -czf "dist/shifty-${{ matrix.asset }}.tar.gz" -C dist "shifty-${{ matrix.asset }}"
+      - name: Package CLI (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/shifty.exe "dist/shifty-${{ matrix.asset }}.exe"
+          Compress-Archive -Path "dist/shifty-${{ matrix.asset }}.exe" -DestinationPath "dist/shifty-${{ matrix.asset }}.zip"
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.asset }}
+          path: dist
+
+  wheels-linux:
+    name: Build wheels (linux)
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+            use_zig: true
+          - runner: ubuntu-22.04
+            target: aarch64
+            use_zig: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: >-
+            --release --out dist --manifest-path python/Cargo.toml${{ matrix.platform.use_zig && ' --zig' || '' }}
+          sccache: false
+          manylinux: auto
+        env:
+          RUSTFLAGS: ${{ matrix.platform.use_zig && '-C link-arg=-lc++ -C link-arg=-lc++abi' || '' }}
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: >-
+            --release --out dist --manifest-path python/Cargo.toml -i python3.13t${{ matrix.platform.use_zig && ' --zig' || '' }}
+          sccache: false
+          manylinux: auto
+        env:
+          RUSTFLAGS: ${{ matrix.platform.use_zig && '-C link-arg=-lc++ -C link-arg=-lc++abi' || '' }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.platform.target }}
+          path: dist
+
+  wheels-musllinux:
+    name: Build wheels (musllinux)
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+          - runner: ubuntu-22.04
+            target: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --manifest-path python/Cargo.toml --zig
+          sccache: false
+          manylinux: musllinux_1_2
+        env:
+          RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --manifest-path python/Cargo.toml --zig -i python3.13t
+          sccache: false
+          manylinux: musllinux_1_2
+        env:
+          RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-musllinux-${{ matrix.platform.target }}
+          path: dist
+
+  wheels-windows:
+    name: Build wheels (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: x64
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist --manifest-path python/Cargo.toml
+          sccache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.13t
+          architecture: x64
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist --manifest-path python/Cargo.toml -i python3.13t
+          sccache: false
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: dist
+
+  wheels-macos:
+    name: Build wheels (macos)
+    runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "10.15"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set macOS deployment target
+        run: echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}" >> $GITHUB_ENV
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist --manifest-path python/Cargo.toml
+          sccache: false
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist --manifest-path python/Cargo.toml -i python3.13t
+          sccache: false
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-aarch64
+          path: dist
+
+  wheels-sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist --manifest-path python/Cargo.toml
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs:
+      - build-cli
+      - wheels-linux
+      - wheels-musllinux
+      - wheels-windows
+      - wheels-macos
+      - wheels-sdist
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**/*.whl
+            release-artifacts/**/*.tar.gz
+            release-artifacts/**/*.zip
