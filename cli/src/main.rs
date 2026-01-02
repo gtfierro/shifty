@@ -136,6 +136,10 @@ struct GenerateIrArgs {
     #[arg(long)]
     warnings_are_errors: bool,
 
+    /// Require custom constraint components to declare validators
+    #[arg(long)]
+    strict_custom_constraints: bool,
+
     /// Disable resolving owl:imports for the shapes graph while generating the IR
     #[arg(long)]
     no_imports: bool,
@@ -186,6 +190,10 @@ struct CommonArgs {
     /// Allow SPARQL constraints to run when the focus node is a blank node
     #[arg(long)]
     allow_sparql_blank_targets: bool,
+
+    /// Require custom constraint components to declare validators (default: allow missing)
+    #[arg(long)]
+    strict_custom_constraints: bool,
 
     /// Maximum owl:imports recursion depth (-1 = unlimited, 0 = only the root graph)
     #[arg(long, default_value_t = -1)]
@@ -397,6 +405,7 @@ fn get_validator(
         .with_skip_invalid_rules(common.skip_invalid_rules)
         .with_warnings_are_errors(common.warnings_are_errors)
         .with_skip_sparql_blank_targets(!common.allow_sparql_blank_targets)
+        .with_strict_custom_constraints(common.strict_custom_constraints)
         .with_do_imports(!common.no_imports)
         .with_temporary_env(common.temporary)
         .with_import_depth(common.import_depth)
@@ -429,6 +438,7 @@ fn get_validator_shapes_only(
     shapes: &ShapesSourceCli,
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
+    strict_custom_constraints: bool,
     do_imports: bool,
     import_depth: i32,
     temporary: bool,
@@ -450,6 +460,7 @@ fn get_validator_shapes_only(
         .with_data_source(Source::Empty)
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
+        .with_strict_custom_constraints(strict_custom_constraints)
         .with_do_imports(do_imports)
         .with_temporary_env(temporary)
         .with_import_depth(import_depth)
@@ -786,6 +797,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &args.shapes,
                 args.skip_invalid_rules,
                 args.warnings_are_errors,
+                args.strict_custom_constraints,
                 !args.no_imports,
                 args.import_depth,
                 args.temporary,

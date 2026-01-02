@@ -76,6 +76,7 @@ pub struct ValidatorBuilder {
     skip_invalid_rules: bool,
     warnings_are_errors: bool,
     skip_sparql_blank_targets: bool,
+    strict_custom_constraints: bool,
     do_imports: bool,
     import_depth: i32,
     temporary_env: bool,
@@ -97,6 +98,7 @@ impl ValidatorBuilder {
             skip_invalid_rules: false,
             warnings_are_errors: false,
             skip_sparql_blank_targets: true,
+            strict_custom_constraints: false,
             do_imports: true,
             import_depth: -1,
             temporary_env: true,
@@ -172,6 +174,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Require custom constraint components to declare validators (default: false).
+    pub fn with_strict_custom_constraints(mut self, strict: bool) -> Self {
+        self.strict_custom_constraints = strict;
+        self
+    }
+
     /// Whether to resolve and load owl:imports closures for shapes/data (default: true).
     pub fn with_do_imports(mut self, do_imports: bool) -> Self {
         self.do_imports = do_imports;
@@ -205,6 +213,7 @@ impl ValidatorBuilder {
             skip_invalid_rules,
             warnings_are_errors,
             skip_sparql_blank_targets,
+            strict_custom_constraints,
             do_imports,
             import_depth,
             temporary_env,
@@ -428,6 +437,7 @@ impl ValidatorBuilder {
                 shapes_graph_iri.clone(),
                 data_graph_iri.clone(),
                 features.clone(),
+                strict_custom_constraints,
                 original_values,
             )?;
             let shape_ir = crate::ir::build_shape_ir(
@@ -715,6 +725,7 @@ impl ValidatorBuilder {
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
         features: FeatureToggles,
+        strict_custom_constraints: bool,
         original_values: Option<OriginalValueIndex>,
     ) -> Result<ShapesModel, Box<dyn Error>> {
         let mut parsing_context = ParsingContext::new(
@@ -723,6 +734,7 @@ impl ValidatorBuilder {
             shape_graph_iri.clone(),
             data_graph_iri.clone(),
             features.clone(),
+            strict_custom_constraints,
             original_values.clone(),
         );
         shacl_parser::run_parser(&mut parsing_context)?;

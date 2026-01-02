@@ -222,6 +222,7 @@ impl ShapesModel {
             shape_graph_iri.clone(),
             dummy_data_graph_iri,
             FeatureToggles::default(),
+            false,
             None,
         );
         info!(
@@ -399,6 +400,7 @@ pub(crate) struct ParsingContext {
     pub(crate) sparql: Arc<SparqlServices>,
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
+    pub(crate) strict_custom_constraints: bool,
     pub(crate) original_values: Option<OriginalValueIndex>,
     pub(crate) custom_component_cache: Option<Arc<CustomComponentCache>>,
 }
@@ -414,6 +416,7 @@ impl ParsingContext {
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
         features: FeatureToggles,
+        strict_custom_constraints: bool,
         original_values: Option<OriginalValueIndex>,
     ) -> Self {
         Self {
@@ -436,6 +439,7 @@ impl ParsingContext {
             env,
             sparql: Arc::new(SparqlServices::new()),
             features,
+            strict_custom_constraints,
             original_values,
             custom_component_cache: None,
         }

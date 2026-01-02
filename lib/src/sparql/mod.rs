@@ -6,6 +6,7 @@ use crate::model::components::sparql::{
 };
 use crate::named_nodes::{RDF, SHACL};
 use crate::types::Severity;
+use log::{debug, warn};
 use ontoenv::api::{OntoEnv, ResolveTarget};
 use oxigraph::model::{
     GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef as SubjectRef, Term,
@@ -806,6 +807,7 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
     let mut definitions = HashMap::new();
     let mut param_to_component: HashMap<NamedNode, Vec<NamedNode>> = HashMap::new();
     let shacl = SHACL::new();
+    let strict = context.strict_custom_constraints;
 
     let shapes_graph_iri = context.shape_graph_iri.as_str();
     let query = format!(
@@ -829,397 +831,419 @@ pub fn parse_custom_constraint_components<E: SparqlExecutor>(
                     if is_builtin_component(cc_iri) {
                         continue;
                     }
-                    // Quick structural validation before running heavier SPARQL queries.
-                    let has_validator = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            None,
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .any(|quad| {
-                            let predicate = quad.predicate.as_ref();
-                            predicate == shacl.validator
-                                || predicate == shacl.node_validator
-                                || predicate == shacl.property_validator
-                        });
-                    if !has_validator {
-                        return Err(format!(
-                            "Custom constraint component {} must declare at least one validator.",
-                            cc_iri
-                        ));
-                    }
-
-                    let has_parameter = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(shacl.parameter),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .next()
-                        .is_some();
-                    if !has_parameter {
-                        return Err(format!(
-                        "Custom constraint component {} must declare at least one sh:parameter.",
-                        cc_iri
-                    ));
-                    }
-
-                    let mut parameters = vec![];
-                    for param_quad in context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(shacl.parameter),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                    {
-                        let param_term = param_quad.object;
-                        let param_subject = to_subject_ref(&param_term).map_err(|_| {
-                            format!(
-                                "Custom constraint parameter {:?} must be an IRI or blank node.",
-                                param_term
-                            )
-                        })?;
-                        let path = context
+                    let parse_result = (|| -> Result<(), String> {
+                        // Quick structural validation before running heavier SPARQL queries.
+                        let has_validator = context
                             .store
                             .quads_for_pattern(
-                                Some(param_subject),
-                                Some(shacl.path),
+                                Some(cc_iri.as_ref().into()),
+                                None,
                                 None,
                                 Some(context.shape_graph_iri_ref()),
                             )
                             .filter_map(Result::ok)
-                            .find_map(|q| match q.object {
-                                Term::NamedNode(nn) => Some(nn),
-                                _ => None,
-                            })
-                            .ok_or_else(|| {
+                            .any(|quad| {
+                                let predicate = quad.predicate.as_ref();
+                                predicate == shacl.validator
+                                    || predicate == shacl.node_validator
+                                    || predicate == shacl.property_validator
+                            });
+                        if !has_validator {
+                            return Err(format!(
+                                "Custom constraint component {} must declare at least one validator.",
+                                cc_iri
+                            ));
+                        }
+
+                        let has_parameter = context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(shacl.parameter),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .next()
+                            .is_some();
+                        if !has_parameter {
+                            return Err(format!(
+                                "Custom constraint component {} must declare at least one sh:parameter.",
+                                cc_iri
+                            ));
+                        }
+
+                        let mut parameters = vec![];
+                        let mut parameter_paths = Vec::new();
+                        for param_quad in context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(shacl.parameter),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                        {
+                            let param_term = param_quad.object;
+                            let param_subject = to_subject_ref(&param_term).map_err(|_| {
                                 format!(
-                                    "Custom constraint parameter {:?} is missing sh:path.",
+                                    "Custom constraint parameter {:?} must be an IRI or blank node.",
                                     param_term
                                 )
                             })?;
-                        let optional = context
-                            .store
-                            .quads_for_pattern(
-                                Some(param_subject),
-                                Some(shacl.optional),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
-                            )
-                            .filter_map(Result::ok)
-                            .any(|q| match q.object {
-                                Term::Literal(ref lit) => {
-                                    let v = lit.value();
-                                    v.eq_ignore_ascii_case("true") || v == "1"
-                                }
-                                _ => false,
-                            });
-                        let default_values: Vec<Term> = context
-                            .store
-                            .quads_for_pattern(
-                                Some(param_subject),
-                                Some(shacl.default_value),
-                                None,
-                                Some(context.shape_graph_iri_ref()),
-                            )
-                            .filter_map(Result::ok)
-                            .map(|q| q.object)
-                            .collect();
-                        let var_name =
-                            extract_template_literal(context, &param_term, shacl.var_name);
-                        let name = extract_template_literal(context, &param_term, shacl.name);
-                        let description =
-                            extract_template_literal(context, &param_term, shacl.description);
-                        let extra = collect_template_extras(
-                            context,
-                            &param_term,
-                            &[
-                                shacl.path.into_owned(),
-                                shacl.optional.into_owned(),
-                                shacl.var_name.into_owned(),
-                                shacl.default_value.into_owned(),
-                                shacl.name.into_owned(),
-                                shacl.description.into_owned(),
-                            ],
-                        );
-                        parameters.push(Parameter {
-                            subject: param_term.clone(),
-                            path: path.clone(),
-                            optional,
-                            var_name,
-                            default_values,
-                            name,
-                            description,
-                            extra,
-                        });
-                        param_to_component
-                            .entry(path.clone())
-                            .or_default()
-                            .push(cc_iri.clone());
-                    }
-
-                    parameters.sort_by(|a, b| {
-                        let order = a.path.as_str().cmp(b.path.as_str());
-                        if order != std::cmp::Ordering::Equal {
-                            return order;
-                        }
-                        let order = a.var_name.as_deref().cmp(&b.var_name.as_deref());
-                        if order != std::cmp::Ordering::Equal {
-                            return order;
-                        }
-                        a.subject.to_string().cmp(&b.subject.to_string())
-                    });
-
-                    let mut validator = None;
-                    let mut node_validator = None;
-                    let mut property_validator = None;
-
-                    let component_messages: Vec<Term> = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(shacl.message),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .map(|q| q.object)
-                        .collect();
-
-                    let component_severity = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(shacl.severity),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .map(|q| q.object)
-                        .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
-
-                    let parse_validator =
-                        |v_term: &Term,
-                         is_ask: bool,
-                         context: &ParsingContext,
-                         services: &E,
-                         require_path: bool,
-                         require_this: bool|
-                         -> Result<Option<SPARQLValidator>, String> {
-                            let subject = match v_term {
-                            Term::NamedNode(nn) => Some(nn.as_ref().into()),
-                            Term::BlankNode(bn) => Some(bn.as_ref().into()),
-                            _ => None,
-                        }
-                        .ok_or_else(|| {
-                            format!(
-                                "Custom constraint validator term {:?} must be a node or blank node.",
-                                v_term
-                            )
-                        })?;
-
-                            let ask_pred =
-                                NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#ask");
-                            let query_pred = if is_ask { ask_pred } else { shacl.select };
-
-                            let query_object = context
+                            let path = context
                                 .store
                                 .quads_for_pattern(
-                                    Some(subject),
-                                    Some(query_pred),
+                                    Some(param_subject),
+                                    Some(shacl.path),
                                     None,
                                     Some(context.shape_graph_iri_ref()),
                                 )
                                 .filter_map(Result::ok)
-                                .map(|q| q.object)
-                                .next()
+                                .find_map(|q| match q.object {
+                                    Term::NamedNode(nn) => Some(nn),
+                                    _ => None,
+                                })
                                 .ok_or_else(|| {
                                     format!(
-                                        "Custom constraint validator {:?} is missing the {} query.",
-                                        v_term,
-                                        if is_ask { "sh:ask" } else { "sh:select" }
+                                        "Custom constraint parameter {:?} is missing sh:path.",
+                                        param_term
                                     )
                                 })?;
-
-                            let query_str = match query_object {
-                            Term::Literal(ref lit) => lit.value().to_string(),
-                            _ => {
-                                return Err(format!(
-                                    "Custom constraint validator {:?} must supply its query as a literal.",
-                                    v_term
-                                ))
-                            }
-                        };
-
-                            validate_prebound_variable_usage(
-                                &query_str,
-                                &format!("Custom constraint {}", cc_iri),
-                                require_this,
-                                require_path,
-                            )?;
-
-                            let prefixes = services.prefixes_for_node(
-                                v_term,
-                                &context.store,
-                                &context.env,
-                                context.shape_graph_iri_ref(),
-                            )?;
-
-                            let full_query = if prefixes.is_empty() {
-                                query_str.clone()
-                            } else {
-                                format!("{}\n{}", prefixes, query_str)
-                            };
-
-                            if !require_path {
-                                let _ = services.prepared_query(&full_query)?;
-                                let mut prebound = HashSet::new();
-                                if require_this {
-                                    prebound.insert(Variable::new_unchecked("this"));
-                                }
-                                if query_mentions_var(&full_query, "currentShape") {
-                                    prebound.insert(Variable::new_unchecked("currentShape"));
-                                }
-                                if query_mentions_var(&full_query, "shapesGraph") {
-                                    prebound.insert(Variable::new_unchecked("shapesGraph"));
-                                }
-                                let optional = HashSet::new();
-                                let algebra = services.algebra(&full_query)?;
-                                ensure_pre_binding_semantics(
-                                    &algebra,
-                                    &format!("Custom constraint {}", cc_iri),
-                                    &prebound,
-                                    &optional,
-                                )?;
-                            } else {
-                                let mut prebound = HashSet::new();
-                                if require_this {
-                                    prebound.insert(Variable::new_unchecked("this"));
-                                }
-                                prebound.insert(Variable::new_unchecked("PATH"));
-                                let normalized = full_query.replace("$PATH", "?PATH");
-                                let algebra = services.algebra(&normalized)?;
-                                ensure_pre_binding_semantics(
-                                    &algebra,
-                                    &format!("Custom constraint {}", cc_iri),
-                                    &prebound,
-                                    &HashSet::new(),
-                                )?;
-                            }
-
-                            let messages: Vec<Term> = context
+                            let optional = context
                                 .store
                                 .quads_for_pattern(
-                                    Some(subject),
-                                    Some(shacl.message),
+                                    Some(param_subject),
+                                    Some(shacl.optional),
+                                    None,
+                                    Some(context.shape_graph_iri_ref()),
+                                )
+                                .filter_map(Result::ok)
+                                .any(|q| match q.object {
+                                    Term::Literal(ref lit) => {
+                                        let v = lit.value();
+                                        v.eq_ignore_ascii_case("true") || v == "1"
+                                    }
+                                    _ => false,
+                                });
+                            let default_values: Vec<Term> = context
+                                .store
+                                .quads_for_pattern(
+                                    Some(param_subject),
+                                    Some(shacl.default_value),
                                     None,
                                     Some(context.shape_graph_iri_ref()),
                                 )
                                 .filter_map(Result::ok)
                                 .map(|q| q.object)
                                 .collect();
+                            let var_name =
+                                extract_template_literal(context, &param_term, shacl.var_name);
+                            let name = extract_template_literal(context, &param_term, shacl.name);
+                            let description =
+                                extract_template_literal(context, &param_term, shacl.description);
+                            let extra = collect_template_extras(
+                                context,
+                                &param_term,
+                                &[
+                                    shacl.path.into_owned(),
+                                    shacl.optional.into_owned(),
+                                    shacl.var_name.into_owned(),
+                                    shacl.default_value.into_owned(),
+                                    shacl.name.into_owned(),
+                                    shacl.description.into_owned(),
+                                ],
+                            );
+                            parameters.push(Parameter {
+                                subject: param_term.clone(),
+                                path: path.clone(),
+                                optional,
+                                var_name,
+                                default_values,
+                                name,
+                                description,
+                                extra,
+                            });
+                            parameter_paths.push(path);
+                        }
 
-                            let severity = context
-                                .store
-                                .quads_for_pattern(
-                                    Some(subject),
-                                    Some(shacl.severity),
-                                    None,
-                                    Some(context.shape_graph_iri_ref()),
+                        parameters.sort_by(|a, b| {
+                            let order = a.path.as_str().cmp(b.path.as_str());
+                            if order != std::cmp::Ordering::Equal {
+                                return order;
+                            }
+                            let order = a.var_name.as_deref().cmp(&b.var_name.as_deref());
+                            if order != std::cmp::Ordering::Equal {
+                                return order;
+                            }
+                            a.subject.to_string().cmp(&b.subject.to_string())
+                        });
+
+                        let mut validator = None;
+                        let mut node_validator = None;
+                        let mut property_validator = None;
+
+                        let component_messages: Vec<Term> = context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(shacl.message),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .map(|q| q.object)
+                            .collect();
+
+                        let component_severity = context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(shacl.severity),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .map(|q| q.object)
+                            .find_map(|term| {
+                                <Severity as crate::types::SeverityExt>::from_term(&term)
+                            });
+
+                        let parse_validator =
+                            |v_term: &Term,
+                             is_ask: bool,
+                             context: &ParsingContext,
+                             services: &E,
+                             require_path: bool,
+                             require_this: bool|
+                             -> Result<Option<SPARQLValidator>, String> {
+                                let subject = match v_term {
+                                Term::NamedNode(nn) => Some(nn.as_ref().into()),
+                                Term::BlankNode(bn) => Some(bn.as_ref().into()),
+                                _ => None,
+                            }
+                            .ok_or_else(|| {
+                                format!(
+                                    "Custom constraint validator term {:?} must be a node or blank node.",
+                                    v_term
                                 )
-                                .filter_map(Result::ok)
-                                .map(|q| q.object)
-                                .find_map(|term| {
-                                    <Severity as crate::types::SeverityExt>::from_term(&term)
-                                });
+                            })?;
 
-                            Ok(Some(SPARQLValidator {
-                                query: query_str,
-                                is_ask,
-                                messages,
-                                prefixes,
-                                severity,
-                                require_this,
-                                require_path,
-                            }))
-                        };
+                                let ask_pred =
+                                    NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#ask");
+                                let query_pred = if is_ask { ask_pred } else { shacl.select };
 
-                    let validator_prop =
-                        NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#validator");
-                    if let Some(v_term) = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(validator_prop),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .map(|q| q.object)
-                        .next()
-                    {
-                        validator =
-                            parse_validator(&v_term, true, context, services, false, false)?;
+                                let query_object = context
+                                    .store
+                                    .quads_for_pattern(
+                                        Some(subject),
+                                        Some(query_pred),
+                                        None,
+                                        Some(context.shape_graph_iri_ref()),
+                                    )
+                                    .filter_map(Result::ok)
+                                    .map(|q| q.object)
+                                    .next()
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "Custom constraint validator {:?} is missing the {} query.",
+                                            v_term,
+                                            if is_ask { "sh:ask" } else { "sh:select" }
+                                        )
+                                    })?;
+
+                                let query_str = match query_object {
+                                Term::Literal(ref lit) => lit.value().to_string(),
+                                _ => {
+                                    return Err(format!(
+                                        "Custom constraint validator {:?} must supply its query as a literal.",
+                                        v_term
+                                    ))
+                                }
+                            };
+
+                                validate_prebound_variable_usage(
+                                    &query_str,
+                                    &format!("Custom constraint {}", cc_iri),
+                                    require_this,
+                                    require_path,
+                                )?;
+
+                                let prefixes = services.prefixes_for_node(
+                                    v_term,
+                                    &context.store,
+                                    &context.env,
+                                    context.shape_graph_iri_ref(),
+                                )?;
+
+                                let full_query = if prefixes.is_empty() {
+                                    query_str.clone()
+                                } else {
+                                    format!("{}\n{}", prefixes, query_str)
+                                };
+
+                                if !require_path {
+                                    let _ = services.prepared_query(&full_query)?;
+                                    let mut prebound = HashSet::new();
+                                    if require_this {
+                                        prebound.insert(Variable::new_unchecked("this"));
+                                    }
+                                    if query_mentions_var(&full_query, "currentShape") {
+                                        prebound.insert(Variable::new_unchecked("currentShape"));
+                                    }
+                                    if query_mentions_var(&full_query, "shapesGraph") {
+                                        prebound.insert(Variable::new_unchecked("shapesGraph"));
+                                    }
+                                    let optional = HashSet::new();
+                                    let algebra = services.algebra(&full_query)?;
+                                    ensure_pre_binding_semantics(
+                                        &algebra,
+                                        &format!("Custom constraint {}", cc_iri),
+                                        &prebound,
+                                        &optional,
+                                    )?;
+                                } else {
+                                    let mut prebound = HashSet::new();
+                                    if require_this {
+                                        prebound.insert(Variable::new_unchecked("this"));
+                                    }
+                                    prebound.insert(Variable::new_unchecked("PATH"));
+                                    let normalized = full_query.replace("$PATH", "?PATH");
+                                    let algebra = services.algebra(&normalized)?;
+                                    ensure_pre_binding_semantics(
+                                        &algebra,
+                                        &format!("Custom constraint {}", cc_iri),
+                                        &prebound,
+                                        &HashSet::new(),
+                                    )?;
+                                }
+
+                                let messages: Vec<Term> = context
+                                    .store
+                                    .quads_for_pattern(
+                                        Some(subject),
+                                        Some(shacl.message),
+                                        None,
+                                        Some(context.shape_graph_iri_ref()),
+                                    )
+                                    .filter_map(Result::ok)
+                                    .map(|q| q.object)
+                                    .collect();
+
+                                let severity = context
+                                    .store
+                                    .quads_for_pattern(
+                                        Some(subject),
+                                        Some(shacl.severity),
+                                        None,
+                                        Some(context.shape_graph_iri_ref()),
+                                    )
+                                    .filter_map(Result::ok)
+                                    .map(|q| q.object)
+                                    .find_map(|term| {
+                                        <Severity as crate::types::SeverityExt>::from_term(&term)
+                                    });
+
+                                Ok(Some(SPARQLValidator {
+                                    query: query_str,
+                                    is_ask,
+                                    messages,
+                                    prefixes,
+                                    severity,
+                                    require_this,
+                                    require_path,
+                                }))
+                            };
+
+                        let validator_prop =
+                            NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#validator");
+                        if let Some(v_term) = context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(validator_prop),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .map(|q| q.object)
+                            .next()
+                        {
+                            validator =
+                                parse_validator(&v_term, true, context, services, false, false)?;
+                        }
+
+                        let node_validator_prop =
+                            NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#nodeValidator");
+                        if let Some(v_term) = context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(node_validator_prop),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .map(|q| q.object)
+                            .next()
+                        {
+                            node_validator =
+                                parse_validator(&v_term, false, context, services, false, true)?;
+                        }
+
+                        let property_validator_prop = NamedNodeRef::new_unchecked(
+                            "http://www.w3.org/ns/shacl#propertyValidator",
+                        );
+                        if let Some(v_term) = context
+                            .store
+                            .quads_for_pattern(
+                                Some(cc_iri.as_ref().into()),
+                                Some(property_validator_prop),
+                                None,
+                                Some(context.shape_graph_iri_ref()),
+                            )
+                            .filter_map(Result::ok)
+                            .map(|q| q.object)
+                            .next()
+                        {
+                            property_validator =
+                                parse_validator(&v_term, false, context, services, true, true)?;
+                        }
+
+                        definitions.insert(
+                            cc_iri.clone(),
+                            CustomConstraintComponentDefinition {
+                                iri: cc_iri.clone(),
+                                parameters,
+                                validator,
+                                node_validator,
+                                property_validator,
+                                messages: component_messages,
+                                severity: component_severity,
+                                template: context.component_templates.get(cc_iri).cloned(),
+                            },
+                        );
+
+                        for path in parameter_paths {
+                            param_to_component
+                                .entry(path)
+                                .or_default()
+                                .push(cc_iri.clone());
+                        }
+
+                        Ok(())
+                    })();
+
+                    if let Err(err) = parse_result {
+                        if strict {
+                            return Err(err);
+                        }
+                        warn!(
+                            "Skipping custom constraint component {}: {}",
+                            cc_iri, err
+                        );
                     }
-
-                    let node_validator_prop =
-                        NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#nodeValidator");
-                    if let Some(v_term) = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(node_validator_prop),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .map(|q| q.object)
-                        .next()
-                    {
-                        node_validator =
-                            parse_validator(&v_term, false, context, services, false, true)?;
-                    }
-
-                    let property_validator_prop =
-                        NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#propertyValidator");
-                    if let Some(v_term) = context
-                        .store
-                        .quads_for_pattern(
-                            Some(cc_iri.as_ref().into()),
-                            Some(property_validator_prop),
-                            None,
-                            Some(context.shape_graph_iri_ref()),
-                        )
-                        .filter_map(Result::ok)
-                        .map(|q| q.object)
-                        .next()
-                    {
-                        property_validator =
-                            parse_validator(&v_term, false, context, services, true, true)?;
-                    }
-
-                    definitions.insert(
-                        cc_iri.clone(),
-                        CustomConstraintComponentDefinition {
-                            iri: cc_iri.clone(),
-                            parameters,
-                            validator,
-                            node_validator,
-                            property_validator,
-                            messages: component_messages,
-                            severity: component_severity,
-                            template: context.component_templates.get(cc_iri).cloned(),
-                        },
-                    );
                 }
             }
         }
