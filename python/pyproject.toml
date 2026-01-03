@@ -3,7 +3,7 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "shifty"
+name = "pyshifty"
 version = "0.0.1"
 description = "Python bindings for the shifty validation engine"
 authors = [{ name = "Gabe Fierro", email = "gtfierro@mines.edu" }]

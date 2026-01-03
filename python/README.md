@@ -6,6 +6,12 @@ while reusing the same Rust engine that powers the CLI.
 
 ## Installation
 
+From PyPI (package name `pyshifty`, import name `shifty`):
+
+```bash
+pip install pyshifty
+```
+
 From the repository root you can develop locally with
 
 ```bash
@@ -14,8 +20,9 @@ uv sync  # or `pip install -r requirements.txt` if you prefer
 uvx maturin develop --extras rdflib --release
 ```
 
-The GitHub Actions workflow (`.github/workflows/python.yml`) runs `maturin` with this
-README as the PyPI long description, so keep it up to date when the bindings change.
+The GitHub Actions workflow (`.github/workflows/python.yml`) publishes the package to
+PyPI as `pyshifty` and uses this README as the long description, so keep it up to date
+when the bindings change.
 
 ## Usage
 

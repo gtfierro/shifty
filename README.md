@@ -112,7 +112,7 @@ Both `validate` and `infer` can emit Graphviz (`--graphviz`) or PDF heatmaps (`-
 
 ## Python API
 
-Install the extension module with `uvx maturin develop` (or `maturin develop --release`) inside `python/`. The module mirrors the CLI workflow:
+Install the extension module from PyPI as `pyshifty` (import it as `shifty`), or use `uvx maturin develop` (or `maturin develop --release`) inside `python/`. The module mirrors the CLI workflow:
 
 - `generate_ir(shapes_graph, ...)` parses the shapes once and returns a `CompiledShapeGraph` Python object.
 - `CompiledShapeGraph.validate` / `.infer` reuse the cached IR and accept the same flags as the CLI `validate`/`infer` commands.
