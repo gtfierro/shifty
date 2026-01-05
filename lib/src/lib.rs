@@ -80,6 +80,7 @@ pub struct ValidatorBuilder {
     do_imports: bool,
     import_depth: i32,
     temporary_env: bool,
+    optimize_store: bool,
     shape_ir: Option<ShapeIR>,
 }
 
@@ -102,6 +103,7 @@ impl ValidatorBuilder {
             do_imports: true,
             import_depth: -1,
             temporary_env: true,
+            optimize_store: true,
             shape_ir: None,
         }
     }
@@ -199,6 +201,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Optimize the Oxigraph store before validation (default: true).
+    pub fn with_store_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_store = enabled;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -217,6 +225,7 @@ impl ValidatorBuilder {
             do_imports,
             import_depth,
             temporary_env,
+            optimize_store,
             shape_ir,
         } = self;
 
@@ -462,16 +471,23 @@ impl ValidatorBuilder {
             )?;
         }
 
-        info!(
-            "Optimizing store with shape graph <{}> and data graph <{}>",
-            shapes_graph_iri, data_graph_iri
-        );
-        model.store.optimize().map_err(|e| {
-            Box::new(std::io::Error::other(format!(
-                "Error optimizing store: {}",
-                e
-            )))
-        })?;
+        if optimize_store {
+            info!(
+                "Optimizing store with shape graph <{}> and data graph <{}>",
+                shapes_graph_iri, data_graph_iri
+            );
+            model.store.optimize().map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Error optimizing store: {}",
+                    e
+                )))
+            })?;
+        } else {
+            info!(
+                "Skipping store optimization for shape graph <{}> and data graph <{}>",
+                shapes_graph_iri, data_graph_iri
+            );
+        }
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
