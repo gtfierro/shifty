@@ -14,17 +14,7 @@ on:
     branches:
       - main
       - master
-    tags:
-      - '*'
   pull_request:
-  release:
-    types:
-      - published
-  workflow_run:
-    workflows:
-      - Release
-    types:
-      - completed
   workflow_dispatch:
 
 permissions:
@@ -194,25 +184,3 @@ jobs:
         with:
           name: wheels-sdist
           path: dist
-
-  publish_pypi:
-    # Only publish when a GitHub Release is created; tag/branch builds skip this job.
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    environment:
-      name: publish
-      url: https://pypi.org/p/pyshifty
-    permissions:
-      id-token: write
-    needs: [linux, musllinux, windows, macos, sdist]
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: wheels-*
-          path: dist
-          merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist
-          skip-existing: true
-          password: ${{ secrets.PYPI_TOKEN }}
