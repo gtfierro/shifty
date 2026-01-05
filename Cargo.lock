@@ -398,7 +398,7 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
 name = "cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "clap",
  "env_logger",
@@ -2482,7 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "python"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "ontoenv",
  "oxigraph",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "shacl-ir"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "oxigraph",
  "oxrdf",
@@ -3097,7 +3097,7 @@ dependencies = [
 
 [[package]]
 name = "shifty"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "log",
  "ntest",
@@ -3575,7 +3575,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "ts-generator"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "clap",
  "oxigraph",
