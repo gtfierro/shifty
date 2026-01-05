@@ -444,23 +444,16 @@ fn get_validator(
 }
 
 fn get_validator_shapes_only(
-    shapes: &ShapesSourceCli,
-    skip_invalid_rules: bool,
-    warnings_are_errors: bool,
-    strict_custom_constraints: bool,
-    do_imports: bool,
-    import_depth: i32,
-    temporary: bool,
-    optimize_store: bool,
+    args: &GenerateIrArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
-    if let Some(path) = &shapes.shapes_file {
+    if let Some(path) = &args.shapes.shapes_file {
         if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
             builder = builder.with_shape_ir(shape_ir?);
         } else {
             builder = builder.with_shapes_source(Source::File(path.clone()));
         }
-    } else if let Some(graph) = &shapes.shapes_graph {
+    } else if let Some(graph) = &args.shapes.shapes_graph {
         builder = builder.with_shapes_source(Source::Graph(graph.clone()));
     } else {
         return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
@@ -468,13 +461,13 @@ fn get_validator_shapes_only(
 
     builder
         .with_data_source(Source::Empty)
-        .with_skip_invalid_rules(skip_invalid_rules)
-        .with_warnings_are_errors(warnings_are_errors)
-        .with_strict_custom_constraints(strict_custom_constraints)
-        .with_do_imports(do_imports)
-        .with_temporary_env(temporary)
-        .with_import_depth(import_depth)
-        .with_store_optimization(optimize_store)
+        .with_skip_invalid_rules(args.skip_invalid_rules)
+        .with_warnings_are_errors(args.warnings_are_errors)
+        .with_strict_custom_constraints(args.strict_custom_constraints)
+        .with_do_imports(!args.no_imports)
+        .with_temporary_env(args.temporary)
+        .with_import_depth(args.import_depth)
+        .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
@@ -804,16 +797,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::GenerateIr(args) => {
-            let validator = get_validator_shapes_only(
-                &args.shapes,
-                args.skip_invalid_rules,
-                args.warnings_are_errors,
-                args.strict_custom_constraints,
-                !args.no_imports,
-                args.import_depth,
-                args.temporary,
-                !args.no_store_optimize,
-            )?;
+            let validator = get_validator_shapes_only(&args)?;
             let mut shape_ir = validator.context().shape_ir().clone();
             shape_ir.data_graph = None;
             ir_cache::write_shape_ir(&args.output_file, &shape_ir)
