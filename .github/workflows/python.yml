@@ -17,6 +17,9 @@ on:
     tags:
       - '*'
   pull_request:
+  release:
+    types:
+      - published
   workflow_dispatch:
 
 permissions:
@@ -188,6 +191,7 @@ jobs:
           path: dist
 
   publish_pypi:
+    # Only publish when a GitHub Release is created; tag/branch builds skip this job.
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment:
@@ -199,7 +203,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: pyshifty*
+          pattern: wheels-*
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
