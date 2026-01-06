@@ -15,6 +15,11 @@ dependencies = [
     "rdflib>=7.4.0",
 ]
 
+[project.optional-dependencies]
+docs = [
+    "sphinx>=7.2",
+]
+
 [project.urls]
 Repository = "https://github.com/gtfierro/shifty"
 

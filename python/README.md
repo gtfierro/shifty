@@ -54,6 +54,7 @@ inferred_graph, diag = shifty.infer(
     min_iterations=1,
     max_iterations=4,
     graphviz=True,
+    union=True,
     return_inference_outcome=True,
 )
 print(diag["inference_outcome"]["triples_added"])
@@ -73,8 +74,8 @@ Key options (mirroring the CLI flags):
 
 - `skip_invalid_rules` (default: `False`), `warnings_are_errors`, `do_imports`
 - Inference knobs: `min_iterations`, `max_iterations`, `run_until_converged`/`no_converge`,
-  `error_on_blank_nodes`, `debug`; the `inference={...}` dict still works and aliases like
-  `inference_min_iterations` remain.
+  `error_on_blank_nodes`, `debug`, `union` (include original data); the `inference={...}` dict
+  still works and aliases like `inference_min_iterations` remain.
 - Diagnostics: `graphviz` (DOT for shapes), `heatmap` + `heatmap_all` (execution heatmap, triggers
   a validation pass), `trace_events`, `trace_file`, `trace_jsonl`, `return_inference_outcome`
   (adds iteration/insert counts).
@@ -83,6 +84,18 @@ If you omit all diagnostics, `validate` returns `(conforms, results_graph, repor
 `infer` returns the inferred `rdflib.Graph` just like before.
 
 See `example.py` and `brick.py` in this directory for full RDFlib/OntoEnv examples.
+
+## Docs
+
+Sphinx docs live in `python/docs`. Build them with:
+
+```bash
+cd python/docs
+make html
+```
+
+The build writes `llms.txt` into the HTML output directory
+(`python/docs/_build/html/llms.txt`).
 
 ## Packaging notes
 

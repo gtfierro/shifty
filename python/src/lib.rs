@@ -26,20 +26,24 @@ fn write_graph_to_file(
     dir: &Path,
     filename: &str,
 ) -> PyResult<PathBuf> {
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("format", "turtle")?;
-    let serialized = graph.call_method("serialize", (), Some(&kwargs))?;
-    let turtle = match serialized.extract::<String>() {
-        Ok(s) => s,
-        Err(_) => {
-            let bytes: Vec<u8> = serialized.extract()?;
-            String::from_utf8(bytes).map_err(map_err)?
-        }
-    };
+    let turtle = serialize_graph(py, graph, "turtle")?;
 
     let path = dir.join(filename);
     fs::write(&path, turtle).map_err(map_err)?;
     Ok(path)
+}
+
+fn serialize_graph(py: Python<'_>, graph: &Bound<'_, PyAny>, format: &str) -> PyResult<String> {
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("format", format)?;
+    let serialized = graph.call_method("serialize", (), Some(&kwargs))?;
+    match serialized.extract::<String>() {
+        Ok(s) => Ok(s),
+        Err(_) => {
+            let bytes: Vec<u8> = serialized.extract()?;
+            String::from_utf8(bytes).map_err(map_err)
+        }
+    }
 }
 
 fn build_env_config(root: &Path) -> PyResult<Config> {
@@ -386,6 +390,7 @@ fn graph_from_data(py: Python<'_>, data: &str, format: &str) -> PyResult<Py<PyAn
 fn execute_infer(
     py: Python<'_>,
     validator: Validator,
+    data_graph: &Bound<'_, PyAny>,
     min_iterations: Option<usize>,
     max_iterations: Option<usize>,
     run_until_converged: Option<bool>,
@@ -398,6 +403,7 @@ fn execute_infer(
     trace_file: Option<PathBuf>,
     trace_jsonl: Option<PathBuf>,
     return_inference_outcome: bool,
+    union: bool,
 ) -> PyResult<Py<PyAny>> {
     let should_collect_traces =
         trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
@@ -418,8 +424,20 @@ fn execute_infer(
         .run_inference_with_config(config)
         .map_err(map_err)?;
 
-    let data = quads_to_ntriples(&outcome.inferred_quads);
-    let inferred_graph = graph_from_data(py, &data, "nt")?;
+    let inferred_data = quads_to_ntriples(&outcome.inferred_quads);
+    let output_graph = if union {
+        let data_serialized = serialize_graph(py, data_graph, "nt")?;
+        let graph = graph_from_data(py, &data_serialized, "nt")?;
+        if !inferred_data.trim().is_empty() {
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("data", &inferred_data)?;
+            kwargs.set_item("format", "nt")?;
+            graph.bind(py).call_method("parse", (), Some(&kwargs))?;
+        }
+        graph
+    } else {
+        graph_from_data(py, &inferred_data, "nt")?
+    };
 
     let diagnostics = PyDict::new(py);
 
@@ -458,9 +476,9 @@ fn execute_infer(
     }
 
     if diagnostics.is_empty() {
-        Ok(inferred_graph.clone_ref(py))
+        Ok(output_graph.clone_ref(py))
     } else {
-        let graph_obj = inferred_graph.clone_ref(py).into_py_any(py)?;
+        let graph_obj = output_graph.clone_ref(py).into_py_any(py)?;
         let diag_obj = diagnostics.into_py_any(py)?;
         let tuple = PyTuple::new(py, &[graph_obj, diag_obj])?;
         Ok(tuple.into_py_any(py)?)
@@ -755,7 +773,7 @@ struct PyCompiledShapeGraph {
 #[pymethods]
 impl PyCompiledShapeGraph {
     /// Run SHACL rule inference using the cached ShapeIR.
-    #[pyo3(signature=(data_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+    #[pyo3(signature=(data_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false, union=false))]
     fn infer(
         &self,
         py: Python<'_>,
@@ -778,6 +796,7 @@ impl PyCompiledShapeGraph {
         trace_file: Option<PathBuf>,
         trace_jsonl: Option<PathBuf>,
         return_inference_outcome: bool,
+        union: bool,
     ) -> PyResult<Py<PyAny>> {
         let validator = build_validator_from_ir(
             py,
@@ -798,6 +817,7 @@ impl PyCompiledShapeGraph {
         execute_infer(
             py,
             validator,
+            data_graph,
             min_iterations,
             max_iterations,
             run_until_converged,
@@ -810,6 +830,7 @@ impl PyCompiledShapeGraph {
             trace_file,
             trace_jsonl,
             return_inference_outcome,
+            union,
         )
     }
 
@@ -917,7 +938,7 @@ fn generate_ir(
 }
 
 /// Run SHACL rules to infer additional triples, optionally with diagnostics.
-#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false, union=false))]
 fn infer(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
@@ -940,6 +961,7 @@ fn infer(
     trace_file: Option<PathBuf>,
     trace_jsonl: Option<PathBuf>,
     return_inference_outcome: bool,
+    union: bool,
 ) -> PyResult<Py<PyAny>> {
     let validator = build_validator_from_graphs(
         py,
@@ -960,6 +982,7 @@ fn infer(
     execute_infer(
         py,
         validator,
+        data_graph,
         min_iterations,
         max_iterations,
         run_until_converged,
@@ -972,6 +995,7 @@ fn infer(
         trace_file,
         trace_jsonl,
         return_inference_outcome,
+        union,
     )
 }
 
