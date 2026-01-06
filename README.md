@@ -35,9 +35,63 @@ cargo clippy --workspace --all-targets --all-features
 cargo test --workspace
 ```
 
+## Usage examples
+
+### CLI
+
+Basic validation with Turtle inputs:
+
+```bash
+shifty \
+  validate \
+  --shapes-file examples/shapes.ttl \
+  --data-file examples/data.ttl \
+  --format turtle
+```
+
+Reuse a cached ShapeIR for faster repeated runs:
+
+```bash
+shifty generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
+shifty validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
+```
+
+### Python
+
+Minimal end-to-end validation:
+
+```python
+from rdflib import Graph
+import shifty
+
+data_graph = Graph().parse("examples/data.ttl", format="turtle")
+shapes_graph = Graph().parse("examples/shapes.ttl", format="turtle")
+
+conforms, results_graph, report_text = shifty.validate(
+    data_graph,
+    shapes_graph,
+    run_inference=False,
+)
+print(conforms)
+print(report_text)
+```
+
+Cached shapes reuse (mirrors the CLI `generate-ir` workflow):
+
+```python
+import shifty
+
+cache = shifty.generate_ir(shapes_graph)
+conforms, results_graph, report_text, diag = cache.validate(
+    data_graph,
+    run_inference=True,
+    inference={"min_iterations": 1, "max_iterations": 8},
+)
+```
+
 ## CLI Overview
 
-Run `cargo run -p cli -- --help` to see every subcommand. The most common entry points are:
+Run `shifty --help` to see every subcommand. The most common entry points are:
 
 - `validate`: run SHACL validation (optionally with rule inference) and optionally emit reports, DOT graphs, or traces.
 - `infer`: emit the triples inferred by SHACL rules (Graphviz and PDF outputs are also supported).
@@ -58,7 +112,7 @@ All commands accept the shared `--skip-invalid-rules`, `--warnings-are-errors`, 
 ### Validation example
 
 ```bash
-cargo run -p cli -- \
+shifty \
   validate \
   --shapes-file examples/shapes.ttl \
   --data-file examples/data.ttl \
@@ -75,7 +129,7 @@ cargo run -p cli -- \
 ### Inference example
 
 ```bash
-cargo run -p cli -- \
+shifty \
   inference \
   --shapes-file examples/shapes.ttl \
   --data-file examples/data.ttl \
@@ -92,8 +146,8 @@ Use `--union` to emit the original data plus inferred triples.
 The CLI ships with a `generate-ir` subcommand that parses the shapes graph, serializes the resulting `ShapeIR`, and writes it to disk. This makes repeated validations much faster because `validate`, `inference`, `heat`, and `trace` can all consume the `--shacl-ir cache.ttl` artifact instead of reparsing the shapes every time. The helper crate under `shacl-ir/` defines the serde-friendly IR data structures, so the cache can also be shared between the CLI and other embedders.
 
 ```bash
-cargo run -p cli -- generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
-cargo run -p cli -- validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
+shifty generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
+shifty validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
 ```
 
 When you reuse a cached IR, validation and inference still run over the union of the shapes graph (captured in the cache) and the supplied data graph unless you pass `--no-union-graphs`.
