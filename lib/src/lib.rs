@@ -81,6 +81,7 @@ pub struct ValidatorBuilder {
     import_depth: i32,
     temporary_env: bool,
     optimize_store: bool,
+    optimize_shapes: bool,
     shape_ir: Option<ShapeIR>,
 }
 
@@ -104,6 +105,7 @@ impl ValidatorBuilder {
             import_depth: -1,
             temporary_env: true,
             optimize_store: true,
+            optimize_shapes: true,
             shape_ir: None,
         }
     }
@@ -207,6 +209,12 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Optimize parsed shapes (defaults to true). Disable to preserve raw parser output.
+    pub fn with_shape_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_shapes = enabled;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -226,6 +234,7 @@ impl ValidatorBuilder {
             import_depth,
             temporary_env,
             optimize_store,
+            optimize_shapes,
             shape_ir,
         } = self;
 
@@ -448,6 +457,7 @@ impl ValidatorBuilder {
                 features.clone(),
                 strict_custom_constraints,
                 original_values,
+                optimize_shapes,
             )?;
             let shape_ir = crate::ir::build_shape_ir(
                 &model,
@@ -634,6 +644,12 @@ impl ValidatorBuilder {
                     parse_err
                 ))
             })?;
+            let quad = Quad::new(
+                quad.subject,
+                quad.predicate,
+                quad.object,
+                GraphName::NamedNode(graph_iri.clone()),
+            );
             env.io().store().insert(quad.as_ref()).map_err(|ins_err| {
                 std::io::Error::other(format!(
                     "Failed to insert quad into {} graph {}: {}",
@@ -743,6 +759,7 @@ impl ValidatorBuilder {
         features: FeatureToggles,
         strict_custom_constraints: bool,
         original_values: Option<OriginalValueIndex>,
+        optimize_shapes: bool,
     ) -> Result<ShapesModel, Box<dyn Error>> {
         let mut parsing_context = ParsingContext::new(
             store,
@@ -755,9 +772,13 @@ impl ValidatorBuilder {
         );
         shacl_parser::run_parser(&mut parsing_context)?;
 
-        let mut optimizer = Optimizer::new(parsing_context);
-        optimizer.optimize()?;
-        let final_ctx = optimizer.finish();
+        let final_ctx = if optimize_shapes {
+            let mut optimizer = Optimizer::new(parsing_context);
+            optimizer.optimize()?;
+            optimizer.finish()
+        } else {
+            parsing_context
+        };
 
         Ok(ShapesModel {
             nodeshape_id_lookup: final_ctx.nodeshape_id_lookup,
@@ -853,6 +874,11 @@ impl Validator {
         let report_builder = validate::validate(&self.context);
         // The report needs the context to be able to serialize itself later.
         ValidationReport::new(report_builder.unwrap(), &self.context)
+    }
+
+    /// Returns the parsed SHACL-IR for the current validator.
+    pub fn shape_ir(&self) -> &ShapeIR {
+        self.context.shape_ir()
     }
 
     /// Executes inference with a custom configuration and returns the outcome.
