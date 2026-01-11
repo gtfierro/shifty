@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use super::ids::IDLookupTable;
 use crate::model::{
     components::sparql::CustomConstraintComponentDefinition, components::ComponentDescriptor,
@@ -16,7 +15,7 @@ use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
-use oxigraph::model::{Literal, Subject};
+use oxigraph::model::{Literal, NamedOrBlankNode};
 use oxigraph::store::Store;
 use shacl_ir::{FeatureToggles, ShapeIR};
 use std::collections::{HashMap, VecDeque};
@@ -85,7 +84,7 @@ impl OriginalValueIndex {
 
     fn record_triple(
         &mut self,
-        subject: Subject,
+        subject: NamedOrBlankNode,
         predicate: NamedNode,
         object: Term,
         skolem_base: Option<&str>,
@@ -105,10 +104,10 @@ impl OriginalValueIndex {
         }
     }
 
-    fn canonicalize_subject(subject: Subject, skolem_base: Option<&str>) -> Term {
+    fn canonicalize_subject(subject: NamedOrBlankNode, skolem_base: Option<&str>) -> Term {
         match subject {
-            Subject::NamedNode(nn) => Term::NamedNode(nn),
-            Subject::BlankNode(bn) => {
+            NamedOrBlankNode::NamedNode(nn) => Term::NamedNode(nn),
+            NamedOrBlankNode::BlankNode(bn) => {
                 if let Some(base) = skolem_base {
                     Term::NamedNode(NamedNode::new_unchecked(format!("{}{}", base, bn.as_str())))
                 } else {
