@@ -5,6 +5,7 @@ use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
+use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
 use shifty::ir_cache;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
@@ -12,6 +13,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shacl_ir::ShapeIR, String>> {
     let is_ir = path
@@ -159,6 +161,56 @@ struct GenerateIrArgs {
     /// Output path for the serialized SHACL-IR file
     #[arg(short, long, value_name = "FILE")]
     output_file: PathBuf,
+}
+
+#[derive(Parser)]
+struct CompileArgs {
+    #[clap(flatten)]
+    shapes: ShapesSourceCli,
+
+    /// Skip invalid SHACL constructs when generating the plan
+    #[arg(long)]
+    skip_invalid_rules: bool,
+
+    /// Treat SHACL warnings as errors when generating the plan
+    #[arg(long)]
+    warnings_are_errors: bool,
+
+    /// Require custom constraint components to declare validators
+    #[arg(long)]
+    strict_custom_constraints: bool,
+
+    /// Disable resolving owl:imports for the shapes graph while generating the plan
+    #[arg(long)]
+    no_imports: bool,
+
+    /// Maximum owl:imports recursion depth for shapes (-1 = unlimited, 0 = only the root graph)
+    #[arg(long, default_value_t = -1)]
+    import_depth: i32,
+
+    /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
+    #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
+    temporary: bool,
+
+    /// Disable store optimization when building the plan
+    #[arg(long)]
+    no_store_optimize: bool,
+
+    /// Output directory for the generated crate and binary
+    #[arg(long, value_name = "DIR", default_value = "target/compiled-shacl")]
+    out_dir: PathBuf,
+
+    /// Name for the generated crate/binary
+    #[arg(long, value_name = "NAME", default_value = "shacl-compiled")]
+    bin_name: String,
+
+    /// Optional output path for PlanIR JSON
+    #[arg(long, value_name = "FILE")]
+    plan_out: Option<PathBuf>,
+
+    /// Build in release mode
+    #[arg(long)]
+    release: bool,
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -390,6 +442,8 @@ enum Commands {
     VisualizeHeatmap(VisualizeHeatmapArgs),
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
+    /// Generate + compile a specialized SHACL executable for the given shapes
+    Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
     /// Run SHACL rule inference without performing validation
@@ -469,6 +523,37 @@ fn get_validator_shapes_only(
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
+        .build()
+        .map_err(|e| format!("Error creating validator: {}", e).into())
+}
+
+fn get_validator_shapes_only_for_compile(
+    args: &CompileArgs,
+) -> Result<Validator, Box<dyn std::error::Error>> {
+    let mut builder = ValidatorBuilder::new();
+    if let Some(path) = &args.shapes.shapes_file {
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
+        } else {
+            builder = builder.with_shapes_source(Source::File(path.clone()));
+        }
+    } else if let Some(graph) = &args.shapes.shapes_graph {
+        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else {
+        return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
+    }
+
+    builder
+        .with_data_source(Source::Empty)
+        .with_skip_invalid_rules(args.skip_invalid_rules)
+        .with_warnings_are_errors(args.warnings_are_errors)
+        .with_strict_custom_constraints(args.strict_custom_constraints)
+        .with_do_imports(!args.no_imports)
+        .with_temporary_env(args.temporary)
+        .with_import_depth(args.import_depth)
+        .with_store_optimization(!args.no_store_optimize)
+        .with_shapes_data_union(true)
+        .with_shape_optimization(false)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
@@ -769,6 +854,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             emit_validator_traces(&validator, &args.trace)?;
+        }
+        Commands::Compile(args) => {
+            let validator = get_validator_shapes_only_for_compile(&args)?;
+            let plan = PlanIR::from_shape_ir(validator.shape_ir()).map_err(|e| format!("{}", e))?;
+
+            if let Some(plan_out) = &args.plan_out {
+                let json = plan
+                    .to_json_pretty()
+                    .map_err(|e| format!("plan serialization error: {}", e))?;
+                fs::write(plan_out, json)?;
+            }
+
+            let generated = generate_rust_modules_from_plan(&plan)?;
+            let out_dir = &args.out_dir;
+            let src_dir = out_dir.join("src");
+            let generated_dir = src_dir.join("generated");
+            fs::create_dir_all(&src_dir)?;
+            fs::create_dir_all(&generated_dir)?;
+            fs::write(generated_dir.join("mod.rs"), generated.root)?;
+            for (name, content) in generated.files {
+                fs::write(generated_dir.join(name), content)?;
+            }
+
+            let cargo_toml = format!(
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = \"0.5\"\nregex = \"1\"\n",
+                args.bin_name
+            );
+            fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
+
+            let main_rs = r#"
+mod generated;
+
+use oxigraph::io::{RdfFormat, RdfParser};
+use oxigraph::store::Store;
+use std::env;
+use std::error::Error;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let data_path = env::args().nth(1).expect("usage: <data.ttl>");
+    let store = Store::new()?;
+    let file = File::open(&data_path)?;
+    let parser = RdfParser::from_format(RdfFormat::Turtle).for_reader(file);
+    for triple in parser {
+        let triple = triple?;
+        store.insert(triple.as_ref())?;
+    }
+
+    let report = generated::run(&store, None);
+    println!("{}", report.to_turtle());
+    Ok(())
+}
+"#;
+            fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
+
+            let mut cmd = Command::new("cargo");
+            cmd.arg("build");
+            if args.release {
+                cmd.arg("--release");
+            }
+            cmd.arg("--manifest-path").arg(out_dir.join("Cargo.toml"));
+            let status = cmd.status()?;
+            if !status.success() {
+                return Err("failed to build compiled executable".into());
+            }
+
+            let target_dir = out_dir
+                .join("target")
+                .join(if args.release { "release" } else { "debug" })
+                .join(&args.bin_name);
+            println!("Built executable: {}", target_dir.display());
         }
         Commands::Heat(args) => {
             let validator = get_validator(&args.common, None)?;
