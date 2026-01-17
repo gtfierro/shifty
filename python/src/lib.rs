@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ::shifty::trace::TraceEvent;
-use ::shifty::{InferenceConfig, Source, Validator};
+use ::shifty::{InferenceConfig, Source, ValidationReportOptions, Validator};
 use ontoenv::config::Config;
 use oxigraph::model::Quad;
 use pyo3::conversion::IntoPyObjectExt;
@@ -671,6 +671,7 @@ fn execute_validate(
     py: Python<'_>,
     validator: Validator,
     settings: PreparedInferenceSettings,
+    follow_bnodes: bool,
     graphviz: bool,
     heatmap: bool,
     heatmap_all: bool,
@@ -704,7 +705,9 @@ fn execute_validate(
     };
 
     let conforms = report.conforms();
-    let report_turtle = report.to_turtle().map_err(map_err)?;
+    let report_turtle = report
+        .to_turtle_with_options(ValidationReportOptions { follow_bnodes })
+        .map_err(map_err)?;
     let report_graph = graph_from_data(py, &report_turtle, "turtle")?;
     let diagnostics = PyDict::new(py);
 
@@ -835,7 +838,7 @@ impl PyCompiledShapeGraph {
     }
 
     /// Validate data using the cached ShapeIR and optionally run inference.
-    #[pyo3(signature=(data_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+    #[pyo3(signature=(data_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, follow_bnodes=false, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
     fn validate(
         &self,
         py: Python<'_>,
@@ -858,6 +861,7 @@ impl PyCompiledShapeGraph {
         skip_invalid_rules: Option<bool>,
         warnings_are_errors: Option<bool>,
         do_imports: Option<bool>,
+        follow_bnodes: bool,
         graphviz: bool,
         heatmap: bool,
         heatmap_all: bool,
@@ -895,6 +899,7 @@ impl PyCompiledShapeGraph {
             py,
             validator,
             settings,
+            follow_bnodes,
             graphviz,
             heatmap,
             heatmap_all,
@@ -1000,7 +1005,7 @@ fn infer(
 }
 
 /// Validate data against SHACL shapes, with optional inference and diagnostics.
-#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, follow_bnodes=false, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
 fn validate(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
@@ -1023,6 +1028,7 @@ fn validate(
     skip_invalid_rules: Option<bool>,
     warnings_are_errors: Option<bool>,
     do_imports: Option<bool>,
+    follow_bnodes: bool,
     graphviz: bool,
     heatmap: bool,
     heatmap_all: bool,
@@ -1061,6 +1067,7 @@ fn validate(
         py,
         validator,
         settings,
+        follow_bnodes,
         graphviz,
         heatmap,
         heatmap_all,

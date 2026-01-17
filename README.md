@@ -248,6 +248,7 @@ conforms, results_graph, report_text, diag = shifty.validate(
     skip_invalid_rules=False,
     warnings_are_errors=False,
     do_imports=True,
+    follow_bnodes=False,
     graphviz=False,
     heatmap=False,
     heatmap_all=False,

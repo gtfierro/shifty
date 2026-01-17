@@ -881,6 +881,59 @@ impl Validator {
         self.context.shape_ir()
     }
 
+    /// Returns a SHACL-IR copy with owl:imports resolved into the shapes graph.
+    pub fn shape_ir_with_imports(&self, import_depth: i32) -> Result<ShapeIR, String> {
+        let mut shape_ir = self.context.shape_ir().clone();
+        let shapes_graph = shape_ir.shape_graph.clone();
+        let graph_id = self
+            .context
+            .model
+            .env
+            .resolve(ResolveTarget::Graph(shapes_graph.clone()))
+            .ok_or_else(|| format!("Ontology not found for shapes graph {}", shapes_graph))?;
+        let mut closure_ids = self
+            .context
+            .model
+            .env
+            .get_closure(&graph_id, import_depth)
+            .map_err(|e| {
+                format!(
+                    "Failed to build imports closure for shapes graph {}: {}",
+                    shapes_graph, e
+                )
+            })?;
+        if !closure_ids.contains(&graph_id) {
+            closure_ids.push(graph_id);
+        }
+        let mut graph_names = Vec::new();
+        for id in &closure_ids {
+            if let Ok(ont) = self.context.model.env.get_ontology(id) {
+                let name = ont.name().clone();
+                if !graph_names.iter().any(|g| g == &name) {
+                    graph_names.push(name);
+                }
+            }
+        }
+        if graph_names.is_empty() {
+            graph_names.push(shapes_graph.clone());
+        }
+        let mut merged: HashSet<Quad> = shape_ir.shape_quads.iter().cloned().collect();
+        for graph in graph_names {
+            let graph_name = GraphName::NamedNode(graph.clone());
+            for quad_res in self
+                .context
+                .model
+                .store
+                .quads_for_pattern(None, None, None, Some(graph_name.as_ref()))
+            {
+                let quad = quad_res.map_err(|e| e.to_string())?;
+                merged.insert(quad);
+            }
+        }
+        shape_ir.shape_quads = merged.into_iter().collect();
+        Ok(shape_ir)
+    }
+
     /// Executes inference with a custom configuration and returns the outcome.
     pub fn run_inference_with_config(
         &self,
@@ -908,6 +961,44 @@ impl Validator {
             quads.push(quad);
         }
         Ok(quads)
+    }
+
+    /// Copies all quads from the shapes graph(s) into the data graph.
+    pub fn copy_shape_graph_to_data_graph(&self) -> Result<(), String> {
+        let data_graph_iri = self.context.data_graph_iri.clone();
+        let store = &self.context.model.store;
+        let mut graphs = HashSet::new();
+
+        for quad in &self.context.shape_ir().shape_quads {
+            if let GraphName::NamedNode(nn) = &quad.graph_name {
+                graphs.insert(nn.clone());
+            }
+        }
+
+        if graphs.is_empty() {
+            graphs.insert(self.context.model.shape_graph_iri.clone());
+        }
+
+        for graph in graphs {
+            if graph == data_graph_iri {
+                continue;
+            }
+            let graph_name = GraphName::NamedNode(graph.clone());
+            for quad_res in store.quads_for_pattern(None, None, None, Some(graph_name.as_ref())) {
+                let quad = quad_res.map_err(|e| format!("Failed to read shape quad: {}", e))?;
+                let new_quad = Quad::new(
+                    quad.subject.clone(),
+                    quad.predicate.clone(),
+                    quad.object.clone(),
+                    GraphName::NamedNode(data_graph_iri.clone()),
+                );
+                store
+                    .insert(&new_quad)
+                    .map_err(|e| format!("Failed to insert shape quad into data graph: {}", e))?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Runs inference followed by validation, yielding both the inference outcome and report.

@@ -13,8 +13,11 @@ impl ComponentCodegen for SparqlHandler {
         ctx: EmitContext<'_>,
         params: &ComponentParams,
     ) -> Result<PropertyEmission, String> {
-        let query = match params {
-            ComponentParams::Sparql { query } => query,
+        let (query, constraint_node) = match params {
+            ComponentParams::Sparql {
+                query,
+                constraint_node,
+            } => (query, constraint_node),
             _ => return Err("sparql params mismatch".to_string()),
         };
         let path_iri = ctx.path_iri;
@@ -30,8 +33,10 @@ impl ComponentCodegen for SparqlHandler {
                 path
             ));
         }
+        let constraint_expr = (ctx.term_expr)(*constraint_node)?;
+        lines.push(format!("        let constraint = {};", constraint_expr));
         lines.push(
-            "        let matches = sparql_any_solution(&query, store, Some(focus), Some(&value));"
+            "        let matches = sparql_any_solution(&query, store, Some(&constraint), Some(focus), Some(&value));"
                 .to_string(),
         );
         lines.push(format!(
@@ -52,8 +57,11 @@ impl ComponentCodegen for SparqlHandler {
         ctx: EmitContext<'_>,
         params: &ComponentParams,
     ) -> Result<NodeEmission, String> {
-        let query = match params {
-            ComponentParams::Sparql { query } => query,
+        let (query, constraint_node) = match params {
+            ComponentParams::Sparql {
+                query,
+                constraint_node,
+            } => (query, constraint_node),
             _ => return Err("sparql params mismatch".to_string()),
         };
         let mut emission = NodeEmission::default();
@@ -61,8 +69,12 @@ impl ComponentCodegen for SparqlHandler {
             "        let mut query = String::from(\"{}\");",
             escape_rust_string(query)
         ));
+        let constraint_expr = (ctx.term_expr)(*constraint_node)?;
+        emission
+            .lines
+            .push(format!("        let constraint = {};", constraint_expr));
         emission.lines.push(
-            "        let matches = sparql_any_solution(&query, store, Some(&focus), None);"
+            "        let matches = sparql_any_solution(&query, store, Some(&constraint), Some(&focus), None);"
                 .to_string(),
         );
         emission.lines.push(format!(

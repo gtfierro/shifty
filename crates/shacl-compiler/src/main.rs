@@ -26,8 +26,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_data_source(Source::Empty)
         .with_shape_optimization(false)
         .build()?;
+    validator
+        .copy_shape_graph_to_data_graph()
+        .map_err(|e| format!("compile error: {}", e))?;
+    validator
+        .run_inference()
+        .map_err(|e| format!("inference error: {}", e))?;
+    let inferred_quads = validator
+        .data_graph_quads()
+        .map_err(|e| format!("compile error: {}", e))?;
     let shape_ir = validator.shape_ir();
-    let plan = PlanIR::from_shape_ir(shape_ir).map_err(|e| format!("compile error: {}", e))?;
+    let plan = PlanIR::from_shape_ir_with_quads(shape_ir, &inferred_quads)
+        .map_err(|e| format!("compile error: {}", e))?;
 
     if let Some(plan_out) = args.plan_out {
         let json = plan

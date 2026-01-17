@@ -4,7 +4,9 @@ members = [
     "cli",
     "python",
     "shacl-ir"
-, "crates/ts-generator"]
+, "crates/ts-generator",
+    "crates/shacl-compiler"
+]
 resolver = "2"
 
 [workspace.package]

@@ -1,7 +1,8 @@
-use oxigraph::model::Term;
+use oxigraph::model::{Quad, Term};
 use serde::{Deserialize, Serialize};
 use shacl_ir::{
-    ComponentDescriptor, ComponentID, Path, PropShapeID, Severity, ShapeIR, Target, ID,
+    ComponentDescriptor, ComponentID, Path, PropShapeID, Rule, RuleCondition, RuleID, Severity,
+    ShapeIR, SparqlRule, Target, TriplePatternTerm, TripleRule, ID,
 };
 use std::collections::HashMap;
 
@@ -10,6 +11,7 @@ pub type PathId = u64;
 pub type ShapeId = u64;
 pub type PropId = u64;
 pub type CompId = u64;
+pub type RuleId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PlanShapeKind {
@@ -162,6 +164,7 @@ pub enum ComponentParams {
     },
     Sparql {
         query: String,
+        constraint_node: TermId,
     },
 }
 
@@ -199,6 +202,32 @@ pub struct PlanTriple {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanRule {
+    pub id: RuleId,
+    pub kind: PlanRuleKind,
+    pub conditions: Vec<ShapeId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PlanRuleKind {
+    Sparql {
+        query: String,
+    },
+    Triple {
+        subject: PlanRuleTerm,
+        predicate: TermId,
+        object: PlanRuleTerm,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PlanRuleTerm {
+    This,
+    Constant(TermId),
+    Path(PathId),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanIR {
     pub terms: Vec<Term>,
     pub paths: Vec<PlanPath>,
@@ -207,11 +236,18 @@ pub struct PlanIR {
     pub shape_triples: Vec<PlanTriple>,
     pub shape_graph: TermId,
     pub order: PlanOrder,
+    pub rules: Vec<PlanRule>,
+    pub node_shape_rules: HashMap<ShapeId, Vec<RuleId>>,
+    pub property_shape_rules: HashMap<PropId, Vec<RuleId>>,
 }
 
 impl PlanIR {
     pub fn from_shape_ir(ir: &ShapeIR) -> Result<Self, String> {
         PlanBuilder::default().build(ir)
+    }
+
+    pub fn from_shape_ir_with_quads(ir: &ShapeIR, shape_quads: &[Quad]) -> Result<Self, String> {
+        PlanBuilder::default().build_with_quads(ir, shape_quads)
     }
 
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
@@ -233,6 +269,10 @@ struct PlanBuilder {
 
 impl PlanBuilder {
     fn build(mut self, ir: &ShapeIR) -> Result<PlanIR, String> {
+        self.build_with_quads(ir, &ir.shape_quads)
+    }
+
+    fn build_with_quads(mut self, ir: &ShapeIR, shape_quads: &[Quad]) -> Result<PlanIR, String> {
         let mut components: Vec<PlanComponent> = Vec::new();
         let mut component_ids: Vec<ComponentID> = ir.components.keys().cloned().collect();
         component_ids.sort_by_key(|id| id.0);
@@ -285,7 +325,7 @@ impl PlanBuilder {
         }
 
         let mut shape_triples = Vec::new();
-        for quad in &ir.shape_quads {
+        for quad in shape_quads {
             let subject: Term = quad.subject.clone().into();
             let predicate: Term = quad.predicate.clone().into();
             let object: Term = quad.object.clone();
@@ -305,6 +345,7 @@ impl PlanBuilder {
         prop_order.sort();
 
         let shape_graph = self.intern_term(&Term::NamedNode(ir.shape_graph.clone()));
+        let (rules, node_shape_rules, property_shape_rules) = self.build_rules(ir)?;
 
         Ok(PlanIR {
             terms: self.terms,
@@ -317,6 +358,9 @@ impl PlanBuilder {
                 node_shapes: node_order,
                 property_shapes: prop_order,
             },
+            rules,
+            node_shape_rules,
+            property_shape_rules,
         })
     }
 
@@ -531,7 +575,14 @@ impl PlanBuilder {
             ),
             ComponentDescriptor::Sparql { constraint_node } => {
                 let query = sparql_query_for(shape_quads, constraint_node)?;
-                (ComponentKind::Sparql, ComponentParams::Sparql { query })
+                let constraint_term = self.intern_term(constraint_node);
+                (
+                    ComponentKind::Sparql,
+                    ComponentParams::Sparql {
+                        query,
+                        constraint_node: constraint_term,
+                    },
+                )
             }
             ComponentDescriptor::Custom { .. } => {
                 return Err("Custom constraints are not supported in PlanIR".to_string());
@@ -584,6 +635,95 @@ impl PlanBuilder {
         self.paths.push(plan_path);
         self.path_index.insert(path.clone(), id);
         Ok(id)
+    }
+
+    fn build_rules(
+        &mut self,
+        ir: &ShapeIR,
+    ) -> Result<
+        (
+            Vec<PlanRule>,
+            HashMap<ShapeId, Vec<RuleId>>,
+            HashMap<PropId, Vec<RuleId>>,
+        ),
+        String,
+    > {
+        let mut rule_ids: Vec<RuleID> = ir.rules.keys().cloned().collect();
+        rule_ids.sort_by_key(|id| id.0);
+        let mut rules: Vec<PlanRule> = Vec::new();
+        for rule_id in rule_ids {
+            let rule = ir
+                .rules
+                .get(&rule_id)
+                .ok_or_else(|| format!("Missing rule {}", rule_id.0))?;
+            rules.push(self.plan_rule_from(rule)?);
+        }
+
+        let node_shape_rules = ir
+            .node_shape_rules
+            .iter()
+            .map(|(shape_id, rule_ids)| {
+                let mut ids: Vec<_> = rule_ids.iter().map(|id| id.0).collect();
+                ids.sort();
+                (shape_id.0, ids)
+            })
+            .collect();
+
+        let property_shape_rules = ir
+            .prop_shape_rules
+            .iter()
+            .map(|(shape_id, rule_ids)| {
+                let mut ids: Vec<_> = rule_ids.iter().map(|id| id.0).collect();
+                ids.sort();
+                (shape_id.0, ids)
+            })
+            .collect();
+
+        Ok((rules, node_shape_rules, property_shape_rules))
+    }
+
+    fn plan_rule_from(&mut self, rule: &Rule) -> Result<PlanRule, String> {
+        let (kind, conditions) = match rule {
+            Rule::Sparql(sparql_rule) => (
+                PlanRuleKind::Sparql {
+                    query: sparql_rule.query.clone(),
+                },
+                self.rule_conditions(&sparql_rule.condition_shapes),
+            ),
+            Rule::Triple(triple_rule) => (
+                PlanRuleKind::Triple {
+                    subject: self.rule_term_from_template(&triple_rule.subject)?,
+                    predicate: self.intern_term(&Term::NamedNode(triple_rule.predicate.clone())),
+                    object: self.rule_term_from_template(&triple_rule.object)?,
+                },
+                self.rule_conditions(&triple_rule.condition_shapes),
+            ),
+        };
+        Ok(PlanRule {
+            id: rule.id().0,
+            kind,
+            conditions,
+        })
+    }
+
+    fn rule_term_from_template(
+        &mut self,
+        template: &TriplePatternTerm,
+    ) -> Result<PlanRuleTerm, String> {
+        match template {
+            TriplePatternTerm::This => Ok(PlanRuleTerm::This),
+            TriplePatternTerm::Constant(term) => Ok(PlanRuleTerm::Constant(self.intern_term(term))),
+            TriplePatternTerm::Path(path) => Ok(PlanRuleTerm::Path(self.intern_path(path)?)),
+        }
+    }
+
+    fn rule_conditions(&self, conditions: &[RuleCondition]) -> Vec<ShapeId> {
+        conditions
+            .iter()
+            .filter_map(|cond| match cond {
+                RuleCondition::NodeShape(shape_id) => Some(shape_id.0),
+            })
+            .collect()
     }
 }
 

@@ -406,6 +406,7 @@ dependencies = [
  "log",
  "oxigraph",
  "serde_json",
+ "shacl-compiler",
  "shacl-ir",
  "shifty",
 ]
@@ -3084,6 +3085,18 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "shacl-compiler"
+version = "0.0.6"
+dependencies = [
+ "clap",
+ "oxigraph",
+ "serde",
+ "serde_json",
+ "shacl-ir",
+ "shifty",
 ]
 
 [[package]]

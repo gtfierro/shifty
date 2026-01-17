@@ -36,7 +36,7 @@ impl ComponentCodegen for MinExclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, ">")?;
         let mut emission = PropertyEmission::default();
         emission.per_value_lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
@@ -56,7 +56,7 @@ impl ComponentCodegen for MinExclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, ">")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id
@@ -78,7 +78,7 @@ impl ComponentCodegen for MinInclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, ">=")?;
         let mut emission = PropertyEmission::default();
         emission.per_value_lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
@@ -98,7 +98,7 @@ impl ComponentCodegen for MinInclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, ">=")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id
@@ -120,7 +120,7 @@ impl ComponentCodegen for MaxExclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, "<")?;
         let mut emission = PropertyEmission::default();
         emission.per_value_lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
@@ -140,7 +140,7 @@ impl ComponentCodegen for MaxExclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, "<")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id
@@ -162,7 +162,7 @@ impl ComponentCodegen for MaxInclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, "<=")?;
         let mut emission = PropertyEmission::default();
         emission.per_value_lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&value)) {{\n            report.record({}, {}, focus, Some(&value), {});\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
@@ -182,7 +182,7 @@ impl ComponentCodegen for MaxInclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, "<=")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution(\"{}\", store, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id

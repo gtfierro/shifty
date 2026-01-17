@@ -3,9 +3,10 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Quad, Term, TripleRef};
+use oxigraph::model::{Graph, Quad, Term, Triple, TripleRef};
 use serde_json::json;
 use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+use shacl_ir::ShapeIR;
 use shifty::ir_cache;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
@@ -532,8 +533,12 @@ fn get_validator_shapes_only_for_compile(
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &args.shapes.shapes_file {
-        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
-            builder = builder.with_shape_ir(shape_ir?);
+        if args.no_imports {
+            if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+                builder = builder.with_shape_ir(shape_ir?);
+            } else {
+                builder = builder.with_shapes_source(Source::File(path.clone()));
+            }
         } else {
             builder = builder.with_shapes_source(Source::File(path.clone()));
         }
@@ -857,7 +862,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Compile(args) => {
             let validator = get_validator_shapes_only_for_compile(&args)?;
-            let plan = PlanIR::from_shape_ir(validator.shape_ir()).map_err(|e| format!("{}", e))?;
+            let shape_ir = if args.no_imports {
+                validator.shape_ir().clone()
+            } else {
+                validator
+                    .shape_ir_with_imports(args.import_depth)
+                    .map_err(|e| format!("{}", e))?
+            };
+            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
 
             if let Some(plan_out) = &args.plan_out {
                 let json = plan
@@ -876,34 +888,99 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for (name, content) in generated.files {
                 fs::write(generated_dir.join(name), content)?;
             }
+            let shape_ir_json = serde_json::to_string(&shape_ir)
+                .map_err(|e| format!("Failed to serialize SHACL-IR: {}", e))?;
+            fs::write(generated_dir.join("shape_ir.json"), shape_ir_json)?;
+            write_shape_graph_ttl(&shape_ir, &out_dir.join("shape_graph.ttl"))?;
 
+            let workspace_root = std::env::current_dir()?
+                .canonicalize()
+                .map_err(|e| format!("Failed to canonicalize current dir: {}", e))?;
+            let shacl_ir_path = workspace_root.join("shacl-ir");
+            let shifty_path = workspace_root.join("lib");
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = \"0.5\"\nregex = \"1\"\n",
-                args.bin_name
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = \"0.5\"\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshacl-ir = {{ path = \"{}\" }}\nshifty = {{ path = \"{}\" }}\nontoenv = \"0.5.0-a2\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = true\n",
+                args.bin_name,
+                shacl_ir_path.display(),
+                shifty_path.display(),
             );
             fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
             let main_rs = r#"
 mod generated;
 
+use env_logger;
+use generated::{render_report, DATA_GRAPH};
+use log::info;
+use oxigraph::model::{GraphName, NamedNode, Quad};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::store::Store;
 use std::env;
 use std::error::Error;
 use std::fs::File;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let data_path = env::args().nth(1).expect("usage: <data.ttl>");
-    let store = Store::new()?;
-    let file = File::open(&data_path)?;
-    let parser = RdfParser::from_format(RdfFormat::Turtle).for_reader(file);
-    for triple in parser {
-        let triple = triple?;
-        store.insert(triple.as_ref())?;
+fn print_usage(program: &str) {
+    eprintln!("usage: {} [--follow-bnodes] <data.ttl>", program);
+}
+
+fn parse_args() -> Result<(String, bool), String> {
+    let mut args = env::args();
+    let program = args.next().unwrap_or_else(|| "shacl-compiled".to_string());
+    let mut follow_bnodes = false;
+    let mut data_path = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--follow-bnodes" => follow_bnodes = true,
+            other if other.starts_with("--") => {
+                print_usage(&program);
+                return Err(format!("unknown option: {}", other));
+            }
+            other => {
+                if data_path.is_some() {
+                    print_usage(&program);
+                    return Err("multiple data files provided".into());
+                }
+                data_path = Some(other.to_string());
+            }
+        }
     }
 
+    if let Some(path) = data_path {
+        Ok((path, follow_bnodes))
+    } else {
+        print_usage(&program);
+        Err("data file argument missing".into())
+    }
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+    let (data_path, follow_bnodes) =
+        parse_args().map_err(|err| Box::<dyn std::error::Error>::from(err))?;
+    let store = Store::new()?;
+    let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
+    let graph_name = GraphName::NamedNode(data_graph.clone());
+    let file = File::open(&data_path)?;
+    let parser = RdfParser::from_format(RdfFormat::Turtle).for_reader(file);
+    info!("Starting data graph load from {}", data_path);
+    let mut triple_count = 0;
+    for triple in parser {
+        let triple = triple?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            graph_name.clone(),
+        );
+        store.insert(&quad)?;
+        triple_count += 1;
+    }
+    info!("Finished data graph load ({} triples)", triple_count);
+
     let report = generated::run(&store, None);
-    println!("{}", report.to_turtle());
+    let output = render_report(&report, &store, follow_bnodes);
+    println!("{}", output);
     Ok(())
 }
 "#;
@@ -989,4 +1066,32 @@ impl TraceOutputArgs {
     fn requested(&self) -> bool {
         self.trace_events || self.trace_file.is_some() || self.trace_jsonl.is_some()
     }
+}
+
+fn write_shape_graph_ttl(
+    shape_ir: &ShapeIR,
+    path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut graph = Graph::new();
+    for quad in &shape_ir.shape_quads {
+        let triple = Triple::new(
+            quad.subject.clone(),
+            quad.predicate.clone(),
+            quad.object.clone(),
+        );
+        graph.insert(&triple);
+    }
+
+    let mut writer = Vec::new();
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
+        .with_prefix("sh", "http://www.w3.org/ns/shacl#")?
+        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")?
+        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")?
+        .for_writer(&mut writer);
+    for triple in graph.iter() {
+        serializer.serialize_triple(triple)?;
+    }
+    serializer.finish()?;
+    fs::write(path, &writer)?;
+    Ok(())
 }
