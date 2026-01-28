@@ -6,9 +6,9 @@ DATA_FILE="ttl/small-brick-model.ttl"
 OUT_DIR="test-compiled-shacl"
 BIN_NAME="myshapes"
 
-time cargo run -p cli -- compile --shapes-file "$SHAPES_FILE" --out-dir "$OUT_DIR" --bin-name "$BIN_NAME"
+time cargo run -p cli -- compile --shapes-file "$SHAPES_FILE" --out-dir "$OUT_DIR" --bin-name "$BIN_NAME" --release
 
-BIN_PATH="./$BIN_NAME"
+BIN_PATH="$OUT_DIR/target/release/$BIN_NAME"
 if [[ ! -x "$BIN_PATH" && -x "$OUT_DIR/$BIN_NAME" ]]; then
   BIN_PATH="$OUT_DIR/$BIN_NAME"
 fi
