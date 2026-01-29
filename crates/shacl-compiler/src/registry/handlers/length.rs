@@ -24,8 +24,8 @@ impl ComponentCodegen for MinLengthHandler {
             min,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -43,7 +43,7 @@ impl ComponentCodegen for MinLengthHandler {
         };
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !literal_length_at_least(&focus, {}) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !literal_length_at_least(&focus, {}) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             min,
             ctx.shape_id,
             ctx.component_id
@@ -72,8 +72,8 @@ impl ComponentCodegen for MaxLengthHandler {
             max,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -91,7 +91,7 @@ impl ComponentCodegen for MaxLengthHandler {
         };
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !literal_length_at_most(&focus, {}) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !literal_length_at_most(&focus, {}) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             max,
             ctx.shape_id,
             ctx.component_id

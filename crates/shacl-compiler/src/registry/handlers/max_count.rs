@@ -17,14 +17,14 @@ impl ComponentCodegen for MaxCountHandler {
             ComponentParams::MaxCount { max_count } => *max_count,
             _ => return Err("maxCount params mismatch".to_string()),
         };
-        let path_iri = ctx
-            .path_iri
+        let path_id = ctx
+            .path_id
             .ok_or_else(|| "maxCount component requires a path".to_string())?;
         let mut emission = PropertyEmission::default();
         emission.needs_count = true;
         emission.post_loop_lines.push(format!(
-            "    if count > {} {{\n        report.record({}, {}, focus, None, Some(\"{}\"));\n    }}",
-            max_count, ctx.shape_id, ctx.component_id, path_iri
+            "    if count > {} {{\n        report.record({}, {}, focus, None, Some(ResultPath::PathId({})));\n    }}",
+            max_count, ctx.shape_id, ctx.component_id, path_id
         ));
         Ok(emission)
     }

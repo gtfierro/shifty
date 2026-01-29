@@ -21,11 +21,14 @@ impl ComponentCodegen for HasValueHandler {
         let mut emission = PropertyEmission::default();
         emission.needs_values = true;
         emission.post_loop_lines.push(format!(
-            "    if !values.iter().any(|v| v == &{}) {{\n        report.record({}, {}, focus, None, Some(\"{}\"));\n    }}",
+            "    if !values.iter().any(|v| v == &{}) {{\n        report.record({}, {}, focus, None, {});\n    }}",
             value_expr,
             ctx.shape_id,
             ctx.component_id,
-            ctx.path_iri.unwrap_or("")
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
+                None => "None".to_string(),
+            }
         ));
         Ok(emission)
     }

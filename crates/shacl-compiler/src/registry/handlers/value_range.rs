@@ -40,8 +40,8 @@ impl ComponentCodegen for MinExclusiveHandler {
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -56,7 +56,7 @@ impl ComponentCodegen for MinExclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, ">")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id
@@ -82,8 +82,8 @@ impl ComponentCodegen for MinInclusiveHandler {
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -98,7 +98,7 @@ impl ComponentCodegen for MinInclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, ">=")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id
@@ -124,8 +124,8 @@ impl ComponentCodegen for MaxExclusiveHandler {
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -140,7 +140,7 @@ impl ComponentCodegen for MaxExclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, "<")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id
@@ -166,8 +166,8 @@ impl ComponentCodegen for MaxInclusiveHandler {
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -182,7 +182,7 @@ impl ComponentCodegen for MaxInclusiveHandler {
         let (query, _) = emit_range_check(&ctx, params, "<=")?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !sparql_any_solution_lenient(\"{}\", store, graph, None, None, Some(&focus)) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             escape_rust_string(&query),
             ctx.shape_id,
             ctx.component_id

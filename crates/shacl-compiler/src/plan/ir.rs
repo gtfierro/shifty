@@ -69,6 +69,20 @@ pub enum ComponentKind {
     HasValue,
     In,
     Sparql,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanCustomBinding {
+    pub var_name: String,
+    pub value: TermId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanCustomValidator {
+    pub query: String,
+    pub is_ask: bool,
+    pub prefixes: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,6 +179,13 @@ pub enum ComponentParams {
     Sparql {
         query: String,
         constraint_node: TermId,
+    },
+    Custom {
+        iri: TermId,
+        bindings: Vec<PlanCustomBinding>,
+        validator: Option<PlanCustomValidator>,
+        node_validator: Option<PlanCustomValidator>,
+        property_validator: Option<PlanCustomValidator>,
     },
 }
 
@@ -265,6 +286,7 @@ struct PlanBuilder {
     term_index: HashMap<Term, TermId>,
     paths: Vec<PlanPath>,
     path_index: HashMap<Path, PathId>,
+    prop_shape_id_map: HashMap<PropShapeID, PropId>,
 }
 
 impl PlanBuilder {
@@ -273,6 +295,19 @@ impl PlanBuilder {
     }
 
     fn build_with_quads(mut self, ir: &ShapeIR, shape_quads: &[Quad]) -> Result<PlanIR, String> {
+        let property_offset = ir
+            .node_shapes
+            .iter()
+            .map(|shape| shape.id.0)
+            .max()
+            .map(|max_id| max_id + 1)
+            .unwrap_or(0);
+        self.prop_shape_id_map = ir
+            .property_shapes
+            .iter()
+            .map(|shape| (shape.id, property_offset + shape.id.0))
+            .collect();
+
         let mut components: Vec<PlanComponent> = Vec::new();
         let mut component_ids: Vec<ComponentID> = ir.components.keys().cloned().collect();
         component_ids.sort_by_key(|id| id.0);
@@ -312,8 +347,11 @@ impl PlanBuilder {
             let targets = self.targets_from(&shape.targets)?;
             let path_id = self.intern_path(&shape.path)?;
             let shape_term = self.shape_term_for_property(ir, shape.id)?;
+            let shape_id = self
+                .map_property_shape_id(shape.id)
+                .ok_or_else(|| format!("Missing property shape mapping {}", shape.id.0))?;
             shapes.push(PlanShape {
-                id: shape.id.0,
+                id: shape_id,
                 kind: PlanShapeKind::Property,
                 targets,
                 constraints: shape.constraints.iter().map(|id| id.0).collect(),
@@ -341,7 +379,13 @@ impl PlanBuilder {
 
         let mut node_order: Vec<ShapeId> = ir.node_shapes.iter().map(|s| s.id.0).collect();
         node_order.sort();
-        let mut prop_order: Vec<PropId> = ir.property_shapes.iter().map(|s| s.id.0).collect();
+        let mut prop_order: Vec<PropId> = Vec::new();
+        for shape in &ir.property_shapes {
+            let mapped = self
+                .map_property_shape_id(shape.id)
+                .ok_or_else(|| format!("Missing property shape mapping {}", shape.id.0))?;
+            prop_order.push(mapped);
+        }
         prop_order.sort();
 
         let shape_graph = self.intern_term(&Term::NamedNode(ir.shape_graph.clone()));
@@ -395,6 +439,10 @@ impl PlanBuilder {
         Ok(self.intern_term(term))
     }
 
+    fn map_property_shape_id(&self, id: PropShapeID) -> Option<PropId> {
+        self.prop_shape_id_map.get(&id).copied()
+    }
+
     fn component_from_descriptor(
         &mut self,
         component_id: ComponentID,
@@ -408,7 +456,13 @@ impl PlanBuilder {
             ),
             ComponentDescriptor::Property { shape } => (
                 ComponentKind::Property,
-                ComponentParams::Property { shape: shape.0 },
+                ComponentParams::Property {
+                    shape: self
+                        .map_property_shape_id(*shape)
+                        .ok_or_else(|| {
+                            format!("Missing property shape mapping {}", shape.0)
+                        })?,
+                },
             ),
             ComponentDescriptor::QualifiedValueShape {
                 shape,
@@ -584,8 +638,38 @@ impl PlanBuilder {
                     },
                 )
             }
-            ComponentDescriptor::Custom { .. } => {
-                return Err("Custom constraints are not supported in PlanIR".to_string());
+            ComponentDescriptor::Custom {
+                definition,
+                parameter_values,
+            } => {
+                let iri = self.intern_term(&Term::NamedNode(definition.iri.clone()));
+                let mut bindings = Vec::new();
+                for param in &definition.parameters {
+                    if let Some(values) = parameter_values.get(&param.path) {
+                        if let Some(value) = values.first() {
+                            let var_name = param
+                                .var_name
+                                .clone()
+                                .unwrap_or_else(|| local_name(param.path.as_str()));
+                            let value_id = self.intern_term(value);
+                            bindings.push(PlanCustomBinding { var_name, value: value_id });
+                        }
+                    }
+                }
+                let validator = definition.validator.as_ref().map(plan_custom_validator);
+                let node_validator = definition.node_validator.as_ref().map(plan_custom_validator);
+                let property_validator =
+                    definition.property_validator.as_ref().map(plan_custom_validator);
+                (
+                    ComponentKind::Custom,
+                    ComponentParams::Custom {
+                        iri,
+                        bindings,
+                        validator,
+                        node_validator,
+                        property_validator,
+                    },
+                )
             }
         };
 
@@ -669,15 +753,15 @@ impl PlanBuilder {
             })
             .collect();
 
-        let property_shape_rules = ir
-            .prop_shape_rules
-            .iter()
-            .map(|(shape_id, rule_ids)| {
-                let mut ids: Vec<_> = rule_ids.iter().map(|id| id.0).collect();
-                ids.sort();
-                (shape_id.0, ids)
-            })
-            .collect();
+        let mut property_shape_rules: HashMap<PropId, Vec<RuleId>> = HashMap::new();
+        for (shape_id, rule_ids) in &ir.prop_shape_rules {
+            let mapped = self
+                .map_property_shape_id(*shape_id)
+                .ok_or_else(|| format!("Missing property shape mapping {}", shape_id.0))?;
+            let mut ids: Vec<_> = rule_ids.iter().map(|id| id.0).collect();
+            ids.sort();
+            property_shape_rules.insert(mapped, ids);
+        }
 
         Ok((rules, node_shape_rules, property_shape_rules))
     }
@@ -746,4 +830,19 @@ fn sparql_query_for(
         }
     }
     Err("SPARQL constraint is missing sh:select".to_string())
+}
+
+fn plan_custom_validator(validator: &shacl_ir::SPARQLValidator) -> PlanCustomValidator {
+    PlanCustomValidator {
+        query: validator.query.clone(),
+        is_ask: validator.is_ask,
+        prefixes: validator.prefixes.clone(),
+    }
+}
+
+fn local_name(iri: &str) -> String {
+    iri.rsplit(|ch| ch == '#' || ch == '/')
+        .next()
+        .unwrap_or(iri)
+        .to_string()
 }

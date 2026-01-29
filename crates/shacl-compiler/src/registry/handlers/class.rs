@@ -24,8 +24,8 @@ impl ComponentCodegen for ClassHandler {
             class_iri,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -44,7 +44,7 @@ impl ComponentCodegen for ClassHandler {
         let class_iri = (ctx.term_iri)(class)?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !has_rdf_type(store, graph, &focus, \"{}\") {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !has_rdf_type(store, graph, &focus, \"{}\") {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             class_iri,
             ctx.shape_id,
             ctx.component_id

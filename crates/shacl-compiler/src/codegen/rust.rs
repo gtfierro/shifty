@@ -1,5 +1,6 @@
 use crate::plan::{
-    CompId, ComponentKind, PlanIR, PlanPath, PlanRuleKind, PlanShape, PlanShapeKind, PlanTarget,
+    CompId, ComponentKind, ComponentParams, PlanComponent, PlanIR, PlanPath, PlanRuleKind,
+    PlanShape, PlanShapeKind, PlanTarget,
 };
 use crate::registry::{self, EmitContext, PropertyEmission};
 use crate::GeneratedRust;
@@ -84,6 +85,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         prelude,
         "{}",
+        "use oxigraph::model::vocab::{rdf, xsd};"
+    )
+    .unwrap();
+    writeln!(
+        prelude,
+        "{}",
         "use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};"
     )
     .unwrap();
@@ -103,6 +110,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(prelude, "use rayon::prelude::*;").unwrap();
     writeln!(prelude, "use regex::Regex;").unwrap();
     writeln!(prelude, "use log::info;").unwrap();
+    writeln!(prelude, "use oxsdatatypes::*;").unwrap();
+    writeln!(prelude, "use std::str::FromStr;").unwrap();
+    writeln!(prelude, "use std::fs::File;").unwrap();
+    writeln!(prelude, "use std::io::BufReader;").unwrap();
+    writeln!(prelude, "use std::path::Path;").unwrap();
     writeln!(prelude, "").unwrap();
 
     let shape_graph_iri = term_iri(plan, plan.shape_graph)?;
@@ -166,8 +178,14 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(prelude, "    pub component_id: u64,").unwrap();
     writeln!(prelude, "    pub focus: Term,").unwrap();
     writeln!(prelude, "    pub value: Option<Term>,").unwrap();
-    writeln!(prelude, "    pub path: Option<String>,").unwrap();
+    writeln!(prelude, "    pub path: Option<ResultPath>,").unwrap();
     writeln!(prelude, "{}", "}").unwrap();
+    writeln!(prelude, "").unwrap();
+    writeln!(prelude, "#[derive(Debug, Clone)]").unwrap();
+    writeln!(prelude, "pub enum ResultPath {{").unwrap();
+    writeln!(prelude, "    Term(Term),").unwrap();
+    writeln!(prelude, "    PathId(u64),").unwrap();
+    writeln!(prelude, "}}").unwrap();
     writeln!(prelude, "").unwrap();
     writeln!(prelude, "{}", "impl Report {").unwrap();
     writeln!(prelude, "    pub fn record(").unwrap();
@@ -176,14 +194,14 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(prelude, "        component_id: u64,").unwrap();
     writeln!(prelude, "        focus: &Term,").unwrap();
     writeln!(prelude, "        value: Option<&Term>,").unwrap();
-    writeln!(prelude, "        path: Option<&str>,").unwrap();
+    writeln!(prelude, "        path: Option<ResultPath>,").unwrap();
     writeln!(prelude, "{}", "    ) {").unwrap();
     writeln!(prelude, "{}", "        self.violations.push(Violation {").unwrap();
     writeln!(prelude, "            shape_id,").unwrap();
     writeln!(prelude, "            component_id,").unwrap();
     writeln!(prelude, "            focus: focus.clone(),").unwrap();
     writeln!(prelude, "            value: value.cloned(),").unwrap();
-    writeln!(prelude, "            path: path.map(|p| p.to_string()),").unwrap();
+    writeln!(prelude, "            path,").unwrap();
     writeln!(prelude, "{}", "        });").unwrap();
     writeln!(prelude, "{}", "    }").unwrap();
     writeln!(prelude, "{}", "    pub fn merge(&mut self, other: Report) {").unwrap();
@@ -193,8 +211,13 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(prelude, "{}", "    }").unwrap();
-    writeln!(prelude, "{}", "    pub fn to_turtle(&self) -> String {").unwrap();
-    writeln!(prelude, "        format_validation_report(self)").unwrap();
+    writeln!(
+        prelude,
+        "{}",
+        "    pub fn to_turtle(&self, store: &Store) -> String {"
+    )
+    .unwrap();
+    writeln!(prelude, "        format_validation_report(self, store)").unwrap();
     writeln!(prelude, "{}", "    }").unwrap();
     writeln!(prelude, "{}", "}").unwrap();
     writeln!(prelude, "").unwrap();
@@ -216,6 +239,38 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     .unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn query_mentions_bound_var(query: &str, var: &str) -> bool {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let lower = query.to_ascii_lowercase();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let needle_q = format!(\"bound(?{})\", var);"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let needle_d = format!(\"bound(${})\", var);"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    lower.contains(&needle_q) || lower.contains(&needle_d)"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
     writeln!(helpers, "thread_local! {{").unwrap();
     writeln!(
         helpers,
@@ -230,6 +285,237 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "    static TYPE_INDEX_CACHE: RefCell<HashMap<String, HashMap<String, Vec<Term>>>> = RefCell::new(HashMap::new());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    static ORIGINAL_VALUE_INDEX: RefCell<Option<OriginalValueIndex>> = RefCell::new(None);"
+    )
+    .unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "#[derive(Hash, Eq, PartialEq, Clone)]").unwrap();
+    writeln!(helpers, "struct LiteralKey {{").unwrap();
+    writeln!(helpers, "    lexical: String,").unwrap();
+    writeln!(helpers, "    language: Option<String>,").unwrap();
+    writeln!(helpers, "    datatype: String,").unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "impl LiteralKey {{").unwrap();
+    writeln!(
+        helpers,
+        "    fn from_literal(lit: &Literal) -> Self {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        let mut lexical = lit.value().to_string();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if lit.datatype().as_str() == \"http://www.w3.org/2001/XMLSchema#decimal\" {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "            lexical = normalize_decimal_literal(&lexical);"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(
+        helpers,
+        "        let language = lit.language().map(|l| l.to_ascii_lowercase());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        let datatype = lit.datatype().as_str().to_string();"
+    )
+    .unwrap();
+    writeln!(helpers, "        LiteralKey {{ lexical, language, datatype }}").unwrap();
+    writeln!(helpers, "    }}").unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "#[derive(Default, Clone)]").unwrap();
+    writeln!(helpers, "pub struct OriginalValueIndex {{").unwrap();
+    writeln!(
+        helpers,
+        "    literals: HashMap<Term, HashMap<NamedNode, HashMap<LiteralKey, VecDeque<Term>>>>,"
+    )
+    .unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "impl OriginalValueIndex {{").unwrap();
+    writeln!(helpers, "    pub fn new() -> Self {{").unwrap();
+    writeln!(helpers, "        Self::default()").unwrap();
+    writeln!(helpers, "    }}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "    fn record_triple(&mut self, subject: NamedOrBlankNode, predicate: NamedNode, object: Term) {{"
+    )
+    .unwrap();
+    writeln!(helpers, "        if let Term::Literal(lit) = object {{").unwrap();
+    writeln!(
+        helpers,
+        "            let subject_term: Term = match subject {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "                NamedOrBlankNode::NamedNode(nn) => Term::NamedNode(nn),"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "                NamedOrBlankNode::BlankNode(bn) => Term::BlankNode(bn),"
+    )
+    .unwrap();
+    writeln!(helpers, "            }};").unwrap();
+    writeln!(
+        helpers,
+        "            let entry = self"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "                .literals"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "                .entry(subject_term)"
+    )
+    .unwrap();
+    writeln!(helpers, "                .or_default()").unwrap();
+    writeln!(helpers, "                .entry(predicate)").unwrap();
+    writeln!(helpers, "                .or_default()").unwrap();
+    writeln!(
+        helpers,
+        "                .entry(LiteralKey::from_literal(&lit))"
+    )
+    .unwrap();
+    writeln!(helpers, "                .or_default();").unwrap();
+    writeln!(
+        helpers,
+        "            entry.push_back(Term::Literal(lit));"
+    )
+    .unwrap();
+    writeln!(helpers, "        }}").unwrap();
+    writeln!(helpers, "    }}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "    pub fn resolve_literal(&self, subject: &Term, predicate: &NamedNode, candidate: &Literal) -> Option<Term> {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        let key = LiteralKey::from_literal(candidate);"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        let predicate_map = self.literals.get(subject)?.get(predicate)?;"
+    )
+    .unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "        if let Some(candidates) = predicate_map.get(&key) {{").unwrap();
+    writeln!(helpers, "            if candidates.is_empty() {{").unwrap();
+    writeln!(helpers, "                return None;").unwrap();
+    writeln!(helpers, "            }}").unwrap();
+    writeln!(
+        helpers,
+        "            let candidate_term = Term::Literal(candidate.clone());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "            if candidates.iter().any(|term| term == &candidate_term) {{"
+    )
+    .unwrap();
+    writeln!(helpers, "                return Some(candidate_term);").unwrap();
+    writeln!(helpers, "            }}").unwrap();
+    writeln!(helpers, "            return candidates.front().cloned();").unwrap();
+    writeln!(helpers, "        }}").unwrap();
+    writeln!(helpers, "        for (other_key, candidates) in predicate_map {{").unwrap();
+    writeln!(
+        helpers,
+        "            if other_key.lexical == key.lexical && other_key.language == key.language {{"
+    )
+    .unwrap();
+    writeln!(helpers, "                return candidates.front().cloned();").unwrap();
+    writeln!(helpers, "            }}").unwrap();
+    writeln!(helpers, "        }}").unwrap();
+    writeln!(helpers, "        None").unwrap();
+    writeln!(helpers, "    }}").unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "pub fn load_original_value_index(path: &Path) -> Result<OriginalValueIndex, String> {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    let extension = path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase());"
+    )
+    .unwrap();
+    writeln!(helpers, "    let format = match extension.as_deref() {{").unwrap();
+    writeln!(
+        helpers,
+        "        Some(\"ttl\") | Some(\"turtle\") => Some(RdfFormat::Turtle),"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        Some(\"nt\") => Some(RdfFormat::NTriples),"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        Some(\"rdf\") | Some(\"xml\") => Some(RdfFormat::RdfXml),"
+    )
+    .unwrap();
+    writeln!(helpers, "        _ => None,").unwrap();
+    writeln!(helpers, "    }};").unwrap();
+    writeln!(helpers, "    let format = match format {{").unwrap();
+    writeln!(helpers, "        Some(f) => f,").unwrap();
+    writeln!(helpers, "        None => return Ok(OriginalValueIndex::new()),").unwrap();
+    writeln!(helpers, "    }};").unwrap();
+    writeln!(helpers, "    let file = File::open(path).map_err(|e| e.to_string())?;").unwrap();
+    writeln!(helpers, "    let reader = BufReader::new(file);").unwrap();
+    writeln!(helpers, "    let parser = RdfParser::from_format(format).without_named_graphs();").unwrap();
+    writeln!(helpers, "    let mut index = OriginalValueIndex::new();").unwrap();
+    writeln!(helpers, "    for quad in parser.for_reader(reader) {{").unwrap();
+    writeln!(helpers, "        let triple = quad.map_err(|e| e.to_string())?;").unwrap();
+    writeln!(helpers, "        index.record_triple(triple.subject, triple.predicate, triple.object);").unwrap();
+    writeln!(helpers, "    }}").unwrap();
+    writeln!(helpers, "    Ok(index)").unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "pub fn set_original_value_index(index: Option<OriginalValueIndex>) {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    ORIGINAL_VALUE_INDEX.with(|cell| *cell.borrow_mut() = index);"
+    )
+    .unwrap();
+    writeln!(helpers, "}}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "fn with_original_value_index<F, R>(f: F) -> R where F: FnOnce(Option<&OriginalValueIndex>) -> R {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    ORIGINAL_VALUE_INDEX.with(|cell| f(cell.borrow().as_ref()))"
     )
     .unwrap();
     writeln!(helpers, "}}").unwrap();
@@ -504,8 +790,8 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "        index.entry(class_iri.to_string()).or_default().push(subject);"
     )
     .unwrap();
-    writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    };").unwrap();
+    writeln!(helpers, "{}", "    };").unwrap();
     writeln!(helpers, "    index").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
@@ -678,18 +964,286 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
-        "fn is_literal_with_datatype(term: &Term, datatype_iri: &str) -> bool {"
+        "fn literal_signature(lit: &Literal) -> (String, Option<String>, String) {"
     )
     .unwrap();
-    writeln!(helpers, "{}", "    match term {").unwrap();
     writeln!(
         helpers,
-        "        Term::Literal(lit) => lit.datatype().as_str() == datatype_iri,"
+        "{}",
+        "    let mut lexical = lit.value().to_string();"
     )
     .unwrap();
-    writeln!(helpers, "        _ => false,").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if lit.datatype().as_str() == \"http://www.w3.org/2001/XMLSchema#decimal\" {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        lexical = normalize_decimal_literal(&lexical);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    (lexical, lit.language().map(|lang| lang.to_ascii_lowercase()), lit.datatype().as_str().to_string())"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn lookup_by_signature(buckets: &mut HashMap<(String, Option<String>, String), VecDeque<Term>>, exact_matches: &mut HashSet<Term>, lit: &Literal) -> Option<Term> {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    let key = literal_signature(lit);").unwrap();
+    writeln!(helpers, "{}", "    if let Some(queue) = buckets.get_mut(&key) {").unwrap();
+    writeln!(helpers, "{}", "        if let Some(term) = queue.pop_front() {").unwrap();
+    writeln!(helpers, "{}", "            exact_matches.remove(&term);").unwrap();
+    writeln!(helpers, "{}", "            return Some(term);").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    None").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn canonicalize_values_for_predicate(store: &Store, graph: Option<GraphNameRef<'_>>, focus: &Term, predicate_iri: &str, mut nodes: Vec<Term>) -> Vec<Term> {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    if nodes.is_empty() {").unwrap();
+    writeln!(helpers, "{}", "        return nodes;").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let predicate_ref = match NamedNodeRef::new(predicate_iri) { Ok(p) => p, Err(_) => return nodes };"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let subject = match subject_ref(focus) { Some(s) => s, None => return nodes };"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut raw_objects: Vec<Term> = Vec::new();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    for quad in store.quads_for_pattern(Some(subject), Some(predicate_ref), None, graph) {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        if let Ok(quad) = quad {").unwrap();
+    writeln!(helpers, "{}", "            raw_objects.push(quad.object);").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let has_original_index = with_original_value_index(|idx| idx.is_some());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if raw_objects.is_empty() && !has_original_index {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        return nodes;").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut exact_matches: HashSet<Term> = raw_objects.iter().cloned().collect();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut literals_by_signature: HashMap<(String, Option<String>, String), VecDeque<Term>> = HashMap::new();"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    for term in &raw_objects {").unwrap();
+    writeln!(helpers, "{}", "        if let Term::Literal(lit) = term {").unwrap();
+    writeln!(helpers, "{}", "            let key = literal_signature(lit);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            literals_by_signature.entry(key).or_default().push_back(term.clone());"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let predicate = NamedNode::new_unchecked(predicate_iri);"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    for node in &mut nodes {").unwrap();
+    writeln!(helpers, "{}", "        let current = node.clone();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if let Term::Literal(ref lit) = current {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let resolved = with_original_value_index(|idx| idx.and_then(|index| index.resolve_literal(focus, &predicate, lit)));"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(original) = resolved {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                if original != current {").unwrap();
+    writeln!(helpers, "{}", "                    exact_matches.remove(&original);").unwrap();
+    writeln!(helpers, "{}", "                    *node = original;").unwrap();
+    writeln!(helpers, "{}", "                    continue;").unwrap();
+    writeln!(helpers, "{}", "                }").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "        if exact_matches.remove(&current) {").unwrap();
+    writeln!(helpers, "{}", "            continue;").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if let Term::Literal(ref lit) = current {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(term) = lookup_by_signature(&mut literals_by_signature, &mut exact_matches, lit) {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                *node = term;").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    nodes").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        r#"fn is_literal_with_datatype(term: &Term, datatype_iri: &str) -> bool {
+    let lit = match term {
+        Term::Literal(lit) => lit,
+        _ => return false,
+    };
+    if datatype_iri == rdf::LANG_STRING.as_str() {
+        return lit.language().is_some();
+    }
+    let lit_datatype = lit.datatype();
+    let mut datatype_matches = lit_datatype.as_str() == datatype_iri;
+    if !datatype_matches && datatype_iri == xsd::DECIMAL.as_str() && lit_datatype == xsd::INTEGER {
+        datatype_matches = true;
+    }
+    if !datatype_matches {
+        return false;
+    }
+    let literal_value = lit.value();
+    if datatype_iri == xsd::STRING.as_str() {
+        true
+    } else if datatype_iri == xsd::BOOLEAN.as_str() {
+        Boolean::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::DECIMAL.as_str() {
+        Decimal::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::INTEGER.as_str() {
+        Integer::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::BYTE.as_str() {
+        Integer::from_str(literal_value)
+            .map(|v| {
+                let value: i64 = v.into();
+                value >= i64::from(i8::MIN) && value <= i64::from(i8::MAX)
+            })
+            .unwrap_or(false)
+    } else if datatype_iri == xsd::SHORT.as_str() {
+        Integer::from_str(literal_value)
+            .map(|v| {
+                let value: i64 = v.into();
+                value >= i64::from(i16::MIN) && value <= i64::from(i16::MAX)
+            })
+            .unwrap_or(false)
+    } else if datatype_iri == xsd::INT.as_str() {
+        Integer::from_str(literal_value)
+            .map(|v| {
+                let value: i64 = v.into();
+                value >= i64::from(i32::MIN) && value <= i64::from(i32::MAX)
+            })
+            .unwrap_or(false)
+    } else if datatype_iri == xsd::LONG.as_str() {
+        Integer::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::UNSIGNED_BYTE.as_str() {
+        Integer::from_str(literal_value)
+            .map(|v| {
+                let value: i64 = v.into();
+                value >= 0 && value <= i64::from(u8::MAX)
+            })
+            .unwrap_or(false)
+    } else if datatype_iri == xsd::UNSIGNED_SHORT.as_str() {
+        Integer::from_str(literal_value)
+            .map(|v| {
+                let value: i64 = v.into();
+                value >= 0 && value <= i64::from(u16::MAX)
+            })
+            .unwrap_or(false)
+    } else if datatype_iri == xsd::UNSIGNED_INT.as_str() {
+        Integer::from_str(literal_value)
+            .map(|v| {
+                let value: i64 = v.into();
+                value >= 0 && value <= i64::from(u32::MAX)
+            })
+            .unwrap_or(false)
+    } else if datatype_iri == xsd::DOUBLE.as_str() {
+        Double::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::FLOAT.as_str() {
+        Float::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::DATE.as_str() {
+        Date::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::TIME.as_str() {
+        Time::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::DATE_TIME.as_str() {
+        DateTime::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::G_YEAR.as_str() {
+        GYear::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::G_MONTH.as_str() {
+        GMonth::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::G_DAY.as_str() {
+        GDay::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::G_YEAR_MONTH.as_str() {
+        GYearMonth::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::G_MONTH_DAY.as_str() {
+        GMonthDay::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::DURATION.as_str() {
+        Duration::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::YEAR_MONTH_DURATION.as_str() {
+        YearMonthDuration::from_str(literal_value).is_ok()
+    } else if datatype_iri == xsd::DAY_TIME_DURATION.as_str() {
+        DayTimeDuration::from_str(literal_value).is_ok()
+    } else {
+        true
+    }
+}
+"#
+    )
+    .unwrap();
     writeln!(helpers, "").unwrap();
 
     writeln!(
@@ -910,24 +1464,33 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "    };").unwrap();
     writeln!(
         helpers,
+        "{}",
+        "    let normalized_query = query.replace('$', \"?\");"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
         "    let prefixes = prefixes_for_selector(store, selector);"
     )
     .unwrap();
     writeln!(
         helpers,
         "{}",
-        "    let query_str = if prefixes.trim().is_empty() {"
+        "    let query_str = if prefixes.trim().is_empty() { normalized_query.clone() } else { format!(\"{}\\n{}\", prefixes, normalized_query) };"
     )
     .unwrap();
-    writeln!(helpers, "        query.clone()").unwrap();
-    writeln!(helpers, "{}", "    } else {").unwrap();
     writeln!(
         helpers,
         "{}",
-        "        format!(\"{}\\n{}\", prefixes, query)"
+        "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();"
     )
     .unwrap();
-    writeln!(helpers, "{}", "    };").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }"
+    )
+    .unwrap();
     writeln!(
         helpers,
         "{}",
@@ -1088,6 +1651,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "        Term::Literal(lit) => (lit.value().chars().count() as u64) >= min,"
     )
     .unwrap();
+    writeln!(
+        helpers,
+        "        Term::NamedNode(node) => (node.as_str().chars().count() as u64) >= min,"
+    )
+    .unwrap();
     writeln!(helpers, "        _ => false,").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
@@ -1103,6 +1671,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "        Term::Literal(lit) => (lit.value().chars().count() as u64) <= max,"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        Term::NamedNode(node) => (node.as_str().chars().count() as u64) <= max,"
     )
     .unwrap();
     writeln!(helpers, "        _ => false,").unwrap();
@@ -1230,6 +1803,133 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "    term.to_string()").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn term_to_sparql_ground(term: &Term) -> Option<String> {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    match term {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        Term::BlankNode(_) => None,"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        _ => Some(term.to_string()),"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn inject_values_clause(query: &str, values_clause: &str) -> String {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if values_clause.trim().is_empty() {"
+    )
+    .unwrap();
+    writeln!(helpers, "        return query.to_string();").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if let Some(pos) = query.find('{') {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        let mut out = String::with_capacity(query.len() + values_clause.len() + 2);"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        out.push_str(&query[..pos + 1]);"
+    )
+    .unwrap();
+    writeln!(helpers, "        out.push('\\n');").unwrap();
+    writeln!(helpers, "        out.push_str(values_clause);").unwrap();
+    writeln!(helpers, "        out.push('\\n');").unwrap();
+    writeln!(helpers, "        out.push_str(&query[pos + 1..]);").unwrap();
+    writeln!(helpers, "        out").unwrap();
+    writeln!(helpers, "{}", "    } else {").unwrap();
+    writeln!(helpers, "        query.to_string()").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn inject_bindings_everywhere(query: &str, bindings_clause: &str) -> String {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if bindings_clause.trim().is_empty() {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        return query.to_string();").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut out = String::with_capacity(query.len() + bindings_clause.len() * 2);"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    let bytes = query.as_bytes();").unwrap();
+    writeln!(helpers, "{}", "    let mut i = 0;").unwrap();
+    writeln!(helpers, "{}", "    while i < bytes.len() {").unwrap();
+    writeln!(helpers, "{}", "        let ch = bytes[i] as char;").unwrap();
+    writeln!(helpers, "{}", "        out.push(ch);").unwrap();
+    writeln!(helpers, "{}", "        if ch == '{' {").unwrap();
+    writeln!(helpers, "{}", "            let mut j = i + 1;").unwrap();
+    writeln!(helpers, "{}", "            while j < bytes.len() {").unwrap();
+    writeln!(helpers, "{}", "                let c = bytes[j] as char;").unwrap();
+    writeln!(helpers, "{}", "                if c.is_whitespace() {").unwrap();
+    writeln!(helpers, "{}", "                    j += 1;").unwrap();
+    writeln!(helpers, "{}", "                    continue;").unwrap();
+    writeln!(helpers, "{}", "                }").unwrap();
+    writeln!(helpers, "{}", "                if c == '#' {").unwrap();
+    writeln!(helpers, "{}", "                    while j < bytes.len() && bytes[j] as char != '\\n' {").unwrap();
+    writeln!(helpers, "{}", "                        j += 1;").unwrap();
+    writeln!(helpers, "{}", "                    }").unwrap();
+    writeln!(helpers, "{}", "                    continue;").unwrap();
+    writeln!(helpers, "{}", "                }").unwrap();
+    writeln!(helpers, "{}", "                break;").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "            let rest = &query[j..];").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if rest.len() < 6 || !rest[..6].eq_ignore_ascii_case(\"select\") {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                out.push('\\n');").unwrap();
+    writeln!(helpers, "{}", "                out.push_str(bindings_clause);").unwrap();
+    writeln!(helpers, "{}", "                out.push('\\n');").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "        i += 1;").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    out").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
 
     writeln!(
         helpers,
@@ -1283,105 +1983,172 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     .unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
-
     writeln!(
         helpers,
         "{}",
         "fn sparql_any_solution(query: &str, store: &Store, graph: Option<GraphNameRef<'_>>, selector: Option<&Term>, focus: Option<&Term>, value: Option<&Term>) -> bool {"
     )
     .unwrap();
+    writeln!(helpers, "    let prefixes = match selector {{").unwrap();
     writeln!(
         helpers,
-        "{}",
-        "    let query_str = if let Some(selector) = selector {"
+        "        Some(selector) => prefixes_for_selector(store, selector),"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "        let prefixes = prefixes_for_selector(store, selector);"
-    )
-    .unwrap();
-    writeln!(helpers, "        if prefixes.trim().is_empty() {{").unwrap();
-    writeln!(helpers, "            query.to_string()").unwrap();
-    writeln!(helpers, "        }} else {{").unwrap();
-    writeln!(
-        helpers,
-        "            format!(\"{{}}\\n{{}}\", prefixes, query)"
-    )
-    .unwrap();
-    writeln!(helpers, "        }}").unwrap();
-    writeln!(helpers, "    }} else {{").unwrap();
-    writeln!(helpers, "        query.to_string()").unwrap();
+    writeln!(helpers, "        None => String::new(),").unwrap();
     writeln!(helpers, "    }};").unwrap();
     writeln!(
         helpers,
-        "{}",
-        "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {"
+        "    sparql_any_solution_with_bindings(query, &prefixes, store, graph, focus, value, &[])"
     )
     .unwrap();
-    writeln!(helpers, "        Ok(prepared) => prepared,").unwrap();
-    writeln!(helpers, "        Err(_) => return false,").unwrap();
-    writeln!(helpers, "    }};").unwrap();
-    writeln!(helpers, "    if let Some(graph) = graph {{").unwrap();
-    writeln!(
-        helpers,
-        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
-    )
-    .unwrap();
-    writeln!(helpers, "    }} else {{").unwrap();
-    writeln!(
-        helpers,
-        "        prepared.dataset_mut().set_default_graph_as_union();"
-    )
-    .unwrap();
-    writeln!(helpers, "    }}").unwrap();
-    writeln!(helpers, "    let mut bound = prepared.on_store(store);").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "{}", "fn sparql_any_solution_with_bindings(query: &str, prefixes: &str, store: &Store, graph: Option<GraphNameRef<'_>>, focus: Option<&Term>, value: Option<&Term>, bindings: &[(&str, Term)]) -> bool {").unwrap();
+    writeln!(helpers, "{}", "    let mut normalized_query = query.replace('$', \"?\");").unwrap();
+    writeln!(helpers, "{}", "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();").unwrap();
+    writeln!(helpers, "{}", "    let mut bind_lines: Vec<String> = Vec::new();").unwrap();
+    writeln!(helpers, "{}", "    let mut remaining: Vec<(String, Term)> = Vec::new();").unwrap();
+    writeln!(helpers, "{}", "    let mut bind_everywhere = false;").unwrap();
     writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        if query_mentions_var(query, \"this\") {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "            bound = bound.substitute_variable(Variable::new_unchecked(\"this\"), focus.clone());"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "        if query_mentions_var(query, \"this\") {").unwrap();
+    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(focus) {").unwrap();
+    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?this)\", ground));").unwrap();
+    writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(helpers, "{}", "                remaining.push((\"this\".to_string(), focus.clone()));").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    if let Some(value) = value {").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        if query_mentions_var(query, \"value\") {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "            bound = bound.substitute_variable(Variable::new_unchecked(\"value\"), value.clone());"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "        if query_mentions_var(query, \"value\") {").unwrap();
+    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(value) {").unwrap();
+    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?value)\", ground));").unwrap();
+    writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(helpers, "{}", "                remaining.push((\"value\".to_string(), value.clone()));").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    for (name, term) in bindings {").unwrap();
+    writeln!(helpers, "{}", "        if query_mentions_var(query, name) {").unwrap();
+    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(term) {").unwrap();
+    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?{})\", ground, name));").unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(helpers, "{}", "                remaining.push(((*name).to_string(), term.clone()));").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    if !bind_lines.is_empty() {").unwrap();
+    writeln!(helpers, "{}", "        let bindings_clause = bind_lines.join(\"\\n\");").unwrap();
+    writeln!(helpers, "{}", "        normalized_query = if bind_everywhere { inject_bindings_everywhere(&normalized_query, &bindings_clause) } else { inject_values_clause(&normalized_query, &bindings_clause) };").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    let query_str = if prefixes.trim().is_empty() { normalized_query.clone() } else { format!(\"{}\\n{}\", prefixes, normalized_query) };").unwrap();
+    writeln!(helpers, "{}", "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }").unwrap();
+    writeln!(helpers, "{}", "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {").unwrap();
+    writeln!(helpers, "{}", "        Ok(prepared) => prepared,").unwrap();
+    writeln!(helpers, "{}", "        Err(err) => { if debug { eprintln!(\"SPARQL parse error: {}\", err); } return false },").unwrap();
+    writeln!(helpers, "{}", "    };").unwrap();
+    writeln!(helpers, "{}", "    if let Some(graph) = graph {").unwrap();
+    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);").unwrap();
+    writeln!(helpers, "{}", "    } else {").unwrap();
+    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph_as_union();").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    let mut bound = prepared.on_store(store);").unwrap();
+    writeln!(helpers, "{}", "    for (name, term) in remaining.iter() {").unwrap();
+    writeln!(helpers, "{}", "        bound = bound.substitute_variable(Variable::new_unchecked(name.as_str()), term.clone());").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    match bound.execute() {").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        Ok(QueryResults::Solutions(solutions)) => {"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "        Ok(QueryResults::Solutions(solutions)) => {").unwrap();
     writeln!(helpers, "{}", "            for result in solutions {").unwrap();
     writeln!(helpers, "{}", "                if result.is_ok() {").unwrap();
-    writeln!(helpers, "                    return true;").unwrap();
+    writeln!(helpers, "{}", "                    return true;").unwrap();
     writeln!(helpers, "{}", "                }").unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
-    writeln!(helpers, "            false").unwrap();
+    writeln!(helpers, "{}", "            false").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
-    writeln!(helpers, "        Ok(QueryResults::Boolean(val)) => val,").unwrap();
-    writeln!(helpers, "        Ok(QueryResults::Graph(_)) => false,").unwrap();
-    writeln!(helpers, "        Err(_) => false,").unwrap();
+    writeln!(helpers, "{}", "        Ok(QueryResults::Boolean(val)) => val,").unwrap();
+    writeln!(helpers, "{}", "        Ok(QueryResults::Graph(_)) => false,").unwrap();
+    writeln!(helpers, "{}", "        Err(err) => {").unwrap();
+    writeln!(helpers, "{}", "            if debug { eprintln!(\"SPARQL execute error: {}\", err); }").unwrap();
+    writeln!(helpers, "{}", "            false").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+    writeln!(helpers, "{}", "fn sparql_select_solutions_with_bindings(query: &str, prefixes: &str, store: &Store, graph: Option<GraphNameRef<'_>>, focus: Option<&Term>, value: Option<&Term>, bindings: &[(&str, Term)]) -> Vec<HashMap<String, Term>> {").unwrap();
+    writeln!(helpers, "{}", "    let mut normalized_query = query.replace('$', \"?\");").unwrap();
+    writeln!(helpers, "{}", "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();").unwrap();
+    writeln!(helpers, "{}", "    let mut bind_lines: Vec<String> = Vec::new();").unwrap();
+    writeln!(helpers, "{}", "    let mut remaining: Vec<(String, Term)> = Vec::new();").unwrap();
+    writeln!(helpers, "{}", "    let mut bind_everywhere = false;").unwrap();
+    writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
+    writeln!(helpers, "{}", "        if query_mentions_var(query, \"this\") {").unwrap();
+    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(focus) {").unwrap();
+    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?this)\", ground));").unwrap();
+    writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(helpers, "{}", "                remaining.push((\"this\".to_string(), focus.clone()));").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    if let Some(value) = value {").unwrap();
+    writeln!(helpers, "{}", "        if query_mentions_var(query, \"value\") {").unwrap();
+    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(value) {").unwrap();
+    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?value)\", ground));").unwrap();
+    writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(helpers, "{}", "                remaining.push((\"value\".to_string(), value.clone()));").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    for (name, term) in bindings {").unwrap();
+    writeln!(helpers, "{}", "        if query_mentions_var(query, name) {").unwrap();
+    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(term) {").unwrap();
+    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?{})\", ground, name));").unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(helpers, "{}", "                remaining.push(((*name).to_string(), term.clone()));").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    if !bind_lines.is_empty() {").unwrap();
+    writeln!(helpers, "{}", "        let bindings_clause = bind_lines.join(\"\\n\");").unwrap();
+    writeln!(helpers, "{}", "        normalized_query = if bind_everywhere { inject_bindings_everywhere(&normalized_query, &bindings_clause) } else { inject_values_clause(&normalized_query, &bindings_clause) };").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    let query_str = if prefixes.trim().is_empty() { normalized_query.clone() } else { format!(\"{}\\n{}\", prefixes, normalized_query) };").unwrap();
+    writeln!(helpers, "{}", "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }").unwrap();
+    writeln!(helpers, "{}", "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {").unwrap();
+    writeln!(helpers, "{}", "        Ok(prepared) => prepared,").unwrap();
+    writeln!(helpers, "{}", "        Err(err) => { if debug { eprintln!(\"SPARQL parse error: {}\", err); } return Vec::new() },").unwrap();
+    writeln!(helpers, "{}", "    };").unwrap();
+    writeln!(helpers, "{}", "    if let Some(graph) = graph {").unwrap();
+    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);").unwrap();
+    writeln!(helpers, "{}", "    } else {").unwrap();
+    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph_as_union();").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    let mut bound = prepared.on_store(store);").unwrap();
+    writeln!(helpers, "{}", "    for (name, term) in remaining.iter() {").unwrap();
+    writeln!(helpers, "{}", "        bound = bound.substitute_variable(Variable::new_unchecked(name.as_str()), term.clone());").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    let mut out: Vec<HashMap<String, Term>> = Vec::new();").unwrap();
+    writeln!(helpers, "{}", "    match bound.execute() {").unwrap();
+    writeln!(helpers, "{}", "        Ok(QueryResults::Solutions(solutions)) => {").unwrap();
+    writeln!(helpers, "{}", "            for solution in solutions {").unwrap();
+    writeln!(helpers, "{}", "                let solution = match solution { Ok(solution) => solution, Err(_) => continue };").unwrap();
+    writeln!(helpers, "{}", "                let mut row: HashMap<String, Term> = HashMap::new();").unwrap();
+    writeln!(helpers, "{}", "                for var in solution.variables() {").unwrap();
+    writeln!(helpers, "{}", "                    if let Some(term) = solution.get(var) {").unwrap();
+    writeln!(helpers, "{}", "                        row.insert(var.as_str().to_string(), term.clone());").unwrap();
+    writeln!(helpers, "{}", "                    }").unwrap();
+    writeln!(helpers, "{}", "                }").unwrap();
+    writeln!(helpers, "{}", "                out.push(row);").unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "        Ok(_) => {},").unwrap();
+    writeln!(helpers, "{}", "        Err(err) => { if debug { eprintln!(\"SPARQL execute error: {}\", err); } },").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    if debug { eprintln!(\"SPARQL solutions: {}\", out.len()); }").unwrap();
+    writeln!(helpers, "{}", "    out").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
     writeln!(
@@ -1393,6 +2160,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
+        "    let normalized_query = query.replace('$', \"?\");"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
         "    let query_str = if let Some(selector) = selector {"
     )
     .unwrap();
@@ -1402,16 +2175,16 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "        if prefixes.trim().is_empty() {{").unwrap();
-    writeln!(helpers, "            query.to_string()").unwrap();
+    writeln!(helpers, "            normalized_query.clone()").unwrap();
     writeln!(helpers, "        }} else {{").unwrap();
     writeln!(
         helpers,
-        "            format!(\"{{}}\\n{{}}\", prefixes, query)"
+        "            format!(\"{{}}\\n{{}}\", prefixes, normalized_query)"
     )
     .unwrap();
     writeln!(helpers, "        }}").unwrap();
     writeln!(helpers, "    }} else {{").unwrap();
-    writeln!(helpers, "        query.to_string()").unwrap();
+    writeln!(helpers, "        normalized_query").unwrap();
     writeln!(helpers, "    }};").unwrap();
     writeln!(
         helpers,
@@ -1564,7 +2337,8 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
                 shape_id: shape.id,
                 component_id: component.id,
                 kind: component.kind,
-                path_iri: Some(&path_display),
+                path_id: Some(path_id),
+                path_sparql: Some(&path_display),
                 term_iri: &term_iri,
                 term_expr: &term_expr,
                 term_sparql: &term_sparql,
@@ -1591,6 +2365,14 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
             path_id
         )
         .unwrap();
+        if let Some(predicate_iri) = simple_predicate_iri(plan, path_id)? {
+            writeln!(
+                property_validators,
+                "    let values = canonicalize_values_for_predicate(store, graph, focus, \"{}\", values);",
+                escape_rust_string(&predicate_iri)
+            )
+            .unwrap();
+        }
         if emission.needs_count {
             writeln!(
                 property_validators,
@@ -1703,7 +2485,8 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
                     shape_id: shape.id,
                     component_id: component.id,
                     kind: component.kind,
-                    path_iri: None,
+                    path_id: None,
+                    path_sparql: None,
                     term_iri: &term_iri,
                     term_expr: &term_expr,
                     term_sparql: &term_sparql,
@@ -1958,12 +2741,25 @@ fn emit_target_collector(
             }
             PlanTarget::Node(term_id) => {
                 let node_expr = term_expr(*term_id)?;
+                let shape_expr = term_expr(shape.term)?;
                 writeln!(out, "{}", "    {").unwrap();
                 writeln!(out, "        let focus: Term = {};", node_expr).unwrap();
                 writeln!(
                     out,
+                    "        let shape_term: Term = deskolemize_term({});",
+                    shape_expr
+                )
+                .unwrap();
+                writeln!(out, "        let mut nodes = vec![focus];").unwrap();
+                writeln!(
+                    out,
+                    "        let nodes = canonicalize_values_for_predicate(store, Some(shape_graph_ref()), &shape_term, \"http://www.w3.org/ns/shacl#targetNode\", nodes);"
+                )
+                .unwrap();
+                writeln!(
+                    out,
                     "{}",
-                    "        if seen.insert(focus.clone()) { out.push(focus); }"
+                    "        for node in nodes { if seen.insert(node.clone()) { out.push(node); } }"
                 )
                 .unwrap();
                 writeln!(out, "{}", "    }").unwrap();
@@ -2074,7 +2870,7 @@ fn path_to_string_inner(plan: &PlanIR, path_id: u64, wrap: bool) -> Result<Strin
         .get(path_id as usize)
         .ok_or_else(|| format!("Unknown path id {}", path_id))?;
     let rendered = match path {
-        PlanPath::Simple(term_id) => term_iri(plan, *term_id)?,
+        PlanPath::Simple(term_id) => term_sparql_const(plan, *term_id)?,
         PlanPath::Inverse(inner) => {
             let inner_str = path_to_string_inner(plan, *inner, true)?;
             format!("^{}", inner_str)
@@ -2113,6 +2909,17 @@ fn path_to_string_inner(plan: &PlanIR, path_id: u64, wrap: bool) -> Result<Strin
     }
 }
 
+fn simple_predicate_iri(plan: &PlanIR, path_id: u64) -> Result<Option<String>, String> {
+    let path = plan
+        .paths
+        .get(path_id as usize)
+        .ok_or_else(|| format!("Missing path {}", path_id))?;
+    match path {
+        PlanPath::Simple(term_id) => Ok(Some(term_iri(plan, *term_id)?)),
+        _ => Ok(None),
+    }
+}
+
 fn simple_predicate(plan: &PlanIR, path_id: u64) -> Result<String, String> {
     let path = plan
         .paths
@@ -2126,12 +2933,19 @@ fn simple_predicate(plan: &PlanIR, path_id: u64) -> Result<String, String> {
 
 fn emit_path_functions(out: &mut String, plan: &PlanIR) -> Result<(), String> {
     if plan.paths.is_empty() {
+        writeln!(
+            out,
+            "fn path_term(_path_id: u64, _graph: &mut Graph) -> Term {{ Term::BlankNode(BlankNode::default()) }}"
+        )
+        .unwrap();
+        writeln!(out, "").unwrap();
         return Ok(());
     }
     for (id, path) in plan.paths.iter().enumerate() {
         emit_path_function(out, plan, id as u64, path, false)?;
         emit_path_function(out, plan, id as u64, path, true)?;
     }
+    emit_path_term_functions(out, plan)?;
     Ok(())
 }
 
@@ -2954,6 +3768,200 @@ fn emit_path_function(
     Ok(())
 }
 
+fn emit_path_term_functions(out: &mut String, plan: &PlanIR) -> Result<(), String> {
+    if plan.paths.is_empty() {
+        return Ok(());
+    }
+    writeln!(out, "fn path_term(path_id: u64, graph: &mut Graph) -> Term {{").unwrap();
+    writeln!(out, "    match path_id {{").unwrap();
+    for (id, _) in plan.paths.iter().enumerate() {
+        writeln!(out, "        {} => path_term_{}(graph),", id, id).unwrap();
+    }
+    writeln!(out, "        _ => rdf::NIL.into(),").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(
+        out,
+        "fn build_rdf_list(items: Vec<Term>, graph: &mut Graph) -> Term {{"
+    )
+    .unwrap();
+    writeln!(out, "    if items.is_empty() {{").unwrap();
+    writeln!(out, "        return rdf::NIL.into();").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(
+        out,
+        "    let bnodes: Vec<NamedOrBlankNode> = (0..items.len()).map(|_| BlankNode::default().into()).collect();"
+    )
+    .unwrap();
+    writeln!(out, "    let head: NamedOrBlankNode = bnodes[0].clone();").unwrap();
+    writeln!(out, "    for (idx, item) in items.iter().enumerate() {{").unwrap();
+    writeln!(out, "        let subject: NamedOrBlankNode = bnodes[idx].clone();").unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(subject.clone(), rdf::FIRST, item.clone()).as_ref());"
+    )
+    .unwrap();
+    writeln!(out, "        let rest: Term = if idx + 1 == items.len() {{").unwrap();
+    writeln!(out, "            rdf::NIL.into()").unwrap();
+    writeln!(out, "        }} else {{").unwrap();
+    writeln!(out, "            bnodes[idx + 1].clone().into()").unwrap();
+    writeln!(out, "        }};").unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(subject, rdf::REST, rest).as_ref());"
+    )
+    .unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    head.into()").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    for (id, path) in plan.paths.iter().enumerate() {
+        emit_path_term_function(out, plan, id as u64, path)?;
+    }
+    Ok(())
+}
+
+fn emit_path_term_function(
+    out: &mut String,
+    plan: &PlanIR,
+    path_id: u64,
+    path: &PlanPath,
+) -> Result<(), String> {
+    writeln!(
+        out,
+        "fn path_term_{}(graph: &mut Graph) -> Term {{",
+        path_id
+    )
+    .unwrap();
+    match path {
+        PlanPath::Simple(term_id) => {
+            let term_expr = term_expr_id(plan, *term_id)?;
+            writeln!(out, "    {}", term_expr).unwrap();
+        }
+        PlanPath::Inverse(inner) => {
+            writeln!(out, "    let bn = BlankNode::default();").unwrap();
+            writeln!(
+                out,
+                "    let subject: NamedOrBlankNode = bn.clone().into();"
+            )
+            .unwrap();
+            writeln!(out, "    let inner = path_term_{}(graph);", inner).unwrap();
+            writeln!(
+                out,
+                "    let pred = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#inversePath\");"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    graph.insert(Triple::new(subject.clone(), pred, inner).as_ref());"
+            )
+            .unwrap();
+            writeln!(out, "    bn.into()").unwrap();
+        }
+        PlanPath::Sequence(paths) => {
+            let items = paths
+                .iter()
+                .map(|id| format!("path_term_{}(graph)", id))
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(out, "    let items: Vec<Term> = vec![{}];", items).unwrap();
+            writeln!(out, "    build_rdf_list(items, graph)").unwrap();
+        }
+        PlanPath::Alternative(paths) => {
+            let items = paths
+                .iter()
+                .map(|id| format!("path_term_{}(graph)", id))
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(out, "    let bn = BlankNode::default();").unwrap();
+            writeln!(
+                out,
+                "    let subject: NamedOrBlankNode = bn.clone().into();"
+            )
+            .unwrap();
+            writeln!(out, "    let items: Vec<Term> = vec![{}];", items).unwrap();
+            writeln!(out, "    let list_head = build_rdf_list(items, graph);").unwrap();
+            writeln!(
+                out,
+                "    let pred = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#alternativePath\");"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    graph.insert(Triple::new(subject.clone(), pred, list_head).as_ref());"
+            )
+            .unwrap();
+            writeln!(out, "    bn.into()").unwrap();
+        }
+        PlanPath::ZeroOrMore(inner) => {
+            writeln!(out, "    let bn = BlankNode::default();").unwrap();
+            writeln!(
+                out,
+                "    let subject: NamedOrBlankNode = bn.clone().into();"
+            )
+            .unwrap();
+            writeln!(out, "    let inner = path_term_{}(graph);", inner).unwrap();
+            writeln!(
+                out,
+                "    let pred = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#zeroOrMorePath\");"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    graph.insert(Triple::new(subject.clone(), pred, inner).as_ref());"
+            )
+            .unwrap();
+            writeln!(out, "    bn.into()").unwrap();
+        }
+        PlanPath::OneOrMore(inner) => {
+            writeln!(out, "    let bn = BlankNode::default();").unwrap();
+            writeln!(
+                out,
+                "    let subject: NamedOrBlankNode = bn.clone().into();"
+            )
+            .unwrap();
+            writeln!(out, "    let inner = path_term_{}(graph);", inner).unwrap();
+            writeln!(
+                out,
+                "    let pred = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#oneOrMorePath\");"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    graph.insert(Triple::new(subject.clone(), pred, inner).as_ref());"
+            )
+            .unwrap();
+            writeln!(out, "    bn.into()").unwrap();
+        }
+        PlanPath::ZeroOrOne(inner) => {
+            writeln!(out, "    let bn = BlankNode::default();").unwrap();
+            writeln!(
+                out,
+                "    let subject: NamedOrBlankNode = bn.clone().into();"
+            )
+            .unwrap();
+            writeln!(out, "    let inner = path_term_{}(graph);", inner).unwrap();
+            writeln!(
+                out,
+                "    let pred = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#zeroOrOnePath\");"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    graph.insert(Triple::new(subject.clone(), pred, inner).as_ref());"
+            )
+            .unwrap();
+            writeln!(out, "    bn.into()").unwrap();
+        }
+    }
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    Ok(())
+}
+
 fn emit_shape_triples(
     out: &mut String,
     shape_graph_nt: &mut String,
@@ -3309,6 +4317,7 @@ fn severity_to_iri_string(severity: &Severity) -> Result<String, String> {
 fn emit_shape_and_component_maps(out: &mut String, plan: &PlanIR) -> Result<(), String> {
     emit_shape_iri_map(out, plan)?;
     emit_component_iri_map(out, plan)?;
+    emit_component_source_constraint_map(out, plan)?;
     emit_severity_map(out, plan)?;
     Ok(())
 }
@@ -3341,11 +4350,18 @@ fn emit_component_iri_map(out: &mut String, plan: &PlanIR) -> Result<(), String>
     .unwrap();
     writeln!(out, "    match component_id {{").unwrap();
     for component in &plan.components {
+        let component_iri = match component.kind {
+            ComponentKind::Custom => match &component.params {
+                ComponentParams::Custom { iri, .. } => term_iri(plan, *iri)?,
+                _ => "http://www.w3.org/ns/shacl#ConstraintComponent".to_string(),
+            },
+            _ => constraint_component_iri(component).to_string(),
+        };
         writeln!(
             out,
             "        {} => \"{}\",",
             component.id,
-            escape_rust_string(constraint_component_iri(component.kind))
+            escape_rust_string(&component_iri)
         )
         .unwrap();
     }
@@ -3354,6 +4370,31 @@ fn emit_component_iri_map(out: &mut String, plan: &PlanIR) -> Result<(), String>
         "        _ => \"http://www.w3.org/ns/shacl#ConstraintComponent\","
     )
     .unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    Ok(())
+}
+
+fn emit_component_source_constraint_map(out: &mut String, plan: &PlanIR) -> Result<(), String> {
+    writeln!(
+        out,
+        "fn component_source_constraint(component_id: u64) -> Option<Term> {{"
+    )
+    .unwrap();
+    writeln!(out, "    match component_id {{").unwrap();
+    for component in &plan.components {
+        if let ComponentParams::Sparql { constraint_node, .. } = &component.params {
+            let term_expr = term_expr_id(plan, *constraint_node)?;
+            writeln!(
+                out,
+                "        {} => Some({}),",
+                component.id, term_expr
+            )
+            .unwrap();
+        }
+    }
+    writeln!(out, "        _ => None,").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
@@ -3384,37 +4425,49 @@ fn emit_severity_map(out: &mut String, plan: &PlanIR) -> Result<(), String> {
     Ok(())
 }
 
-fn constraint_component_iri(kind: ComponentKind) -> &'static str {
-    match kind {
-        ComponentKind::Node => "http://www.w3.org/ns/shacl#node",
-        ComponentKind::Property => "http://www.w3.org/ns/shacl#property",
-        ComponentKind::QualifiedValueShape => "http://www.w3.org/ns/shacl#qualifiedValueShape",
-        ComponentKind::Class => "http://www.w3.org/ns/shacl#class",
-        ComponentKind::Datatype => "http://www.w3.org/ns/shacl#datatype",
-        ComponentKind::NodeKind => "http://www.w3.org/ns/shacl#nodeKind",
-        ComponentKind::MinCount => "http://www.w3.org/ns/shacl#minCount",
-        ComponentKind::MaxCount => "http://www.w3.org/ns/shacl#maxCount",
-        ComponentKind::MinExclusive => "http://www.w3.org/ns/shacl#minExclusive",
-        ComponentKind::MinInclusive => "http://www.w3.org/ns/shacl#minInclusive",
-        ComponentKind::MaxExclusive => "http://www.w3.org/ns/shacl#maxExclusive",
-        ComponentKind::MaxInclusive => "http://www.w3.org/ns/shacl#maxInclusive",
-        ComponentKind::MinLength => "http://www.w3.org/ns/shacl#minLength",
-        ComponentKind::MaxLength => "http://www.w3.org/ns/shacl#maxLength",
-        ComponentKind::Pattern => "http://www.w3.org/ns/shacl#pattern",
-        ComponentKind::LanguageIn => "http://www.w3.org/ns/shacl#languageIn",
-        ComponentKind::UniqueLang => "http://www.w3.org/ns/shacl#uniqueLang",
-        ComponentKind::Equals => "http://www.w3.org/ns/shacl#equals",
-        ComponentKind::Disjoint => "http://www.w3.org/ns/shacl#disjoint",
-        ComponentKind::LessThan => "http://www.w3.org/ns/shacl#lessThan",
-        ComponentKind::LessThanOrEquals => "http://www.w3.org/ns/shacl#lessThanOrEquals",
-        ComponentKind::Not => "http://www.w3.org/ns/shacl#not",
-        ComponentKind::And => "http://www.w3.org/ns/shacl#and",
-        ComponentKind::Or => "http://www.w3.org/ns/shacl#or",
-        ComponentKind::Xone => "http://www.w3.org/ns/shacl#xone",
-        ComponentKind::Closed => "http://www.w3.org/ns/shacl#closed",
-        ComponentKind::HasValue => "http://www.w3.org/ns/shacl#hasValue",
-        ComponentKind::In => "http://www.w3.org/ns/shacl#in",
-        ComponentKind::Sparql => "http://www.w3.org/ns/shacl#SPARQL",
+fn constraint_component_iri(component: &PlanComponent) -> &'static str {
+    match component.kind {
+        ComponentKind::Node => "http://www.w3.org/ns/shacl#NodeConstraintComponent",
+        ComponentKind::Property => "http://www.w3.org/ns/shacl#PropertyShapeComponent",
+        ComponentKind::QualifiedValueShape => match &component.params {
+            ComponentParams::QualifiedValueShape { min_count, .. } => {
+                if min_count.is_some() {
+                    "http://www.w3.org/ns/shacl#QualifiedMinCountConstraintComponent"
+                } else {
+                    "http://www.w3.org/ns/shacl#QualifiedMaxCountConstraintComponent"
+                }
+            }
+            _ => "http://www.w3.org/ns/shacl#QualifiedMinCountConstraintComponent",
+        },
+        ComponentKind::Class => "http://www.w3.org/ns/shacl#ClassConstraintComponent",
+        ComponentKind::Datatype => "http://www.w3.org/ns/shacl#DatatypeConstraintComponent",
+        ComponentKind::NodeKind => "http://www.w3.org/ns/shacl#NodeKindConstraintComponent",
+        ComponentKind::MinCount => "http://www.w3.org/ns/shacl#MinCountConstraintComponent",
+        ComponentKind::MaxCount => "http://www.w3.org/ns/shacl#MaxCountConstraintComponent",
+        ComponentKind::MinExclusive => "http://www.w3.org/ns/shacl#MinExclusiveConstraintComponent",
+        ComponentKind::MinInclusive => "http://www.w3.org/ns/shacl#MinInclusiveConstraintComponent",
+        ComponentKind::MaxExclusive => "http://www.w3.org/ns/shacl#MaxExclusiveConstraintComponent",
+        ComponentKind::MaxInclusive => "http://www.w3.org/ns/shacl#MaxInclusiveConstraintComponent",
+        ComponentKind::MinLength => "http://www.w3.org/ns/shacl#MinLengthConstraintComponent",
+        ComponentKind::MaxLength => "http://www.w3.org/ns/shacl#MaxLengthConstraintComponent",
+        ComponentKind::Pattern => "http://www.w3.org/ns/shacl#PatternConstraintComponent",
+        ComponentKind::LanguageIn => "http://www.w3.org/ns/shacl#LanguageInConstraintComponent",
+        ComponentKind::UniqueLang => "http://www.w3.org/ns/shacl#UniqueLangConstraintComponent",
+        ComponentKind::Equals => "http://www.w3.org/ns/shacl#EqualsConstraintComponent",
+        ComponentKind::Disjoint => "http://www.w3.org/ns/shacl#DisjointConstraintComponent",
+        ComponentKind::LessThan => "http://www.w3.org/ns/shacl#LessThanConstraintComponent",
+        ComponentKind::LessThanOrEquals => {
+            "http://www.w3.org/ns/shacl#LessThanOrEqualsConstraintComponent"
+        }
+        ComponentKind::Not => "http://www.w3.org/ns/shacl#NotConstraintComponent",
+        ComponentKind::And => "http://www.w3.org/ns/shacl#AndConstraintComponent",
+        ComponentKind::Or => "http://www.w3.org/ns/shacl#OrConstraintComponent",
+        ComponentKind::Xone => "http://www.w3.org/ns/shacl#XoneConstraintComponent",
+        ComponentKind::Closed => "http://www.w3.org/ns/shacl#ClosedConstraintComponent",
+        ComponentKind::HasValue => "http://www.w3.org/ns/shacl#HasValueConstraintComponent",
+        ComponentKind::In => "http://www.w3.org/ns/shacl#InConstraintComponent",
+        ComponentKind::Sparql => "http://www.w3.org/ns/shacl#SPARQLConstraintComponent",
+        ComponentKind::Custom => "http://www.w3.org/ns/shacl#ConstraintComponent",
     }
 }
 
@@ -3452,6 +4505,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(
         out,
         "const SHACL_VALUE: &str = \"http://www.w3.org/ns/shacl#value\";"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "const SHACL_MESSAGE: &str = \"http://www.w3.org/ns/shacl#message\";"
     )
     .unwrap();
     writeln!(
@@ -3494,7 +4552,42 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "").unwrap();
 
     writeln!(out, "fn term_to_turtle_value(term: &Term) -> String {{").unwrap();
-    writeln!(out, "    term.to_string()").unwrap();
+    writeln!(out, "    match term {{").unwrap();
+    writeln!(
+        out,
+        "        Term::NamedNode(node) => format!(\"<{{}}>\", escape_iri(node.as_str())),"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        Term::BlankNode(node) => format!(\"_:{{}}\", node.as_str()),"
+    )
+    .unwrap();
+    writeln!(out, "        Term::Literal(lit) => {{").unwrap();
+    writeln!(out, "            let mut out = String::new();").unwrap();
+    writeln!(out, "            let lex = lit.value().to_string();").unwrap();
+    writeln!(out, "            out.push('\\\"');").unwrap();
+    writeln!(out, "            out.push_str(&escape_literal(&lex));").unwrap();
+    writeln!(out, "            out.push('\\\"');").unwrap();
+    writeln!(out, "            if let Some(lang) = lit.language() {{").unwrap();
+    writeln!(out, "                out.push('@');").unwrap();
+    writeln!(out, "                out.push_str(lang);").unwrap();
+    writeln!(
+        out,
+        "            }} else if lit.datatype().as_str() != \"http://www.w3.org/2001/XMLSchema#string\" {{"
+    )
+    .unwrap();
+    writeln!(out, "                out.push_str(\"^^<\");").unwrap();
+    writeln!(
+        out,
+        "                out.push_str(&escape_iri(lit.datatype().as_str()));"
+    )
+    .unwrap();
+    writeln!(out, "                out.push('>');").unwrap();
+    writeln!(out, "            }}").unwrap();
+    writeln!(out, "            out").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
 
@@ -3527,60 +4620,312 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
 
-    writeln!(
-        out,
-        "fn format_validation_report(report: &Report) -> String {{"
-    )
-    .unwrap();
-    writeln!(out, "    let mut out = String::new();").unwrap();
-    writeln!(
-        out,
-        "    out.push_str(\"@prefix sh: <http://www.w3.org/ns/shacl#> .\\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\\n\\n\");"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    out.push_str(&format!(\"_:report a sh:ValidationReport ;\\n    sh:conforms {{}} ;\\n\", bool_literal(report.violations.is_empty())));"
-    )
-    .unwrap();
-    writeln!(out, "    if report.violations.is_empty() {{").unwrap();
-    writeln!(out, "        out.push_str(\"    sh:result .\\n\\n\");").unwrap();
+    writeln!(out, "fn is_plain_decimal_integer(value: &str) -> bool {{").unwrap();
+    writeln!(out, "    let mut chars = value.chars();").unwrap();
+    writeln!(out, "    let first = match chars.next() {{").unwrap();
+    writeln!(out, "        Some(ch) => ch,").unwrap();
+    writeln!(out, "        None => return false,").unwrap();
+    writeln!(out, "    }};").unwrap();
+    writeln!(out, "    let mut has_digit = false;").unwrap();
+    writeln!(out, "    if first.is_ascii_digit() {{").unwrap();
+    writeln!(out, "        has_digit = true;").unwrap();
+    writeln!(out, "    }} else if first != '+' && first != '-' {{").unwrap();
+    writeln!(out, "        return false;").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    for ch in chars {{").unwrap();
+    writeln!(out, "        if !ch.is_ascii_digit() {{").unwrap();
+    writeln!(out, "            return false;").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "        has_digit = true;").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    has_digit").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(out, "fn normalize_decimal_literal(value: &str) -> String {{").unwrap();
+    writeln!(out, "    if is_plain_decimal_integer(value) {{").unwrap();
+    writeln!(out, "        format!(\"{{}}.0\", value)").unwrap();
     writeln!(out, "    }} else {{").unwrap();
-    writeln!(out, "        out.push_str(\"    sh:result \");").unwrap();
+    writeln!(out, "        value.to_string()").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(out, "fn escape_iri(value: &str) -> String {{").unwrap();
+    writeln!(out, "    let mut out = String::with_capacity(value.len());").unwrap();
+    writeln!(out, "    for ch in value.chars() {{").unwrap();
+    writeln!(out, "        match ch {{").unwrap();
     writeln!(
         out,
-        "        for (i, _) in report.violations.iter().enumerate() {{"
+        "            '<' | '>' | '\\\"' | '{{' | '}}' | '|' | '^' | '`' | '\\\\' => {{"
     )
     .unwrap();
-    writeln!(out, "            if i > 0 {{").unwrap();
-    writeln!(out, "                out.push_str(\", \");").unwrap();
+    writeln!(
+        out,
+        "                out.push_str(&format!(\"\\\\u{{:04X}}\", ch as u32));"
+    )
+    .unwrap();
     writeln!(out, "            }}").unwrap();
     writeln!(
         out,
-        "            out.push_str(&format!(\"_:violation{{}}\", i));"
+        "            ch if (ch as u32) < 0x20 || (ch as u32) == 0x7F => {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                out.push_str(&format!(\"\\\\u{{:04X}}\", ch as u32));"
+    )
+    .unwrap();
+    writeln!(out, "            }}").unwrap();
+    writeln!(out, "            ch => out.push(ch),").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    out").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(
+        out,
+        "fn message_terms_for_subject(store: &Store, subject_iri: &str) -> Vec<Term> {{"
+    )
+    .unwrap();
+    writeln!(out, "    let mut out = Vec::new();").unwrap();
+    writeln!(
+        out,
+        "    let subject = match NamedNode::new(subject_iri) {{ Ok(node) => node, Err(_) => return out }};"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_message = NamedNodeRef::new(SHACL_MESSAGE).unwrap();"
+    )
+    .unwrap();
+    writeln!(out, "    let shape_graph = shape_graph_ref();").unwrap();
+    writeln!(
+        out,
+        "    for quad in store.quads_for_pattern(Some(NamedOrBlankNodeRef::NamedNode(subject.as_ref())), Some(sh_message), None, Some(shape_graph)) {{"
+    )
+    .unwrap();
+    writeln!(out, "        if let Ok(quad) = quad {{").unwrap();
+    writeln!(out, "            out.push(quad.object);").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    out").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(
+        out,
+        "fn message_terms_for_term(store: &Store, term: &Term) -> Vec<Term> {{"
+    )
+    .unwrap();
+    writeln!(out, "    let mut out = Vec::new();").unwrap();
+    writeln!(
+        out,
+        "    let subject = match term {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        Term::NamedNode(node) => NamedOrBlankNodeRef::NamedNode(node.as_ref()),"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        Term::BlankNode(node) => NamedOrBlankNodeRef::BlankNode(node.as_ref()),"
+    )
+    .unwrap();
+    writeln!(out, "        _ => return out,").unwrap();
+    writeln!(out, "    }};").unwrap();
+    writeln!(
+        out,
+        "    let sh_message = NamedNodeRef::new(SHACL_MESSAGE).unwrap();"
+    )
+    .unwrap();
+    writeln!(out, "    let shape_graph = shape_graph_ref();").unwrap();
+    writeln!(
+        out,
+        "    for quad in store.quads_for_pattern(Some(subject), Some(sh_message), None, Some(shape_graph)) {{"
+    )
+    .unwrap();
+    writeln!(out, "        if let Ok(quad) = quad {{").unwrap();
+    writeln!(out, "            out.push(quad.object);").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    out").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(
+        out,
+        "fn collect_message_terms(store: &Store, shape_iri: &str, component_iri: &str, constraint_term: Option<&Term>) -> Vec<Term> {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let mut messages = message_terms_for_subject(store, shape_iri);"
+    )
+    .unwrap();
+    writeln!(out, "    if messages.is_empty() {{").unwrap();
+    writeln!(
+        out,
+        "        if let Some(term) = constraint_term {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            messages = message_terms_for_term(store, term);"
     )
     .unwrap();
     writeln!(out, "        }}").unwrap();
-    writeln!(out, "        out.push_str(\" .\\n\\n\");").unwrap();
     writeln!(out, "    }}").unwrap();
+    writeln!(out, "    if messages.is_empty() {{").unwrap();
     writeln!(
         out,
-        "    for (i, violation) in report.violations.iter().enumerate() {{"
+        "        messages = message_terms_for_subject(store, component_iri);"
+    )
+    .unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    messages").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    writeln!(out, "fn deskolemize_term(term: Term) -> Term {{").unwrap();
+    writeln!(out, "    if let Term::NamedNode(node) = &term {{").unwrap();
+    writeln!(out, "        if let Some(idx) = node.as_str().find(\"/.sk/\") {{").unwrap();
+    writeln!(out, "            let suffix = &node.as_str()[idx + 5..];").unwrap();
+    writeln!(
+        out,
+        "            return Term::BlankNode(BlankNode::new_unchecked(suffix));"
+    )
+    .unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    term").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+
+    writeln!(
+        out,
+        "fn format_validation_report(report: &Report, store: &Store) -> String {{"
+    )
+    .unwrap();
+    writeln!(out, "    let graph = validation_report_graph(report, store);").unwrap();
+    writeln!(out, "    graph_to_turtle(&graph)").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    writeln!(
+        out,
+        "fn validation_report_graph(report: &Report, store: &Store) -> Graph {{"
+    )
+    .unwrap();
+    writeln!(out, "    let mut graph = Graph::new();").unwrap();
+    writeln!(
+        out,
+        "    let report_node: NamedOrBlankNode = BlankNode::default().into();"
     )
     .unwrap();
     writeln!(
         out,
-        "        out.push_str(&format!(\"_:violation{{}} a sh:ValidationResult ;\\n\", i));"
+        "    let sh_validation_report = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#ValidationReport\");"
     )
     .unwrap();
     writeln!(
         out,
-        "        out.push_str(&format!(\"    sh:focusNode {{}} ;\\n\", term_to_turtle_value(&violation.focus)));"
+        "    let sh_validation_result = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#ValidationResult\");"
     )
     .unwrap();
     writeln!(
         out,
-        "        out.push_str(&format!(\"    sh:sourceShape <{{}}> ;\\n\", shape_iri(violation.shape_id)));"
+        "    let sh_conforms = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#conforms\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_result = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#result\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_focus_node = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#focusNode\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_source_shape = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#sourceShape\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_source_constraint_component = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#sourceConstraintComponent\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_source_constraint = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#sourceConstraint\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_value = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#value\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_result_path = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#resultPath\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_result_severity = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#resultSeverity\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let sh_result_message = NamedNode::new_unchecked(\"http://www.w3.org/ns/shacl#resultMessage\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    graph.insert(Triple::new(report_node.clone(), rdf::TYPE, Term::from(sh_validation_report.clone())).as_ref());"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    graph.insert(Triple::new(report_node.clone(), sh_conforms.clone(), Term::from(Literal::from(report.violations.is_empty()))).as_ref());"
+    )
+    .unwrap();
+    writeln!(out, "    for violation in report.violations.iter() {{").unwrap();
+    writeln!(
+        out,
+        "        let result_node: NamedOrBlankNode = BlankNode::default().into();"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(report_node.clone(), sh_result.clone(), Term::from(result_node.clone())).as_ref());"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(result_node.clone(), rdf::TYPE, Term::from(sh_validation_result.clone())).as_ref());"
+    )
+    .unwrap();
+    writeln!(out, "        let focus_term = deskolemize_term(violation.focus.clone());")
+        .unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(result_node.clone(), sh_focus_node.clone(), focus_term).as_ref());"
+    )
+    .unwrap();
+    writeln!(out, "        let shape_iri_str = shape_iri(violation.shape_id);").unwrap();
+    writeln!(
+        out,
+        "        let shape_term = deskolemize_term(Term::from(NamedNode::new_unchecked(shape_iri_str)));"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(result_node.clone(), sh_source_shape.clone(), shape_term).as_ref());"
     )
     .unwrap();
     writeln!(
@@ -3590,52 +4935,92 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     .unwrap();
     writeln!(
         out,
-        "        out.push_str(&format!(\"    sh:sourceConstraintComponent <{{}}> ;\\n\", component_term));"
+        "        let component_node = NamedNode::new_unchecked(component_term);"
     )
     .unwrap();
+    writeln!(
+        out,
+        "        graph.insert(Triple::new(result_node.clone(), sh_source_constraint_component.clone(), Term::from(component_node)).as_ref());"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let source_constraint = component_source_constraint(violation.component_id);"
+    )
+    .unwrap();
+    writeln!(out, "        if let Some(source_constraint_term) = source_constraint.as_ref() {{").unwrap();
+    writeln!(
+        out,
+        "            let source_constraint = deskolemize_term(source_constraint_term.clone());"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            graph.insert(Triple::new(result_node.clone(), sh_source_constraint.clone(), source_constraint).as_ref());"
+    )
+    .unwrap();
+    writeln!(out, "        }}").unwrap();
     writeln!(out, "        if let Some(value) = &violation.value {{").unwrap();
     writeln!(
         out,
-        "            out.push_str(&format!(\"    sh:value {{}} ;\\n\", term_to_turtle_value(value)));"
+        "            let value_term = deskolemize_term(value.clone());"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            graph.insert(Triple::new(result_node.clone(), sh_value.clone(), value_term).as_ref());"
     )
     .unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "        if let Some(path) = &violation.path {{").unwrap();
     writeln!(
         out,
-        "            out.push_str(&format!(\"    sh:resultPath <{{}}> ;\\n\", path));"
+        "            let path_term = match path {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                ResultPath::PathId(id) => path_term(*id, &mut graph),"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                ResultPath::Term(term) => term.clone(),"
+    )
+    .unwrap();
+    writeln!(out, "            }};").unwrap();
+    writeln!(
+        out,
+        "            let path_term = deskolemize_term(path_term);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            graph.insert(Triple::new(result_node.clone(), sh_result_path.clone(), path_term).as_ref());"
     )
     .unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(
         out,
-        "        out.push_str(&format!(\"    sh:resultSeverity <{{}}> ;\\n\", severity_term(violation.shape_id)));"
+        "        let severity_node = NamedNode::new_unchecked(severity_term(violation.shape_id));"
     )
     .unwrap();
     writeln!(
         out,
-        "        out.push_str(&format!(\"    sh:resultMessage {{}} .\\n\\n\", literal_string(&format!(\"Constraint violation of {{}}\", component_term))));"
+        "        graph.insert(Triple::new(result_node.clone(), sh_result_severity.clone(), Term::from(severity_node)).as_ref());"
     )
     .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    out").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out, "").unwrap();
     writeln!(
         out,
-        "fn validation_report_graph(report: &Report) -> Graph {{"
+        "        let message_terms = collect_message_terms(store, shape_iri_str, component_term, source_constraint.as_ref());"
     )
     .unwrap();
-    writeln!(out, "    let ttl = format_validation_report(report);").unwrap();
+    writeln!(out, "        for message in message_terms {{").unwrap();
     writeln!(
         out,
-        "    let parser = RdfParser::from_format(RdfFormat::Turtle).for_slice(ttl.as_bytes());"
+        "            graph.insert(Triple::new(result_node.clone(), sh_result_message.clone(), message).as_ref());"
     )
     .unwrap();
-    writeln!(out, "    let mut graph = Graph::new();").unwrap();
-    writeln!(out, "    for triple in parser {{").unwrap();
-    writeln!(out, "        if let Ok(triple) = triple {{").unwrap();
-    writeln!(out, "            graph.insert(triple.as_ref());").unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "    graph").unwrap();
@@ -3733,7 +5118,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
         "pub fn render_report(report: &Report, store: &Store, follow_bnodes: bool) -> String {{"
     )
     .unwrap();
-    writeln!(out, "    let mut graph = validation_report_graph(report);").unwrap();
+    writeln!(
+        out,
+        "    let mut graph = validation_report_graph(report, store);"
+    )
+    .unwrap();
     writeln!(out, "    if follow_bnodes {{").unwrap();
     writeln!(out, "        follow_validation_bnodes(&mut graph, store);").unwrap();
     writeln!(out, "    }}").unwrap();

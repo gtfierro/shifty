@@ -29,7 +29,7 @@ impl ComponentCodegen for ClosedHandler {
             ignored_exprs.push((ctx.term_iri)(*term_id)?);
         }
         emission.lines.push(format!(
-            "        if let Some(subject) = subject_ref(&focus) {{\n            let mut allowed: std::collections::HashSet<String> = allowed_predicates_{}();\n            let ignored = vec![{}];\n            for ig in ignored {{ allowed.insert(ig); }}\n            for quad in store.quads_for_pattern(Some(subject), None, None, graph) {{\n                let quad = match quad {{ Ok(q) => q, Err(_) => continue }};\n                let pred = quad.predicate.as_str().to_string();\n                if !allowed.contains(&pred) {{\n                    report.record({}, {}, &focus, None, None);\n                }}\n            }}\n        }}",
+            "        if let Some(subject) = subject_ref(&focus) {{\n            let mut allowed: std::collections::HashSet<String> = allowed_predicates_{}();\n            let ignored: Vec<&str> = vec![{}];\n            for ig in ignored {{ allowed.insert(ig.to_string()); }}\n            for quad in store.quads_for_pattern(Some(subject), None, None, graph) {{\n                let quad = match quad {{ Ok(q) => q, Err(_) => continue }};\n                let predicate = quad.predicate;\n                let pred = predicate.as_str().to_string();\n                if !allowed.contains(&pred) {{\n                    let value = quad.object;\n                    report.record({}, {}, &focus, Some(&value), Some(ResultPath::Term(Term::NamedNode(predicate.clone()))));\n                }}\n            }}\n        }}",
             ctx.shape_id,
             ignored_exprs
                 .into_iter()

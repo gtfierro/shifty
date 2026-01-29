@@ -32,8 +32,8 @@ impl ComponentCodegen for InHandler {
             ctx.component_id,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -60,7 +60,7 @@ impl ComponentCodegen for InHandler {
             items.join(", ")
         ));
         emission.lines.push(format!(
-            "        if !allowed_{}.iter().any(|v| v == focus) {{\n            report.record({}, {}, focus, None, None);\n        }}",
+            "        if !allowed_{}.iter().any(|v| v == focus) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             ctx.component_id,
             ctx.shape_id,
             ctx.component_id

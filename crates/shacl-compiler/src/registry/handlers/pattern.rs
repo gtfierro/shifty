@@ -30,8 +30,8 @@ impl ComponentCodegen for PatternHandler {
             regex_var,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -56,7 +56,7 @@ impl ComponentCodegen for PatternHandler {
             escape_rust_string(&regex_pattern)
         ));
         emission.lines.push(format!(
-            "        if !literal_matches_regex(&focus, &{}) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !literal_matches_regex(&focus, &{}) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             regex_var, ctx.shape_id, ctx.component_id
         ));
         Ok(emission)

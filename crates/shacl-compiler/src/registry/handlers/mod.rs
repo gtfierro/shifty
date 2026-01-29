@@ -1,5 +1,6 @@
 pub mod class;
 pub mod closed;
+pub mod custom;
 pub mod datatype;
 pub mod has_value;
 pub mod in_list;

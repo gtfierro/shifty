@@ -17,14 +17,14 @@ impl ComponentCodegen for MinCountHandler {
             ComponentParams::MinCount { min_count } => *min_count,
             _ => return Err("minCount params mismatch".to_string()),
         };
-        let path_iri = ctx
-            .path_iri
+        let path_id = ctx
+            .path_id
             .ok_or_else(|| "minCount component requires a path".to_string())?;
         let mut emission = PropertyEmission::default();
         emission.needs_count = true;
         emission.post_loop_lines.push(format!(
-            "    if count < {} {{\n        report.record({}, {}, focus, None, Some(\"{}\"));\n    }}",
-            min_count, ctx.shape_id, ctx.component_id, path_iri
+            "    if count < {} {{\n        report.record({}, {}, focus, None, Some(ResultPath::PathId({})));\n    }}",
+            min_count, ctx.shape_id, ctx.component_id, path_id
         ));
         Ok(emission)
     }

@@ -24,8 +24,8 @@ impl ComponentCodegen for NodeKindHandler {
             node_kind_iri,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -44,7 +44,7 @@ impl ComponentCodegen for NodeKindHandler {
         let node_kind_iri = (ctx.term_iri)(node_kind)?;
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !matches_node_kind(&focus, \"{}\") {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !matches_node_kind(&focus, \"{}\") {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             node_kind_iri,
             ctx.shape_id,
             ctx.component_id

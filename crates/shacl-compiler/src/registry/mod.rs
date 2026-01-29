@@ -7,6 +7,7 @@ use crate::plan::ComponentKind;
 use handlers::{
     class::ClassHandler,
     closed::ClosedHandler,
+    custom::CustomHandler,
     datatype::DatatypeHandler,
     has_value::HasValueHandler,
     in_list::InHandler,
@@ -56,6 +57,7 @@ static QUALIFIED_HANDLER: QualifiedValueShapeHandler = QualifiedValueShapeHandle
 static CLOSED_HANDLER: ClosedHandler = ClosedHandler;
 static PROPERTY_HANDLER: PropertyHandler = PropertyHandler;
 static SPARQL_HANDLER: SparqlHandler = SparqlHandler;
+static CUSTOM_HANDLER: CustomHandler = CustomHandler;
 pub fn lookup(kind: ComponentKind) -> &'static dyn ComponentCodegen {
     match kind {
         ComponentKind::Class => &CLASS_HANDLER,
@@ -87,5 +89,6 @@ pub fn lookup(kind: ComponentKind) -> &'static dyn ComponentCodegen {
         ComponentKind::Closed => &CLOSED_HANDLER,
         ComponentKind::Property => &PROPERTY_HANDLER,
         ComponentKind::Sparql => &SPARQL_HANDLER,
+        ComponentKind::Custom => &CUSTOM_HANDLER,
     }
 }

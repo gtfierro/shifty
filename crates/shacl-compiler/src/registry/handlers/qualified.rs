@@ -69,8 +69,8 @@ impl ComponentCodegen for QualifiedValueShapeHandler {
                 min,
                 ctx.shape_id,
                 ctx.component_id,
-                match ctx.path_iri {
-                    Some(path) => format!("Some(\"{}\")", path),
+                match ctx.path_id {
+                    Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                     None => "None".to_string(),
                 }
             ));
@@ -82,8 +82,8 @@ impl ComponentCodegen for QualifiedValueShapeHandler {
                 max,
                 ctx.shape_id,
                 ctx.component_id,
-                match ctx.path_iri {
-                    Some(path) => format!("Some(\"{}\")", path),
+                match ctx.path_id {
+                    Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                     None => "None".to_string(),
                 }
             ));

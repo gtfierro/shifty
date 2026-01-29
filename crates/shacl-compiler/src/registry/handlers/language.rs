@@ -1,5 +1,5 @@
 use crate::plan::{ComponentKind, ComponentParams};
-use crate::registry::component::{ComponentCodegen, EmitContext, PropertyEmission};
+use crate::registry::component::{ComponentCodegen, EmitContext, NodeEmission, PropertyEmission};
 
 pub struct LanguageInHandler;
 pub struct UniqueLangHandler;
@@ -33,10 +33,36 @@ impl ComponentCodegen for LanguageInHandler {
             ctx.component_id,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
+        ));
+        Ok(emission)
+    }
+
+    fn emit_node(
+        &self,
+        ctx: EmitContext<'_>,
+        params: &ComponentParams,
+    ) -> Result<NodeEmission, String> {
+        let languages = match params {
+            ComponentParams::LanguageIn { languages } => languages,
+            _ => return Err("languageIn params mismatch".to_string()),
+        };
+        let list = languages
+            .iter()
+            .map(|lang| format!("\"{}\"", escape_rust_string(lang)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut emission = NodeEmission::default();
+        emission.lines.push(format!(
+            "        let allowed_langs_{} = [{}];",
+            ctx.component_id, list
+        ));
+        emission.lines.push(format!(
+            "        if !language_in_allowed(&focus, &allowed_langs_{}) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
+            ctx.component_id, ctx.shape_id, ctx.component_id
         ));
         Ok(emission)
     }
@@ -78,8 +104,8 @@ impl ComponentCodegen for UniqueLangHandler {
             ctx.component_id,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));

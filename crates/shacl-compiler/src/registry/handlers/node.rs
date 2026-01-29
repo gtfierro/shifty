@@ -23,8 +23,8 @@ impl ComponentCodegen for NodeHandler {
             shape,
             ctx.shape_id,
             ctx.component_id,
-            match ctx.path_iri {
-                Some(path) => format!("Some(\"{}\")", path),
+            match ctx.path_id {
+                Some(path_id) => format!("Some(ResultPath::PathId({}))", path_id),
                 None => "None".to_string(),
             }
         ));
@@ -42,7 +42,7 @@ impl ComponentCodegen for NodeHandler {
         };
         let mut emission = NodeEmission::default();
         emission.lines.push(format!(
-            "        if !node_shape_conforms_{}(store, graph, &focus) {{\n            report.record({}, {}, &focus, None, None);\n        }}",
+            "        if !node_shape_conforms_{}(store, graph, &focus) {{\n            report.record({}, {}, focus, Some(focus), None);\n        }}",
             shape,
             ctx.shape_id,
             ctx.component_id
