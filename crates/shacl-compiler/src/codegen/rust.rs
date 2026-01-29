@@ -455,18 +455,6 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
-        "        let shape_graph = shape_graph_ref();"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        if g != shape_graph { graphs.push(Some(shape_graph)); }"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
         "    } else {"
     )
     .unwrap();
@@ -908,7 +896,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
-        "fn advanced_targets_for(store: &Store, selector: &Term) -> Vec<Term> {"
+        "fn advanced_targets_for(store: &Store, graph: Option<GraphNameRef<'_>>, selector: &Term) -> Vec<Term> {"
     )
     .unwrap();
     writeln!(
@@ -949,11 +937,19 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "        Ok(prepared) => prepared,").unwrap();
     writeln!(helpers, "        Err(_) => return Vec::new(),").unwrap();
     writeln!(helpers, "{}", "    };").unwrap();
+    writeln!(helpers, "    if let Some(graph) = graph {{").unwrap();
     writeln!(
         helpers,
-        "    prepared.dataset_mut().set_default_graph_as_union();"
+        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
     )
     .unwrap();
+    writeln!(helpers, "    }} else {{").unwrap();
+    writeln!(
+        helpers,
+        "        prepared.dataset_mut().set_default_graph_as_union();"
+    )
+    .unwrap();
+    writeln!(helpers, "    }}").unwrap();
     writeln!(
         helpers,
         "    let mut results: HashSet<Term> = HashSet::new();"
@@ -1026,27 +1022,25 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "    for quad in store.quads_for_pattern(Some(subject), Some(rdf_type), None, graph) {{"
-    )
-    .unwrap();
+    writeln!(helpers, "    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();").unwrap();
+    writeln!(helpers, "    if let Some(g) = graph {{").unwrap();
+    writeln!(helpers, "        graphs.push(Some(g));").unwrap();
+    writeln!(helpers, "        let shape_graph = shape_graph_ref();").unwrap();
+    writeln!(helpers, "        if g != shape_graph {{ graphs.push(Some(shape_graph)); }}").unwrap();
+    writeln!(helpers, "    }} else {{").unwrap();
+    writeln!(helpers, "        graphs.push(None);").unwrap();
+    writeln!(helpers, "    }}").unwrap();
+    writeln!(helpers, "    for graph_opt in graphs {{").unwrap();
+    writeln!(helpers, "        for quad in store.quads_for_pattern(Some(subject), Some(rdf_type), None, graph_opt) {{").unwrap();
     writeln!(helpers, "        if let Ok(quad) = quad {{").unwrap();
-    writeln!(
-        helpers,
-        "            if let Term::NamedNode(node) = quad.object {{"
-    )
-    .unwrap();
+    writeln!(helpers, "            if let Term::NamedNode(node) = quad.object {{").unwrap();
     writeln!(helpers, "                let node_str = node.as_str();").unwrap();
-    writeln!(
-        helpers,
-        "                if with_subclass_closure(|closure| closure.is_subclass_of(node_str, class_iri)) {{"
-    )
-    .unwrap();
+    writeln!(helpers, "                if with_subclass_closure(|closure| closure.is_subclass_of(node_str, class_iri)) {{").unwrap();
     writeln!(helpers, "                    return true;").unwrap();
     writeln!(helpers, "                }}").unwrap();
     writeln!(helpers, "            }}").unwrap();
     writeln!(helpers, "        }}").unwrap();
+    writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "    false").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
@@ -1293,7 +1287,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
-        "fn sparql_any_solution(query: &str, store: &Store, selector: Option<&Term>, focus: Option<&Term>, value: Option<&Term>) -> bool {"
+        "fn sparql_any_solution(query: &str, store: &Store, graph: Option<GraphNameRef<'_>>, selector: Option<&Term>, focus: Option<&Term>, value: Option<&Term>) -> bool {"
     )
     .unwrap();
     writeln!(
@@ -1328,11 +1322,19 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "        Ok(prepared) => prepared,").unwrap();
     writeln!(helpers, "        Err(_) => return false,").unwrap();
     writeln!(helpers, "    }};").unwrap();
+    writeln!(helpers, "    if let Some(graph) = graph {{").unwrap();
     writeln!(
         helpers,
-        "    prepared.dataset_mut().set_default_graph_as_union();"
+        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
     )
     .unwrap();
+    writeln!(helpers, "    }} else {{").unwrap();
+    writeln!(
+        helpers,
+        "        prepared.dataset_mut().set_default_graph_as_union();"
+    )
+    .unwrap();
+    writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "    let mut bound = prepared.on_store(store);").unwrap();
     writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
     writeln!(
@@ -1385,7 +1387,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
-        "fn sparql_any_solution_lenient(query: &str, store: &Store, selector: Option<&Term>, focus: Option<&Term>, value: Option<&Term>) -> bool {"
+        "fn sparql_any_solution_lenient(query: &str, store: &Store, graph: Option<GraphNameRef<'_>>, selector: Option<&Term>, focus: Option<&Term>, value: Option<&Term>) -> bool {"
     )
     .unwrap();
     writeln!(
@@ -1420,11 +1422,19 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "        Ok(prepared) => prepared,").unwrap();
     writeln!(helpers, "        Err(_) => return false,").unwrap();
     writeln!(helpers, "    }};").unwrap();
+    writeln!(helpers, "    if let Some(graph) = graph {{").unwrap();
     writeln!(
         helpers,
-        "    prepared.dataset_mut().set_default_graph_as_union();"
+        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
     )
     .unwrap();
+    writeln!(helpers, "    }} else {{").unwrap();
+    writeln!(
+        helpers,
+        "        prepared.dataset_mut().set_default_graph_as_union();"
+    )
+    .unwrap();
+    writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "    let mut bound = prepared.on_store(store);").unwrap();
     writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
     writeln!(
@@ -1789,7 +1799,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let graph_node = data_graph.unwrap_or(&default_data_graph);"
     )
     .unwrap();
-    writeln!(run, "    let graph = graph_ref(None);").unwrap();
+    writeln!(run, "    let graph = graph_ref(Some(graph_node));").unwrap();
     writeln!(run, "    let mut report = Report::default();").unwrap();
     writeln!(run, "    info!(\"Starting shape graph load\");").unwrap();
     writeln!(run, "    insert_shape_triples(store);").unwrap();
@@ -1806,7 +1816,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     .unwrap();
     writeln!(
         run,
-        "    extend_current_subclass_closure_from_store(store, None);"
+        "    extend_current_subclass_closure_from_store(store, Some(GraphNameRef::NamedNode(graph_node.as_ref())));"
     )
     .unwrap();
     writeln!(run, "    clear_target_class_caches();").unwrap();
@@ -2023,7 +2033,7 @@ fn emit_target_collector(
                 writeln!(
                     out,
                     "{}",
-                    "        for focus in advanced_targets_for(store, &selector) {"
+                    "        for focus in advanced_targets_for(store, graph, &selector) {"
                 )
                 .unwrap();
                 writeln!(
@@ -2513,11 +2523,19 @@ fn emit_inference(
                     rule.id
                 )
                 .unwrap();
+                writeln!(out, "    if let Some(graph) = graph {{").unwrap();
                 writeln!(
                     out,
-                    "    prepared.dataset_mut().set_default_graph_as_union();"
+                    "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
                 )
                 .unwrap();
+                writeln!(out, "    }} else {{").unwrap();
+                writeln!(
+                    out,
+                    "        prepared.dataset_mut().set_default_graph_as_union();"
+                )
+                .unwrap();
+                writeln!(out, "    }}").unwrap();
                 writeln!(
                     out,
                     "    let var_this = Variable::new(\"this\").map_err(|e| format!(\"Inference rule {{}} failed to build variable: {{}}\", {}, e))?;",
@@ -2986,7 +3004,11 @@ fn emit_shape_triples(
         "        let triple = match triple { Ok(t) => t, Err(_) => continue };"
     )
     .unwrap();
-    writeln!(out, "        let quad = Quad::new(triple.subject, triple.predicate, triple.object, shape_graph.clone());").unwrap();
+    writeln!(
+        out,
+        "        let quad = Quad::new(triple.subject, triple.predicate, triple.object, shape_graph.clone());"
+    )
+    .unwrap();
     writeln!(out, "        let _ = store.insert(quad.as_ref());").unwrap();
     writeln!(out, "{}", "    }").unwrap();
     writeln!(out, "{}", "}").unwrap();

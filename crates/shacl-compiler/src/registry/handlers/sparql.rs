@@ -36,7 +36,7 @@ impl ComponentCodegen for SparqlHandler {
         let constraint_expr = (ctx.term_expr)(*constraint_node)?;
         lines.push(format!("        let constraint = {};", constraint_expr));
         lines.push(
-            "        let matches = sparql_any_solution(&query, store, Some(&constraint), Some(focus), Some(&value));"
+            "        let matches = sparql_any_solution(&query, store, graph, Some(&constraint), Some(focus), Some(&value));"
                 .to_string(),
         );
         lines.push(format!(
@@ -74,7 +74,7 @@ impl ComponentCodegen for SparqlHandler {
             .lines
             .push(format!("        let constraint = {};", constraint_expr));
         emission.lines.push(
-            "        let matches = sparql_any_solution(&query, store, Some(&constraint), Some(&focus), None);"
+            "        let matches = sparql_any_solution(&query, store, graph, Some(&constraint), Some(&focus), None);"
                 .to_string(),
         );
         emission.lines.push(format!(

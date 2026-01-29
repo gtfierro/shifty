@@ -978,7 +978,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     info!("Finished data graph load ({} triples)", triple_count);
 
-    let report = generated::run(&store, None);
+    let report = generated::run(&store, Some(&data_graph));
     let output = render_report(&report, &store, follow_bnodes);
     println!("{}", output);
     Ok(())

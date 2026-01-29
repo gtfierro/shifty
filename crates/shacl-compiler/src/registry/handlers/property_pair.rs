@@ -121,7 +121,7 @@ impl ComponentCodegen for LessThanHandler {
                 .to_string(),
         );
         emission.post_loop_lines.push(
-            "            if !sparql_any_solution(&query, store, None, None, Some(value)) {"
+            "            if !sparql_any_solution(&query, store, graph, None, None, Some(value)) {"
                 .to_string(),
         );
         emission.post_loop_lines.push(format!(
@@ -172,7 +172,7 @@ impl ComponentCodegen for LessThanOrEqualsHandler {
                 .to_string(),
         );
         emission.post_loop_lines.push(
-            "            if !sparql_any_solution(&query, store, None, None, Some(value)) {"
+            "            if !sparql_any_solution(&query, store, graph, None, None, Some(value)) {"
                 .to_string(),
         );
         emission.post_loop_lines.push(format!(
