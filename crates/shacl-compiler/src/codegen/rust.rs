@@ -2540,6 +2540,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     .unwrap();
     writeln!(run, "{}", "struct ThreadState {").unwrap();
     writeln!(run, "    closure: Option<SubclassClosure>,").unwrap();
+    writeln!(run, "    original_index: Option<OriginalValueIndex>,").unwrap();
     writeln!(run, "{}", "}").unwrap();
     writeln!(run, "").unwrap();
     writeln!(run, "{}", "const NODE_SHAPE_VALIDATORS: &[ValidateFn] = &[").unwrap();
@@ -2632,12 +2633,17 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let validation_closure = with_subclass_closure(|closure| closure.clone());"
     )
     .unwrap();
+    writeln!(
+        run,
+        "    let original_index = with_original_value_index(|idx| idx.cloned());"
+    )
+    .unwrap();
     writeln!(run, "    let node_reports: Vec<Report> = NODE_SHAPE_VALIDATORS").unwrap();
     writeln!(run, "        .par_iter()").unwrap();
     writeln!(
         run,
         "{}",
-        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()) }, |state, validator| {"
+        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()), original_index: original_index.clone() }, |state, validator| {"
     )
     .unwrap();
     writeln!(
@@ -2647,6 +2653,14 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(run, "                init_thread_state(closure);").unwrap();
+    writeln!(run, "{}", "            }").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            if let Some(index) = state.original_index.take() {"
+    )
+    .unwrap();
+    writeln!(run, "                set_original_value_index(Some(index));").unwrap();
     writeln!(run, "{}", "            }").unwrap();
     writeln!(run, "            let mut local = Report::default();").unwrap();
     writeln!(run, "            validator(store, graph, &mut local);").unwrap();
@@ -2665,7 +2679,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         run,
         "{}",
-        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()) }, |state, validator| {"
+        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()), original_index: original_index.clone() }, |state, validator| {"
     )
     .unwrap();
     writeln!(
@@ -2675,6 +2689,14 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(run, "                init_thread_state(closure);").unwrap();
+    writeln!(run, "{}", "            }").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            if let Some(index) = state.original_index.take() {"
+    )
+    .unwrap();
+    writeln!(run, "                set_original_value_index(Some(index));").unwrap();
     writeln!(run, "{}", "            }").unwrap();
     writeln!(run, "            let mut local = Report::default();").unwrap();
     writeln!(run, "            validator(store, graph, &mut local);").unwrap();
@@ -5026,27 +5048,85 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "    graph").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
-    writeln!(out, "fn graph_to_turtle(graph: &Graph) -> String {{").unwrap();
-    writeln!(out, "    let mut buffer = Vec::new();").unwrap();
-    writeln!(out, "    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle).for_writer(&mut buffer);").unwrap();
-    writeln!(out, "    for triple in graph.iter() {{").unwrap();
+    writeln!(out, "fn subject_to_turtle(subject: &NamedOrBlankNodeRef<'_>) -> String {{").unwrap();
+    writeln!(out, "    match subject {{").unwrap();
     writeln!(
         out,
-        "        if serializer.serialize_triple(triple).is_err() {{"
+        "        NamedOrBlankNodeRef::NamedNode(node) => format!(\"<{{}}>\", escape_iri(node.as_str())),"
     )
     .unwrap();
-    writeln!(out, "            continue;").unwrap();
+    writeln!(
+        out,
+        "        NamedOrBlankNodeRef::BlankNode(node) => format!(\"_:{{}}\", node.as_str()),"
+    )
+    .unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    writeln!(out, "fn predicate_to_turtle(predicate: &NamedNodeRef<'_>) -> String {{").unwrap();
+    writeln!(
+        out,
+        "    format!(\"<{{}}>\", escape_iri(predicate.as_str()))"
+    )
+    .unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    writeln!(out, "fn term_ref_to_turtle_value(term: &TermRef<'_>) -> String {{").unwrap();
+    writeln!(out, "    match term {{").unwrap();
+    writeln!(
+        out,
+        "        TermRef::NamedNode(node) => format!(\"<{{}}>\", escape_iri(node.as_str())),"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        TermRef::BlankNode(node) => format!(\"_:{{}}\", node.as_str()),"
+    )
+    .unwrap();
+    writeln!(out, "        TermRef::Literal(lit) => {{").unwrap();
+    writeln!(out, "            let mut out = String::new();").unwrap();
+    writeln!(out, "            let lex = lit.value().to_string();").unwrap();
+    writeln!(out, "            out.push('\\\"');").unwrap();
+    writeln!(out, "            out.push_str(&escape_literal(&lex));").unwrap();
+    writeln!(out, "            out.push('\\\"');").unwrap();
+    writeln!(out, "            if let Some(lang) = lit.language() {{").unwrap();
+    writeln!(out, "                out.push('@');").unwrap();
+    writeln!(out, "                out.push_str(lang);").unwrap();
+    writeln!(
+        out,
+        "            }} else if lit.datatype().as_str() != \"http://www.w3.org/2001/XMLSchema#string\" {{"
+    )
+    .unwrap();
+    writeln!(out, "                out.push_str(\"^^<\");").unwrap();
+    writeln!(
+        out,
+        "                out.push_str(&escape_iri(lit.datatype().as_str()));"
+    )
+    .unwrap();
+    writeln!(out, "                out.push('>');").unwrap();
+    writeln!(out, "            }}").unwrap();
+    writeln!(out, "            out").unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();
-    writeln!(
-        out,
-        "    let mut turtle = String::from_utf8(buffer).unwrap_or_default();"
-    )
-    .unwrap();
-    writeln!(out, "    if !turtle.ends_with('.') {{").unwrap();
-    writeln!(out, "        turtle.push_str(\"\\n.\");").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "").unwrap();
+    writeln!(out, "fn graph_to_turtle(graph: &Graph) -> String {{").unwrap();
+    writeln!(out, "    let mut out = String::new();").unwrap();
+    writeln!(out, "    for triple in graph.iter() {{").unwrap();
+    writeln!(out, "        let subject = subject_to_turtle(&triple.subject);").unwrap();
+    writeln!(out, "        let predicate = predicate_to_turtle(&triple.predicate);").unwrap();
+    writeln!(out, "        let object = term_ref_to_turtle_value(&triple.object);").unwrap();
+    writeln!(out, "        out.push_str(&subject);").unwrap();
+    writeln!(out, "        out.push(' ');").unwrap();
+    writeln!(out, "        out.push_str(&predicate);").unwrap();
+    writeln!(out, "        out.push(' ');").unwrap();
+    writeln!(out, "        out.push_str(&object);").unwrap();
+    writeln!(out, "        out.push_str(\" .\\n\");").unwrap();
     writeln!(out, "    }}").unwrap();
-    writeln!(out, "    turtle").unwrap();
+    writeln!(out, "    if out.is_empty() {{").unwrap();
+    writeln!(out, "        out.push_str(\"\\n.\");").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    out").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
     writeln!(
