@@ -1559,6 +1559,23 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "                    results.insert(value.to_owned());"
     )
     .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                } else if let Some(var) = solution.variables().first() {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "                    if let Some(value) = solution.get(var.as_str()) {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "                        results.insert(value.to_owned());"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                    }").unwrap();
     writeln!(helpers, "{}", "                }").unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
@@ -1930,6 +1947,126 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "    out").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "fn inject_bindings_in_where(query: &str, bindings_clause: &str) -> String {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if bindings_clause.trim().is_empty() {{"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        return query.to_string();").unwrap();
+    writeln!(helpers, "{}", "    }}").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let bytes = query.as_bytes();"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    let mut i = 0;").unwrap();
+    writeln!(helpers, "{}", "    let mut in_string = false;").unwrap();
+    writeln!(helpers, "{}", "    let mut in_iri = false;").unwrap();
+    writeln!(helpers, "{}", "    let mut in_comment = false;").unwrap();
+    writeln!(helpers, "{}", "    while i < bytes.len() {{").unwrap();
+    writeln!(helpers, "{}", "        let ch = bytes[i] as char;").unwrap();
+    writeln!(helpers, "{}", "        if in_comment {{").unwrap();
+    writeln!(helpers, "{}", "            if ch == '\\n' {{ in_comment = false; }}").unwrap();
+    writeln!(helpers, "{}", "            i += 1;").unwrap();
+    writeln!(helpers, "{}", "            continue;").unwrap();
+    writeln!(helpers, "{}", "        }}").unwrap();
+    writeln!(helpers, "{}", "        if in_string {{").unwrap();
+    writeln!(helpers, "{}", "            if ch == '\\\\' {{ i += 2; continue; }}").unwrap();
+    writeln!(helpers, "{}", "            if ch == '\"' {{ in_string = false; }}").unwrap();
+    writeln!(helpers, "{}", "            i += 1;").unwrap();
+    writeln!(helpers, "{}", "            continue;").unwrap();
+    writeln!(helpers, "{}", "        }}").unwrap();
+    writeln!(helpers, "{}", "        if in_iri {{").unwrap();
+    writeln!(helpers, "{}", "            if ch == '>' {{ in_iri = false; }}").unwrap();
+    writeln!(helpers, "{}", "            i += 1;").unwrap();
+    writeln!(helpers, "{}", "            continue;").unwrap();
+    writeln!(helpers, "{}", "        }}").unwrap();
+    writeln!(helpers, "{}", "        if ch == '#' {{ in_comment = true; i += 1; continue; }}").unwrap();
+    writeln!(helpers, "{}", "        if ch == '\"' {{ in_string = true; i += 1; continue; }}").unwrap();
+    writeln!(helpers, "{}", "        if ch == '<' {{ in_iri = true; i += 1; continue; }}").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if i + 5 <= bytes.len() {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let slice = &query[i..i + 5];"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if slice.eq_ignore_ascii_case(\"where\") {{"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let before_ok = i == 0 || !((bytes[i - 1] as char).is_ascii_alphanumeric() || bytes[i - 1] as char == '_');"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let after_idx = i + 5;"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let after_ok = after_idx >= bytes.len() || !((bytes[after_idx] as char).is_ascii_alphanumeric() || bytes[after_idx] as char == '_');"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                if !(before_ok && after_ok) {{ i += 1; continue; }}"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let mut j = i + 5;"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                while j < bytes.len() {{").unwrap();
+    writeln!(helpers, "{}", "                    let c = bytes[j] as char;").unwrap();
+    writeln!(helpers, "{}", "                    if c.is_whitespace() {{ j += 1; continue; }}").unwrap();
+    writeln!(helpers, "{}", "                    if c == '#' {{ while j < bytes.len() && bytes[j] as char != '\\n' {{ j += 1; }} continue; }}").unwrap();
+    writeln!(helpers, "{}", "                    break;").unwrap();
+    writeln!(helpers, "{}", "                }}").unwrap();
+    writeln!(helpers, "{}", "                if j < bytes.len() && bytes[j] as char == '{' {{").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    let mut out = String::with_capacity(query.len() + bindings_clause.len() + 2);"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                    out.push_str(&query[..j + 1]);").unwrap();
+    writeln!(helpers, "{}", "                    out.push('\\n');").unwrap();
+    writeln!(helpers, "{}", "                    out.push_str(bindings_clause);").unwrap();
+    writeln!(helpers, "{}", "                    out.push('\\n');").unwrap();
+    writeln!(helpers, "{}", "                    out.push_str(&query[j + 1..]);").unwrap();
+    writeln!(helpers, "{}", "                    return out;").unwrap();
+    writeln!(helpers, "{}", "                }}").unwrap();
+    writeln!(helpers, "{}", "            }}").unwrap();
+    writeln!(helpers, "{}", "        }}").unwrap();
+    writeln!(helpers, "{}", "        i += 1;").unwrap();
+    writeln!(helpers, "{}", "    }}").unwrap();
+    writeln!(helpers, "{}", "    query.to_string()").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
 
     writeln!(
         helpers,
@@ -2157,104 +2294,19 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn sparql_any_solution_lenient(query: &str, store: &Store, graph: Option<GraphNameRef<'_>>, selector: Option<&Term>, focus: Option<&Term>, value: Option<&Term>) -> bool {"
     )
     .unwrap();
+    writeln!(helpers, "    let prefixes = match selector {{").unwrap();
     writeln!(
         helpers,
-        "{}",
-        "    let normalized_query = query.replace('$', \"?\");"
+        "        Some(selector) => prefixes_for_selector(store, selector),"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    let query_str = if let Some(selector) = selector {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "        let prefixes = prefixes_for_selector(store, selector);"
-    )
-    .unwrap();
-    writeln!(helpers, "        if prefixes.trim().is_empty() {{").unwrap();
-    writeln!(helpers, "            normalized_query.clone()").unwrap();
-    writeln!(helpers, "        }} else {{").unwrap();
-    writeln!(
-        helpers,
-        "            format!(\"{{}}\\n{{}}\", prefixes, normalized_query)"
-    )
-    .unwrap();
-    writeln!(helpers, "        }}").unwrap();
-    writeln!(helpers, "    }} else {{").unwrap();
-    writeln!(helpers, "        normalized_query").unwrap();
+    writeln!(helpers, "        None => String::new(),").unwrap();
     writeln!(helpers, "    }};").unwrap();
     writeln!(
         helpers,
-        "{}",
-        "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {"
+        "    sparql_any_solution_with_bindings(query, &prefixes, store, graph, focus, value, &[])"
     )
     .unwrap();
-    writeln!(helpers, "        Ok(prepared) => prepared,").unwrap();
-    writeln!(helpers, "        Err(_) => return false,").unwrap();
-    writeln!(helpers, "    }};").unwrap();
-    writeln!(helpers, "    if let Some(graph) = graph {{").unwrap();
-    writeln!(
-        helpers,
-        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
-    )
-    .unwrap();
-    writeln!(helpers, "    }} else {{").unwrap();
-    writeln!(
-        helpers,
-        "        prepared.dataset_mut().set_default_graph_as_union();"
-    )
-    .unwrap();
-    writeln!(helpers, "    }}").unwrap();
-    writeln!(helpers, "    let mut bound = prepared.on_store(store);").unwrap();
-    writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        if query_mentions_var(query, \"this\") {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "            bound = bound.substitute_variable(Variable::new_unchecked(\"this\"), focus.clone());"
-    )
-    .unwrap();
-    writeln!(helpers, "{}", "        }").unwrap();
-    writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    if let Some(value) = value {").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        if query_mentions_var(query, \"value\") {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "            bound = bound.substitute_variable(Variable::new_unchecked(\"value\"), value.clone());"
-    )
-    .unwrap();
-    writeln!(helpers, "{}", "        }").unwrap();
-    writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    match bound.execute() {").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        Ok(QueryResults::Solutions(solutions)) => {"
-    )
-    .unwrap();
-    writeln!(helpers, "{}", "            for result in solutions {").unwrap();
-    writeln!(helpers, "{}", "                if result.is_ok() {").unwrap();
-    writeln!(helpers, "                    return true;").unwrap();
-    writeln!(helpers, "{}", "                }").unwrap();
-    writeln!(helpers, "{}", "            }").unwrap();
-    writeln!(helpers, "            false").unwrap();
-    writeln!(helpers, "{}", "        }").unwrap();
-    writeln!(helpers, "        Ok(QueryResults::Boolean(val)) => val,").unwrap();
-    writeln!(helpers, "        Ok(QueryResults::Graph(_)) => false,").unwrap();
-    writeln!(helpers, "        Err(_) => true,").unwrap();
-    writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
     writeln!(helpers, "{}", "pub fn data_graph_named() -> NamedNode {").unwrap();
@@ -3352,10 +3404,10 @@ fn emit_inference(
                     rule.id
                 )
                 .unwrap();
+                writeln!(out, "    let base_query = \"{}\";", escaped_query).unwrap();
                 writeln!(
                     out,
-                    "    let mut prepared = SparqlEvaluator::new().parse_query(\"{}\").map_err(|e| format!(\"Failed to parse inference query {{}}: {{}}\", {}, e))?;",
-                    escaped_query,
+                    "    let mut prepared = SparqlEvaluator::new().parse_query(base_query).map_err(|e| format!(\"Failed to parse inference query {{}}: {{}}\", {}, e))?;",
                     rule.id
                 )
                 .unwrap();
@@ -3390,14 +3442,75 @@ fn emit_inference(
                 writeln!(out, "        }}").unwrap();
                 writeln!(
                     out,
-                    "        let mut bound = prepared.clone().on_store(store);"
+                    "        let mut prepared_query = if query_mentions_var(base_query, \"this\") {{"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "        bound = bound.substitute_variable(var_this.clone(), focus.clone());"
+                    "            if let Some(ground) = term_to_sparql_ground(focus) {{"
                 )
                 .unwrap();
+                writeln!(
+                    out,
+                    "                let bindings = format!(\"BIND({{}} AS ?this)\", ground);"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "                let bound_query = inject_bindings_in_where(base_query, &bindings);"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "                let mut parsed = SparqlEvaluator::new().parse_query(&bound_query).map_err(|e| format!(\"Failed to parse inference query {{}}: {{}}\", {}, e))?;",
+                    rule.id
+                )
+                .unwrap();
+                writeln!(out, "                if let Some(graph) = graph {{").unwrap();
+                writeln!(
+                    out,
+                    "                    parsed.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
+                )
+                .unwrap();
+                writeln!(out, "                }} else {{").unwrap();
+                writeln!(
+                    out,
+                    "                    parsed.dataset_mut().set_default_graph_as_union();"
+                )
+                .unwrap();
+                writeln!(out, "                }}").unwrap();
+                writeln!(out, "                parsed").unwrap();
+                writeln!(out, "            }} else {{").unwrap();
+                writeln!(out, "                prepared.clone()").unwrap();
+                writeln!(out, "            }}").unwrap();
+                writeln!(out, "        }} else {{").unwrap();
+                writeln!(out, "            prepared.clone()").unwrap();
+                writeln!(out, "        }};").unwrap();
+                writeln!(out, "        if let Some(graph) = graph {{").unwrap();
+                writeln!(
+                    out,
+                    "            prepared_query.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
+                )
+                .unwrap();
+                writeln!(out, "        }} else {{").unwrap();
+                writeln!(
+                    out,
+                    "            prepared_query.dataset_mut().set_default_graph_as_union();"
+                )
+                .unwrap();
+                writeln!(out, "        }}").unwrap();
+                writeln!(out, "        let mut bound = prepared_query.on_store(store);").unwrap();
+                writeln!(
+                    out,
+                    "        if query_mentions_var(base_query, \"this\") && term_to_sparql_ground(focus).is_none() {{"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "            bound = bound.substitute_variable(var_this.clone(), focus.clone());"
+                )
+                .unwrap();
+                writeln!(out, "        }}").unwrap();
                 writeln!(out, "        match bound.execute() {{").unwrap();
                 writeln!(
                     out,
