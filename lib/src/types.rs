@@ -243,6 +243,10 @@ impl TargetEvalExt for Target {
                                     targets.push(t.to_owned());
                                 } else if let Some(t) = solution.get("target") {
                                     targets.push(t.to_owned());
+                                } else if let Some(var) = solution.variables().first() {
+                                    if let Some(t) = solution.get(var.as_str()) {
+                                        targets.push(t.to_owned());
+                                    }
                                 }
                             }
                         }

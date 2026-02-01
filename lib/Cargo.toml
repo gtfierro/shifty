@@ -32,3 +32,6 @@ serde_json.workspace = true
 oxrdf = { workspace = true }
 oxrdfio = "0.2.1"
 url = { version = "2" }
+
+[dev-dependencies]
+shacl-compiler = { path = "../crates/shacl-compiler" }
