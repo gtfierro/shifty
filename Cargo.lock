@@ -3126,6 +3126,7 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2",
+ "shacl-compiler",
  "shacl-ir",
  "spargebra",
  "url",
