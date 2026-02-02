@@ -1,3 +1,9 @@
+//! Validation report assembly and rendering.
+//!
+//! This module collects validation failures with their execution context and renders them
+//! as SHACL ValidationReport graphs. It also exposes trace/diagnostic views such as
+//! component frequencies and execution traces.
+
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::ValidationFailure;
@@ -22,6 +28,9 @@ pub struct ValidationReport<'a> {
 }
 
 /// Options for assembling validation reports.
+///
+/// These options control how much context is included in the rendered report without
+/// changing the underlying failure set.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ValidationReportOptions {
     /// Follow blank nodes referenced by the report and include their CBD.
@@ -30,7 +39,9 @@ pub struct ValidationReportOptions {
 
 impl<'a> ValidationReport<'a> {
     /// Creates a new ValidationReport.
-    /// This is intended for internal use by the library.
+    ///
+    /// This is intended for internal use by the library; consumers should use
+    /// `Validator::validate` (or `ValidationContext`) to obtain a report.
     pub(crate) fn new(builder: ValidationReportBuilder, context: &'a ValidationContext) -> Self {
         ValidationReport { builder, context }
     }
@@ -43,6 +54,8 @@ impl<'a> ValidationReport<'a> {
     }
 
     /// Returns the validation report as an `oxigraph::model::Graph`.
+    ///
+    /// The graph is a SHACL `sh:ValidationReport` with one `sh:result` per failure.
     pub fn to_graph(&self) -> Graph {
         self.builder.to_graph(self.context)
     }
@@ -124,8 +137,9 @@ impl<'a> ValidationReport<'a> {
 
 /// A builder for creating a `ValidationReport`.
 ///
-/// It collects validation results and can then be used to generate
-/// the final report in various formats.
+/// It collects validation failures with their `Context`, and can render them into
+/// RDF graphs, Turtle, or diagnostic summaries. Builders are mergeable to support
+/// parallel validation.
 pub struct ValidationReportBuilder {
     results: Vec<(Context, ValidationFailure)>,
 }

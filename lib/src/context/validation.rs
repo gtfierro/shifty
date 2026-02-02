@@ -17,6 +17,10 @@ use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// Runtime context shared across validators during a validation run.
+///
+/// Owns caches (targets, advanced targets), shape/model data, and shared services
+/// (SPARQL executor, trace sinks) to avoid recomputation and to centralize state.
 pub struct ValidationContext {
     pub(crate) model: Arc<ShapesModel>,
     pub(crate) data_graph_iri: NamedNode,

@@ -1,3 +1,9 @@
+//! Validation pipeline orchestration.
+//!
+//! This module drives the runtime evaluation of shapes against a data graph. It builds a
+//! validation plan from the ShapeIR, executes node/property shapes in parallel, and collects
+//! failures into a `ValidationReportBuilder`.
+
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::components::ComponentDescriptor;
 use crate::planning::{build_validation_plan, ShapeRef};

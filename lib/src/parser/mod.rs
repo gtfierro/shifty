@@ -1,3 +1,9 @@
+//! SHACL shapes parser.
+//!
+//! Converts a shapes graph into the internal, data-only model used by the runtime. Parsing
+//! is intentionally separated from execution: the parser builds descriptors and IDs, while
+//! the runtime later instantiates executable validators.
+
 mod component_registry;
 mod components;
 mod rules;
@@ -403,8 +409,8 @@ pub(crate) fn parse_node_shape(
             .insert(component_id, descriptor);
     }
 
-    let _property_shapes: Vec<PropShapeID> = context // This seems to be about sh:property linking to PropertyShapes.
-        .store // It was collected but not used in NodeShape::new.
+    let property_shapes: Vec<PropShapeID> = context
+        .store
         .quads_for_pattern(
             Some(subject),
             Some(sh.property),
@@ -412,15 +418,8 @@ pub(crate) fn parse_node_shape(
             Some(shape_graph_name.as_ref()),
         )
         .filter_map(Result::ok)
-        .filter_map(|quad| {
-            context
-                .propshape_id_lookup
-                .read()
-                .unwrap()
-                .get(&quad.object)
-        })
+        .map(|quad| context.get_or_create_prop_id(quad.object))
         .collect();
-    // TODO: property_shapes are collected but not used in NodeShape::new. This might be an existing oversight or for future use.
 
     let severity_term_opt = context
         .store
@@ -438,7 +437,14 @@ pub(crate) fn parse_node_shape(
 
     let deactivated = shape_is_deactivated(context, subject, shape_graph_name.as_ref());
 
-    let node_shape = NodeShape::new(id, targets, component_ids, severity, deactivated);
+    let node_shape = NodeShape::new(
+        id,
+        targets,
+        component_ids,
+        property_shapes,
+        severity,
+        deactivated,
+    );
     let rule_ids = parse_rules_for_shape(context, &shape_term, unique_lang_lexicals)?;
     if !rule_ids.is_empty() {
         context.node_shape_rules.insert(id, rule_ids);

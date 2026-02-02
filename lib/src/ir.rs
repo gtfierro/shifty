@@ -9,6 +9,7 @@ fn node_ir(shape: &NodeShape) -> NodeShapeIR {
         id: *shape.identifier(),
         targets: shape.targets.clone(),
         constraints: shape.constraints().to_vec(),
+        property_shapes: shape.property_shapes().to_vec(),
         severity: shape.severity().clone(),
         deactivated: shape.is_deactivated(),
     }

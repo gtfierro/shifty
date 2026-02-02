@@ -1169,21 +1169,21 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         Integer::from_str(literal_value).is_ok()
     } else if datatype_iri == xsd::BYTE.as_str() {
         Integer::from_str(literal_value)
-            .map(|v| {
+            .map(|v: Integer| {
                 let value: i64 = v.into();
                 value >= i64::from(i8::MIN) && value <= i64::from(i8::MAX)
             })
             .unwrap_or(false)
     } else if datatype_iri == xsd::SHORT.as_str() {
         Integer::from_str(literal_value)
-            .map(|v| {
+            .map(|v: Integer| {
                 let value: i64 = v.into();
                 value >= i64::from(i16::MIN) && value <= i64::from(i16::MAX)
             })
             .unwrap_or(false)
     } else if datatype_iri == xsd::INT.as_str() {
         Integer::from_str(literal_value)
-            .map(|v| {
+            .map(|v: Integer| {
                 let value: i64 = v.into();
                 value >= i64::from(i32::MIN) && value <= i64::from(i32::MAX)
             })
@@ -1192,21 +1192,21 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         Integer::from_str(literal_value).is_ok()
     } else if datatype_iri == xsd::UNSIGNED_BYTE.as_str() {
         Integer::from_str(literal_value)
-            .map(|v| {
+            .map(|v: Integer| {
                 let value: i64 = v.into();
                 value >= 0 && value <= i64::from(u8::MAX)
             })
             .unwrap_or(false)
     } else if datatype_iri == xsd::UNSIGNED_SHORT.as_str() {
         Integer::from_str(literal_value)
-            .map(|v| {
+            .map(|v: Integer| {
                 let value: i64 = v.into();
                 value >= 0 && value <= i64::from(u16::MAX)
             })
             .unwrap_or(false)
     } else if datatype_iri == xsd::UNSIGNED_INT.as_str() {
         Integer::from_str(literal_value)
-            .map(|v| {
+            .map(|v: Integer| {
                 let value: i64 = v.into();
                 value >= 0 && value <= i64::from(u32::MAX)
             })

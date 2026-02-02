@@ -1,3 +1,8 @@
+//! SHACL rules inference engine.
+//!
+//! Evaluates SHACL rules (triple rules and SPARQL rules) over the data graph,
+//! emitting inferred triples into a separate inference graph.
+
 use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};

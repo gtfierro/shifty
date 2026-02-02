@@ -1,3 +1,8 @@
+//! Validation planning.
+//!
+//! Builds a dependency-aware execution order for node and property shapes so validation can
+//! run in parallel without violating shape dependencies (e.g., shapes referenced by other shapes).
+
 use crate::types::{ComponentID, PropShapeID, ID};
 use shacl_ir::{ComponentDescriptor, ShapeIR};
 use std::collections::{HashMap, HashSet, VecDeque};

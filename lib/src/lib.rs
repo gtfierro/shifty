@@ -64,6 +64,9 @@ pub enum Source {
 }
 
 /// Configurable builder for constructing `Validator` instances.
+///
+/// The builder owns all validation-time flags (imports, union graphs, AF/rules, etc.) so
+/// callers can create repeatable validators without threading configuration through every call.
 pub struct ValidatorBuilder {
     shapes_source: Option<Source>,
     data_source: Option<Source>,
@@ -818,6 +821,10 @@ impl Default for ValidatorBuilder {
 ///
 /// For more advanced control, such as inspecting the parsed shapes or performing
 /// optimizations, use `ValidationContext` directly.
+/// A configured SHACL validator instance.
+///
+/// Holds parsed model + runtime context for repeated validation/inference runs against
+/// the same shapes + data sources.
 pub struct Validator {
     context: ValidationContext,
 }

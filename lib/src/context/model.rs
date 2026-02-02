@@ -306,6 +306,7 @@ impl ShapesModel {
                         shape.id,
                         shape.targets,
                         shape.constraints,
+                        shape.property_shapes,
                         Some(shape.severity),
                         shape.deactivated,
                     ),
