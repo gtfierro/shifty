@@ -7,7 +7,6 @@ description = "Prototype SHACL compiler that emits specialized Rust code"
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
 oxigraph = { workspace = true }
-shacl-ir = { path = "../../shacl-ir" }
 shifty = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

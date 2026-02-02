@@ -14,7 +14,6 @@ doc = false
 clap.workspace = true
 graphviz-rust.workspace = true
 shifty.workspace = true
-shacl-ir = { path = "../shacl-ir" }
 shacl-compiler = { path = "../crates/shacl-compiler" }
 oxigraph.workspace = true
 log = { workspace = true }

@@ -2,7 +2,7 @@ mod codegen;
 mod plan;
 mod registry;
 
-use shacl_ir::ShapeIR;
+use shifty::shacl_ir::ShapeIR;
 
 pub use plan::PlanIR;
 

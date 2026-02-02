@@ -1,7 +1,7 @@
 use crate::context::model::ShapesModel;
 use crate::shape::{NodeShape, PropertyShape};
 use oxigraph::model::{GraphName, NamedNode, Quad};
-use shacl_ir::{NodeShapeIR, PropertyShapeIR, ShapeIR};
+use crate::shacl_ir::{NodeShapeIR, PropertyShapeIR, ShapeIR};
 use std::collections::HashMap;
 
 fn node_ir(shape: &NodeShape) -> NodeShapeIR {
@@ -84,4 +84,4 @@ pub(crate) fn build_shape_ir(
 }
 
 // Re-export IR types for downstream callers.
-pub use shacl_ir::{ComponentDescriptor as IRComponentDescriptor, ShapeIR as IRShapeIR};
+pub use crate::shacl_ir::{ComponentDescriptor as IRComponentDescriptor, ShapeIR as IRShapeIR};

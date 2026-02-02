@@ -6,7 +6,7 @@ use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Graph, Quad, Term, Triple, TripleRef};
 use serde_json::json;
 use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
-use shacl_ir::ShapeIR;
+use shifty::shacl_ir::ShapeIR;
 use shifty::ir_cache;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
@@ -16,7 +16,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shacl_ir::ShapeIR, String>> {
+fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
     let is_ir = path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -212,6 +212,18 @@ struct CompileArgs {
     /// Build in release mode
     #[arg(long)]
     release: bool,
+
+    /// Use a local path for the shifty dependency in the generated Cargo.toml (non-portable)
+    #[arg(long, value_name = "DIR")]
+    shifty_path: Option<PathBuf>,
+
+    /// Git URL for the shifty dependency in the generated Cargo.toml (default: this repo)
+    #[arg(long, value_name = "URL")]
+    shifty_git: Option<String>,
+
+    /// Git revision/tag/branch for the shifty dependency (optional)
+    #[arg(long, value_name = "REF")]
+    shifty_git_ref: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -896,13 +908,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let workspace_root = std::env::current_dir()?
                 .canonicalize()
                 .map_err(|e| format!("Failed to canonicalize current dir: {}", e))?;
-            let shacl_ir_path = workspace_root.join("shacl-ir");
-            let shifty_path = workspace_root.join("lib");
+            let shifty_dep = if let Some(path) = args.shifty_path.as_ref() {
+                format!(
+                    "shifty = {{ path = \"{}\", package = \"shifty-shacl\" }}",
+                    path.display()
+                )
+            } else {
+                let repo = args
+                    .shifty_git
+                    .clone()
+                    .unwrap_or_else(|| env!("CARGO_PKG_REPOSITORY").to_string());
+                if repo.is_empty() {
+                    let shifty_path = workspace_root.join("lib");
+                    format!(
+                        "shifty = {{ path = \"{}\", package = \"shifty-shacl\" }}",
+                        shifty_path.display()
+                    )
+                } else {
+                    let inferred_ref = std::process::Command::new("git")
+                        .args(["rev-parse", "HEAD"])
+                        .current_dir(&workspace_root)
+                        .output()
+                        .ok()
+                        .and_then(|output| {
+                            if output.status.success() {
+                                let rev = String::from_utf8_lossy(&output.stdout)
+                                    .trim()
+                                    .to_string();
+                                if rev.is_empty() {
+                                    None
+                                } else {
+                                    Some(rev)
+                                }
+                            } else {
+                                None
+                            }
+                        });
+                    let git_ref = args.shifty_git_ref.clone().or(inferred_ref);
+                    let mut dep =
+                        format!("shifty = {{ git = \"{}\", package = \"shifty-shacl\"", repo);
+                    if let Some(git_ref) = git_ref {
+                        dep.push_str(&format!(", rev = \"{}\"", git_ref));
+                    }
+                    dep.push_str(" }");
+                    dep
+                }
+            };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nshacl-ir = {{ path = \"{}\" }}\nshifty = {{ path = \"{}\" }}\nontoenv = \"0.5.0-a2\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = true\n",
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\n{}\nontoenv = \"0.5.0-a2\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = true\n",
                 args.bin_name,
-                shacl_ir_path.display(),
-                shifty_path.display(),
+                shifty_dep,
             );
             fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 

@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use pyo3::wrap_pyfunction;
 use serde_json::json;
-use shacl_ir::ShapeIR;
+use ::shifty::shacl_ir::ShapeIR;
 use tempfile::tempdir;
 
 fn map_err<E: std::fmt::Display>(err: E) -> PyErr {

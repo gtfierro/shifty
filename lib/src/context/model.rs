@@ -17,7 +17,7 @@ use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
 use oxigraph::model::{Literal, NamedOrBlankNode};
 use oxigraph::store::Store;
-use shacl_ir::{FeatureToggles, ShapeIR};
+use crate::shacl_ir::{FeatureToggles, ShapeIR};
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;

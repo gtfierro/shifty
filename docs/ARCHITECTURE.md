@@ -8,7 +8,7 @@ plan execution → validate/infer → produce reports and diagnostics.
 
 1. **Inputs**: Shapes + data graphs are loaded from `Source` (files or named graphs).
 2. **Parsing**: `parser` converts RDF into a data-only model (`ShapesModel`).
-3. **IR**: `ir` and `shacl-ir` serialize/deserialize that model for caching and reuse.
+3. **IR**: `ir` and `shifty::shacl_ir` serialize/deserialize that model for caching and reuse.
 4. **Planning**: `planning` builds a dependency-aware execution order.
 5. **Validation**: `validate` executes shape targets and components in parallel.
 6. **Reporting**: `report` renders results to Turtle/Graph and captures traces.
@@ -46,7 +46,7 @@ The parser is intentionally decoupled from execution: it produces descriptors an
 
 ## ShapeIR (Caching)
 
-`ir.rs` builds a serialized `ShapeIR` (defined in `shacl-ir/`) that captures:
+`ir.rs` builds a serialized `ShapeIR` (defined in `shifty::shacl_ir`) that captures:
 
 - Shape descriptors (node + property shapes).
 - Constraint descriptors.

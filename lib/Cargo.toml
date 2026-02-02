@@ -1,5 +1,5 @@
 [package]
-name = "shifty"
+name = "shifty-shacl"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -9,8 +9,12 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 
+[lib]
+name = "shifty"
+
 [dependencies]
 oxigraph.workspace = true
+oxrdf = { workspace = true }
 oxsdatatypes = "0.2.2"
 papaya = "0.2.1"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
@@ -25,8 +29,8 @@ spargebra = "0.4"
 ntest = "0.9.3"
 ontoenv = "0.5.0-a2"
 #ontoenv = { path = "../../ontoenv-rs/lib" }
-shacl-ir = { path = "../shacl-ir" }
 serde_json.workspace = true
+serde = { workspace = true }
 
 [features]
 compiled-tests = []

@@ -5,7 +5,7 @@ use crate::plan::{
 use crate::registry::{self, EmitContext, PropertyEmission};
 use crate::GeneratedRust;
 use oxigraph::model::Term;
-use shacl_ir::Severity;
+use shifty::shacl_ir::Severity;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
@@ -223,7 +223,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(prelude, "").unwrap();
 
     writeln!(helpers, "use serde_json;").unwrap();
-    writeln!(helpers, "use shacl_ir::ShapeIR;").unwrap();
+    writeln!(helpers, "use shifty::shacl_ir::ShapeIR;").unwrap();
     writeln!(helpers, "use std::cell::RefCell;").unwrap();
     writeln!(helpers, "").unwrap();
     writeln!(

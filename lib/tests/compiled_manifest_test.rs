@@ -179,13 +179,11 @@ fn compiled_bin_for_shapes(
         .unwrap_or_else(|_| "null".to_string());
     std::fs::write(generated_dir.join("shape_ir.json"), shape_ir_json)?;
 
-    let shacl_ir_path = root.join("shacl-ir");
     let shifty_path = root.join("lib");
     let bin_name = "shacl-compiled";
     let cargo_toml = format!(
-        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\", features = [\"rocksdb-pkg-config\"] }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshacl-ir = {{ path = \"{}\" }}\nshifty = {{ path = \"{}\" }}\nontoenv = \"0.5.0-a2\"\noxsdatatypes = \"0.2.2\"\nlog = \"0.4\"\n\n[profile.release]\ndebug = true\n",
+        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\", features = [\"rocksdb-pkg-config\"] }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\" }}\nontoenv = \"0.5.0-a2\"\noxsdatatypes = \"0.2.2\"\nlog = \"0.4\"\n\n[profile.release]\ndebug = true\n",
         bin_name,
-        shacl_ir_path.display(),
         shifty_path.display(),
     );
     std::fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;

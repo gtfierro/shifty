@@ -11,7 +11,7 @@ use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Target, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
-use shacl_ir::ShapeIR;
+use crate::shacl_ir::ShapeIR;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;

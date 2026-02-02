@@ -461,7 +461,7 @@ mod tests {
     use ontoenv::config::Config;
     use oxigraph::model::{Literal, NamedNode, Term};
     use oxigraph::store::Store;
-    use shacl_ir::FeatureToggles;
+    use crate::shacl_ir::FeatureToggles;
     use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
 

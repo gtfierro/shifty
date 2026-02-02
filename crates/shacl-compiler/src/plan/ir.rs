@@ -1,6 +1,6 @@
 use oxigraph::model::{Quad, Term};
 use serde::{Deserialize, Serialize};
-use shacl_ir::{
+use shifty::shacl_ir::{
     ComponentDescriptor, ComponentID, Path, PropShapeID, Rule, RuleCondition, RuleID, Severity,
     ShapeIR, SparqlRule, Target, TriplePatternTerm, TripleRule, ID,
 };
@@ -832,7 +832,7 @@ fn sparql_query_for(
     Err("SPARQL constraint is missing sh:select".to_string())
 }
 
-fn plan_custom_validator(validator: &shacl_ir::SPARQLValidator) -> PlanCustomValidator {
+fn plan_custom_validator(validator: &shifty::shacl_ir::SPARQLValidator) -> PlanCustomValidator {
     PlanCustomValidator {
         query: validator.query.clone(),
         is_ask: validator.is_ask,

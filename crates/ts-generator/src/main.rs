@@ -1,7 +1,7 @@
 use clap::Parser;
 use oxigraph::model::Term;
 use serde::Serialize;
-use shacl_ir::{Path, Target};
+use shifty::shacl_ir::{Path, Target};
 use shifty::Source;
 use shifty::{ir::IRComponentDescriptor as ComponentDescriptor, Validator};
 use std::collections::{HashMap, HashSet};
@@ -341,7 +341,7 @@ fn constraint_to_desc(
     }
 }
 
-pub(crate) fn generate_typescript(ir: &shacl_ir::ShapeIR) -> Result<String, String> {
+pub(crate) fn generate_typescript(ir: &shifty::shacl_ir::ShapeIR) -> Result<String, String> {
     let mut node_id_map: HashMap<u64, String> = HashMap::new();
     let mut prop_id_map: HashMap<u64, String> = HashMap::new();
     for node in &ir.node_shapes {

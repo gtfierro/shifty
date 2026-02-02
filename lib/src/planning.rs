@@ -4,7 +4,7 @@
 //! run in parallel without violating shape dependencies (e.g., shapes referenced by other shapes).
 
 use crate::types::{ComponentID, PropShapeID, ID};
-use shacl_ir::{ComponentDescriptor, ShapeIR};
+use crate::shacl_ir::{ComponentDescriptor, ShapeIR};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
