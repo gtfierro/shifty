@@ -31,12 +31,14 @@ ontoenv = "0.5.0-a2"
 #ontoenv = { path = "../../ontoenv-rs/lib" }
 serde_json.workspace = true
 serde = { workspace = true }
-shacl-compiler = { path = "../crates/shacl-compiler", optional = true }
 
 [features]
-compiled-tests = ["dep:shacl-compiler"]
+compiled-tests = []
 
 [build-dependencies]
 oxrdf = { workspace = true }
 oxrdfio = "0.2.1"
 url = { version = "2" }
+
+[dev-dependencies]
+shacl-compiler = { path = "../crates/shacl-compiler" }

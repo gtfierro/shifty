@@ -29,9 +29,6 @@ pub(crate) mod sparql;
 pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
-#[cfg(feature = "compiled-tests")]
-use shacl_compiler as _;
-
 use crate::canonicalization::skolemize;
 use crate::context::model::OriginalValueIndex;
 use crate::context::{
