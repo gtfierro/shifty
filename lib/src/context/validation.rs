@@ -8,7 +8,7 @@ use crate::runtime::{build_component_from_descriptor, Component, CustomConstrain
 use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Target, TraceItem, ID};
+use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
 use crate::shacl_ir::ShapeIR;

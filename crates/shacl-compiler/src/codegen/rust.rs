@@ -2388,7 +2388,6 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
             let ctx = EmitContext {
                 shape_id: shape.id,
                 component_id: component.id,
-                kind: component.kind,
                 path_id: Some(path_id),
                 path_sparql: Some(&path_display),
                 term_iri: &term_iri,
@@ -2536,7 +2535,6 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
                 let ctx = EmitContext {
                     shape_id: shape.id,
                     component_id: component.id,
-                    kind: component.kind,
                     path_id: None,
                     path_sparql: None,
                     term_iri: &term_iri,
@@ -4316,30 +4314,6 @@ fn build_allowed_predicate_map(
         allowed.insert(shape.id, predicates);
     }
     Ok(allowed)
-}
-
-fn subject_expr(term: &Term) -> Result<String, String> {
-    match term {
-        Term::NamedNode(node) => Ok(format!(
-            "NamedOrBlankNode::NamedNode(NamedNode::new(\"{}\").unwrap())",
-            escape_rust_string(node.as_str())
-        )),
-        Term::BlankNode(node) => Ok(format!(
-            "NamedOrBlankNode::BlankNode(BlankNode::new_unchecked(\"{}\"))",
-            escape_rust_string(node.as_str())
-        )),
-        _ => Err("Invalid subject term for shape triple".to_string()),
-    }
-}
-
-fn named_node_expr(term: &Term) -> Result<String, String> {
-    match term {
-        Term::NamedNode(node) => Ok(format!(
-            "NamedNode::new(\"{}\").unwrap()",
-            escape_rust_string(node.as_str())
-        )),
-        _ => Err("Invalid predicate term for shape triple".to_string()),
-    }
 }
 
 fn term_expr(term: &Term) -> Result<String, String> {

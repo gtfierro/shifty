@@ -3,10 +3,13 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Graph, Quad, Term, Triple, TripleRef};
+use oxigraph::model::{Quad, Term, TripleRef};
+#[cfg(feature = "shacl-compiler")]
+use oxigraph::model::{Graph, Triple};
 use serde_json::json;
 #[cfg(feature = "shacl-compiler")]
 use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+#[cfg(feature = "shacl-compiler")]
 use shifty::shacl_ir::ShapeIR;
 use shifty::ir_cache;
 use shifty::trace::TraceEvent;
@@ -15,6 +18,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "shacl-compiler")]
 use std::process::Command;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
@@ -1128,6 +1132,7 @@ impl TraceOutputArgs {
     }
 }
 
+#[cfg(feature = "shacl-compiler")]
 fn write_shape_graph_ttl(
     shape_ir: &ShapeIR,
     path: &Path,

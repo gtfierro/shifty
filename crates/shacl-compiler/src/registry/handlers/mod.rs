@@ -16,5 +16,4 @@ pub mod property;
 pub mod property_pair;
 pub mod qualified;
 pub mod sparql;
-pub mod unsupported;
 pub mod value_range;

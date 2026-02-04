@@ -27,7 +27,6 @@ pub struct NodeEmission {
 pub struct EmitContext<'a> {
     pub shape_id: u64,
     pub component_id: u64,
-    pub kind: ComponentKind,
     pub path_id: Option<u64>,
     pub path_sparql: Option<&'a str>,
     pub term_iri: &'a dyn Fn(u64) -> Result<String, String>,

@@ -2,7 +2,7 @@ use oxigraph::model::{Quad, Term};
 use serde::{Deserialize, Serialize};
 use shifty::shacl_ir::{
     ComponentDescriptor, ComponentID, Path, PropShapeID, Rule, RuleCondition, RuleID, Severity,
-    ShapeIR, SparqlRule, Target, TriplePatternTerm, TripleRule, ID,
+    ShapeIR, Target, TriplePatternTerm, ID,
 };
 use std::collections::HashMap;
 
@@ -290,7 +290,7 @@ struct PlanBuilder {
 }
 
 impl PlanBuilder {
-    fn build(mut self, ir: &ShapeIR) -> Result<PlanIR, String> {
+    fn build(self, ir: &ShapeIR) -> Result<PlanIR, String> {
         self.build_with_quads(ir, &ir.shape_quads)
     }
 
