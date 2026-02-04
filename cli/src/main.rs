@@ -5,6 +5,7 @@ use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Graph, Quad, Term, Triple, TripleRef};
 use serde_json::json;
+#[cfg(feature = "shacl-compiler")]
 use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
 use shifty::shacl_ir::ShapeIR;
 use shifty::ir_cache;
@@ -164,6 +165,7 @@ struct GenerateIrArgs {
     output_file: PathBuf,
 }
 
+#[cfg(feature = "shacl-compiler")]
 #[derive(Parser)]
 struct CompileArgs {
     #[clap(flatten)]
@@ -456,6 +458,7 @@ enum Commands {
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
     /// Generate + compile a specialized SHACL executable for the given shapes
+    #[cfg(feature = "shacl-compiler")]
     Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
@@ -540,6 +543,7 @@ fn get_validator_shapes_only(
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
 
+#[cfg(feature = "shacl-compiler")]
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
@@ -872,6 +876,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             emit_validator_traces(&validator, &args.trace)?;
         }
+        #[cfg(feature = "shacl-compiler")]
         Commands::Compile(args) => {
             let validator = get_validator_shapes_only_for_compile(&args)?;
             let shape_ir = if args.no_imports {
