@@ -12,6 +12,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use pyo3::wrap_pyfunction;
+use std::sync::Once;
 use serde_json::json;
 use ::shifty::shacl_ir::ShapeIR;
 use tempfile::tempdir;
@@ -1078,12 +1079,28 @@ fn validate(
     )
 }
 
+fn init_logging_once() {
+    static LOGGER_INIT: Once = Once::new();
+    LOGGER_INIT.call_once(|| {
+        let _ = env_logger::try_init();
+    });
+}
+
+#[pyfunction]
+fn init_logging() -> PyResult<()> {
+    init_logging_once();
+    Ok(())
+}
+
 /// Python module definition.
 #[pymodule]
 fn shifty(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    init_logging_once();
+
     m.add_class::<PyCompiledShapeGraph>()?;
     m.add_function(wrap_pyfunction!(generate_ir, m)?)?;
     m.add_function(wrap_pyfunction!(infer, m)?)?;
     m.add_function(wrap_pyfunction!(validate, m)?)?;
+    m.add_function(wrap_pyfunction!(init_logging, m)?)?;
     Ok(())
 }

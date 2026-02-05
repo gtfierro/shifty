@@ -202,3 +202,7 @@ def validate(
     return_inference_outcome: bool = ...,
 ) -> tuple[bool, Graph, str] | tuple[bool, Graph, str, Diagnostics]:
     """Validate RDFLib graphs against SHACL shapes."""
+
+
+def init_logging() -> None:
+    """Initialize Rust logging using the current environment (e.g., RUST_LOG)."""
