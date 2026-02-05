@@ -1,5 +1,5 @@
-use oxigraph::model::Term;
 use crate::shacl_ir::{ComponentID, PropShapeID, RuleID, ID};
+use oxigraph::model::Term;
 use std::collections::HashMap;
 use std::hash::Hash;
 

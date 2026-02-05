@@ -17,7 +17,7 @@ use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExp
 use spargebra::term::GroundTerm;
 use spargebra::{Query as AlgebraQuery, SparqlParser};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 type CustomComponentMaps = (
     HashMap<NamedNode, CustomConstraintComponentDefinition>,
@@ -37,7 +37,7 @@ pub trait SparqlExecutor {
         &self,
         node: &Term,
         store: &Store,
-        env: &OntoEnv,
+        env: &Arc<RwLock<OntoEnv>>,
         shape_graph_iri_ref: GraphNameRef<'_>,
     ) -> Result<String, String>;
 
@@ -89,7 +89,7 @@ impl SparqlExecutor for SparqlServices {
         &self,
         node: &Term,
         store: &Store,
-        env: &OntoEnv,
+        env: &Arc<RwLock<OntoEnv>>,
         shape_graph_iri_ref: GraphNameRef<'_>,
     ) -> Result<String, String> {
         if let Some(prefixes) = self.prefix_cache.lock().unwrap().get(node) {
@@ -175,6 +175,9 @@ impl SparqlExecutor for SparqlServices {
             }
 
             if let Term::NamedNode(ontology_iri) = &prefixes_subject {
+                let env = env
+                    .read()
+                    .map_err(|_| "OntoEnv lock poisoned".to_string())?;
                 if let Some(graphid) = env.resolve(ResolveTarget::Graph(ontology_iri.clone())) {
                     if let Ok(ont) = env.get_ontology(&graphid) {
                         for (prefix, namespace) in ont.namespace_map().iter() {

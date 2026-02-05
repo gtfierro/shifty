@@ -3,15 +3,15 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Quad, Term, TripleRef};
 #[cfg(feature = "shacl-compiler")]
 use oxigraph::model::{Graph, Triple};
+use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "shacl-compiler")]
 use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+use shifty::ir_cache;
 #[cfg(feature = "shacl-compiler")]
 use shifty::shacl_ir::ShapeIR;
-use shifty::ir_cache;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
 use std::collections::HashMap;
@@ -363,6 +363,10 @@ struct ValidateArgs {
     /// Include shapes/components that did not execute in the heatmap (requires --pdf-heatmap)
     #[arg(long, requires = "pdf_heatmap")]
     pdf_heatmap_all: bool,
+
+    /// Print per-component graph call counts captured during validation
+    #[arg(long)]
+    component_graph_calls: bool,
 }
 
 #[derive(Parser)]
@@ -826,6 +830,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 write_pdf_from_dot(dot_string, pdf_path, "PDF heatmap")?;
             }
 
+            if args.component_graph_calls {
+                println!(
+                    "SourceShape\tComponentID\tComponent\tquads_for_pattern\texecute_prepared"
+                );
+                for stat in validator.component_graph_call_stats() {
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}",
+                        stat.source_shape,
+                        stat.component_id,
+                        stat.component_label,
+                        stat.quads_for_pattern_calls,
+                        stat.execute_prepared_calls
+                    );
+                }
+            }
+
             emit_validator_traces(&validator, &args.trace)?;
         }
         Commands::Infer(args) => {
@@ -941,9 +961,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .ok()
                         .and_then(|output| {
                             if output.status.success() {
-                                let rev = String::from_utf8_lossy(&output.stdout)
-                                    .trim()
-                                    .to_string();
+                                let rev =
+                                    String::from_utf8_lossy(&output.stdout).trim().to_string();
                                 if rev.is_empty() {
                                     None
                                 } else {

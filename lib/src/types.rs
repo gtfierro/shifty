@@ -1,13 +1,13 @@
 use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
-use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef, Variable};
-use oxigraph::sparql::QueryResults;
 pub use crate::shacl_ir::{
     ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, ParameterBindings, Path,
     PropShapeID, PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target,
     TriplePatternTerm, ID,
 };
+use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef, Variable};
+use oxigraph::sparql::QueryResults;
 use std::fmt;
 use std::hash::Hash;
 

@@ -82,12 +82,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     let mut inference = String::new();
 
     writeln!(prelude, "{}", "use oxigraph::model::{BlankNode, Graph, GraphName, GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad, Term, TermRef, Triple};").unwrap();
-    writeln!(
-        prelude,
-        "{}",
-        "use oxigraph::model::vocab::{rdf, xsd};"
-    )
-    .unwrap();
+    writeln!(prelude, "{}", "use oxigraph::model::vocab::{rdf, xsd};").unwrap();
     writeln!(
         prelude,
         "{}",
@@ -204,12 +199,13 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(prelude, "            path,").unwrap();
     writeln!(prelude, "{}", "        });").unwrap();
     writeln!(prelude, "{}", "    }").unwrap();
-    writeln!(prelude, "{}", "    pub fn merge(&mut self, other: Report) {").unwrap();
     writeln!(
         prelude,
-        "        self.violations.extend(other.violations);"
+        "{}",
+        "    pub fn merge(&mut self, other: Report) {"
     )
     .unwrap();
+    writeln!(prelude, "        self.violations.extend(other.violations);").unwrap();
     writeln!(prelude, "{}", "    }").unwrap();
     writeln!(
         prelude,
@@ -245,12 +241,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn query_mentions_bound_var(query: &str, var: &str) -> bool {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    let lower = query.to_ascii_lowercase();"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    let lower = query.to_ascii_lowercase();").unwrap();
     writeln!(
         helpers,
         "{}",
@@ -302,11 +293,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "}}").unwrap();
     writeln!(helpers, "").unwrap();
     writeln!(helpers, "impl LiteralKey {{").unwrap();
-    writeln!(
-        helpers,
-        "    fn from_literal(lit: &Literal) -> Self {{"
-    )
-    .unwrap();
+    writeln!(helpers, "    fn from_literal(lit: &Literal) -> Self {{").unwrap();
     writeln!(
         helpers,
         "        let mut lexical = lit.value().to_string();"
@@ -334,7 +321,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "        let datatype = lit.datatype().as_str().to_string();"
     )
     .unwrap();
-    writeln!(helpers, "        LiteralKey {{ lexical, language, datatype }}").unwrap();
+    writeln!(
+        helpers,
+        "        LiteralKey {{ lexical, language, datatype }}"
+    )
+    .unwrap();
     writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "}}").unwrap();
     writeln!(helpers, "").unwrap();
@@ -374,21 +365,9 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "            }};").unwrap();
-    writeln!(
-        helpers,
-        "            let entry = self"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "                .literals"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "                .entry(subject_term)"
-    )
-    .unwrap();
+    writeln!(helpers, "            let entry = self").unwrap();
+    writeln!(helpers, "                .literals").unwrap();
+    writeln!(helpers, "                .entry(subject_term)").unwrap();
     writeln!(helpers, "                .or_default()").unwrap();
     writeln!(helpers, "                .entry(predicate)").unwrap();
     writeln!(helpers, "                .or_default()").unwrap();
@@ -398,11 +377,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "                .or_default();").unwrap();
-    writeln!(
-        helpers,
-        "            entry.push_back(Term::Literal(lit));"
-    )
-    .unwrap();
+    writeln!(helpers, "            entry.push_back(Term::Literal(lit));").unwrap();
     writeln!(helpers, "        }}").unwrap();
     writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "").unwrap();
@@ -422,7 +397,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "").unwrap();
-    writeln!(helpers, "        if let Some(candidates) = predicate_map.get(&key) {{").unwrap();
+    writeln!(
+        helpers,
+        "        if let Some(candidates) = predicate_map.get(&key) {{"
+    )
+    .unwrap();
     writeln!(helpers, "            if candidates.is_empty() {{").unwrap();
     writeln!(helpers, "                return None;").unwrap();
     writeln!(helpers, "            }}").unwrap();
@@ -440,13 +419,21 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "            }}").unwrap();
     writeln!(helpers, "            return candidates.front().cloned();").unwrap();
     writeln!(helpers, "        }}").unwrap();
-    writeln!(helpers, "        for (other_key, candidates) in predicate_map {{").unwrap();
+    writeln!(
+        helpers,
+        "        for (other_key, candidates) in predicate_map {{"
+    )
+    .unwrap();
     writeln!(
         helpers,
         "            if other_key.lexical == key.lexical && other_key.language == key.language {{"
     )
     .unwrap();
-    writeln!(helpers, "                return candidates.front().cloned();").unwrap();
+    writeln!(
+        helpers,
+        "                return candidates.front().cloned();"
+    )
+    .unwrap();
     writeln!(helpers, "            }}").unwrap();
     writeln!(helpers, "        }}").unwrap();
     writeln!(helpers, "        None").unwrap();
@@ -483,15 +470,35 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "    }};").unwrap();
     writeln!(helpers, "    let format = match format {{").unwrap();
     writeln!(helpers, "        Some(f) => f,").unwrap();
-    writeln!(helpers, "        None => return Ok(OriginalValueIndex::new()),").unwrap();
+    writeln!(
+        helpers,
+        "        None => return Ok(OriginalValueIndex::new()),"
+    )
+    .unwrap();
     writeln!(helpers, "    }};").unwrap();
-    writeln!(helpers, "    let file = File::open(path).map_err(|e| e.to_string())?;").unwrap();
+    writeln!(
+        helpers,
+        "    let file = File::open(path).map_err(|e| e.to_string())?;"
+    )
+    .unwrap();
     writeln!(helpers, "    let reader = BufReader::new(file);").unwrap();
-    writeln!(helpers, "    let parser = RdfParser::from_format(format).without_named_graphs();").unwrap();
+    writeln!(
+        helpers,
+        "    let parser = RdfParser::from_format(format).without_named_graphs();"
+    )
+    .unwrap();
     writeln!(helpers, "    let mut index = OriginalValueIndex::new();").unwrap();
     writeln!(helpers, "    for quad in parser.for_reader(reader) {{").unwrap();
-    writeln!(helpers, "        let triple = quad.map_err(|e| e.to_string())?;").unwrap();
-    writeln!(helpers, "        index.record_triple(triple.subject, triple.predicate, triple.object);").unwrap();
+    writeln!(
+        helpers,
+        "        let triple = quad.map_err(|e| e.to_string())?;"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "        index.record_triple(triple.subject, triple.predicate, triple.object);"
+    )
+    .unwrap();
     writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "    Ok(index)").unwrap();
     writeln!(helpers, "}}").unwrap();
@@ -726,42 +733,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    if let Some(g) = graph {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        graphs.push(Some(g));"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    } else {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        graphs.push(None);"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    }"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    for graph_opt in graphs {"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    if let Some(g) = graph {").unwrap();
+    writeln!(helpers, "{}", "        graphs.push(Some(g));").unwrap();
+    writeln!(helpers, "{}", "    } else {").unwrap();
+    writeln!(helpers, "{}", "        graphs.push(None);").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    for graph_opt in graphs {").unwrap();
     writeln!(
         helpers,
         "{}",
@@ -780,11 +757,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "            let class_iri = match &quad.object { Term::NamedNode(node) => node.as_str(), _ => continue };"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "        let subject: Term = quad.subject.into();"
-    )
-    .unwrap();
+    writeln!(helpers, "        let subject: Term = quad.subject.into();").unwrap();
     writeln!(
         helpers,
         "        index.entry(class_iri.to_string()).or_default().push(subject);"
@@ -795,12 +768,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "    index").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "fn clear_target_class_caches() {"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "fn clear_target_class_caches() {").unwrap();
     writeln!(
         helpers,
         "    TARGET_CLASS_CACHE.with(|cell| cell.borrow_mut().clear());"
@@ -819,11 +787,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn targets_for_class(store: &Store, graph: Option<GraphNameRef<'_>>, class_iri: &str) -> Vec<Term> {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "    let graph_key = graph_cache_key(graph);"
-    )
-    .unwrap();
+    writeln!(helpers, "    let graph_key = graph_cache_key(graph);").unwrap();
     writeln!(
         helpers,
         "    let cache_key = (graph_key.clone(), class_iri.to_string());"
@@ -843,27 +807,14 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let targets = TYPE_INDEX_CACHE.with(|cell| {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "        let mut cache = cell.borrow_mut();"
-    )
-    .unwrap();
+    writeln!(helpers, "        let mut cache = cell.borrow_mut();").unwrap();
     writeln!(
         helpers,
         "        let index = cache.entry(graph_key.clone()).or_insert_with(|| build_type_index(store, graph));"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        with_subclass_closure(|closure| {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "            let mut out: Vec<Term> = Vec::new();"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "        with_subclass_closure(|closure| {").unwrap();
+    writeln!(helpers, "            let mut out: Vec<Term> = Vec::new();").unwrap();
     writeln!(
         helpers,
         "            let mut seen: HashSet<Term> = HashSet::new();"
@@ -1001,8 +952,18 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "{}", "    let key = literal_signature(lit);").unwrap();
-    writeln!(helpers, "{}", "    if let Some(queue) = buckets.get_mut(&key) {").unwrap();
-    writeln!(helpers, "{}", "        if let Some(term) = queue.pop_front() {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if let Some(queue) = buckets.get_mut(&key) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if let Some(term) = queue.pop_front() {"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            exact_matches.remove(&term);").unwrap();
     writeln!(helpers, "{}", "            return Some(term);").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
@@ -1075,7 +1036,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     .unwrap();
     writeln!(helpers, "{}", "    for term in &raw_objects {").unwrap();
     writeln!(helpers, "{}", "        if let Term::Literal(lit) = term {").unwrap();
-    writeln!(helpers, "{}", "            let key = literal_signature(lit);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let key = literal_signature(lit);"
+    )
+    .unwrap();
     writeln!(
         helpers,
         "{}",
@@ -1111,7 +1077,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "{}", "                if original != current {").unwrap();
-    writeln!(helpers, "{}", "                    exact_matches.remove(&original);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    exact_matches.remove(&original);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                    *node = original;").unwrap();
     writeln!(helpers, "{}", "                    continue;").unwrap();
     writeln!(helpers, "{}", "                }").unwrap();
@@ -1602,18 +1573,30 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();"
     )
     .unwrap();
-    writeln!(helpers, "    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();").unwrap();
+    writeln!(
+        helpers,
+        "    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();"
+    )
+    .unwrap();
     writeln!(helpers, "    if let Some(g) = graph {{").unwrap();
     writeln!(helpers, "        graphs.push(Some(g));").unwrap();
     writeln!(helpers, "        let shape_graph = shape_graph_ref();").unwrap();
-    writeln!(helpers, "        if g != shape_graph {{ graphs.push(Some(shape_graph)); }}").unwrap();
+    writeln!(
+        helpers,
+        "        if g != shape_graph {{ graphs.push(Some(shape_graph)); }}"
+    )
+    .unwrap();
     writeln!(helpers, "    }} else {{").unwrap();
     writeln!(helpers, "        graphs.push(None);").unwrap();
     writeln!(helpers, "    }}").unwrap();
     writeln!(helpers, "    for graph_opt in graphs {{").unwrap();
     writeln!(helpers, "        for quad in store.quads_for_pattern(Some(subject), Some(rdf_type), None, graph_opt) {{").unwrap();
     writeln!(helpers, "        if let Ok(quad) = quad {{").unwrap();
-    writeln!(helpers, "            if let Term::NamedNode(node) = quad.object {{").unwrap();
+    writeln!(
+        helpers,
+        "            if let Term::NamedNode(node) = quad.object {{"
+    )
+    .unwrap();
     writeln!(helpers, "                let node_str = node.as_str();").unwrap();
     writeln!(helpers, "                if with_subclass_closure(|closure| closure.is_subclass_of(node_str, class_iri)) {{").unwrap();
     writeln!(helpers, "                    return true;").unwrap();
@@ -1797,11 +1780,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let predicate = NamedNodeRef::new(predicate_iri).unwrap();"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "    let data_graph = data_graph_named();"
-    )
-    .unwrap();
+    writeln!(helpers, "    let data_graph = data_graph_named();").unwrap();
     writeln!(
         helpers,
         "{}",
@@ -1826,24 +1805,9 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn term_to_sparql_ground(term: &Term) -> Option<String> {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    match term {"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        Term::BlankNode(_) => None,"
-    )
-    .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        _ => Some(term.to_string()),"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    match term {").unwrap();
+    writeln!(helpers, "{}", "        Term::BlankNode(_) => None,").unwrap();
+    writeln!(helpers, "{}", "        _ => Some(term.to_string()),").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
@@ -1853,32 +1817,17 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn inject_values_clause(query: &str, values_clause: &str) -> String {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    if values_clause.trim().is_empty() {"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    if values_clause.trim().is_empty() {").unwrap();
     writeln!(helpers, "        return query.to_string();").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    if let Some(pos) = query.find('{') {"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    if let Some(pos) = query.find('{') {").unwrap();
     writeln!(
         helpers,
         "{}",
         "        let mut out = String::with_capacity(query.len() + values_clause.len() + 2);"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "        out.push_str(&query[..pos + 1]);"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "        out.push_str(&query[..pos + 1]);").unwrap();
     writeln!(helpers, "        out.push('\\n');").unwrap();
     writeln!(helpers, "        out.push_str(values_clause);").unwrap();
     writeln!(helpers, "        out.push('\\n');").unwrap();
@@ -1895,12 +1844,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn inject_bindings_everywhere(query: &str, bindings_clause: &str) -> String {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    if bindings_clause.trim().is_empty() {"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    if bindings_clause.trim().is_empty() {").unwrap();
     writeln!(helpers, "{}", "        return query.to_string();").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(
@@ -1923,7 +1867,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "                    continue;").unwrap();
     writeln!(helpers, "{}", "                }").unwrap();
     writeln!(helpers, "{}", "                if c == '#' {").unwrap();
-    writeln!(helpers, "{}", "                    while j < bytes.len() && bytes[j] as char != '\\n' {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    while j < bytes.len() && bytes[j] as char != '\\n' {"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                        j += 1;").unwrap();
     writeln!(helpers, "{}", "                    }").unwrap();
     writeln!(helpers, "{}", "                    continue;").unwrap();
@@ -1938,7 +1887,12 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     )
     .unwrap();
     writeln!(helpers, "{}", "                out.push('\\n');").unwrap();
-    writeln!(helpers, "{}", "                out.push_str(bindings_clause);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                out.push_str(bindings_clause);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                out.push('\\n');").unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
@@ -1953,20 +1907,10 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "fn inject_bindings_in_where(query: &str, bindings_clause: &str) -> String {"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    if bindings_clause.trim().is_empty() {{"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    if bindings_clause.trim().is_empty() {{").unwrap();
     writeln!(helpers, "{}", "        return query.to_string();").unwrap();
     writeln!(helpers, "{}", "    }}").unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "    let bytes = query.as_bytes();"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "    let bytes = query.as_bytes();").unwrap();
     writeln!(helpers, "{}", "    let mut i = 0;").unwrap();
     writeln!(helpers, "{}", "    let mut in_string = false;").unwrap();
     writeln!(helpers, "{}", "    let mut in_iri = false;").unwrap();
@@ -1974,36 +1918,61 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "    while i < bytes.len() {{").unwrap();
     writeln!(helpers, "{}", "        let ch = bytes[i] as char;").unwrap();
     writeln!(helpers, "{}", "        if in_comment {{").unwrap();
-    writeln!(helpers, "{}", "            if ch == '\\n' {{ in_comment = false; }}").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if ch == '\\n' {{ in_comment = false; }}"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            i += 1;").unwrap();
     writeln!(helpers, "{}", "            continue;").unwrap();
     writeln!(helpers, "{}", "        }}").unwrap();
     writeln!(helpers, "{}", "        if in_string {{").unwrap();
-    writeln!(helpers, "{}", "            if ch == '\\\\' {{ i += 2; continue; }}").unwrap();
-    writeln!(helpers, "{}", "            if ch == '\"' {{ in_string = false; }}").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if ch == '\\\\' {{ i += 2; continue; }}"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if ch == '\"' {{ in_string = false; }}"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            i += 1;").unwrap();
     writeln!(helpers, "{}", "            continue;").unwrap();
     writeln!(helpers, "{}", "        }}").unwrap();
     writeln!(helpers, "{}", "        if in_iri {{").unwrap();
-    writeln!(helpers, "{}", "            if ch == '>' {{ in_iri = false; }}").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if ch == '>' {{ in_iri = false; }}"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            i += 1;").unwrap();
     writeln!(helpers, "{}", "            continue;").unwrap();
     writeln!(helpers, "{}", "        }}").unwrap();
-    writeln!(helpers, "{}", "        if ch == '#' {{ in_comment = true; i += 1; continue; }}").unwrap();
-    writeln!(helpers, "{}", "        if ch == '\"' {{ in_string = true; i += 1; continue; }}").unwrap();
-    writeln!(helpers, "{}", "        if ch == '<' {{ in_iri = true; i += 1; continue; }}").unwrap();
     writeln!(
         helpers,
         "{}",
-        "        if i + 5 <= bytes.len() {{"
+        "        if ch == '#' {{ in_comment = true; i += 1; continue; }}"
     )
     .unwrap();
     writeln!(
         helpers,
         "{}",
-        "            let slice = &query[i..i + 5];"
+        "        if ch == '\"' {{ in_string = true; i += 1; continue; }}"
     )
     .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if ch == '<' {{ in_iri = true; i += 1; continue; }}"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        if i + 5 <= bytes.len() {{").unwrap();
+    writeln!(helpers, "{}", "            let slice = &query[i..i + 5];").unwrap();
     writeln!(
         helpers,
         "{}",
@@ -2016,12 +1985,7 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "                let before_ok = i == 0 || !((bytes[i - 1] as char).is_ascii_alphanumeric() || bytes[i - 1] as char == '_');"
     )
     .unwrap();
-    writeln!(
-        helpers,
-        "{}",
-        "                let after_idx = i + 5;"
-    )
-    .unwrap();
+    writeln!(helpers, "{}", "                let after_idx = i + 5;").unwrap();
     writeln!(
         helpers,
         "{}",
@@ -2034,30 +1998,55 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "                if !(before_ok && after_ok) {{ i += 1; continue; }}"
     )
     .unwrap();
+    writeln!(helpers, "{}", "                let mut j = i + 5;").unwrap();
+    writeln!(helpers, "{}", "                while j < bytes.len() {{").unwrap();
     writeln!(
         helpers,
         "{}",
-        "                let mut j = i + 5;"
+        "                    let c = bytes[j] as char;"
     )
     .unwrap();
-    writeln!(helpers, "{}", "                while j < bytes.len() {{").unwrap();
-    writeln!(helpers, "{}", "                    let c = bytes[j] as char;").unwrap();
-    writeln!(helpers, "{}", "                    if c.is_whitespace() {{ j += 1; continue; }}").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    if c.is_whitespace() {{ j += 1; continue; }}"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                    if c == '#' {{ while j < bytes.len() && bytes[j] as char != '\\n' {{ j += 1; }} continue; }}").unwrap();
     writeln!(helpers, "{}", "                    break;").unwrap();
     writeln!(helpers, "{}", "                }}").unwrap();
-    writeln!(helpers, "{}", "                if j < bytes.len() && bytes[j] as char == '{' {{").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                if j < bytes.len() && bytes[j] as char == '{' {{"
+    )
+    .unwrap();
     writeln!(
         helpers,
         "{}",
         "                    let mut out = String::with_capacity(query.len() + bindings_clause.len() + 2);"
     )
     .unwrap();
-    writeln!(helpers, "{}", "                    out.push_str(&query[..j + 1]);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    out.push_str(&query[..j + 1]);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                    out.push('\\n');").unwrap();
-    writeln!(helpers, "{}", "                    out.push_str(bindings_clause);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    out.push_str(bindings_clause);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                    out.push('\\n');").unwrap();
-    writeln!(helpers, "{}", "                    out.push_str(&query[j + 1..]);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    out.push_str(&query[j + 1..]);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                    return out;").unwrap();
     writeln!(helpers, "{}", "                }}").unwrap();
     writeln!(helpers, "{}", "            }}").unwrap();
@@ -2142,61 +2131,176 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
     writeln!(helpers, "{}", "fn sparql_any_solution_with_bindings(query: &str, prefixes: &str, store: &Store, graph: Option<GraphNameRef<'_>>, focus: Option<&Term>, value: Option<&Term>, bindings: &[(&str, Term)]) -> bool {").unwrap();
-    writeln!(helpers, "{}", "    let mut normalized_query = query.replace('$', \"?\");").unwrap();
-    writeln!(helpers, "{}", "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();").unwrap();
-    writeln!(helpers, "{}", "    let mut bind_lines: Vec<String> = Vec::new();").unwrap();
-    writeln!(helpers, "{}", "    let mut remaining: Vec<(String, Term)> = Vec::new();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut normalized_query = query.replace('$', \"?\");"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut bind_lines: Vec<String> = Vec::new();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut remaining: Vec<(String, Term)> = Vec::new();"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    let mut bind_everywhere = false;").unwrap();
     writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
-    writeln!(helpers, "{}", "        if query_mentions_var(query, \"this\") {").unwrap();
-    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(focus) {").unwrap();
-    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?this)\", ground));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if query_mentions_var(query, \"this\") {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(ground) = term_to_sparql_ground(focus) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                bind_lines.push(format!(\"BIND({} AS ?this)\", ground));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
     writeln!(helpers, "{}", "            } else {").unwrap();
-    writeln!(helpers, "{}", "                remaining.push((\"this\".to_string(), focus.clone()));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                remaining.push((\"this\".to_string(), focus.clone()));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    if let Some(value) = value {").unwrap();
-    writeln!(helpers, "{}", "        if query_mentions_var(query, \"value\") {").unwrap();
-    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(value) {").unwrap();
-    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?value)\", ground));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if query_mentions_var(query, \"value\") {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(ground) = term_to_sparql_ground(value) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                bind_lines.push(format!(\"BIND({} AS ?value)\", ground));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
     writeln!(helpers, "{}", "            } else {").unwrap();
-    writeln!(helpers, "{}", "                remaining.push((\"value\".to_string(), value.clone()));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                remaining.push((\"value\".to_string(), value.clone()));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    for (name, term) in bindings {").unwrap();
-    writeln!(helpers, "{}", "        if query_mentions_var(query, name) {").unwrap();
-    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(term) {").unwrap();
-    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?{})\", ground, name));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if query_mentions_var(query, name) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(ground) = term_to_sparql_ground(term) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                bind_lines.push(format!(\"BIND({} AS ?{})\", ground, name));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            } else {").unwrap();
-    writeln!(helpers, "{}", "                remaining.push(((*name).to_string(), term.clone()));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                remaining.push(((*name).to_string(), term.clone()));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    if !bind_lines.is_empty() {").unwrap();
-    writeln!(helpers, "{}", "        let bindings_clause = bind_lines.join(\"\\n\");").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        let bindings_clause = bind_lines.join(\"\\n\");"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "        normalized_query = if bind_everywhere { inject_bindings_everywhere(&normalized_query, &bindings_clause) } else { inject_values_clause(&normalized_query, &bindings_clause) };").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    let query_str = if prefixes.trim().is_empty() { normalized_query.clone() } else { format!(\"{}\\n{}\", prefixes, normalized_query) };").unwrap();
-    writeln!(helpers, "{}", "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }").unwrap();
-    writeln!(helpers, "{}", "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "        Ok(prepared) => prepared,").unwrap();
     writeln!(helpers, "{}", "        Err(err) => { if debug { eprintln!(\"SPARQL parse error: {}\", err); } return false },").unwrap();
     writeln!(helpers, "{}", "    };").unwrap();
     writeln!(helpers, "{}", "    if let Some(graph) = graph {").unwrap();
-    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    } else {").unwrap();
-    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph_as_union();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        prepared.dataset_mut().set_default_graph_as_union();"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    let mut bound = prepared.on_store(store);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut bound = prepared.on_store(store);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    for (name, term) in remaining.iter() {").unwrap();
     writeln!(helpers, "{}", "        bound = bound.substitute_variable(Variable::new_unchecked(name.as_str()), term.clone());").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    match bound.execute() {").unwrap();
-    writeln!(helpers, "{}", "        Ok(QueryResults::Solutions(solutions)) => {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        Ok(QueryResults::Solutions(solutions)) => {"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            for result in solutions {").unwrap();
     writeln!(helpers, "{}", "                if result.is_ok() {").unwrap();
     writeln!(helpers, "{}", "                    return true;").unwrap();
@@ -2204,87 +2308,252 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "            false").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
-    writeln!(helpers, "{}", "        Ok(QueryResults::Boolean(val)) => val,").unwrap();
-    writeln!(helpers, "{}", "        Ok(QueryResults::Graph(_)) => false,").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        Ok(QueryResults::Boolean(val)) => val,"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        Ok(QueryResults::Graph(_)) => false,"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "        Err(err) => {").unwrap();
-    writeln!(helpers, "{}", "            if debug { eprintln!(\"SPARQL execute error: {}\", err); }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if debug { eprintln!(\"SPARQL execute error: {}\", err); }"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            false").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
     writeln!(helpers, "{}", "fn sparql_select_solutions_with_bindings(query: &str, prefixes: &str, store: &Store, graph: Option<GraphNameRef<'_>>, focus: Option<&Term>, value: Option<&Term>, bindings: &[(&str, Term)]) -> Vec<HashMap<String, Term>> {").unwrap();
-    writeln!(helpers, "{}", "    let mut normalized_query = query.replace('$', \"?\");").unwrap();
-    writeln!(helpers, "{}", "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();").unwrap();
-    writeln!(helpers, "{}", "    let mut bind_lines: Vec<String> = Vec::new();").unwrap();
-    writeln!(helpers, "{}", "    let mut remaining: Vec<(String, Term)> = Vec::new();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut normalized_query = query.replace('$', \"?\");"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let debug = std::env::var(\"SHACL_DEBUG_SPARQL\").is_ok();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut bind_lines: Vec<String> = Vec::new();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut remaining: Vec<(String, Term)> = Vec::new();"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    let mut bind_everywhere = false;").unwrap();
     writeln!(helpers, "{}", "    if let Some(focus) = focus {").unwrap();
-    writeln!(helpers, "{}", "        if query_mentions_var(query, \"this\") {").unwrap();
-    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(focus) {").unwrap();
-    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?this)\", ground));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if query_mentions_var(query, \"this\") {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(ground) = term_to_sparql_ground(focus) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                bind_lines.push(format!(\"BIND({} AS ?this)\", ground));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
     writeln!(helpers, "{}", "            } else {").unwrap();
-    writeln!(helpers, "{}", "                remaining.push((\"this\".to_string(), focus.clone()));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                remaining.push((\"this\".to_string(), focus.clone()));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    if let Some(value) = value {").unwrap();
-    writeln!(helpers, "{}", "        if query_mentions_var(query, \"value\") {").unwrap();
-    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(value) {").unwrap();
-    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?value)\", ground));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if query_mentions_var(query, \"value\") {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(ground) = term_to_sparql_ground(value) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                bind_lines.push(format!(\"BIND({} AS ?value)\", ground));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                bind_everywhere = true;").unwrap();
     writeln!(helpers, "{}", "            } else {").unwrap();
-    writeln!(helpers, "{}", "                remaining.push((\"value\".to_string(), value.clone()));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                remaining.push((\"value\".to_string(), value.clone()));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    for (name, term) in bindings {").unwrap();
-    writeln!(helpers, "{}", "        if query_mentions_var(query, name) {").unwrap();
-    writeln!(helpers, "{}", "            if let Some(ground) = term_to_sparql_ground(term) {").unwrap();
-    writeln!(helpers, "{}", "                bind_lines.push(format!(\"BIND({} AS ?{})\", ground, name));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        if query_mentions_var(query, name) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if let Some(ground) = term_to_sparql_ground(term) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                bind_lines.push(format!(\"BIND({} AS ?{})\", ground, name));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            } else {").unwrap();
-    writeln!(helpers, "{}", "                remaining.push(((*name).to_string(), term.clone()));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                remaining.push(((*name).to_string(), term.clone()));"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    if !bind_lines.is_empty() {").unwrap();
-    writeln!(helpers, "{}", "        let bindings_clause = bind_lines.join(\"\\n\");").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        let bindings_clause = bind_lines.join(\"\\n\");"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "        normalized_query = if bind_everywhere { inject_bindings_everywhere(&normalized_query, &bindings_clause) } else { inject_values_clause(&normalized_query, &bindings_clause) };").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
     writeln!(helpers, "{}", "    let query_str = if prefixes.trim().is_empty() { normalized_query.clone() } else { format!(\"{}\\n{}\", prefixes, normalized_query) };").unwrap();
-    writeln!(helpers, "{}", "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }").unwrap();
-    writeln!(helpers, "{}", "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if debug { eprintln!(\"SPARQL query:\\n{}\", query_str); }"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "        Ok(prepared) => prepared,").unwrap();
     writeln!(helpers, "{}", "        Err(err) => { if debug { eprintln!(\"SPARQL parse error: {}\", err); } return Vec::new() },").unwrap();
     writeln!(helpers, "{}", "    };").unwrap();
     writeln!(helpers, "{}", "    if let Some(graph) = graph {").unwrap();
-    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    } else {").unwrap();
-    writeln!(helpers, "{}", "        prepared.dataset_mut().set_default_graph_as_union();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        prepared.dataset_mut().set_default_graph_as_union();"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    let mut bound = prepared.on_store(store);").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut bound = prepared.on_store(store);"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    for (name, term) in remaining.iter() {").unwrap();
     writeln!(helpers, "{}", "        bound = bound.substitute_variable(Variable::new_unchecked(name.as_str()), term.clone());").unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    let mut out: Vec<HashMap<String, Term>> = Vec::new();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut out: Vec<HashMap<String, Term>> = Vec::new();"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    match bound.execute() {").unwrap();
-    writeln!(helpers, "{}", "        Ok(QueryResults::Solutions(solutions)) => {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        Ok(QueryResults::Solutions(solutions)) => {"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "            for solution in solutions {").unwrap();
     writeln!(helpers, "{}", "                let solution = match solution { Ok(solution) => solution, Err(_) => continue };").unwrap();
-    writeln!(helpers, "{}", "                let mut row: HashMap<String, Term> = HashMap::new();").unwrap();
-    writeln!(helpers, "{}", "                for var in solution.variables() {").unwrap();
-    writeln!(helpers, "{}", "                    if let Some(term) = solution.get(var) {").unwrap();
-    writeln!(helpers, "{}", "                        row.insert(var.as_str().to_string(), term.clone());").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let mut row: HashMap<String, Term> = HashMap::new();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                for var in solution.variables() {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    if let Some(term) = solution.get(var) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                        row.insert(var.as_str().to_string(), term.clone());"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "                    }").unwrap();
     writeln!(helpers, "{}", "                }").unwrap();
     writeln!(helpers, "{}", "                out.push(row);").unwrap();
     writeln!(helpers, "{}", "            }").unwrap();
     writeln!(helpers, "{}", "        }").unwrap();
     writeln!(helpers, "{}", "        Ok(_) => {},").unwrap();
-    writeln!(helpers, "{}", "        Err(err) => { if debug { eprintln!(\"SPARQL execute error: {}\", err); } },").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        Err(err) => { if debug { eprintln!(\"SPARQL execute error: {}\", err); } },"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    }").unwrap();
-    writeln!(helpers, "{}", "    if debug { eprintln!(\"SPARQL solutions: {}\", out.len()); }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    if debug { eprintln!(\"SPARQL solutions: {}\", out.len()); }"
+    )
+    .unwrap();
     writeln!(helpers, "{}", "    out").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
@@ -2688,7 +2957,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "    let original_index = with_original_value_index(|idx| idx.cloned());"
     )
     .unwrap();
-    writeln!(run, "    let node_reports: Vec<Report> = NODE_SHAPE_VALIDATORS").unwrap();
+    writeln!(
+        run,
+        "    let node_reports: Vec<Report> = NODE_SHAPE_VALIDATORS"
+    )
+    .unwrap();
     writeln!(run, "        .par_iter()").unwrap();
     writeln!(
         run,
@@ -2710,7 +2983,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "            if let Some(index) = state.original_index.take() {"
     )
     .unwrap();
-    writeln!(run, "                set_original_value_index(Some(index));").unwrap();
+    writeln!(
+        run,
+        "                set_original_value_index(Some(index));"
+    )
+    .unwrap();
     writeln!(run, "{}", "            }").unwrap();
     writeln!(run, "            let mut local = Report::default();").unwrap();
     writeln!(run, "            validator(store, graph, &mut local);").unwrap();
@@ -2746,7 +3023,11 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
         "            if let Some(index) = state.original_index.take() {"
     )
     .unwrap();
-    writeln!(run, "                set_original_value_index(Some(index));").unwrap();
+    writeln!(
+        run,
+        "                set_original_value_index(Some(index));"
+    )
+    .unwrap();
     writeln!(run, "{}", "            }").unwrap();
     writeln!(run, "            let mut local = Report::default();").unwrap();
     writeln!(run, "            validator(store, graph, &mut local);").unwrap();
@@ -3497,7 +3778,11 @@ fn emit_inference(
                 )
                 .unwrap();
                 writeln!(out, "        }}").unwrap();
-                writeln!(out, "        let mut bound = prepared_query.on_store(store);").unwrap();
+                writeln!(
+                    out,
+                    "        let mut bound = prepared_query.on_store(store);"
+                )
+                .unwrap();
                 writeln!(
                     out,
                     "        if query_mentions_var(base_query, \"this\") && term_to_sparql_ground(focus).is_none() {{"
@@ -3905,7 +4190,11 @@ fn emit_path_term_functions(out: &mut String, plan: &PlanIR) -> Result<(), Strin
     if plan.paths.is_empty() {
         return Ok(());
     }
-    writeln!(out, "fn path_term(path_id: u64, graph: &mut Graph) -> Term {{").unwrap();
+    writeln!(
+        out,
+        "fn path_term(path_id: u64, graph: &mut Graph) -> Term {{"
+    )
+    .unwrap();
     writeln!(out, "    match path_id {{").unwrap();
     for (id, _) in plan.paths.iter().enumerate() {
         writeln!(out, "        {} => path_term_{}(graph),", id, id).unwrap();
@@ -3930,7 +4219,11 @@ fn emit_path_term_functions(out: &mut String, plan: &PlanIR) -> Result<(), Strin
     .unwrap();
     writeln!(out, "    let head: NamedOrBlankNode = bnodes[0].clone();").unwrap();
     writeln!(out, "    for (idx, item) in items.iter().enumerate() {{").unwrap();
-    writeln!(out, "        let subject: NamedOrBlankNode = bnodes[idx].clone();").unwrap();
+    writeln!(
+        out,
+        "        let subject: NamedOrBlankNode = bnodes[idx].clone();"
+    )
+    .unwrap();
     writeln!(
         out,
         "        graph.insert(Triple::new(subject.clone(), rdf::FIRST, item.clone()).as_ref());"
@@ -4493,14 +4786,12 @@ fn emit_component_source_constraint_map(out: &mut String, plan: &PlanIR) -> Resu
     .unwrap();
     writeln!(out, "    match component_id {{").unwrap();
     for component in &plan.components {
-        if let ComponentParams::Sparql { constraint_node, .. } = &component.params {
+        if let ComponentParams::Sparql {
+            constraint_node, ..
+        } = &component.params
+        {
             let term_expr = term_expr_id(plan, *constraint_node)?;
-            writeln!(
-                out,
-                "        {} => Some({}),",
-                component.id, term_expr
-            )
-            .unwrap();
+            writeln!(out, "        {} => Some({}),", component.id, term_expr).unwrap();
         }
     }
     writeln!(out, "        _ => None,").unwrap();
@@ -4751,7 +5042,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
 
-    writeln!(out, "fn normalize_decimal_literal(value: &str) -> String {{").unwrap();
+    writeln!(
+        out,
+        "fn normalize_decimal_literal(value: &str) -> String {{"
+    )
+    .unwrap();
     writeln!(out, "    if is_plain_decimal_integer(value) {{").unwrap();
     writeln!(out, "        format!(\"{{}}.0\", value)").unwrap();
     writeln!(out, "    }} else {{").unwrap();
@@ -4829,11 +5124,7 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     )
     .unwrap();
     writeln!(out, "    let mut out = Vec::new();").unwrap();
-    writeln!(
-        out,
-        "    let subject = match term {{"
-    )
-    .unwrap();
+    writeln!(out, "    let subject = match term {{").unwrap();
     writeln!(
         out,
         "        Term::NamedNode(node) => NamedOrBlankNodeRef::NamedNode(node.as_ref()),"
@@ -4876,11 +5167,7 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     )
     .unwrap();
     writeln!(out, "    if messages.is_empty() {{").unwrap();
-    writeln!(
-        out,
-        "        if let Some(term) = constraint_term {{"
-    )
-    .unwrap();
+    writeln!(out, "        if let Some(term) = constraint_term {{").unwrap();
     writeln!(
         out,
         "            messages = message_terms_for_term(store, term);"
@@ -4900,7 +5187,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "").unwrap();
     writeln!(out, "fn deskolemize_term(term: Term) -> Term {{").unwrap();
     writeln!(out, "    if let Term::NamedNode(node) = &term {{").unwrap();
-    writeln!(out, "        if let Some(idx) = node.as_str().find(\"/.sk/\") {{").unwrap();
+    writeln!(
+        out,
+        "        if let Some(idx) = node.as_str().find(\"/.sk/\") {{"
+    )
+    .unwrap();
     writeln!(out, "            let suffix = &node.as_str()[idx + 5..];").unwrap();
     writeln!(
         out,
@@ -4918,7 +5209,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
         "fn format_validation_report(report: &Report, store: &Store) -> String {{"
     )
     .unwrap();
-    writeln!(out, "    let graph = validation_report_graph(report, store);").unwrap();
+    writeln!(
+        out,
+        "    let graph = validation_report_graph(report, store);"
+    )
+    .unwrap();
     writeln!(out, "    graph_to_turtle(&graph)").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
@@ -5019,14 +5314,21 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
         "        graph.insert(Triple::new(result_node.clone(), rdf::TYPE, Term::from(sh_validation_result.clone())).as_ref());"
     )
     .unwrap();
-    writeln!(out, "        let focus_term = deskolemize_term(violation.focus.clone());")
-        .unwrap();
+    writeln!(
+        out,
+        "        let focus_term = deskolemize_term(violation.focus.clone());"
+    )
+    .unwrap();
     writeln!(
         out,
         "        graph.insert(Triple::new(result_node.clone(), sh_focus_node.clone(), focus_term).as_ref());"
     )
     .unwrap();
-    writeln!(out, "        let shape_iri_str = shape_iri(violation.shape_id);").unwrap();
+    writeln!(
+        out,
+        "        let shape_iri_str = shape_iri(violation.shape_id);"
+    )
+    .unwrap();
     writeln!(
         out,
         "        let shape_term = deskolemize_term(Term::from(NamedNode::new_unchecked(shape_iri_str)));"
@@ -5057,7 +5359,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
         "        let source_constraint = component_source_constraint(violation.component_id);"
     )
     .unwrap();
-    writeln!(out, "        if let Some(source_constraint_term) = source_constraint.as_ref() {{").unwrap();
+    writeln!(
+        out,
+        "        if let Some(source_constraint_term) = source_constraint.as_ref() {{"
+    )
+    .unwrap();
     writeln!(
         out,
         "            let source_constraint = deskolemize_term(source_constraint_term.clone());"
@@ -5082,11 +5388,7 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     .unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "        if let Some(path) = &violation.path {{").unwrap();
-    writeln!(
-        out,
-        "            let path_term = match path {{"
-    )
-    .unwrap();
+    writeln!(out, "            let path_term = match path {{").unwrap();
     writeln!(
         out,
         "                ResultPath::PathId(id) => path_term(*id, &mut graph),"
@@ -5135,7 +5437,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "    graph").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
-    writeln!(out, "fn subject_to_turtle(subject: &NamedOrBlankNodeRef<'_>) -> String {{").unwrap();
+    writeln!(
+        out,
+        "fn subject_to_turtle(subject: &NamedOrBlankNodeRef<'_>) -> String {{"
+    )
+    .unwrap();
     writeln!(out, "    match subject {{").unwrap();
     writeln!(
         out,
@@ -5150,7 +5456,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
-    writeln!(out, "fn predicate_to_turtle(predicate: &NamedNodeRef<'_>) -> String {{").unwrap();
+    writeln!(
+        out,
+        "fn predicate_to_turtle(predicate: &NamedNodeRef<'_>) -> String {{"
+    )
+    .unwrap();
     writeln!(
         out,
         "    format!(\"<{{}}>\", escape_iri(predicate.as_str()))"
@@ -5158,7 +5468,11 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     .unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out, "").unwrap();
-    writeln!(out, "fn term_ref_to_turtle_value(term: &TermRef<'_>) -> String {{").unwrap();
+    writeln!(
+        out,
+        "fn term_ref_to_turtle_value(term: &TermRef<'_>) -> String {{"
+    )
+    .unwrap();
     writeln!(out, "    match term {{").unwrap();
     writeln!(
         out,
@@ -5200,9 +5514,21 @@ fn emit_validation_report_helpers(out: &mut String) -> Result<(), String> {
     writeln!(out, "fn graph_to_turtle(graph: &Graph) -> String {{").unwrap();
     writeln!(out, "    let mut out = String::new();").unwrap();
     writeln!(out, "    for triple in graph.iter() {{").unwrap();
-    writeln!(out, "        let subject = subject_to_turtle(&triple.subject);").unwrap();
-    writeln!(out, "        let predicate = predicate_to_turtle(&triple.predicate);").unwrap();
-    writeln!(out, "        let object = term_ref_to_turtle_value(&triple.object);").unwrap();
+    writeln!(
+        out,
+        "        let subject = subject_to_turtle(&triple.subject);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let predicate = predicate_to_turtle(&triple.predicate);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let object = term_ref_to_turtle_value(&triple.object);"
+    )
+    .unwrap();
     writeln!(out, "        out.push_str(&subject);").unwrap();
     writeln!(out, "        out.push(' ');").unwrap();
     writeln!(out, "        out.push_str(&predicate);").unwrap();

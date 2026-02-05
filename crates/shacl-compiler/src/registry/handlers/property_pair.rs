@@ -67,12 +67,10 @@ impl ComponentCodegen for EqualsHandler {
         emission.lines.push(format!(
             "        let values: Vec<Term> = vec![focus.clone()];"
         ));
-        emission
-            .lines
-            .push(format!(
-                "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
-                prop_iri
-            ));
+        emission.lines.push(format!(
+            "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
+            prop_iri
+        ));
         emission.lines.push(
             "        let values_set: std::collections::HashSet<Term> = values.into_iter().collect();"
                 .to_string(),
@@ -138,12 +136,10 @@ impl ComponentCodegen for DisjointHandler {
         };
         let prop_iri = (ctx.term_iri)(prop)?;
         let mut emission = NodeEmission::default();
-        emission
-            .lines
-            .push(format!(
-                "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
-                prop_iri
-            ));
+        emission.lines.push(format!(
+            "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
+            prop_iri
+        ));
         emission.lines.push(
             "        let other_set: std::collections::HashSet<Term> = other_values.into_iter().collect();"
                 .to_string(),
@@ -217,13 +213,13 @@ impl ComponentCodegen for LessThanHandler {
         };
         let prop_iri = (ctx.term_iri)(prop)?;
         let mut emission = NodeEmission::default();
+        emission.lines.push(format!(
+            "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
+            prop_iri
+        ));
         emission
             .lines
-            .push(format!(
-                "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
-                prop_iri
-            ));
-        emission.lines.push("        for other in &other_values {".to_string());
+            .push("        for other in &other_values {".to_string());
         emission.lines.push(
             "            let query = format!(\"ASK {{ FILTER(?value < {}) }}\", term_to_sparql(other));"
                 .to_string(),
@@ -303,13 +299,13 @@ impl ComponentCodegen for LessThanOrEqualsHandler {
         };
         let prop_iri = (ctx.term_iri)(prop)?;
         let mut emission = NodeEmission::default();
+        emission.lines.push(format!(
+            "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
+            prop_iri
+        ));
         emission
             .lines
-            .push(format!(
-                "        let other_values = values_for_predicate(store, graph, focus, \"{}\");",
-                prop_iri
-            ));
-        emission.lines.push("        for other in &other_values {".to_string());
+            .push("        for other in &other_values {".to_string());
         emission.lines.push(
             "            let query = format!(\"ASK {{ FILTER(?value <= {}) }}\", term_to_sparql(other));"
                 .to_string(),

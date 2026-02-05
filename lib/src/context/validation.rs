@@ -5,17 +5,50 @@ use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
+use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
 use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
-use crate::shacl_ir::ShapeIR;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ComponentGraphCallKey {
+    component_id: ComponentID,
+    source_shape: SourceShape,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct GraphCallStats {
+    quads_for_pattern_calls: u64,
+    execute_prepared_calls: u64,
+}
+
+pub(crate) struct ActiveComponentScope;
+
+#[derive(Debug, Clone)]
+pub(crate) struct ComponentGraphCallStatRecord {
+    pub(crate) component_id: ComponentID,
+    pub(crate) source_shape: SourceShape,
+    pub(crate) quads_for_pattern_calls: u64,
+    pub(crate) execute_prepared_calls: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum GraphCallKind {
+    QuadsForPattern,
+    ExecutePrepared,
+}
+
+thread_local! {
+    static ACTIVE_COMPONENT_STACK: RefCell<Vec<ComponentGraphCallKey>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Runtime context shared across validators during a validation run.
 ///
@@ -37,6 +70,7 @@ pub struct ValidationContext {
     pub(crate) trace_sink: Arc<dyn TraceSink>,
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
     pub(crate) shape_ir: Arc<ShapeIR>,
+    graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
 }
 
 impl ValidationContext {
@@ -95,6 +129,7 @@ impl ValidationContext {
             trace_sink: Arc::new(memory_sink),
             trace_events,
             shape_ir,
+            graph_call_stats: Mutex::new(HashMap::new()),
         }
     }
 
@@ -184,6 +219,7 @@ impl ValidationContext {
         substitutions: &[Binding],
         enforce_values_clause: bool,
     ) -> Result<QueryResults<'a>, String> {
+        self.record_graph_call(GraphCallKind::ExecutePrepared);
         self.backend
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
     }
@@ -199,6 +235,7 @@ impl ValidationContext {
         object: Option<&Term>,
         graph: Option<GraphNameRef<'_>>,
     ) -> Result<Vec<Quad>, String> {
+        self.record_graph_call(GraphCallKind::QuadsForPattern);
         self.backend
             .quads_for_pattern(subject, predicate, object, graph)
     }
@@ -253,6 +290,68 @@ impl ValidationContext {
 
     pub(crate) fn store_prop_targets(&self, id: PropShapeID, nodes: Vec<Term>) {
         self.prop_target_cache.write().unwrap().insert(id, nodes);
+    }
+
+    pub(crate) fn enter_component_scope(
+        &self,
+        component_id: ComponentID,
+        source_shape: SourceShape,
+    ) -> ActiveComponentScope {
+        ACTIVE_COMPONENT_STACK.with(|stack| {
+            stack.borrow_mut().push(ComponentGraphCallKey {
+                component_id,
+                source_shape,
+            });
+        });
+        ActiveComponentScope
+    }
+
+    pub(crate) fn reset_component_graph_call_stats(&self) {
+        self.graph_call_stats.lock().unwrap().clear();
+    }
+
+    pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
+        let mut rows: Vec<ComponentGraphCallStatRecord> = self
+            .graph_call_stats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, stats)| ComponentGraphCallStatRecord {
+                component_id: key.component_id,
+                source_shape: key.source_shape.clone(),
+                quads_for_pattern_calls: stats.quads_for_pattern_calls,
+                execute_prepared_calls: stats.execute_prepared_calls,
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            let a_total = a.quads_for_pattern_calls + a.execute_prepared_calls;
+            let b_total = b.quads_for_pattern_calls + b.execute_prepared_calls;
+            b_total
+                .cmp(&a_total)
+                .then_with(|| b.quads_for_pattern_calls.cmp(&a.quads_for_pattern_calls))
+                .then_with(|| b.execute_prepared_calls.cmp(&a.execute_prepared_calls))
+        });
+        rows
+    }
+
+    fn current_component_key(&self) -> Option<ComponentGraphCallKey> {
+        ACTIVE_COMPONENT_STACK.with(|stack| stack.borrow().last().cloned())
+    }
+
+    fn record_graph_call(&self, call_kind: GraphCallKind) {
+        let Some(key) = self.current_component_key() else {
+            return;
+        };
+        let mut stats = self.graph_call_stats.lock().unwrap();
+        let counters = stats.entry(key).or_default();
+        match call_kind {
+            GraphCallKind::QuadsForPattern => {
+                counters.quads_for_pattern_calls += 1;
+            }
+            GraphCallKind::ExecutePrepared => {
+                counters.execute_prepared_calls += 1;
+            }
+        }
     }
 
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
@@ -456,5 +555,13 @@ impl Context {
 
     pub(crate) fn trace_index(&self) -> usize {
         self.trace_index
+    }
+}
+
+impl Drop for ActiveComponentScope {
+    fn drop(&mut self) {
+        ACTIVE_COMPONENT_STACK.with(|stack| {
+            let _ = stack.borrow_mut().pop();
+        });
     }
 }

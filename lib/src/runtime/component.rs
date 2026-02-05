@@ -335,6 +335,7 @@ impl Component {
         trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         trace.push(TraceItem::Component(component_id));
+        let _component_scope = context.enter_component_scope(component_id, c.source_shape());
         match self {
             Component::ClassConstraint(comp) => comp.validate(component_id, c, context, trace),
             Component::NodeConstraint(comp) => comp.validate(component_id, c, context, trace),

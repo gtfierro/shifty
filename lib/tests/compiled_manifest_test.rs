@@ -175,8 +175,7 @@ fn compiled_bin_for_shapes(
     for (name, content) in generated.files {
         std::fs::write(generated_dir.join(name), content)?;
     }
-    let shape_ir_json = serde_json::to_string(&shape_ir)
-        .unwrap_or_else(|_| "null".to_string());
+    let shape_ir_json = serde_json::to_string(&shape_ir).unwrap_or_else(|_| "null".to_string());
     std::fs::write(generated_dir.join("shape_ir.json"), shape_ir_json)?;
 
     let shifty_path = root.join("lib");
@@ -404,8 +403,8 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         let data_base_iri = format!("{}/.sk/", data_graph_url.as_str().trim_end_matches('/'));
         report_graph = deskolemize_graph(&report_graph, &data_base_iri);
 
-        let shapes_graph_url =
-            Url::from_file_path(test.shapes_graph_path.canonicalize()?).map_err(|()| {
+        let shapes_graph_url = Url::from_file_path(test.shapes_graph_path.canonicalize()?)
+            .map_err(|()| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "Failed to create file URL for shapes graph",

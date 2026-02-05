@@ -64,8 +64,8 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
         }
     }
 
-    if let Some(ontology) = context
-        .env
+    let env = context.env.read().unwrap();
+    if let Some(ontology) = env
         .ontologies()
         .values()
         .find(|ontology| ontology.name() == context.shape_graph_iri)

@@ -455,13 +455,13 @@ mod tests {
     use crate::context::{Context, IDLookupTable, ShapesModel, SourceShape, ValidationContext};
     use crate::ir;
     use crate::model::components::ComponentDescriptor;
+    use crate::shacl_ir::FeatureToggles;
     use crate::sparql::SparqlServices;
     use crate::types::{ComponentID, PropShapeID};
     use ontoenv::api::OntoEnv;
     use ontoenv::config::Config;
     use oxigraph::model::{Literal, NamedNode, Term};
     use oxigraph::store::Store;
-    use crate::shacl_ir::FeatureToggles;
     use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
 
@@ -496,7 +496,7 @@ mod tests {
             rules: HashMap::new(),
             node_shape_rules: HashMap::new(),
             prop_shape_rules: HashMap::new(),
-            env,
+            env: Arc::new(RwLock::new(env)),
             sparql: Arc::new(SparqlServices::new()),
             features: FeatureToggles::default(),
             original_values: None,

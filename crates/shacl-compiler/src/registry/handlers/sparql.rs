@@ -44,7 +44,10 @@ impl ComponentCodegen for SparqlHandler {
                 None => "None".to_string(),
             }
         ));
-        lines.push("        let mut seen: HashSet<(Option<Term>, Option<Term>)> = HashSet::new();".to_string());
+        lines.push(
+            "        let mut seen: HashSet<(Option<Term>, Option<Term>)> = HashSet::new();"
+                .to_string(),
+        );
         lines.push("        for row in solutions {".to_string());
         lines.push("            let value = row.get(\"value\").cloned();".to_string());
         lines.push("            let path_term = row.get(\"path\").cloned();".to_string());
@@ -91,10 +94,13 @@ impl ComponentCodegen for SparqlHandler {
         emission
             .lines
             .push("        let default_path: Option<ResultPath> = None;".to_string());
+        emission.lines.push(
+            "        let mut seen: HashSet<(Option<Term>, Option<Term>)> = HashSet::new();"
+                .to_string(),
+        );
         emission
             .lines
-            .push("        let mut seen: HashSet<(Option<Term>, Option<Term>)> = HashSet::new();".to_string());
-        emission.lines.push("        for row in solutions {".to_string());
+            .push("        for row in solutions {".to_string());
         emission.lines.push(
             "            let value = row.get(\"value\").cloned().unwrap_or_else(|| focus.clone());"
                 .to_string(),

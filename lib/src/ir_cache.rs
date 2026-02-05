@@ -1,5 +1,5 @@
-use serde_json;
 use crate::shacl_ir::ShapeIR;
+use serde_json;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};

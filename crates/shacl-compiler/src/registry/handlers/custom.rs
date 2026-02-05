@@ -89,7 +89,9 @@ impl ComponentCodegen for CustomHandler {
                 "            report.record({}, {}, focus, Some(&value), {});",
                 ctx.shape_id, ctx.component_id, path_expr
             ));
-            emission.post_loop_lines.push("        } else if !recorded_without_value {".to_string());
+            emission
+                .post_loop_lines
+                .push("        } else if !recorded_without_value {".to_string());
             emission
                 .post_loop_lines
                 .push("            recorded_without_value = true;".to_string());
@@ -128,7 +130,13 @@ impl ComponentCodegen for CustomHandler {
         let query_var = format!("query_{}", ctx.component_id);
         let prefixes = escape_rust_string(&chosen.prefixes);
 
-        emit_binding_lines(&mut emission.lines, &bindings_var, bindings, &ctx, "        ")?;
+        emit_binding_lines(
+            &mut emission.lines,
+            &bindings_var,
+            bindings,
+            &ctx,
+            "        ",
+        )?;
         emission.lines.push(format!(
             "        let mut {} = String::from(\"{}\");",
             query_var,
@@ -152,7 +160,9 @@ impl ComponentCodegen for CustomHandler {
             emission
                 .lines
                 .push("        let mut seen: HashSet<Term> = HashSet::new();".to_string());
-            emission.lines.push("        for row in solutions {".to_string());
+            emission
+                .lines
+                .push("        for row in solutions {".to_string());
             emission.lines.push(
                 "            let value = row.get(\"value\").cloned().unwrap_or_else(|| focus.clone());"
                     .to_string(),

@@ -459,9 +459,7 @@ impl PlanBuilder {
                 ComponentParams::Property {
                     shape: self
                         .map_property_shape_id(*shape)
-                        .ok_or_else(|| {
-                            format!("Missing property shape mapping {}", shape.0)
-                        })?,
+                        .ok_or_else(|| format!("Missing property shape mapping {}", shape.0))?,
                 },
             ),
             ComponentDescriptor::QualifiedValueShape {
@@ -652,14 +650,22 @@ impl PlanBuilder {
                                 .clone()
                                 .unwrap_or_else(|| local_name(param.path.as_str()));
                             let value_id = self.intern_term(value);
-                            bindings.push(PlanCustomBinding { var_name, value: value_id });
+                            bindings.push(PlanCustomBinding {
+                                var_name,
+                                value: value_id,
+                            });
                         }
                     }
                 }
                 let validator = definition.validator.as_ref().map(plan_custom_validator);
-                let node_validator = definition.node_validator.as_ref().map(plan_custom_validator);
-                let property_validator =
-                    definition.property_validator.as_ref().map(plan_custom_validator);
+                let node_validator = definition
+                    .node_validator
+                    .as_ref()
+                    .map(plan_custom_validator);
+                let property_validator = definition
+                    .property_validator
+                    .as_ref()
+                    .map(plan_custom_validator);
                 (
                     ComponentKind::Custom,
                     ComponentParams::Custom {
