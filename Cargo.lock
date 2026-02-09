@@ -2484,6 +2484,7 @@ dependencies = [
 name = "python"
 version = "0.0.6"
 dependencies = [
+ "env_logger",
  "ontoenv",
  "oxigraph",
  "pyo3",
@@ -3100,6 +3101,7 @@ dependencies = [
 name = "shifty-shacl"
 version = "0.0.6"
 dependencies = [
+ "fixedbitset",
  "log",
  "ntest",
  "ontoenv",

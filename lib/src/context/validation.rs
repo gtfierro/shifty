@@ -10,10 +10,14 @@ use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
-use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
+use fixedbitset::FixedBitSet;
+use oxigraph::model::{
+    vocab::rdf, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
+    Term, TermRef,
+};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
@@ -95,6 +99,32 @@ thread_local! {
     static ACTIVE_COMPONENT_STACK: RefCell<Vec<ComponentGraphCallKey>> = const { RefCell::new(Vec::new()) };
 }
 
+#[derive(Debug)]
+struct ClassConstraintIndex {
+    term_to_id: HashMap<Term, usize>,
+    descendants_by_super: Vec<FixedBitSet>,
+    subject_type_bits: HashMap<Term, FixedBitSet>,
+}
+
+impl ClassConstraintIndex {
+    fn class_bitset(&self, class: &Term) -> Option<&FixedBitSet> {
+        let class_id = self.term_to_id.get(class).copied()?;
+        self.descendants_by_super.get(class_id)
+    }
+
+    /// Return all subjects that are instances of `class` (transitively via rdfs:subClassOf).
+    fn instances_of_class(&self, class: &Term) -> Vec<Term> {
+        let Some(descendants) = self.class_bitset(class) else {
+            return Vec::new();
+        };
+        self.subject_type_bits
+            .iter()
+            .filter(|(_, type_bits)| type_bits.intersection(descendants).next().is_some())
+            .map(|(subject, _)| subject.clone())
+            .collect()
+    }
+}
+
 /// Runtime context shared across validators during a validation run.
 ///
 /// Owns caches (targets, advanced targets), shape/model data, and shared services
@@ -117,6 +147,8 @@ pub struct ValidationContext {
     pub(crate) shape_ir: Arc<ShapeIR>,
     graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
+    class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
+    class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
 }
 
 impl ValidationContext {
@@ -177,6 +209,8 @@ impl ValidationContext {
             shape_ir,
             graph_call_stats: Mutex::new(HashMap::new()),
             shape_timing_stats: Mutex::new(HashMap::new()),
+            class_constraint_index: RwLock::new(None),
+            class_constraint_memo: RwLock::new(HashMap::new()),
         }
     }
 
@@ -360,6 +394,8 @@ impl ValidationContext {
     pub(crate) fn reset_validation_run_state(&self) {
         self.reset_component_graph_call_stats();
         self.shape_timing_stats.lock().unwrap().clear();
+        self.class_constraint_memo.write().unwrap().clear();
+        *self.class_constraint_index.write().unwrap() = None;
     }
 
     pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
@@ -501,6 +537,159 @@ impl ValidationContext {
         }
     }
 
+    pub(crate) fn class_constraint_matches_fast(
+        &self,
+        value_node: &Term,
+        class_term: &Term,
+    ) -> Result<Option<bool>, String> {
+        if !matches!(class_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(None);
+        }
+        if !matches!(value_node, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(Some(false));
+        }
+
+        let memo_key = (value_node.clone(), class_term.clone());
+        if let Some(result) = self.class_constraint_memo.read().unwrap().get(&memo_key) {
+            return Ok(Some(*result));
+        }
+
+        let index = self.ensure_class_constraint_index()?;
+        let Some(descendants) = index.class_bitset(class_term) else {
+            self.class_constraint_memo
+                .write()
+                .unwrap()
+                .insert(memo_key, false);
+            return Ok(Some(false));
+        };
+        let result = index
+            .subject_type_bits
+            .get(value_node)
+            .map(|type_bits| type_bits.intersection(descendants).next().is_some())
+            .unwrap_or(false);
+
+        self.class_constraint_memo
+            .write()
+            .unwrap()
+            .insert(memo_key, result);
+        Ok(Some(result))
+    }
+
+    /// Return all subjects that are `rdf:type` instances of `class` (or any
+    /// subclass of it), using the precomputed bitmap index.
+    pub(crate) fn instances_of_class(&self, class: &Term) -> Result<Vec<Term>, String> {
+        let index = self.ensure_class_constraint_index()?;
+        Ok(index.instances_of_class(class))
+    }
+
+    fn ensure_class_constraint_index(&self) -> Result<Arc<ClassConstraintIndex>, String> {
+        if let Some(index) = self.class_constraint_index.read().unwrap().as_ref() {
+            return Ok(Arc::clone(index));
+        }
+        let index = Arc::new(self.build_class_constraint_index()?);
+        let mut cache = self.class_constraint_index.write().unwrap();
+        if let Some(existing) = cache.as_ref() {
+            return Ok(Arc::clone(existing));
+        }
+        *cache = Some(Arc::clone(&index));
+        Ok(index)
+    }
+
+    fn build_class_constraint_index(&self) -> Result<ClassConstraintIndex, String> {
+        let sub_class_of =
+            NamedNodeRef::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf");
+        let subclass_quads = self.quads_for_pattern(None, Some(sub_class_of), None, None)?;
+
+        let mut term_to_id: HashMap<Term, usize> = HashMap::new();
+        let mut next_id = 0usize;
+        let mut parent_edges: Vec<(usize, usize)> = Vec::new();
+
+        let mut intern = |term: Term| {
+            if let Some(id) = term_to_id.get(&term).copied() {
+                id
+            } else {
+                let id = next_id;
+                next_id += 1;
+                term_to_id.insert(term, id);
+                id
+            }
+        };
+
+        for quad in subclass_quads {
+            let subclass = term_from_subject(&quad.subject);
+            let superclass = term_from_term_ref(quad.object.as_ref());
+            let (Some(subclass), Some(superclass)) = (subclass, superclass) else {
+                continue;
+            };
+            let sub_id = intern(subclass);
+            let super_id = intern(superclass);
+            parent_edges.push((sub_id, super_id));
+        }
+
+        let type_quads =
+            self.quads_for_pattern(None, Some(rdf::TYPE), None, Some(self.data_graph_iri_ref()))?;
+
+        let mut subject_type_ids: HashMap<Term, Vec<usize>> = HashMap::new();
+        for quad in type_quads {
+            let subject = term_from_subject(&quad.subject);
+            let class = term_from_term_ref(quad.object.as_ref());
+            let (Some(subject), Some(class)) = (subject, class) else {
+                continue;
+            };
+            let class_id = intern(class);
+            subject_type_ids.entry(subject).or_default().push(class_id);
+        }
+
+        let class_count = next_id;
+        let mut parents: Vec<Vec<usize>> = vec![Vec::new(); class_count];
+        for (child, parent) in parent_edges {
+            if !parents[child].contains(&parent) {
+                parents[child].push(parent);
+            }
+        }
+
+        let mut ancestors_by_subclass: Vec<FixedBitSet> = (0..class_count)
+            .map(|_| FixedBitSet::with_capacity(class_count))
+            .collect();
+        for subclass in 0..class_count {
+            let mut visited = HashSet::new();
+            let mut stack = vec![subclass];
+            while let Some(node) = stack.pop() {
+                if !visited.insert(node) {
+                    continue;
+                }
+                ancestors_by_subclass[subclass].insert(node);
+                for parent in &parents[node] {
+                    stack.push(*parent);
+                }
+            }
+        }
+
+        let mut descendants_by_super: Vec<FixedBitSet> = (0..class_count)
+            .map(|_| FixedBitSet::with_capacity(class_count))
+            .collect();
+        for (subclass, ancestors) in ancestors_by_subclass.iter().enumerate() {
+            for super_id in ancestors.ones() {
+                descendants_by_super[super_id].insert(subclass);
+            }
+        }
+
+        let mut subject_type_bits: HashMap<Term, FixedBitSet> = HashMap::new();
+        for (subject, class_ids) in subject_type_ids {
+            let mut bits = FixedBitSet::with_capacity(class_count);
+            for class_id in class_ids {
+                bits.insert(class_id);
+            }
+            subject_type_bits.insert(subject, bits);
+        }
+
+        Ok(ClassConstraintIndex {
+            term_to_id,
+            descendants_by_super,
+            subject_type_bits,
+        })
+    }
+
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
         node.as_str().starts_with(&self.data_graph_skolem_base)
     }
@@ -558,6 +747,21 @@ fn custom_component_cache_key(
         .collect();
     entries.sort();
     format!("{}|{}", definition.iri.as_str(), entries.join("|"))
+}
+
+fn term_from_subject(subject: &NamedOrBlankNode) -> Option<Term> {
+    match subject {
+        NamedOrBlankNode::NamedNode(nn) => Some(Term::NamedNode(nn.clone())),
+        NamedOrBlankNode::BlankNode(bn) => Some(Term::BlankNode(bn.clone())),
+    }
+}
+
+fn term_from_term_ref(term: TermRef<'_>) -> Option<Term> {
+    match term {
+        TermRef::NamedNode(nn) => Some(Term::NamedNode(nn.into_owned())),
+        TermRef::BlankNode(bn) => Some(Term::BlankNode(bn.into_owned())),
+        TermRef::Literal(_) => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

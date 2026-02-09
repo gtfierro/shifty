@@ -4,7 +4,7 @@ use crate::runtime::ToSubjectRef;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, Term, TermRef};
-use oxigraph::sparql::{QueryResults, Variable};
+use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, Variable};
 use oxsdatatypes::*;
 use std::str::FromStr;
 
@@ -71,45 +71,58 @@ impl ValidateComponent for ClassConstraintComponent {
 
         let mut results = Vec::new();
         let vns = c.value_nodes().cloned().unwrap();
-        let prepared = context
-            .prepare_query(&self.query)
-            .map_err(|e| format!("Failed to prepare class constraint query: {}", e))?;
+        let mut prepared: Option<PreparedSparqlQuery> = None;
 
         for vn in vns.iter() {
-            match context.execute_prepared(
-                &self.query,
-                &prepared,
-                &[(cc_var.clone(), vn.clone())],
-                false,
-            ) {
-                Ok(QueryResults::Boolean(result)) => {
-                    if !result {
-                        let mut error_context = c.clone();
-                        error_context.with_value(vn.clone());
-                        let message = format!(
-                            "Value {:?} does not conform to class constraint: {}",
-                            vn, self.class
-                        );
-                        let failure = ValidationFailure {
-                            component_id,
-                            failed_value_node: Some(vn.clone()),
-                            message,
-                            result_path: None,
-                            source_constraint: None,
-
-                            severity: None,
-
-                            message_terms: Vec::new(),
-                        };
-                        results.push(ComponentValidationResult::Fail(error_context, failure));
+            let is_valid =
+                if let Some(result) = context.class_constraint_matches_fast(vn, &self.class)? {
+                    result
+                } else {
+                    let prepared_query = if let Some(prepared) = prepared.as_ref() {
+                        prepared
+                    } else {
+                        prepared = Some(context.prepare_query(&self.query).map_err(|e| {
+                            format!("Failed to prepare class constraint query: {}", e)
+                        })?);
+                        prepared.as_ref().unwrap()
+                    };
+                    match context.execute_prepared(
+                        &self.query,
+                        prepared_query,
+                        &[(cc_var.clone(), vn.clone())],
+                        false,
+                    ) {
+                        Ok(QueryResults::Boolean(result)) => result,
+                        Ok(_) => {
+                            return Err(
+                                "Expected a boolean result for class constraint query".to_string()
+                            );
+                        }
+                        Err(e) => {
+                            return Err(format!("Failed to execute class constraint query: {}", e));
+                        }
                     }
-                }
-                Ok(_) => {
-                    return Err("Expected a boolean result for class constraint query".to_string());
-                }
-                Err(e) => {
-                    return Err(format!("Failed to execute class constraint query: {}", e));
-                }
+                };
+
+            if !is_valid {
+                let mut error_context = c.clone();
+                error_context.with_value(vn.clone());
+                let message = format!(
+                    "Value {:?} does not conform to class constraint: {}",
+                    vn, self.class
+                );
+                let failure = ValidationFailure {
+                    component_id,
+                    failed_value_node: Some(vn.clone()),
+                    message,
+                    result_path: None,
+                    source_constraint: None,
+
+                    severity: None,
+
+                    message_terms: Vec::new(),
+                };
+                results.push(ComponentValidationResult::Fail(error_context, failure));
             }
         }
 
