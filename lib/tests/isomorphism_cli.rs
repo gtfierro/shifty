@@ -124,7 +124,7 @@ ex:Alice a ex:Person .
     // Compare reports via the isomorphic binary.
     let iso_output = run_command(
         Command::new("cargo")
-            .args(["run", "-p", "shifty", "--bin", "isomorphic", "--"])
+            .args(["run", "-p", "shifty-shacl", "--bin", "isomorphic", "--"])
             .arg(report_a.to_str().unwrap())
             .arg(report_b.to_str().unwrap()),
     )?;

@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ::shifty::shacl_ir::ShapeIR;
 use ::shifty::trace::TraceEvent;
 use ::shifty::{InferenceConfig, Source, ValidationReportOptions, Validator};
 use ontoenv::config::Config;
@@ -12,9 +13,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use pyo3::wrap_pyfunction;
-use std::sync::Once;
 use serde_json::json;
-use ::shifty::shacl_ir::ShapeIR;
+use std::sync::Once;
 use tempfile::tempdir;
 
 fn map_err<E: std::fmt::Display>(err: E) -> PyErr {
