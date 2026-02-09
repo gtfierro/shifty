@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ComponentGraphCallKey {
@@ -28,6 +29,20 @@ struct ComponentGraphCallKey {
 struct GraphCallStats {
     quads_for_pattern_calls: u64,
     execute_prepared_calls: u64,
+    component_invocations: u64,
+    runtime_nanos_total: u128,
+    runtime_nanos_sum_squares: f64,
+    runtime_nanos_min: u64,
+    runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct TimingStats {
+    invocations: u64,
+    runtime_nanos_total: u128,
+    runtime_nanos_sum_squares: f64,
+    runtime_nanos_min: u64,
+    runtime_nanos_max: u64,
 }
 
 pub(crate) struct ActiveComponentScope;
@@ -38,6 +53,36 @@ pub(crate) struct ComponentGraphCallStatRecord {
     pub(crate) source_shape: SourceShape,
     pub(crate) quads_for_pattern_calls: u64,
     pub(crate) execute_prepared_calls: u64,
+    pub(crate) component_invocations: u64,
+    pub(crate) runtime_nanos_total: u128,
+    pub(crate) runtime_nanos_sum_squares: f64,
+    pub(crate) runtime_nanos_min: u64,
+    pub(crate) runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ShapeTimingPhase {
+    NodeTargetSelection,
+    NodeValueSelection,
+    PropertyTargetSelection,
+    PropertyValueSelection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ShapeTimingKey {
+    source_shape: SourceShape,
+    phase: ShapeTimingPhase,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ShapeTimingStatRecord {
+    pub(crate) source_shape: SourceShape,
+    pub(crate) phase: ShapeTimingPhase,
+    pub(crate) invocations: u64,
+    pub(crate) runtime_nanos_total: u128,
+    pub(crate) runtime_nanos_sum_squares: f64,
+    pub(crate) runtime_nanos_min: u64,
+    pub(crate) runtime_nanos_max: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +116,7 @@ pub struct ValidationContext {
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
     pub(crate) shape_ir: Arc<ShapeIR>,
     graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
+    shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
 }
 
 impl ValidationContext {
@@ -130,6 +176,7 @@ impl ValidationContext {
             trace_events,
             shape_ir,
             graph_call_stats: Mutex::new(HashMap::new()),
+            shape_timing_stats: Mutex::new(HashMap::new()),
         }
     }
 
@@ -310,6 +357,11 @@ impl ValidationContext {
         self.graph_call_stats.lock().unwrap().clear();
     }
 
+    pub(crate) fn reset_validation_run_state(&self) {
+        self.reset_component_graph_call_stats();
+        self.shape_timing_stats.lock().unwrap().clear();
+    }
+
     pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
         let mut rows: Vec<ComponentGraphCallStatRecord> = self
             .graph_call_stats
@@ -321,15 +373,110 @@ impl ValidationContext {
                 source_shape: key.source_shape.clone(),
                 quads_for_pattern_calls: stats.quads_for_pattern_calls,
                 execute_prepared_calls: stats.execute_prepared_calls,
+                component_invocations: stats.component_invocations,
+                runtime_nanos_total: stats.runtime_nanos_total,
+                runtime_nanos_sum_squares: stats.runtime_nanos_sum_squares,
+                runtime_nanos_min: stats.runtime_nanos_min,
+                runtime_nanos_max: stats.runtime_nanos_max,
             })
             .collect();
         rows.sort_by(|a, b| {
-            let a_total = a.quads_for_pattern_calls + a.execute_prepared_calls;
-            let b_total = b.quads_for_pattern_calls + b.execute_prepared_calls;
-            b_total
-                .cmp(&a_total)
+            b.runtime_nanos_total
+                .cmp(&a.runtime_nanos_total)
+                .then_with(|| b.component_invocations.cmp(&a.component_invocations))
+                .then_with(|| {
+                    let a_total = a.quads_for_pattern_calls + a.execute_prepared_calls;
+                    let b_total = b.quads_for_pattern_calls + b.execute_prepared_calls;
+                    b_total.cmp(&a_total)
+                })
                 .then_with(|| b.quads_for_pattern_calls.cmp(&a.quads_for_pattern_calls))
                 .then_with(|| b.execute_prepared_calls.cmp(&a.execute_prepared_calls))
+        });
+        rows
+    }
+
+    pub(crate) fn record_component_duration(
+        &self,
+        component_id: ComponentID,
+        source_shape: SourceShape,
+        duration: Duration,
+    ) {
+        let nanos_u128 = duration.as_nanos();
+        let nanos_u64 = if nanos_u128 > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            nanos_u128 as u64
+        };
+        let nanos_f64 = nanos_u64 as f64;
+        let mut stats = self.graph_call_stats.lock().unwrap();
+        let counters = stats
+            .entry(ComponentGraphCallKey {
+                component_id,
+                source_shape,
+            })
+            .or_default();
+        counters.component_invocations += 1;
+        counters.runtime_nanos_total = counters.runtime_nanos_total.saturating_add(nanos_u128);
+        counters.runtime_nanos_sum_squares += nanos_f64 * nanos_f64;
+        if counters.runtime_nanos_min == 0 || nanos_u64 < counters.runtime_nanos_min {
+            counters.runtime_nanos_min = nanos_u64;
+        }
+        if nanos_u64 > counters.runtime_nanos_max {
+            counters.runtime_nanos_max = nanos_u64;
+        }
+    }
+
+    pub(crate) fn record_shape_phase_duration(
+        &self,
+        source_shape: SourceShape,
+        phase: ShapeTimingPhase,
+        duration: Duration,
+    ) {
+        let nanos_u128 = duration.as_nanos();
+        let nanos_u64 = if nanos_u128 > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            nanos_u128 as u64
+        };
+        let nanos_f64 = nanos_u64 as f64;
+        let mut stats = self.shape_timing_stats.lock().unwrap();
+        let counters = stats
+            .entry(ShapeTimingKey {
+                source_shape,
+                phase,
+            })
+            .or_default();
+        counters.invocations += 1;
+        counters.runtime_nanos_total = counters.runtime_nanos_total.saturating_add(nanos_u128);
+        counters.runtime_nanos_sum_squares += nanos_f64 * nanos_f64;
+        if counters.runtime_nanos_min == 0 || nanos_u64 < counters.runtime_nanos_min {
+            counters.runtime_nanos_min = nanos_u64;
+        }
+        if nanos_u64 > counters.runtime_nanos_max {
+            counters.runtime_nanos_max = nanos_u64;
+        }
+    }
+
+    pub(crate) fn shape_timing_stats(&self) -> Vec<ShapeTimingStatRecord> {
+        let mut rows: Vec<ShapeTimingStatRecord> = self
+            .shape_timing_stats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, stats)| ShapeTimingStatRecord {
+                source_shape: key.source_shape.clone(),
+                phase: key.phase,
+                invocations: stats.invocations,
+                runtime_nanos_total: stats.runtime_nanos_total,
+                runtime_nanos_sum_squares: stats.runtime_nanos_sum_squares,
+                runtime_nanos_min: stats.runtime_nanos_min,
+                runtime_nanos_max: stats.runtime_nanos_max,
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            b.runtime_nanos_total
+                .cmp(&a.runtime_nanos_total)
+                .then_with(|| b.invocations.cmp(&a.invocations))
         });
         rows
     }

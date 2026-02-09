@@ -4,7 +4,7 @@
 //! validation plan from the ShapeIR, executes node/property shapes in parallel, and collects
 //! failures into a `ValidationReportBuilder`.
 
-use crate::context::{Context, SourceShape, ValidationContext};
+use crate::context::{Context, ShapeTimingPhase, SourceShape, ValidationContext};
 use crate::model::components::ComponentDescriptor;
 use crate::planning::{build_validation_plan, ShapeRef};
 use crate::report::ValidationReportBuilder;
@@ -17,6 +17,7 @@ use oxigraph::model::{Literal, Term};
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Instant;
 
 pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBuilder, String> {
     let debug_parallel = std::env::var("SHACL_DEBUG_PARALLEL").is_ok();
@@ -183,6 +184,7 @@ impl ValidateShape for NodeShape {
             return Ok(());
         }
         // first gather all of the targets (cached per shape)
+        let target_selection_started = Instant::now();
         let focus_nodes = if let Some(cached) = context.cached_node_targets(self.identifier()) {
             cached
         } else {
@@ -203,6 +205,11 @@ impl ValidateShape for NodeShape {
             context.store_node_targets(*self.identifier(), vec.clone());
             vec
         };
+        context.record_shape_phase_duration(
+            SourceShape::NodeShape(*self.identifier()),
+            ShapeTimingPhase::NodeTargetSelection,
+            target_selection_started.elapsed(),
+        );
 
         if focus_nodes.is_empty() {
             return Ok(());
@@ -220,12 +227,18 @@ impl ValidateShape for NodeShape {
             .par_iter()
             .map(|focus_node| {
                 let mut local_report = ValidationReportBuilder::with_capacity(8);
+                let node_value_selection_started = Instant::now();
                 let mut target_context = Context::new(
                     focus_node.clone(),
                     None,
                     Some(vec![focus_node.clone()]),
                     SourceShape::NodeShape(*self.identifier()),
                     context.new_trace(),
+                );
+                context.record_shape_phase_duration(
+                    SourceShape::NodeShape(*self.identifier()),
+                    ShapeTimingPhase::NodeValueSelection,
+                    node_value_selection_started.elapsed(),
                 );
                 let trace_index = target_context.trace_index();
                 context
@@ -377,6 +390,7 @@ impl ValidateShape for PropertyShape {
             return Ok(());
         }
         // first gather all of the targets (cached per shape)
+        let target_selection_started = Instant::now();
         let focus_nodes = if let Some(cached) = context.cached_prop_targets(self.identifier()) {
             cached
         } else {
@@ -397,6 +411,11 @@ impl ValidateShape for PropertyShape {
             context.store_prop_targets(*self.identifier(), vec.clone());
             vec
         };
+        context.record_shape_phase_duration(
+            SourceShape::PropertyShape(*self.identifier()),
+            ShapeTimingPhase::PropertyTargetSelection,
+            target_selection_started.elapsed(),
+        );
 
         if focus_nodes.is_empty() {
             return Ok(());
@@ -611,6 +630,7 @@ impl PropertyShape {
         }
 
         for focus_node in focus_nodes_for_this_shape {
+            let value_selection_started = Instant::now();
             let raw_values = if let Some(values) = value_node_map.remove(&focus_node) {
                 values
             } else {
@@ -675,6 +695,11 @@ impl PropertyShape {
 
             let value_nodes_vec =
                 canonicalize_value_nodes(context, self, &focus_node, raw_values.clone());
+            context.record_shape_phase_duration(
+                SourceShape::PropertyShape(*self.identifier()),
+                ShapeTimingPhase::PropertyValueSelection,
+                value_selection_started.elapsed(),
+            );
 
             let value_nodes_opt = if value_nodes_vec.is_empty() {
                 None

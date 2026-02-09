@@ -16,6 +16,7 @@ use crate::runtime::validators::{
 use crate::shape::NodeShape;
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use oxigraph::model::{NamedNode, NamedOrBlankNodeRef as SubjectRef, Term, TermRef};
+use std::time::Instant;
 
 /// The result of validating a single value node against a constraint component.
 #[derive(Debug, Clone)]
@@ -335,8 +336,10 @@ impl Component {
         trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         trace.push(TraceItem::Component(component_id));
-        let _component_scope = context.enter_component_scope(component_id, c.source_shape());
-        match self {
+        let source_shape = c.source_shape();
+        let _component_scope = context.enter_component_scope(component_id, source_shape.clone());
+        let started = Instant::now();
+        let result = match self {
             Component::ClassConstraint(comp) => comp.validate(component_id, c, context, trace),
             Component::NodeConstraint(comp) => comp.validate(component_id, c, context, trace),
             Component::PropertyConstraint(comp) => comp.validate(component_id, c, context, trace),
@@ -377,7 +380,9 @@ impl Component {
             }
             Component::ClosedConstraint(comp) => comp.validate(component_id, c, context, trace),
             Component::CustomConstraint(comp) => comp.validate(component_id, c, context, trace),
-        }
+        };
+        context.record_component_duration(component_id, source_shape, started.elapsed());
+        result
     }
 }
 

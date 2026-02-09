@@ -78,6 +78,39 @@ pub struct ComponentGraphCallStat {
     pub quads_for_pattern_calls: u64,
     /// Number of `execute_prepared` calls issued while this component was active.
     pub execute_prepared_calls: u64,
+    /// Number of component validator invocations observed.
+    pub component_invocations: u64,
+    /// Total runtime across invocations, in milliseconds.
+    pub runtime_total_ms: f64,
+    /// Minimum runtime across invocations, in milliseconds.
+    pub runtime_min_ms: f64,
+    /// Maximum runtime across invocations, in milliseconds.
+    pub runtime_max_ms: f64,
+    /// Mean runtime across invocations, in milliseconds.
+    pub runtime_mean_ms: f64,
+    /// Standard deviation of runtime across invocations, in milliseconds.
+    pub runtime_stddev_ms: f64,
+}
+
+/// Aggregated runtime counters for shape-level selection phases.
+#[derive(Debug, Clone)]
+pub struct ShapePhaseTimingStat {
+    /// Source shape identifier/term.
+    pub source_shape: String,
+    /// Phase name (`node_target_selection`, `property_target_selection`, `property_value_selection`).
+    pub phase: String,
+    /// Number of phase invocations observed.
+    pub invocations: u64,
+    /// Total runtime across invocations, in milliseconds.
+    pub runtime_total_ms: f64,
+    /// Minimum runtime across invocations, in milliseconds.
+    pub runtime_min_ms: f64,
+    /// Maximum runtime across invocations, in milliseconds.
+    pub runtime_max_ms: f64,
+    /// Mean runtime across invocations, in milliseconds.
+    pub runtime_mean_ms: f64,
+    /// Standard deviation of runtime across invocations, in milliseconds.
+    pub runtime_stddev_ms: f64,
 }
 
 type SharedEnvHandle = Arc<RwLock<OntoEnv>>;
@@ -974,7 +1007,7 @@ impl Validator {
     /// The report contains the outcome of the validation (conformity) and detailed
     /// results for any failures. The returned report is tied to the lifetime of the Validator.
     pub fn validate(&self) -> ValidationReport<'_> {
-        self.context.reset_component_graph_call_stats();
+        self.context.reset_validation_run_state();
         let report_builder = validate::validate(&self.context);
         // The report needs the context to be able to serialize itself later.
         ValidationReport::new(report_builder.unwrap(), &self.context)
@@ -999,6 +1032,16 @@ impl Validator {
                 let component_label = descriptor
                     .map(|d| crate::runtime::build_component_from_descriptor(d).label())
                     .unwrap_or_else(|| "unknown".to_string());
+                let total_nanos = row.runtime_nanos_total as f64;
+                let (mean_nanos, variance_nanos) = if row.component_invocations == 0 {
+                    (0.0, 0.0)
+                } else {
+                    let invocations_f = row.component_invocations as f64;
+                    let mean_nanos = total_nanos / invocations_f;
+                    let mean_sq = row.runtime_nanos_sum_squares / invocations_f;
+                    let variance_nanos = (mean_sq - (mean_nanos * mean_nanos)).max(0.0);
+                    (mean_nanos, variance_nanos)
+                };
                 ComponentGraphCallStat {
                     component_id: row.component_id,
                     source_shape: row
@@ -1009,6 +1052,58 @@ impl Validator {
                     component_label,
                     quads_for_pattern_calls: row.quads_for_pattern_calls,
                     execute_prepared_calls: row.execute_prepared_calls,
+                    component_invocations: row.component_invocations,
+                    runtime_total_ms: total_nanos / 1_000_000.0,
+                    runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
+                    runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
+                    runtime_mean_ms: mean_nanos / 1_000_000.0,
+                    runtime_stddev_ms: variance_nanos.sqrt() / 1_000_000.0,
+                }
+            })
+            .collect()
+    }
+
+    /// Returns per-shape timing statistics for target/value selection phases.
+    pub fn shape_phase_timing_stats(&self) -> Vec<ShapePhaseTimingStat> {
+        self.context
+            .shape_timing_stats()
+            .into_iter()
+            .map(|row| {
+                let total_nanos = row.runtime_nanos_total as f64;
+                let (mean_nanos, variance_nanos) = if row.invocations == 0 {
+                    (0.0, 0.0)
+                } else {
+                    let invocations_f = row.invocations as f64;
+                    let mean_nanos = total_nanos / invocations_f;
+                    let mean_sq = row.runtime_nanos_sum_squares / invocations_f;
+                    let variance_nanos = (mean_sq - (mean_nanos * mean_nanos)).max(0.0);
+                    (mean_nanos, variance_nanos)
+                };
+                let phase = match row.phase {
+                    crate::context::ShapeTimingPhase::NodeTargetSelection => {
+                        "node_target_selection"
+                    }
+                    crate::context::ShapeTimingPhase::NodeValueSelection => "node_value_selection",
+                    crate::context::ShapeTimingPhase::PropertyTargetSelection => {
+                        "property_target_selection"
+                    }
+                    crate::context::ShapeTimingPhase::PropertyValueSelection => {
+                        "property_value_selection"
+                    }
+                };
+                ShapePhaseTimingStat {
+                    source_shape: row
+                        .source_shape
+                        .get_term(&self.context)
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| row.source_shape.to_string()),
+                    phase: phase.to_string(),
+                    invocations: row.invocations,
+                    runtime_total_ms: total_nanos / 1_000_000.0,
+                    runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
+                    runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
+                    runtime_mean_ms: mean_nanos / 1_000_000.0,
+                    runtime_stddev_ms: variance_nanos.sqrt() / 1_000_000.0,
                 }
             })
             .collect()

@@ -832,16 +832,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if args.component_graph_calls {
                 println!(
-                    "SourceShape\tComponentID\tComponent\tquads_for_pattern\texecute_prepared"
+                    "SourceShape\tComponentID\tComponent\tinvocations\tquads_for_pattern\texecute_prepared\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
                 );
                 for stat in validator.component_graph_call_stats() {
                     println!(
-                        "{}\t{}\t{}\t{}\t{}",
+                        "{}\t{}\t{}\t{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
                         stat.source_shape,
                         stat.component_id,
                         stat.component_label,
+                        stat.component_invocations,
                         stat.quads_for_pattern_calls,
-                        stat.execute_prepared_calls
+                        stat.execute_prepared_calls,
+                        stat.runtime_total_ms,
+                        stat.runtime_min_ms,
+                        stat.runtime_max_ms,
+                        stat.runtime_mean_ms,
+                        stat.runtime_stddev_ms
+                    );
+                }
+                println!();
+                println!(
+                    "SourceShape\tPhase\tinvocations\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
+                );
+                for stat in validator.shape_phase_timing_stats() {
+                    println!(
+                        "{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
+                        stat.source_shape,
+                        stat.phase,
+                        stat.invocations,
+                        stat.runtime_total_ms,
+                        stat.runtime_min_ms,
+                        stat.runtime_max_ms,
+                        stat.runtime_mean_ms,
+                        stat.runtime_stddev_ms
                     );
                 }
             }
