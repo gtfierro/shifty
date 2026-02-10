@@ -11,6 +11,7 @@ use crate::types::{ComponentID, PropShapeID, RuleID, TargetEvalExt, TraceItem, I
 use log::{debug, info};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, Variable};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
@@ -450,63 +451,77 @@ impl<'a> InferenceEngine<'a> {
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
         collected: &mut Vec<Quad>,
     ) -> Result<usize, InferenceError> {
-        let prepared =
-            self.context
-                .prepare_query(&rule.query)
-                .map_err(|e| InferenceError::RuleExecution {
-                    rule_id: rule.id,
-                    message: e,
-                })?;
-
         let var_this = Variable::new("this").map_err(|e| InferenceError::RuleExecution {
             rule_id: rule.id,
             message: e.to_string(),
         })?;
 
-        let mut added = 0usize;
-        for focus in focus_nodes {
-            if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
-                continue;
-            }
-            let substitutions: Vec<Binding> = vec![(var_this.clone(), focus.clone())];
-            let results = self
-                .context
-                .execute_prepared(&rule.query, &prepared, &substitutions, false)
-                .map_err(|e| InferenceError::RuleExecution {
-                    rule_id: rule.id,
-                    message: e,
+        // Phase 1: parallel SPARQL execution — each thread prepares its own
+        // query (hits the prepared-query cache) and collects candidate triples.
+        let candidates: Result<Vec<Vec<(Term, NamedNode, Term)>>, InferenceError> = focus_nodes
+            .par_iter()
+            .map(|focus| {
+                if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
+                    return Ok(Vec::new());
+                }
+
+                let prepared = self.context.prepare_query(&rule.query).map_err(|e| {
+                    InferenceError::RuleExecution {
+                        rule_id: rule.id,
+                        message: e,
+                    }
                 })?;
 
-            if let QueryResults::Graph(mut triples) = results {
-                for triple_res in &mut triples {
-                    let triple = triple_res.map_err(|e| InferenceError::RuleExecution {
+                let substitutions: Vec<Binding> = vec![(var_this.clone(), focus.clone())];
+                let results = self
+                    .context
+                    .execute_prepared(&rule.query, &prepared, &substitutions, false)
+                    .map_err(|e| InferenceError::RuleExecution {
                         rule_id: rule.id,
-                        message: e.to_string(),
+                        message: e,
                     })?;
-                    let subject_term = named_or_blank_to_term(triple.subject).map_err(|m| {
-                        InferenceError::RuleExecution {
-                            rule_id: rule.id,
-                            message: m,
-                        }
-                    })?;
-                    let predicate = triple.predicate;
-                    let object_term = triple.object;
-                    if self.record_inferred_triple(
-                        rule.id,
-                        subject_term,
-                        predicate,
-                        object_term,
-                        seen_new,
-                        collected,
-                    )? {
-                        added += 1;
+
+                let mut batch = Vec::new();
+                if let QueryResults::Graph(mut triples) = results {
+                    for triple_res in &mut triples {
+                        let triple =
+                            triple_res.map_err(|e| InferenceError::RuleExecution {
+                                rule_id: rule.id,
+                                message: e.to_string(),
+                            })?;
+                        let subject_term =
+                            named_or_blank_to_term(triple.subject).map_err(|m| {
+                                InferenceError::RuleExecution {
+                                    rule_id: rule.id,
+                                    message: m,
+                                }
+                            })?;
+                        batch.push((subject_term, triple.predicate, triple.object));
                     }
+                } else {
+                    return Err(InferenceError::RuleExecution {
+                        rule_id: rule.id,
+                        message: "SPARQL CONSTRUCT rule returned a non-graph result".to_string(),
+                    });
                 }
-            } else {
-                return Err(InferenceError::RuleExecution {
-                    rule_id: rule.id,
-                    message: "SPARQL CONSTRUCT rule returned a non-graph result".to_string(),
-                });
+                Ok(batch)
+            })
+            .collect();
+
+        // Phase 2: sequential dedup + insert
+        let mut added = 0usize;
+        for batch in candidates? {
+            for (subject_term, predicate, object_term) in batch {
+                if self.record_inferred_triple(
+                    rule.id,
+                    subject_term,
+                    predicate,
+                    object_term,
+                    seen_new,
+                    collected,
+                )? {
+                    added += 1;
+                }
             }
         }
 
@@ -520,28 +535,45 @@ impl<'a> InferenceEngine<'a> {
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
         collected: &mut Vec<Quad>,
     ) -> Result<usize, InferenceError> {
-        let mut added = 0usize;
+        // Phase 1: parallel template evaluation — each thread evaluates
+        // subjects/objects and builds the cross-product of candidate triples.
+        let candidates: Result<Vec<Vec<(Term, NamedNode, Term)>>, InferenceError> = focus_nodes
+            .par_iter()
+            .map(|focus| {
+                if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
+                    return Ok(Vec::new());
+                }
 
-        for focus in focus_nodes {
-            if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
-                continue;
-            }
+                let subjects = self.evaluate_template(rule.id, &rule.subject, focus)?;
+                let objects = self.evaluate_template(rule.id, &rule.object, focus)?;
 
-            let subjects = self.evaluate_template(rule.id, &rule.subject, focus)?;
-            let objects = self.evaluate_template(rule.id, &rule.object, focus)?;
-
-            for subject_term in &subjects {
-                for object_term in &objects {
-                    if self.record_inferred_triple(
-                        rule.id,
-                        subject_term.clone(),
-                        rule.predicate.clone(),
-                        object_term.clone(),
-                        seen_new,
-                        collected,
-                    )? {
-                        added += 1;
+                let mut batch = Vec::with_capacity(subjects.len() * objects.len());
+                for subject_term in &subjects {
+                    for object_term in &objects {
+                        batch.push((
+                            subject_term.clone(),
+                            rule.predicate.clone(),
+                            object_term.clone(),
+                        ));
                     }
+                }
+                Ok(batch)
+            })
+            .collect();
+
+        // Phase 2: sequential dedup + insert
+        let mut added = 0usize;
+        for batch in candidates? {
+            for (subject_term, predicate, object_term) in batch {
+                if self.record_inferred_triple(
+                    rule.id,
+                    subject_term,
+                    predicate,
+                    object_term,
+                    seen_new,
+                    collected,
+                )? {
+                    added += 1;
                 }
             }
         }
