@@ -11,10 +11,10 @@ use crate::types::{ComponentID, PropShapeID, RuleID, TargetEvalExt, TraceItem, I
 use log::{debug, info};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, Variable};
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
+use std::sync::Mutex;
 
 /// Configuration options governing inference execution.
 #[derive(Debug, Clone)]
@@ -166,7 +166,7 @@ pub struct InferenceEngine<'a> {
     context: &'a ValidationContext,
     config: InferenceConfig,
     graph: InferenceGraph,
-    skipped_rules: RefCell<HashSet<RuleID>>,
+    skipped_rules: Mutex<HashSet<RuleID>>,
 }
 
 impl<'a> InferenceEngine<'a> {
@@ -178,7 +178,7 @@ impl<'a> InferenceEngine<'a> {
             context,
             config,
             graph: InferenceGraph::from_context(context),
-            skipped_rules: RefCell::new(HashSet::new()),
+            skipped_rules: Mutex::new(HashSet::new()),
         };
         engine.validate_config()?;
         Ok(engine)
@@ -299,7 +299,7 @@ impl<'a> InferenceEngine<'a> {
                 );
             }
             for rule_id in rule_ids {
-                if self.skipped_rules.borrow().contains(rule_id) {
+                if self.skipped_rules.lock().unwrap().contains(rule_id) {
                     continue;
                 }
                 let Some(rule) = self.graph.rules.get(rule_id) else {
@@ -318,7 +318,7 @@ impl<'a> InferenceEngine<'a> {
                             rule_id, shape_id
                         );
                     }
-                    self.skipped_rules.borrow_mut().insert(*rule_id);
+                    self.skipped_rules.lock().unwrap().insert(*rule_id);
                     continue;
                 }
                 let added = match rule {
@@ -362,7 +362,7 @@ impl<'a> InferenceEngine<'a> {
                 );
             }
             for rule_id in rule_ids {
-                if self.skipped_rules.borrow().contains(rule_id) {
+                if self.skipped_rules.lock().unwrap().contains(rule_id) {
                     continue;
                 }
                 let Some(rule) = self.graph.rules.get(rule_id) else {
@@ -381,7 +381,7 @@ impl<'a> InferenceEngine<'a> {
                             rule_id, shape_id
                         );
                     }
-                    self.skipped_rules.borrow_mut().insert(*rule_id);
+                    self.skipped_rules.lock().unwrap().insert(*rule_id);
                     continue;
                 }
                 let added = match rule {
