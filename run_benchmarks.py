@@ -48,12 +48,15 @@ class Measurement:
     triples: int
     run: int
     seconds: float
+    timed_out: bool = False
 
     # log post-init
     def __post_init__(self) -> None:
+        timeout_suffix = " (timeout)" if self.timed_out else ""
         LOGGER.info(
             f"[{self.platform}] {self.data_file.name} | "
             f"{self.triples} triples | run {self.run} | {self.seconds:.3f} s"
+            f"{timeout_suffix}"
         )
 
 
@@ -91,7 +94,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-build",
         action="store_true",
-        help="Skip the initial 'cargo build -r' step for shifty.",
+        help="Skip initial build/compile steps for shifty and shacl-compiler.",
+    )
+    parser.add_argument(
+        "--compiled-out-dir",
+        default="target/compiled-shacl-benchmark",
+        help="Output directory for the generated shacl-compiler benchmark executable.",
+    )
+    parser.add_argument(
+        "--compiled-bin-name",
+        default="shacl-compiled-benchmark",
+        help="Binary name for the generated shacl-compiler benchmark executable.",
     )
     parser.add_argument(
         "--uv",
@@ -104,7 +117,19 @@ def parse_args() -> argparse.Namespace:
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
         help="Logging verbosity for benchmark progress messages.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Per-command timeout in seconds. "
+            "When unset, commands run without a timeout."
+        ),
+    )
+    args = parser.parse_args()
+    if args.timeout_seconds is not None and args.timeout_seconds <= 0:
+        parser.error("--timeout-seconds must be greater than 0")
+    return args
 
 
 def configure_logging(level: str) -> None:
@@ -117,15 +142,35 @@ def configure_logging(level: str) -> None:
     )
 
 
-def run_checked(command: List[str], label: str) -> None:
+def run_checked(
+    command: List[str], label: str, timeout_seconds: float | None = None
+) -> None:
     """Run a command and raise on failure, surfacing stdout/stderr for debugging."""
     LOGGER.info("-> %s: %s", label, " ".join(command))
-    result = subprocess.run(
-        command,
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        timeout_display = (
+            f"{timeout_seconds:g}"
+            if timeout_seconds is not None
+            else "unspecified"
+        )
+        LOGGER.error(
+            "Command timed out after %s s: %s",
+            timeout_display,
+            " ".join(command),
+        )
+        if exc.stdout:
+            LOGGER.debug("stdout:\n%s", exc.stdout)
+        if exc.stderr:
+            LOGGER.debug("stderr:\n%s", exc.stderr)
+        raise
     if result.returncode != 0:
         LOGGER.error("Command failed with exit code %s", result.returncode)
         if result.stdout:
@@ -135,15 +180,37 @@ def run_checked(command: List[str], label: str) -> None:
         result.check_returncode()
 
 
-def time_command(command: List[str]) -> float:
-    """Measure wall-clock runtime of a command, raising if it fails."""
+def time_command(
+    command: List[str], timeout_seconds: float | None = None
+) -> tuple[float, bool]:
+    """Measure wall-clock runtime of a command.
+
+    Returns:
+        (duration_seconds, timed_out)
+    """
     start = time.perf_counter()
-    result = subprocess.run(
-        command,
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration = time.perf_counter() - start
+        timeout_display = f"{timeout_seconds:g}" if timeout_seconds is not None else "?"
+        LOGGER.warning(
+            "Command timed out after %s s; recording %.3f s and continuing: %s",
+            timeout_display,
+            duration,
+            " ".join(command),
+        )
+        if exc.stdout:
+            LOGGER.debug("stdout:\n%s", exc.stdout)
+        if exc.stderr:
+            LOGGER.debug("stderr:\n%s", exc.stderr)
+        return duration, True
     duration = time.perf_counter() - start
     if result.returncode != 0:
         LOGGER.error("Command failed: %s", " ".join(command))
@@ -152,7 +219,7 @@ def time_command(command: List[str]) -> float:
         if result.stderr:
             LOGGER.debug("stderr:\n%s", result.stderr)
         result.check_returncode()
-    return duration
+    return duration, False
 
 
 def count_triples(path: Path) -> int:
@@ -171,16 +238,72 @@ def collect_models(pattern: str) -> List[Path]:
     return models
 
 
+def resolve_compiled_binary(out_dir: Path, bin_name: str) -> Path:
+    candidates = [
+        out_dir / "target" / "release" / bin_name,
+        out_dir / bin_name,
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    candidate_list = ", ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(
+        "Compiled shacl-compiler executable not found. "
+        f"Looked in: {candidate_list}"
+    )
+
+
 def benchmark_platforms(
     models: Iterable[Path],
     shapes_file: Path,
     runs: int,
     uv_exe: str,
     skip_build: bool,
+    compiled_out_dir: Path,
+    compiled_bin_name: str,
+    timeout_seconds: float | None,
 ) -> List[Measurement]:
     if not skip_build:
-        run_checked(["cargo", "build", "-r"], "cargo build -r")
-        run_checked(["./target/release/shifty", "generate-ir", "--shapes-file", str(shapes_file), "--output-file", "shapes.ir"], "shifty generate-ir")
+        run_checked(
+            ["cargo", "build", "-r"],
+            "cargo build -r",
+        )
+        run_checked(
+            [
+                "./target/release/shifty",
+                "generate-ir",
+                "--shapes-file",
+                str(shapes_file),
+                "--output-file",
+                "shapes.ir",
+            ],
+            "shifty generate-ir",
+        )
+        run_checked(
+            [
+                "cargo",
+                "run",
+                "-p",
+                "cli",
+                "--features",
+                "shacl-compiler",
+                "--",
+                "compile",
+                "--shapes-file",
+                str(shapes_file),
+                "--out-dir",
+                str(compiled_out_dir),
+                "--bin-name",
+                compiled_bin_name,
+                "--release",
+                "--shifty-path",
+                str(REPO_ROOT / "lib"),
+            ],
+            "shifty compile (shacl-compiler)",
+        )
+
+    compiled_binary = resolve_compiled_binary(compiled_out_dir, compiled_bin_name)
+    LOGGER.info("Using shacl-compiler executable: %s", compiled_binary)
 
     commands: dict[str, Callable[[Path], List[str]]] = {
         "shifty-pre": lambda data: [
@@ -201,13 +324,17 @@ def benchmark_platforms(
             str(shapes_file),
             "--run-inference",
         ],
-        #"pyshacl": lambda data: [
-        #    uv_exe,
-        #    "run",
-        #    "scripts/pyshacl_bench.py",
-        #    str(data),
-        #    str(shapes_file),
-        #],
+        "shacl-compiler": lambda data: [
+            str(compiled_binary),
+            str(data),
+        ],
+        "pyshacl": lambda data: [
+            uv_exe,
+            "run",
+            "scripts/pyshacl_bench.py",
+            str(data),
+            str(shapes_file),
+        ],
         "topquadrant": lambda data: [
             uv_exe,
             "run",
@@ -215,13 +342,13 @@ def benchmark_platforms(
             str(data),
             str(shapes_file),
         ],
-        "bmotif-topquadrant": lambda data: [
-            uv_exe,
-            "run",
-            "scripts/bmotif-topquadrant.py",
-            str(data),
-            str(shapes_file),
-        ],
+        #"bmotif-topquadrant": lambda data: [
+        #    uv_exe,
+        #    "run",
+        #    "scripts/bmotif-topquadrant.py",
+        #    str(data),
+        #    str(shapes_file),
+        #],
     }
 
     measurements: List[Measurement] = []
@@ -242,7 +369,10 @@ def benchmark_platforms(
                     runs,
                     triples,
                 )
-                seconds = time_command(command_builder(data_file))
+                seconds, timed_out = time_command(
+                    command_builder(data_file),
+                    timeout_seconds=timeout_seconds,
+                )
                 measurements.append(
                     Measurement(
                         platform=platform,
@@ -250,6 +380,7 @@ def benchmark_platforms(
                         triples=triples,
                         run=run_index,
                         seconds=seconds,
+                        timed_out=timed_out,
                     )
                 )
     return measurements
@@ -264,6 +395,7 @@ def save_results(measurements: List[Measurement], csv_path: Path) -> pd.DataFram
                 "triples": m.triples,
                 "run": m.run,
                 "seconds": m.seconds,
+                "timed_out": m.timed_out,
             }
             for m in measurements
         ]
@@ -286,7 +418,20 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
     )
 
     plt.figure(figsize=(8, 5))
-    for platform in ["shifty-pre", "shifty", "pyshacl", "topquadrant", "bmotif-topquadrant"]:
+    preferred_order = [
+        "shifty-pre",
+        "shifty",
+        "shacl-compiler",
+        "pyshacl",
+        "topquadrant",
+        "bmotif-topquadrant",
+    ]
+    remaining_platforms = sorted(
+        platform
+        for platform in stats_df["platform"].unique()
+        if platform not in preferred_order
+    )
+    for platform in preferred_order + remaining_platforms:
         platform_df = stats_df[stats_df["platform"] == platform].sort_values(
             "triples"
         )
@@ -312,8 +457,13 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
 
 def print_summary(df: pd.DataFrame) -> None:
     summary = (
-        df.groupby("platform")["seconds"]
-        .agg(["mean", "std"])
+        df.groupby("platform")
+        .agg(
+            mean=("seconds", "mean"),
+            std=("seconds", "std"),
+            timeouts=("timed_out", "sum"),
+            runs=("timed_out", "count"),
+        )
         .sort_values("mean")
         .reset_index()
     )
@@ -322,10 +472,12 @@ def print_summary(df: pd.DataFrame) -> None:
         std = row["std"]
         std_val = 0.0 if pd.isna(std) else std
         LOGGER.info(
-            "  %-12s mean=%.3f std=%.3f",
+            "  %-12s mean=%.3f std=%.3f timeouts=%d/%d",
             row["platform"],
             row["mean"],
             std_val,
+            int(row["timeouts"]),
+            int(row["runs"]),
         )
 
 
@@ -344,6 +496,9 @@ def main() -> None:
         runs=args.runs,
         uv_exe=args.uv,
         skip_build=args.skip_build,
+        compiled_out_dir=(REPO_ROOT / args.compiled_out_dir).resolve(),
+        compiled_bin_name=args.compiled_bin_name,
+        timeout_seconds=args.timeout_seconds,
     )
 
     df = save_results(measurements, REPO_ROOT / args.output_csv)
