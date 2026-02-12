@@ -547,6 +547,10 @@ fn get_validator_shapes_only(
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
+        // Generate SHACL-IR from parser output without data-dependent shape optimization.
+        // generate-ir uses Source::Empty, so optimization can prune/alter targets based on
+        // the empty data graph and produce IR that diverges from validate --shapes-file.
+        .with_shape_optimization(false)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
@@ -1030,7 +1034,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\n{}\nontoenv = \"0.5.0-a2\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = true\n",
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\n{}\nontoenv = \"0.5.0-a5\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = true\n",
                 args.bin_name,
                 shifty_dep,
             );

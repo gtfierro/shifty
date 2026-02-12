@@ -181,7 +181,7 @@ fn compiled_bin_for_shapes(
     let shifty_path = root.join("lib");
     let bin_name = "shacl-compiled";
     let cargo_toml = format!(
-        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\", features = [\"rocksdb-pkg-config\"] }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\" }}\nontoenv = \"0.5.0-a2\"\noxsdatatypes = \"0.2.2\"\nlog = \"0.4\"\n\n[profile.release]\ndebug = true\n",
+        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\", features = [\"rocksdb-pkg-config\"] }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\", package = \"shifty-shacl\" }}\nontoenv = \"0.5.0-a5\"\noxsdatatypes = \"0.2.2\"\nlog = \"0.4\"\n\n[profile.release]\ndebug = true\n",
         bin_name,
         shifty_path.display(),
     );
