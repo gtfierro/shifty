@@ -3,14 +3,20 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-#[cfg(feature = "shacl-compiler")]
+#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
 use oxigraph::model::{Graph, Triple};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "shacl-compiler")]
-use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+use shacl_compiler::{
+    generate_rust_modules_from_plan as generate_rust_modules_from_plan_v1, PlanIR as PlanIRv1,
+};
+#[cfg(feature = "shacl-compiler2")]
+use shacl_compiler2::{
+    generate_rust_modules_from_plan as generate_rust_modules_from_plan_v2, PlanIR as PlanIRv2,
+};
 use shifty::ir_cache;
-#[cfg(feature = "shacl-compiler")]
+#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
 use shifty::shacl_ir::ShapeIR;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
@@ -18,7 +24,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-#[cfg(feature = "shacl-compiler")]
+#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
 use std::process::Command;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
@@ -169,7 +175,7 @@ struct GenerateIrArgs {
     output_file: PathBuf,
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
 #[derive(Parser)]
 struct CompileArgs {
     #[clap(flatten)]
@@ -211,6 +217,11 @@ struct CompileArgs {
     #[arg(long, value_name = "NAME", default_value = "shacl-compiled")]
     bin_name: String,
 
+    /// Select the compiler backend (only available when both compiler features are enabled)
+    #[cfg(all(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+    #[arg(long, value_enum, default_value_t = CompileBackend::ShaclCompiler)]
+    compiler_backend: CompileBackend,
+
     /// Optional output path for PlanIR JSON
     #[arg(long, value_name = "FILE")]
     plan_out: Option<PathBuf>,
@@ -230,6 +241,14 @@ struct CompileArgs {
     /// Git revision/tag/branch for the shifty dependency (optional)
     #[arg(long, value_name = "REF")]
     shifty_git_ref: Option<String>,
+}
+
+#[cfg(all(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[derive(ValueEnum, Debug, Clone, Copy, Default)]
+enum CompileBackend {
+    #[default]
+    ShaclCompiler,
+    ShaclCompiler2,
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -466,7 +485,7 @@ enum Commands {
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
     /// Generate + compile a specialized SHACL executable for the given shapes
-    #[cfg(feature = "shacl-compiler")]
+    #[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
     Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
@@ -555,7 +574,7 @@ fn get_validator_shapes_only(
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
@@ -951,7 +970,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             emit_validator_traces(&validator, &args.trace)?;
         }
-        #[cfg(feature = "shacl-compiler")]
+        #[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
         Commands::Compile(args) => {
             let validator = get_validator_shapes_only_for_compile(&args)?;
             let shape_ir = if args.no_imports {
@@ -961,23 +980,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .shape_ir_with_imports(args.import_depth)
                     .map_err(|e| format!("{}", e))?
             };
-            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+            #[cfg(all(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+            let (plan_json, generated_root, generated_files, backend_label) = match args
+                .compiler_backend
+            {
+                CompileBackend::ShaclCompiler => {
+                    let plan = PlanIRv1::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+                    let plan_json = plan
+                        .to_json_pretty()
+                        .map_err(|e| format!("plan serialization error: {}", e))?;
+                    let generated = generate_rust_modules_from_plan_v1(&plan)?;
+                    (plan_json, generated.root, generated.files, "shacl-compiler")
+                }
+                CompileBackend::ShaclCompiler2 => {
+                    let plan = PlanIRv2::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+                    let plan_json = plan
+                        .to_json_pretty()
+                        .map_err(|e| format!("plan serialization error: {}", e))?;
+                    let generated = generate_rust_modules_from_plan_v2(&plan)?;
+                    (
+                        plan_json,
+                        generated.root,
+                        generated.files,
+                        "shacl-compiler2",
+                    )
+                }
+            };
 
-            if let Some(plan_out) = &args.plan_out {
-                let json = plan
+            #[cfg(all(feature = "shacl-compiler", not(feature = "shacl-compiler2")))]
+            let (plan_json, generated_root, generated_files, backend_label) = {
+                let plan = PlanIRv1::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+                let plan_json = plan
                     .to_json_pretty()
                     .map_err(|e| format!("plan serialization error: {}", e))?;
-                fs::write(plan_out, json)?;
+                let generated = generate_rust_modules_from_plan_v1(&plan)?;
+                (plan_json, generated.root, generated.files, "shacl-compiler")
+            };
+
+            #[cfg(all(not(feature = "shacl-compiler"), feature = "shacl-compiler2"))]
+            let (plan_json, generated_root, generated_files, backend_label) = {
+                let plan = PlanIRv2::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+                let plan_json = plan
+                    .to_json_pretty()
+                    .map_err(|e| format!("plan serialization error: {}", e))?;
+                let generated = generate_rust_modules_from_plan_v2(&plan)?;
+                (
+                    plan_json,
+                    generated.root,
+                    generated.files,
+                    "shacl-compiler2",
+                )
+            };
+
+            if let Some(plan_out) = &args.plan_out {
+                fs::write(plan_out, &plan_json)?;
             }
 
-            let generated = generate_rust_modules_from_plan(&plan)?;
+            info!("Using compile backend: {}", backend_label);
+
             let out_dir = &args.out_dir;
             let src_dir = out_dir.join("src");
             let generated_dir = src_dir.join("generated");
             fs::create_dir_all(&src_dir)?;
             fs::create_dir_all(&generated_dir)?;
-            fs::write(generated_dir.join("mod.rs"), generated.root)?;
-            for (name, content) in generated.files {
+            fs::write(generated_dir.join("mod.rs"), generated_root)?;
+            for (name, content) in generated_files {
                 fs::write(generated_dir.join(name), content)?;
             }
             let shape_ir_json = serde_json::to_string(&shape_ir)
@@ -1202,7 +1269,7 @@ impl TraceOutputArgs {
     }
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
 fn write_shape_graph_ttl(
     shape_ir: &ShapeIR,
     path: &Path,

@@ -408,6 +408,7 @@ dependencies = [
  "oxigraph",
  "serde_json",
  "shacl-compiler",
+ "shacl-compiler2",
  "shifty-shacl",
 ]
 
@@ -3095,6 +3096,21 @@ dependencies = [
  "serde",
  "serde_json",
  "shifty-shacl",
+]
+
+[[package]]
+name = "shacl-compiler2"
+version = "0.0.6"
+dependencies = [
+ "clap",
+ "oxigraph",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "shifty-shacl",
+ "syn 2.0.114",
 ]
 
 [[package]]
