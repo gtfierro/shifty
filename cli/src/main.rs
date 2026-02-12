@@ -867,6 +867,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         stat.runtime_stddev_ms
                     );
                 }
+                println!();
+                println!(
+                    "SourceShape\tComponentID\tConstraint\tquery_hash\tinvocations\trows_total\trows_min\trows_max\trows_mean\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
+                );
+                for stat in validator.sparql_query_call_stats() {
+                    let constraint = stat.constraint_term.replace('\n', " ").replace('\t', " ");
+                    println!(
+                        "{}\t{}\t{}\t{:016x}\t{}\t{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
+                        stat.source_shape,
+                        stat.component_id,
+                        constraint,
+                        stat.query_hash,
+                        stat.invocations,
+                        stat.rows_returned_total,
+                        stat.rows_returned_min,
+                        stat.rows_returned_max,
+                        stat.rows_returned_mean,
+                        stat.runtime_total_ms,
+                        stat.runtime_min_ms,
+                        stat.runtime_max_ms,
+                        stat.runtime_mean_ms,
+                        stat.runtime_stddev_ms
+                    );
+                }
             }
 
             emit_validator_traces(&validator, &args.trace)?;

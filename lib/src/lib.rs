@@ -113,6 +113,39 @@ pub struct ShapePhaseTimingStat {
     pub runtime_stddev_ms: f64,
 }
 
+/// Aggregated runtime counters for SPARQL constraint query execution.
+#[derive(Debug, Clone)]
+pub struct SparqlQueryCallStat {
+    /// Source shape identifier/term that owns the SPARQL component.
+    pub source_shape: String,
+    /// Constraint component ID (`sh:...` instance in SHACL-IR).
+    pub component_id: ComponentID,
+    /// Constraint node term identifying the concrete `sh:sparql` constraint.
+    pub constraint_term: String,
+    /// 64-bit hash of the fully rendered SPARQL query string.
+    pub query_hash: u64,
+    /// Number of query executions observed for this key.
+    pub invocations: u64,
+    /// Total number of solution rows returned across invocations.
+    pub rows_returned_total: u64,
+    /// Minimum rows returned by a single invocation.
+    pub rows_returned_min: u64,
+    /// Maximum rows returned by a single invocation.
+    pub rows_returned_max: u64,
+    /// Mean rows returned per invocation.
+    pub rows_returned_mean: f64,
+    /// Total runtime across invocations, in milliseconds.
+    pub runtime_total_ms: f64,
+    /// Minimum runtime across invocations, in milliseconds.
+    pub runtime_min_ms: f64,
+    /// Maximum runtime across invocations, in milliseconds.
+    pub runtime_max_ms: f64,
+    /// Mean runtime across invocations, in milliseconds.
+    pub runtime_mean_ms: f64,
+    /// Standard deviation of runtime across invocations, in milliseconds.
+    pub runtime_stddev_ms: f64,
+}
+
 type SharedEnvHandle = Arc<RwLock<OntoEnv>>;
 
 static SHARED_ONTOENV: OnceLock<Mutex<Option<SharedEnvHandle>>> = OnceLock::new();
@@ -435,14 +468,14 @@ impl ValidatorBuilder {
 
                 let mut populated = false;
                 if let Some(ids) = &shapes_closure_ids {
-                    let union =
-                        env.get_union_graph(ids, Some(false), Some(false))
-                            .map_err(|e| {
-                                Box::new(std::io::Error::other(format!(
-                                    "Failed to load union graph for shapes graph {}: {}",
-                                    shapes_graph_iri, e
-                                ))) as Box<dyn Error>
-                            })?;
+                    let union = env
+                        .get_union_graph(ids, shapes_graph_iri.as_ref(), Some(false), Some(false))
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to load union graph for shapes graph {}: {}",
+                                shapes_graph_iri, e
+                            ))) as Box<dyn Error>
+                        })?;
                     for quad in union.dataset.iter() {
                         store.insert(quad).map_err(|e| {
                             Box::new(std::io::Error::other(format!(
@@ -454,14 +487,14 @@ impl ValidatorBuilder {
                     populated = true;
                 }
                 if let Some(ids) = &data_closure_ids {
-                    let union =
-                        env.get_union_graph(ids, Some(false), Some(false))
-                            .map_err(|e| {
-                                Box::new(std::io::Error::other(format!(
-                                    "Failed to load union graph for data graph {}: {}",
-                                    data_graph_iri, e
-                                ))) as Box<dyn Error>
-                            })?;
+                    let union = env
+                        .get_union_graph(ids, data_graph_iri.as_ref(), Some(false), Some(false))
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to load union graph for data graph {}: {}",
+                                data_graph_iri, e
+                            ))) as Box<dyn Error>
+                        })?;
                     for quad in union.dataset.iter() {
                         store.insert(quad).map_err(|e| {
                             Box::new(std::io::Error::other(format!(
@@ -1099,6 +1132,52 @@ impl Validator {
                         .unwrap_or_else(|| row.source_shape.to_string()),
                     phase: phase.to_string(),
                     invocations: row.invocations,
+                    runtime_total_ms: total_nanos / 1_000_000.0,
+                    runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
+                    runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
+                    runtime_mean_ms: mean_nanos / 1_000_000.0,
+                    runtime_stddev_ms: variance_nanos.sqrt() / 1_000_000.0,
+                }
+            })
+            .collect()
+    }
+
+    /// Returns per-SPARQL-query timing and row-count statistics collected during validation.
+    pub fn sparql_query_call_stats(&self) -> Vec<SparqlQueryCallStat> {
+        self.context
+            .sparql_query_call_stats()
+            .into_iter()
+            .map(|row| {
+                let total_nanos = row.runtime_nanos_total as f64;
+                let invocations_f = row.invocations as f64;
+                let (mean_nanos, variance_nanos) = if row.invocations == 0 {
+                    (0.0, 0.0)
+                } else {
+                    let mean_nanos = total_nanos / invocations_f;
+                    let mean_sq = row.runtime_nanos_sum_squares / invocations_f;
+                    let variance_nanos = (mean_sq - (mean_nanos * mean_nanos)).max(0.0);
+                    (mean_nanos, variance_nanos)
+                };
+                let rows_returned_mean = if row.invocations == 0 {
+                    0.0
+                } else {
+                    row.rows_returned_total as f64 / invocations_f
+                };
+
+                SparqlQueryCallStat {
+                    source_shape: row
+                        .source_shape
+                        .get_term(&self.context)
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| row.source_shape.to_string()),
+                    component_id: row.component_id,
+                    constraint_term: row.constraint_term.to_string(),
+                    query_hash: row.query_hash,
+                    invocations: row.invocations,
+                    rows_returned_total: row.rows_returned_total,
+                    rows_returned_min: row.rows_returned_min,
+                    rows_returned_max: row.rows_returned_max,
+                    rows_returned_mean,
                     runtime_total_ms: total_nanos / 1_000_000.0,
                     runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
                     runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
