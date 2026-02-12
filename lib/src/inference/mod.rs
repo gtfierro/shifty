@@ -484,18 +484,16 @@ impl<'a> InferenceEngine<'a> {
                 let mut batch = Vec::new();
                 if let QueryResults::Graph(mut triples) = results {
                     for triple_res in &mut triples {
-                        let triple =
-                            triple_res.map_err(|e| InferenceError::RuleExecution {
+                        let triple = triple_res.map_err(|e| InferenceError::RuleExecution {
+                            rule_id: rule.id,
+                            message: e.to_string(),
+                        })?;
+                        let subject_term = named_or_blank_to_term(triple.subject).map_err(|m| {
+                            InferenceError::RuleExecution {
                                 rule_id: rule.id,
-                                message: e.to_string(),
-                            })?;
-                        let subject_term =
-                            named_or_blank_to_term(triple.subject).map_err(|m| {
-                                InferenceError::RuleExecution {
-                                    rule_id: rule.id,
-                                    message: m,
-                                }
-                            })?;
+                                message: m,
+                            }
+                        })?;
                         batch.push((subject_term, triple.predicate, triple.object));
                     }
                 } else {
