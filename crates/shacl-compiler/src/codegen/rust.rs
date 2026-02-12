@@ -68,6 +68,9 @@ struct Sections {
     run: String,
 }
 
+type ComponentLookup<'a> = HashMap<CompId, &'a PlanComponent>;
+type ShapeLookup<'a> = HashMap<u64, &'a PlanShape>;
+
 fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     let mut prelude = String::new();
     let mut helpers = String::new();
@@ -218,6 +221,526 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(prelude, "{}", "}").unwrap();
     writeln!(prelude, "").unwrap();
 
+    emit_helpers_section(&mut helpers, plan)?;
+    let term_iri = |term_id: u64| term_iri(plan, term_id);
+    let term_expr = |term_id: u64| term_expr_id(plan, term_id);
+
+    emit_inference(&mut inference, plan, &term_expr, &term_iri)?;
+
+    emit_path_functions(&mut paths, plan)?;
+    emit_shape_triples(&mut shape_triples, &mut shape_graph_nt, plan)?;
+    emit_subclass_edges(&mut helpers, plan)?;
+
+    let (component_lookup, node_shape_lookup, property_shape_lookup) = build_codegen_lookups(plan);
+    let qualified_siblings = build_qualified_sibling_map(plan, &component_lookup);
+    let allowed_predicate_map =
+        build_allowed_predicate_map(plan, &component_lookup, &property_shape_lookup)?;
+    emit_property_shape_validators(
+        &mut property_validators,
+        &mut targets,
+        plan,
+        &component_lookup,
+        &qualified_siblings,
+    )?;
+    emit_allowed_predicates_helpers(
+        &mut allowed_predicates,
+        plan,
+        &component_lookup,
+        &allowed_predicate_map,
+    );
+    emit_node_shape_validators(&mut node_validators, &mut targets, plan, &component_lookup)?;
+    emit_run_section(&mut run, plan, &node_shape_lookup, &property_shape_lookup)?;
+    Ok(Sections {
+        prelude,
+        helpers,
+        paths,
+        shape_triples,
+        shape_graph_nt,
+        targets,
+        allowed_predicates,
+        property_validators,
+        node_validators,
+        inference,
+        run,
+    })
+}
+
+fn build_codegen_lookups<'a>(
+    plan: &'a PlanIR,
+) -> (ComponentLookup<'a>, ShapeLookup<'a>, ShapeLookup<'a>) {
+    let component_lookup: ComponentLookup<'a> = plan.components.iter().map(|c| (c.id, c)).collect();
+    let node_shape_lookup: ShapeLookup<'a> = plan
+        .shapes
+        .iter()
+        .filter(|s| s.kind == PlanShapeKind::Node)
+        .map(|s| (s.id, s))
+        .collect();
+    let property_shape_lookup: ShapeLookup<'a> = plan
+        .shapes
+        .iter()
+        .filter(|s| s.kind == PlanShapeKind::Property)
+        .map(|s| (s.id, s))
+        .collect();
+    (component_lookup, node_shape_lookup, property_shape_lookup)
+}
+
+fn emit_property_shape_validators(
+    property_validators: &mut String,
+    targets: &mut String,
+    plan: &PlanIR,
+    component_lookup: &ComponentLookup<'_>,
+    qualified_siblings: &HashMap<CompId, Vec<u64>>,
+) -> Result<(), String> {
+    let term_iri = |term_id: u64| term_iri(plan, term_id);
+    let term_expr = |term_id: u64| term_expr_id(plan, term_id);
+    let term_sparql = |term_id: u64| term_sparql_const(plan, term_id);
+
+    for shape in plan
+        .shapes
+        .iter()
+        .filter(|s| s.kind == PlanShapeKind::Property)
+    {
+        if shape.deactivated {
+            continue;
+        }
+        let path_id = shape
+            .path
+            .ok_or_else(|| format!("Property shape {} missing path", shape.id))?;
+        let path_display = path_to_string(plan, path_id)?;
+
+        let mut emission = PropertyEmission::default();
+        for component_id in &shape.constraints {
+            let component = component_lookup
+                .get(component_id)
+                .ok_or_else(|| format!("Missing component {}", component_id))?;
+            let handler = registry::lookup(component.kind);
+            let sibling_list = if component.kind == ComponentKind::QualifiedValueShape {
+                Some(
+                    qualified_siblings
+                        .get(&component.id)
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]),
+                )
+            } else {
+                None
+            };
+            let ctx = EmitContext {
+                shape_id: shape.id,
+                component_id: component.id,
+                path_id: Some(path_id),
+                path_sparql: Some(&path_display),
+                term_iri: &term_iri,
+                term_expr: &term_expr,
+                term_sparql: &term_sparql,
+                qualified_siblings: sibling_list,
+            };
+            let component_emission = handler.emit_property(ctx, &component.params)?;
+            emission.merge(component_emission);
+        }
+
+        writeln!(
+            property_validators,
+            "fn validate_property_shape_{}_for_focus(",
+            shape.id
+        )
+        .unwrap();
+        writeln!(property_validators, "    store: &Store,").unwrap();
+        writeln!(property_validators, "    graph: Option<GraphNameRef<'_>>,").unwrap();
+        writeln!(property_validators, "    focus: &Term,").unwrap();
+        writeln!(property_validators, "    report: &mut Report,").unwrap();
+        writeln!(property_validators, "{}", ") {").unwrap();
+        writeln!(
+            property_validators,
+            "    let values = path_{}(store, graph, focus);",
+            path_id
+        )
+        .unwrap();
+        if let Some(predicate_iri) = simple_predicate_iri(plan, path_id)? {
+            writeln!(
+                property_validators,
+                "    let values = canonicalize_values_for_predicate(store, graph, focus, \"{}\", values);",
+                escape_rust_string(&predicate_iri)
+            )
+            .unwrap();
+        }
+        if emission.needs_count {
+            writeln!(
+                property_validators,
+                "    let count: u64 = values.len() as u64;"
+            )
+            .unwrap();
+        }
+        for line in &emission.pre_loop_lines {
+            writeln!(property_validators, "{}", line).unwrap();
+        }
+        if !emission.per_value_lines.is_empty() {
+            writeln!(
+                property_validators,
+                "{}",
+                "    for value in values.iter().cloned() {"
+            )
+            .unwrap();
+            for line in &emission.per_value_lines {
+                writeln!(property_validators, "{}", line).unwrap();
+            }
+            writeln!(property_validators, "{}", "    }").unwrap();
+        }
+        for line in &emission.post_loop_lines {
+            writeln!(property_validators, "{}", line).unwrap();
+        }
+        writeln!(property_validators, "{}", "}").unwrap();
+        writeln!(property_validators, "").unwrap();
+
+        if !shape.targets.is_empty() {
+            emit_target_collector(targets, shape, &term_iri, &term_expr)?;
+            writeln!(property_validators, "pub fn validate_property_shape_{}(store: &Store, graph: Option<GraphNameRef<'_>>, report: &mut Report) {{", shape.id).unwrap();
+            writeln!(
+                property_validators,
+                "    let targets = collect_targets_prop_{}(store, graph);",
+                shape.id
+            )
+            .unwrap();
+            writeln!(property_validators, "{}", "    for focus in targets {").unwrap();
+            writeln!(
+                property_validators,
+                "        validate_property_shape_{}_for_focus(store, graph, &focus, report);",
+                shape.id
+            )
+            .unwrap();
+            writeln!(property_validators, "{}", "    }").unwrap();
+            writeln!(property_validators, "{}", "}").unwrap();
+            writeln!(property_validators, "").unwrap();
+        }
+    }
+    Ok(())
+}
+
+fn emit_allowed_predicates_helpers(
+    allowed_predicates: &mut String,
+    plan: &PlanIR,
+    component_lookup: &ComponentLookup<'_>,
+    allowed_predicate_map: &HashMap<u64, Vec<String>>,
+) {
+    for shape in plan.shapes.iter().filter(|s| s.kind == PlanShapeKind::Node) {
+        let has_closed = shape.constraints.iter().any(|comp_id| {
+            component_lookup
+                .get(comp_id)
+                .map(|c| c.kind == ComponentKind::Closed)
+                .unwrap_or(false)
+        });
+        if has_closed {
+            let preds = allowed_predicate_map
+                .get(&shape.id)
+                .cloned()
+                .unwrap_or_default();
+            writeln!(
+                allowed_predicates,
+                "fn allowed_predicates_{}() -> HashSet<String> {{",
+                shape.id
+            )
+            .unwrap();
+            writeln!(
+                allowed_predicates,
+                "    let mut set: HashSet<String> = HashSet::new();"
+            )
+            .unwrap();
+            for pred in preds {
+                writeln!(
+                    allowed_predicates,
+                    "    set.insert(\"{}\".to_string());",
+                    escape_rust_string(&pred)
+                )
+                .unwrap();
+            }
+            writeln!(allowed_predicates, "    set").unwrap();
+            writeln!(allowed_predicates, "{}", "}").unwrap();
+            writeln!(allowed_predicates, "").unwrap();
+        }
+    }
+}
+
+fn emit_node_shape_validators(
+    node_validators: &mut String,
+    targets: &mut String,
+    plan: &PlanIR,
+    component_lookup: &ComponentLookup<'_>,
+) -> Result<(), String> {
+    let term_iri = |term_id: u64| term_iri(plan, term_id);
+    let term_expr = |term_id: u64| term_expr_id(plan, term_id);
+    let term_sparql = |term_id: u64| term_sparql_const(plan, term_id);
+
+    for shape in plan.shapes.iter().filter(|s| s.kind == PlanShapeKind::Node) {
+        if shape.deactivated {
+            continue;
+        }
+        emit_target_collector(targets, shape, &term_iri, &term_expr)?;
+
+        writeln!(node_validators, "fn validate_node_shape_{}_for_focus(store: &Store, graph: Option<GraphNameRef<'_>>, focus: &Term, report: &mut Report) {{", shape.id).unwrap();
+        if shape.constraints.is_empty() {
+            writeln!(
+                node_validators,
+                "    let _ = (store, graph, focus, report);"
+            )
+            .unwrap();
+        } else {
+            for component_id in &shape.constraints {
+                let component = component_lookup
+                    .get(component_id)
+                    .ok_or_else(|| format!("Missing component {}", component_id))?;
+                let handler = registry::lookup(component.kind);
+                let ctx = EmitContext {
+                    shape_id: shape.id,
+                    component_id: component.id,
+                    path_id: None,
+                    path_sparql: None,
+                    term_iri: &term_iri,
+                    term_expr: &term_expr,
+                    term_sparql: &term_sparql,
+                    qualified_siblings: None,
+                };
+                let emission = handler.emit_node(ctx, &component.params)?;
+                for line in emission.lines {
+                    writeln!(node_validators, "{}", line).unwrap();
+                }
+            }
+        }
+        writeln!(node_validators, "{}", "}").unwrap();
+        writeln!(node_validators, "").unwrap();
+
+        writeln!(node_validators, "fn node_shape_conforms_{}(store: &Store, graph: Option<GraphNameRef<'_>>, focus: &Term) -> bool {{", shape.id).unwrap();
+        writeln!(node_validators, "    let mut report = Report::default();").unwrap();
+        writeln!(
+            node_validators,
+            "    validate_node_shape_{}_for_focus(store, graph, focus, &mut report);",
+            shape.id
+        )
+        .unwrap();
+        writeln!(node_validators, "    report.violations.is_empty()").unwrap();
+        writeln!(node_validators, "{}", "}").unwrap();
+        writeln!(node_validators, "").unwrap();
+
+        writeln!(node_validators, "pub fn validate_node_shape_{}(store: &Store, graph: Option<GraphNameRef<'_>>, report: &mut Report) {{", shape.id).unwrap();
+        writeln!(
+            node_validators,
+            "    let targets = collect_targets_node_{}(store, graph);",
+            shape.id
+        )
+        .unwrap();
+        writeln!(node_validators, "{}", "    for focus in targets {").unwrap();
+        writeln!(
+            node_validators,
+            "        validate_node_shape_{}_for_focus(store, graph, &focus, report);",
+            shape.id
+        )
+        .unwrap();
+        writeln!(node_validators, "{}", "    }").unwrap();
+        writeln!(node_validators, "{}", "}").unwrap();
+        writeln!(node_validators, "").unwrap();
+    }
+
+    Ok(())
+}
+
+fn emit_run_section(
+    run: &mut String,
+    plan: &PlanIR,
+    node_shape_lookup: &ShapeLookup<'_>,
+    property_shape_lookup: &ShapeLookup<'_>,
+) -> Result<(), String> {
+    writeln!(
+        run,
+        "{}",
+        "type ValidateFn = for<'a> fn(&Store, Option<GraphNameRef<'a>>, &mut Report);"
+    )
+    .unwrap();
+    writeln!(run, "{}", "struct ThreadState {").unwrap();
+    writeln!(run, "    closure: Option<SubclassClosure>,").unwrap();
+    writeln!(run, "    original_index: Option<OriginalValueIndex>,").unwrap();
+    writeln!(run, "{}", "}").unwrap();
+    writeln!(run, "").unwrap();
+    writeln!(run, "{}", "const NODE_SHAPE_VALIDATORS: &[ValidateFn] = &[").unwrap();
+    for shape_id in &plan.order.node_shapes {
+        let shape = node_shape_lookup
+            .get(shape_id)
+            .ok_or_else(|| format!("Missing node shape {}", shape_id))?;
+        if shape.deactivated {
+            continue;
+        }
+        writeln!(run, "    validate_node_shape_{},", shape.id).unwrap();
+    }
+    writeln!(run, "];").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "const PROPERTY_SHAPE_VALIDATORS: &[ValidateFn] = &["
+    )
+    .unwrap();
+    for shape_id in &plan.order.property_shapes {
+        let shape = property_shape_lookup
+            .get(shape_id)
+            .ok_or_else(|| format!("Missing property shape {}", shape_id))?;
+        if shape.deactivated || shape.targets.is_empty() {
+            continue;
+        }
+        writeln!(run, "    validate_property_shape_{},", shape.id).unwrap();
+    }
+    writeln!(run, "];").unwrap();
+    writeln!(run, "").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {"
+    )
+    .unwrap();
+    writeln!(run, "    let default_data_graph = data_graph_named();").unwrap();
+    writeln!(
+        run,
+        "    let graph_node = data_graph.unwrap_or(&default_data_graph);"
+    )
+    .unwrap();
+    writeln!(run, "    let graph = graph_ref(Some(graph_node));").unwrap();
+    writeln!(run, "    let mut report = Report::default();").unwrap();
+    writeln!(run, "    info!(\"Starting shape graph load\");").unwrap();
+    writeln!(run, "    insert_shape_triples(store);").unwrap();
+    writeln!(run, "    info!(\"Finished shape graph load\");").unwrap();
+    writeln!(
+        run,
+        "    set_current_subclass_closure(subclass_closure_from_shape_edges());"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "    extend_current_subclass_closure_from_store(store, Some(shape_graph_ref()));"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "    extend_current_subclass_closure_from_store(store, Some(GraphNameRef::NamedNode(graph_node.as_ref())));"
+    )
+    .unwrap();
+    writeln!(run, "    clear_target_class_caches();").unwrap();
+    writeln!(run, "{}", "    info!(\"Starting inference\");").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "    match run_inference(store, graph, graph_node) {"
+    )
+    .unwrap();
+    writeln!(run, "{}", "        Ok(_) => info!(\"Finished inference\"),").unwrap();
+    writeln!(run, "{}", "        Err(err) => {").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            eprintln!(\"Inference failed: {}\", err);"
+    )
+    .unwrap();
+    writeln!(run, "{}", "            info!(\"Inference failed\");").unwrap();
+    writeln!(run, "{}", "        }").unwrap();
+    writeln!(run, "{}", "    }").unwrap();
+    writeln!(
+        run,
+        "    extend_current_subclass_closure_from_store(store, Some(GraphNameRef::NamedNode(graph_node.as_ref())));"
+    )
+    .unwrap();
+    writeln!(run, "{}", "    info!(\"Starting validation\");").unwrap();
+    writeln!(
+        run,
+        "    let validation_closure = with_subclass_closure(|closure| closure.clone());"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "    let original_index = with_original_value_index(|idx| idx.cloned());"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "    let node_reports: Vec<Report> = NODE_SHAPE_VALIDATORS"
+    )
+    .unwrap();
+    writeln!(run, "        .par_iter()").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()), original_index: original_index.clone() }, |state, validator| {"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            if let Some(closure) = state.closure.take() {"
+    )
+    .unwrap();
+    writeln!(run, "                init_thread_state(closure);").unwrap();
+    writeln!(run, "{}", "            }").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            if let Some(index) = state.original_index.take() {"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "                set_original_value_index(Some(index));"
+    )
+    .unwrap();
+    writeln!(run, "{}", "            }").unwrap();
+    writeln!(run, "            let mut local = Report::default();").unwrap();
+    writeln!(run, "            validator(store, graph, &mut local);").unwrap();
+    writeln!(run, "            local").unwrap();
+    writeln!(run, "{}", "        })").unwrap();
+    writeln!(run, "        .collect();").unwrap();
+    writeln!(run, "{}", "    for local in node_reports {").unwrap();
+    writeln!(run, "        report.merge(local);").unwrap();
+    writeln!(run, "{}", "    }").unwrap();
+    writeln!(
+        run,
+        "    let prop_reports: Vec<Report> = PROPERTY_SHAPE_VALIDATORS"
+    )
+    .unwrap();
+    writeln!(run, "        .par_iter()").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()), original_index: original_index.clone() }, |state, validator| {"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            if let Some(closure) = state.closure.take() {"
+    )
+    .unwrap();
+    writeln!(run, "                init_thread_state(closure);").unwrap();
+    writeln!(run, "{}", "            }").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "            if let Some(index) = state.original_index.take() {"
+    )
+    .unwrap();
+    writeln!(
+        run,
+        "                set_original_value_index(Some(index));"
+    )
+    .unwrap();
+    writeln!(run, "{}", "            }").unwrap();
+    writeln!(run, "            let mut local = Report::default();").unwrap();
+    writeln!(run, "            validator(store, graph, &mut local);").unwrap();
+    writeln!(run, "            local").unwrap();
+    writeln!(run, "{}", "        })").unwrap();
+    writeln!(run, "        .collect();").unwrap();
+    writeln!(run, "{}", "    for local in prop_reports {").unwrap();
+    writeln!(run, "        report.merge(local);").unwrap();
+    writeln!(run, "{}", "    }").unwrap();
+    writeln!(run, "{}", "    info!(\"Finished validation\");").unwrap();
+    writeln!(run, "    report").unwrap();
+    writeln!(run, "{}", "}").unwrap();
+    writeln!(run, "").unwrap();
+    Ok(())
+}
+
+fn emit_helpers_section(helpers: &mut String, plan: &PlanIR) -> Result<(), String> {
     writeln!(helpers, "use serde_json;").unwrap();
     writeln!(helpers, "use shifty::shacl_ir::ShapeIR;").unwrap();
     writeln!(helpers, "use std::cell::RefCell;").unwrap();
@@ -276,6 +799,16 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "    static TYPE_INDEX_CACHE: RefCell<HashMap<String, HashMap<String, Vec<Term>>>> = RefCell::new(HashMap::new());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    static CLASS_MEMBERSHIP_CACHE: RefCell<HashMap<String, HashMap<Term, HashSet<String>>>> = RefCell::new(HashMap::new());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    static CLOSED_WORLD_VIOLATION_CACHE: RefCell<HashMap<(u64, String), HashMap<Term, Vec<(NamedNode, Term)>>>> = RefCell::new(HashMap::new());"
     )
     .unwrap();
     writeln!(
@@ -714,6 +1247,241 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
+        "fn has_rdf_type_cache_key(graph: Option<GraphNameRef<'_>>) -> String {"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    match graph {").unwrap();
+    writeln!(helpers, "{}", "        Some(g) => {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let shape_graph = shape_graph_ref();"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "            if g == shape_graph {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                format!(\"{}|types-only\", graph_cache_key(Some(g)))"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "            } else {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                format!(\"{}|types+shape\", graph_cache_key(Some(g)))"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "            }").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        None => \"__all__|types-only\".to_string(),"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+
+    writeln!(
+        helpers,
+        "{}",
+        "fn build_assignable_class_index(store: &Store, graph: Option<GraphNameRef<'_>>) -> HashMap<Term, HashSet<String>> {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut index: HashMap<Term, HashSet<String>> = HashMap::new();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    if let Some(g) = graph {").unwrap();
+    writeln!(helpers, "{}", "        graphs.push(Some(g));").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        let shape_graph = shape_graph_ref();"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        if g != shape_graph {").unwrap();
+    writeln!(helpers, "{}", "            graphs.push(Some(shape_graph));").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    } else {").unwrap();
+    writeln!(helpers, "{}", "        graphs.push(None);").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    for graph_opt in graphs {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        for quad in store.quads_for_pattern(None, Some(rdf_type), None, graph_opt) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let quad = match quad { Ok(quad) => quad, Err(_) => continue };"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let class_node = match &quad.object { Term::NamedNode(node) => node, _ => continue };"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let subject: Term = quad.subject.into();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let entry = index.entry(subject).or_default();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let class_name = class_node.as_str().to_string();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            entry.insert(class_name.clone());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            with_subclass_closure(|closure| {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let mut stack: Vec<String> = vec![class_name.clone()];"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                let mut seen: HashSet<String> = HashSet::new();"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                while let Some(curr) = stack.pop() {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    if !seen.insert(curr.clone()) { continue; }"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    entry.insert(curr.clone());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                    if let Some(parents) = closure.parents.get(&curr) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                        for parent in parents {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "                            stack.push(parent.clone());"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "                        }").unwrap();
+    writeln!(helpers, "{}", "                    }").unwrap();
+    writeln!(helpers, "{}", "                }").unwrap();
+    writeln!(helpers, "{}", "            });").unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    index").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+
+    writeln!(
+        helpers,
+        "{}",
+        "fn collect_closed_world_violations_for_targets(store: &Store, graph: Option<GraphNameRef<'_>>, targets: &[Term], allowed: &HashSet<String>) -> HashMap<Term, Vec<(NamedNode, Term)>> {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "    let mut out: HashMap<Term, Vec<(NamedNode, Term)>> = HashMap::new();"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    for focus in targets {").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        let subject = match subject_ref(focus) { Some(subject) => subject, None => continue };"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        for quad in store.quads_for_pattern(Some(subject), None, None, graph) {"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            let quad = match quad { Ok(quad) => quad, Err(_) => continue };"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "            let predicate = quad.predicate;").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            if allowed.contains(predicate.as_str()) { continue; }"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "            out.entry(focus.clone()).or_default().push((predicate, quad.object));"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "        }").unwrap();
+    writeln!(helpers, "{}", "    }").unwrap();
+    writeln!(helpers, "{}", "    out").unwrap();
+    writeln!(helpers, "{}", "}").unwrap();
+    writeln!(helpers, "").unwrap();
+
+    writeln!(
+        helpers,
+        "{}",
         "fn build_type_index(store: &Store, graph: Option<GraphNameRef<'_>>) -> HashMap<String, Vec<Term>> {"
     )
     .unwrap();
@@ -777,6 +1545,16 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "    TYPE_INDEX_CACHE.with(|cell| cell.borrow_mut().clear());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    CLASS_MEMBERSHIP_CACHE.with(|cell| cell.borrow_mut().clear());"
+    )
+    .unwrap();
+    writeln!(
+        helpers,
+        "    CLOSED_WORLD_VIOLATION_CACHE.with(|cell| cell.borrow_mut().clear());"
     )
     .unwrap();
     writeln!(helpers, "{}", "}").unwrap();
@@ -1565,47 +2343,30 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(
         helpers,
         "{}",
-        "    let subject = match subject_ref(term) { Some(s) => s, None => return false };"
+        "    if subject_ref(term).is_none() { return false; }"
     )
     .unwrap();
     writeln!(
         helpers,
-        "    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();"
+        "{}",
+        "    let cache_key = has_rdf_type_cache_key(graph);"
+    )
+    .unwrap();
+    writeln!(helpers, "{}", "    CLASS_MEMBERSHIP_CACHE.with(|cell| {").unwrap();
+    writeln!(helpers, "{}", "        let mut cache = cell.borrow_mut();").unwrap();
+    writeln!(
+        helpers,
+        "{}",
+        "        let index = cache.entry(cache_key).or_insert_with(|| build_assignable_class_index(store, graph));"
     )
     .unwrap();
     writeln!(
         helpers,
-        "    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();"
+        "{}",
+        "        index.get(term).map(|classes| classes.contains(class_iri)).unwrap_or(false)"
     )
     .unwrap();
-    writeln!(helpers, "    if let Some(g) = graph {{").unwrap();
-    writeln!(helpers, "        graphs.push(Some(g));").unwrap();
-    writeln!(helpers, "        let shape_graph = shape_graph_ref();").unwrap();
-    writeln!(
-        helpers,
-        "        if g != shape_graph {{ graphs.push(Some(shape_graph)); }}"
-    )
-    .unwrap();
-    writeln!(helpers, "    }} else {{").unwrap();
-    writeln!(helpers, "        graphs.push(None);").unwrap();
-    writeln!(helpers, "    }}").unwrap();
-    writeln!(helpers, "    for graph_opt in graphs {{").unwrap();
-    writeln!(helpers, "        for quad in store.quads_for_pattern(Some(subject), Some(rdf_type), None, graph_opt) {{").unwrap();
-    writeln!(helpers, "        if let Ok(quad) = quad {{").unwrap();
-    writeln!(
-        helpers,
-        "            if let Term::NamedNode(node) = quad.object {{"
-    )
-    .unwrap();
-    writeln!(helpers, "                let node_str = node.as_str();").unwrap();
-    writeln!(helpers, "                if with_subclass_closure(|closure| closure.is_subclass_of(node_str, class_iri)) {{").unwrap();
-    writeln!(helpers, "                    return true;").unwrap();
-    writeln!(helpers, "                }}").unwrap();
-    writeln!(helpers, "            }}").unwrap();
-    writeln!(helpers, "        }}").unwrap();
-    writeln!(helpers, "    }}").unwrap();
-    writeln!(helpers, "    }}").unwrap();
-    writeln!(helpers, "    false").unwrap();
+    writeln!(helpers, "{}", "    })").unwrap();
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
 
@@ -2593,467 +3354,10 @@ fn generate_sections(plan: &PlanIR) -> Result<Sections, String> {
     writeln!(helpers, "{}", "}").unwrap();
     writeln!(helpers, "").unwrap();
 
-    emit_shape_and_component_maps(&mut helpers, plan)?;
-    emit_validation_report_helpers(&mut helpers)?;
+    emit_shape_and_component_maps(helpers, plan)?;
+    emit_validation_report_helpers(helpers)?;
 
-    let term_iri = |term_id: u64| term_iri(plan, term_id);
-    let term_expr = |term_id: u64| term_expr_id(plan, term_id);
-    let term_sparql = |term_id: u64| term_sparql_const(plan, term_id);
-
-    emit_inference(&mut inference, plan, &term_expr, &term_iri)?;
-
-    emit_path_functions(&mut paths, plan)?;
-    emit_shape_triples(&mut shape_triples, &mut shape_graph_nt, plan)?;
-    emit_subclass_edges(&mut helpers, plan)?;
-
-    let component_lookup: HashMap<CompId, _> = plan.components.iter().map(|c| (c.id, c)).collect();
-    let node_shape_lookup: HashMap<u64, _> = plan
-        .shapes
-        .iter()
-        .filter(|s| s.kind == PlanShapeKind::Node)
-        .map(|s| (s.id, s))
-        .collect();
-    let property_shape_lookup: HashMap<u64, _> = plan
-        .shapes
-        .iter()
-        .filter(|s| s.kind == PlanShapeKind::Property)
-        .map(|s| (s.id, s))
-        .collect();
-
-    let qualified_siblings = build_qualified_sibling_map(plan, &component_lookup);
-    let allowed_predicate_map =
-        build_allowed_predicate_map(plan, &component_lookup, &property_shape_lookup)?;
-
-    // Property shape validators.
-    for shape in plan
-        .shapes
-        .iter()
-        .filter(|s| s.kind == PlanShapeKind::Property)
-    {
-        if shape.deactivated {
-            continue;
-        }
-        let path_id = shape
-            .path
-            .ok_or_else(|| format!("Property shape {} missing path", shape.id))?;
-        let path_display = path_to_string(plan, path_id)?;
-
-        let mut emission = PropertyEmission::default();
-        for component_id in &shape.constraints {
-            let component = component_lookup
-                .get(component_id)
-                .ok_or_else(|| format!("Missing component {}", component_id))?;
-            let handler = registry::lookup(component.kind);
-            let sibling_list = if component.kind == ComponentKind::QualifiedValueShape {
-                Some(
-                    qualified_siblings
-                        .get(&component.id)
-                        .map(|v| v.as_slice())
-                        .unwrap_or(&[]),
-                )
-            } else {
-                None
-            };
-            let ctx = EmitContext {
-                shape_id: shape.id,
-                component_id: component.id,
-                path_id: Some(path_id),
-                path_sparql: Some(&path_display),
-                term_iri: &term_iri,
-                term_expr: &term_expr,
-                term_sparql: &term_sparql,
-                qualified_siblings: sibling_list,
-            };
-            let component_emission = handler.emit_property(ctx, &component.params)?;
-            emission.merge(component_emission);
-        }
-
-        writeln!(
-            property_validators,
-            "fn validate_property_shape_{}_for_focus(",
-            shape.id
-        )
-        .unwrap();
-        writeln!(property_validators, "    store: &Store,").unwrap();
-        writeln!(property_validators, "    graph: Option<GraphNameRef<'_>>,").unwrap();
-        writeln!(property_validators, "    focus: &Term,").unwrap();
-        writeln!(property_validators, "    report: &mut Report,").unwrap();
-        writeln!(property_validators, "{}", ") {").unwrap();
-        writeln!(
-            property_validators,
-            "    let values = path_{}(store, graph, focus);",
-            path_id
-        )
-        .unwrap();
-        if let Some(predicate_iri) = simple_predicate_iri(plan, path_id)? {
-            writeln!(
-                property_validators,
-                "    let values = canonicalize_values_for_predicate(store, graph, focus, \"{}\", values);",
-                escape_rust_string(&predicate_iri)
-            )
-            .unwrap();
-        }
-        if emission.needs_count {
-            writeln!(
-                property_validators,
-                "    let count: u64 = values.len() as u64;"
-            )
-            .unwrap();
-        }
-        for line in &emission.pre_loop_lines {
-            writeln!(property_validators, "{}", line).unwrap();
-        }
-        if !emission.per_value_lines.is_empty() {
-            writeln!(
-                property_validators,
-                "{}",
-                "    for value in values.iter().cloned() {"
-            )
-            .unwrap();
-            for line in &emission.per_value_lines {
-                writeln!(property_validators, "{}", line).unwrap();
-            }
-            writeln!(property_validators, "{}", "    }").unwrap();
-        }
-        for line in &emission.post_loop_lines {
-            writeln!(property_validators, "{}", line).unwrap();
-        }
-        writeln!(property_validators, "{}", "}").unwrap();
-        writeln!(property_validators, "").unwrap();
-
-        if !shape.targets.is_empty() {
-            emit_target_collector(&mut targets, shape, &term_iri, &term_expr)?;
-            writeln!(property_validators, "pub fn validate_property_shape_{}(store: &Store, graph: Option<GraphNameRef<'_>>, report: &mut Report) {{", shape.id).unwrap();
-            writeln!(
-                property_validators,
-                "    let targets = collect_targets_prop_{}(store, graph);",
-                shape.id
-            )
-            .unwrap();
-            writeln!(property_validators, "{}", "    for focus in targets {").unwrap();
-            writeln!(
-                property_validators,
-                "        validate_property_shape_{}_for_focus(store, graph, &focus, report);",
-                shape.id
-            )
-            .unwrap();
-            writeln!(property_validators, "{}", "    }").unwrap();
-            writeln!(property_validators, "{}", "}").unwrap();
-            writeln!(property_validators, "").unwrap();
-        }
-    }
-
-    // Node shape validators.
-    for shape in plan.shapes.iter().filter(|s| s.kind == PlanShapeKind::Node) {
-        let has_closed = shape.constraints.iter().any(|comp_id| {
-            component_lookup
-                .get(comp_id)
-                .map(|c| c.kind == ComponentKind::Closed)
-                .unwrap_or(false)
-        });
-        if has_closed {
-            let preds = allowed_predicate_map
-                .get(&shape.id)
-                .cloned()
-                .unwrap_or_default();
-            writeln!(
-                allowed_predicates,
-                "fn allowed_predicates_{}() -> HashSet<String> {{",
-                shape.id
-            )
-            .unwrap();
-            writeln!(
-                allowed_predicates,
-                "    let mut set: HashSet<String> = HashSet::new();"
-            )
-            .unwrap();
-            for pred in preds {
-                writeln!(
-                    allowed_predicates,
-                    "    set.insert(\"{}\".to_string());",
-                    escape_rust_string(&pred)
-                )
-                .unwrap();
-            }
-            writeln!(allowed_predicates, "    set").unwrap();
-            writeln!(allowed_predicates, "{}", "}").unwrap();
-            writeln!(allowed_predicates, "").unwrap();
-        }
-    }
-
-    // Node shape validators.
-    for shape in plan.shapes.iter().filter(|s| s.kind == PlanShapeKind::Node) {
-        if shape.deactivated {
-            continue;
-        }
-        emit_target_collector(&mut targets, shape, &term_iri, &term_expr)?;
-
-        writeln!(node_validators, "fn validate_node_shape_{}_for_focus(store: &Store, graph: Option<GraphNameRef<'_>>, focus: &Term, report: &mut Report) {{", shape.id).unwrap();
-        if shape.constraints.is_empty() {
-            writeln!(
-                node_validators,
-                "    let _ = (store, graph, focus, report);"
-            )
-            .unwrap();
-        } else {
-            for component_id in &shape.constraints {
-                let component = component_lookup
-                    .get(component_id)
-                    .ok_or_else(|| format!("Missing component {}", component_id))?;
-                let handler = registry::lookup(component.kind);
-                let ctx = EmitContext {
-                    shape_id: shape.id,
-                    component_id: component.id,
-                    path_id: None,
-                    path_sparql: None,
-                    term_iri: &term_iri,
-                    term_expr: &term_expr,
-                    term_sparql: &term_sparql,
-                    qualified_siblings: None,
-                };
-                let emission = handler.emit_node(ctx, &component.params)?;
-                for line in emission.lines {
-                    writeln!(node_validators, "{}", line).unwrap();
-                }
-            }
-        }
-        writeln!(node_validators, "{}", "}").unwrap();
-        writeln!(node_validators, "").unwrap();
-
-        writeln!(node_validators, "fn node_shape_conforms_{}(store: &Store, graph: Option<GraphNameRef<'_>>, focus: &Term) -> bool {{", shape.id).unwrap();
-        writeln!(node_validators, "    let mut report = Report::default();").unwrap();
-        writeln!(
-            node_validators,
-            "    validate_node_shape_{}_for_focus(store, graph, focus, &mut report);",
-            shape.id
-        )
-        .unwrap();
-        writeln!(node_validators, "    report.violations.is_empty()").unwrap();
-        writeln!(node_validators, "{}", "}").unwrap();
-        writeln!(node_validators, "").unwrap();
-
-        writeln!(node_validators, "pub fn validate_node_shape_{}(store: &Store, graph: Option<GraphNameRef<'_>>, report: &mut Report) {{", shape.id).unwrap();
-        writeln!(
-            node_validators,
-            "    let targets = collect_targets_node_{}(store, graph);",
-            shape.id
-        )
-        .unwrap();
-        writeln!(node_validators, "{}", "    for focus in targets {").unwrap();
-        writeln!(
-            node_validators,
-            "        validate_node_shape_{}_for_focus(store, graph, &focus, report);",
-            shape.id
-        )
-        .unwrap();
-        writeln!(node_validators, "{}", "    }").unwrap();
-        writeln!(node_validators, "{}", "}").unwrap();
-        writeln!(node_validators, "").unwrap();
-    }
-
-    writeln!(
-        run,
-        "{}",
-        "type ValidateFn = for<'a> fn(&Store, Option<GraphNameRef<'a>>, &mut Report);"
-    )
-    .unwrap();
-    writeln!(run, "{}", "struct ThreadState {").unwrap();
-    writeln!(run, "    closure: Option<SubclassClosure>,").unwrap();
-    writeln!(run, "    original_index: Option<OriginalValueIndex>,").unwrap();
-    writeln!(run, "{}", "}").unwrap();
-    writeln!(run, "").unwrap();
-    writeln!(run, "{}", "const NODE_SHAPE_VALIDATORS: &[ValidateFn] = &[").unwrap();
-    for shape_id in &plan.order.node_shapes {
-        let shape = node_shape_lookup
-            .get(shape_id)
-            .ok_or_else(|| format!("Missing node shape {}", shape_id))?;
-        if shape.deactivated {
-            continue;
-        }
-        writeln!(run, "    validate_node_shape_{},", shape.id).unwrap();
-    }
-    writeln!(run, "];").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "const PROPERTY_SHAPE_VALIDATORS: &[ValidateFn] = &["
-    )
-    .unwrap();
-    for shape_id in &plan.order.property_shapes {
-        let shape = property_shape_lookup
-            .get(shape_id)
-            .ok_or_else(|| format!("Missing property shape {}", shape_id))?;
-        if shape.deactivated || shape.targets.is_empty() {
-            continue;
-        }
-        writeln!(run, "    validate_property_shape_{},", shape.id).unwrap();
-    }
-    writeln!(run, "];").unwrap();
-    writeln!(run, "").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {"
-    )
-    .unwrap();
-    writeln!(run, "    let default_data_graph = data_graph_named();").unwrap();
-    writeln!(
-        run,
-        "    let graph_node = data_graph.unwrap_or(&default_data_graph);"
-    )
-    .unwrap();
-    writeln!(run, "    let graph = graph_ref(Some(graph_node));").unwrap();
-    writeln!(run, "    let mut report = Report::default();").unwrap();
-    writeln!(run, "    info!(\"Starting shape graph load\");").unwrap();
-    writeln!(run, "    insert_shape_triples(store);").unwrap();
-    writeln!(run, "    info!(\"Finished shape graph load\");").unwrap();
-    writeln!(
-        run,
-        "    set_current_subclass_closure(subclass_closure_from_shape_edges());"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "    extend_current_subclass_closure_from_store(store, Some(shape_graph_ref()));"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "    extend_current_subclass_closure_from_store(store, Some(GraphNameRef::NamedNode(graph_node.as_ref())));"
-    )
-    .unwrap();
-    writeln!(run, "    clear_target_class_caches();").unwrap();
-    writeln!(run, "{}", "    info!(\"Starting inference\");").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "    match run_inference(store, graph, graph_node) {"
-    )
-    .unwrap();
-    writeln!(run, "{}", "        Ok(_) => info!(\"Finished inference\"),").unwrap();
-    writeln!(run, "{}", "        Err(err) => {").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "            eprintln!(\"Inference failed: {}\", err);"
-    )
-    .unwrap();
-    writeln!(run, "{}", "            info!(\"Inference failed\");").unwrap();
-    writeln!(run, "{}", "        }").unwrap();
-    writeln!(run, "{}", "    }").unwrap();
-    writeln!(
-        run,
-        "    extend_current_subclass_closure_from_store(store, Some(GraphNameRef::NamedNode(graph_node.as_ref())));"
-    )
-    .unwrap();
-    writeln!(run, "{}", "    info!(\"Starting validation\");").unwrap();
-    writeln!(
-        run,
-        "    let validation_closure = with_subclass_closure(|closure| closure.clone());"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "    let original_index = with_original_value_index(|idx| idx.cloned());"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "    let node_reports: Vec<Report> = NODE_SHAPE_VALIDATORS"
-    )
-    .unwrap();
-    writeln!(run, "        .par_iter()").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()), original_index: original_index.clone() }, |state, validator| {"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "{}",
-        "            if let Some(closure) = state.closure.take() {"
-    )
-    .unwrap();
-    writeln!(run, "                init_thread_state(closure);").unwrap();
-    writeln!(run, "{}", "            }").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "            if let Some(index) = state.original_index.take() {"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "                set_original_value_index(Some(index));"
-    )
-    .unwrap();
-    writeln!(run, "{}", "            }").unwrap();
-    writeln!(run, "            let mut local = Report::default();").unwrap();
-    writeln!(run, "            validator(store, graph, &mut local);").unwrap();
-    writeln!(run, "            local").unwrap();
-    writeln!(run, "{}", "        })").unwrap();
-    writeln!(run, "        .collect();").unwrap();
-    writeln!(run, "{}", "    for local in node_reports {").unwrap();
-    writeln!(run, "        report.merge(local);").unwrap();
-    writeln!(run, "{}", "    }").unwrap();
-    writeln!(
-        run,
-        "    let prop_reports: Vec<Report> = PROPERTY_SHAPE_VALIDATORS"
-    )
-    .unwrap();
-    writeln!(run, "        .par_iter()").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "        .map_init(|| ThreadState { closure: Some(validation_closure.clone()), original_index: original_index.clone() }, |state, validator| {"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "{}",
-        "            if let Some(closure) = state.closure.take() {"
-    )
-    .unwrap();
-    writeln!(run, "                init_thread_state(closure);").unwrap();
-    writeln!(run, "{}", "            }").unwrap();
-    writeln!(
-        run,
-        "{}",
-        "            if let Some(index) = state.original_index.take() {"
-    )
-    .unwrap();
-    writeln!(
-        run,
-        "                set_original_value_index(Some(index));"
-    )
-    .unwrap();
-    writeln!(run, "{}", "            }").unwrap();
-    writeln!(run, "            let mut local = Report::default();").unwrap();
-    writeln!(run, "            validator(store, graph, &mut local);").unwrap();
-    writeln!(run, "            local").unwrap();
-    writeln!(run, "{}", "        })").unwrap();
-    writeln!(run, "        .collect();").unwrap();
-    writeln!(run, "{}", "    for local in prop_reports {").unwrap();
-    writeln!(run, "        report.merge(local);").unwrap();
-    writeln!(run, "{}", "    }").unwrap();
-    writeln!(run, "{}", "    info!(\"Finished validation\");").unwrap();
-    writeln!(run, "    report").unwrap();
-    writeln!(run, "{}", "}").unwrap();
-    writeln!(run, "").unwrap();
-    Ok(Sections {
-        prelude,
-        helpers,
-        paths,
-        shape_triples,
-        shape_graph_nt,
-        targets,
-        allowed_predicates,
-        property_validators,
-        node_validators,
-        inference,
-        run,
-    })
+    Ok(())
 }
 
 fn emit_target_collector(
