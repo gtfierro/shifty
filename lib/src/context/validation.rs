@@ -49,6 +49,51 @@ struct TimingStats {
     runtime_nanos_max: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SparqlQueryCallKey {
+    component_id: ComponentID,
+    source_shape: SourceShape,
+    constraint_term: Term,
+    query_hash: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ClosedWorldConstraintMode {
+    S223Relation,
+    QudtPredicate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ClosedWorldBatchCacheKey {
+    component_id: ComponentID,
+    source_shape: SourceShape,
+    query_hash: u64,
+    mode: ClosedWorldConstraintMode,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ClosedWorldViolation {
+    pub(crate) predicate: NamedNode,
+    pub(crate) object: Term,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ClosedWorldBatchResult {
+    pub(crate) violations_by_focus: HashMap<Term, Vec<ClosedWorldViolation>>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SparqlQueryStats {
+    invocations: u64,
+    rows_returned_total: u64,
+    rows_returned_min: u64,
+    rows_returned_max: u64,
+    runtime_nanos_total: u128,
+    runtime_nanos_sum_squares: f64,
+    runtime_nanos_min: u64,
+    runtime_nanos_max: u64,
+}
+
 pub(crate) struct ActiveComponentScope;
 
 #[derive(Debug, Clone)]
@@ -83,6 +128,22 @@ pub(crate) struct ShapeTimingStatRecord {
     pub(crate) source_shape: SourceShape,
     pub(crate) phase: ShapeTimingPhase,
     pub(crate) invocations: u64,
+    pub(crate) runtime_nanos_total: u128,
+    pub(crate) runtime_nanos_sum_squares: f64,
+    pub(crate) runtime_nanos_min: u64,
+    pub(crate) runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SparqlQueryCallStatRecord {
+    pub(crate) component_id: ComponentID,
+    pub(crate) source_shape: SourceShape,
+    pub(crate) constraint_term: Term,
+    pub(crate) query_hash: u64,
+    pub(crate) invocations: u64,
+    pub(crate) rows_returned_total: u64,
+    pub(crate) rows_returned_min: u64,
+    pub(crate) rows_returned_max: u64,
     pub(crate) runtime_nanos_total: u128,
     pub(crate) runtime_nanos_sum_squares: f64,
     pub(crate) runtime_nanos_min: u64,
@@ -146,6 +207,9 @@ pub struct ValidationContext {
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
     pub(crate) shape_ir: Arc<ShapeIR>,
     graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
+    sparql_query_stats: Mutex<HashMap<SparqlQueryCallKey, SparqlQueryStats>>,
+    closed_world_batch_cache:
+        Mutex<HashMap<ClosedWorldBatchCacheKey, Arc<Result<ClosedWorldBatchResult, String>>>>,
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
@@ -208,6 +272,8 @@ impl ValidationContext {
             trace_events,
             shape_ir,
             graph_call_stats: Mutex::new(HashMap::new()),
+            sparql_query_stats: Mutex::new(HashMap::new()),
+            closed_world_batch_cache: Mutex::new(HashMap::new()),
             shape_timing_stats: Mutex::new(HashMap::new()),
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
@@ -321,6 +387,22 @@ impl ValidationContext {
             .quads_for_pattern(subject, predicate, object, graph)
     }
 
+    pub(crate) fn for_each_quad_for_pattern<F>(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+        callback: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(Quad) -> Result<(), String>,
+    {
+        self.record_graph_call(GraphCallKind::QuadsForPattern);
+        self.backend
+            .for_each_quad_for_pattern(subject, predicate, object, graph, callback)
+    }
+
     pub(crate) fn insert_quads(&self, quads: &[Quad]) -> Result<(), String> {
         self.backend.insert_quads(quads)
     }
@@ -393,6 +475,8 @@ impl ValidationContext {
 
     pub(crate) fn reset_validation_run_state(&self) {
         self.reset_component_graph_call_stats();
+        self.sparql_query_stats.lock().unwrap().clear();
+        self.closed_world_batch_cache.lock().unwrap().clear();
         self.shape_timing_stats.lock().unwrap().clear();
         self.class_constraint_memo.write().unwrap().clear();
         *self.class_constraint_index.write().unwrap() = None;
@@ -517,6 +601,113 @@ impl ValidationContext {
         rows
     }
 
+    pub(crate) fn record_sparql_query_call(
+        &self,
+        source_shape: SourceShape,
+        component_id: ComponentID,
+        constraint_term: &Term,
+        query_hash: u64,
+        rows_returned: u64,
+        duration: Duration,
+    ) {
+        let nanos_u128 = duration.as_nanos();
+        let nanos_u64 = if nanos_u128 > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            nanos_u128 as u64
+        };
+        let nanos_f64 = nanos_u64 as f64;
+
+        let mut stats = self.sparql_query_stats.lock().unwrap();
+        let counters = stats
+            .entry(SparqlQueryCallKey {
+                component_id,
+                source_shape,
+                constraint_term: constraint_term.clone(),
+                query_hash,
+            })
+            .or_default();
+
+        counters.invocations += 1;
+        counters.rows_returned_total = counters.rows_returned_total.saturating_add(rows_returned);
+        if counters.rows_returned_min == 0 || rows_returned < counters.rows_returned_min {
+            counters.rows_returned_min = rows_returned;
+        }
+        if rows_returned > counters.rows_returned_max {
+            counters.rows_returned_max = rows_returned;
+        }
+        counters.runtime_nanos_total = counters.runtime_nanos_total.saturating_add(nanos_u128);
+        counters.runtime_nanos_sum_squares += nanos_f64 * nanos_f64;
+        if counters.runtime_nanos_min == 0 || nanos_u64 < counters.runtime_nanos_min {
+            counters.runtime_nanos_min = nanos_u64;
+        }
+        if nanos_u64 > counters.runtime_nanos_max {
+            counters.runtime_nanos_max = nanos_u64;
+        }
+    }
+
+    pub(crate) fn sparql_query_call_stats(&self) -> Vec<SparqlQueryCallStatRecord> {
+        let mut rows: Vec<SparqlQueryCallStatRecord> = self
+            .sparql_query_stats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, stats)| SparqlQueryCallStatRecord {
+                component_id: key.component_id,
+                source_shape: key.source_shape.clone(),
+                constraint_term: key.constraint_term.clone(),
+                query_hash: key.query_hash,
+                invocations: stats.invocations,
+                rows_returned_total: stats.rows_returned_total,
+                rows_returned_min: stats.rows_returned_min,
+                rows_returned_max: stats.rows_returned_max,
+                runtime_nanos_total: stats.runtime_nanos_total,
+                runtime_nanos_sum_squares: stats.runtime_nanos_sum_squares,
+                runtime_nanos_min: stats.runtime_nanos_min,
+                runtime_nanos_max: stats.runtime_nanos_max,
+            })
+            .collect();
+
+        rows.sort_by(|a, b| {
+            b.runtime_nanos_total
+                .cmp(&a.runtime_nanos_total)
+                .then_with(|| b.rows_returned_total.cmp(&a.rows_returned_total))
+                .then_with(|| b.invocations.cmp(&a.invocations))
+                .then_with(|| a.query_hash.cmp(&b.query_hash))
+        });
+        rows
+    }
+
+    pub(crate) fn get_or_compute_closed_world_batch<F>(
+        &self,
+        source_shape: SourceShape,
+        component_id: ComponentID,
+        query_hash: u64,
+        mode: ClosedWorldConstraintMode,
+        compute: F,
+    ) -> Arc<Result<ClosedWorldBatchResult, String>>
+    where
+        F: FnOnce() -> Result<ClosedWorldBatchResult, String>,
+    {
+        let key = ClosedWorldBatchCacheKey {
+            component_id,
+            source_shape,
+            query_hash,
+            mode,
+        };
+
+        let mut cache = self.closed_world_batch_cache.lock().unwrap();
+        if let Some(cached) = cache.get(&key).cloned() {
+            return cached;
+        }
+
+        // Compute while holding this lock to prevent parallel focus-node
+        // threads from recomputing the same batch query.
+        let computed = Arc::new(compute());
+        cache.insert(key, Arc::clone(&computed));
+        computed
+    }
+
     fn current_component_key(&self) -> Option<ComponentGraphCallKey> {
         ACTIVE_COMPONENT_STACK.with(|stack| stack.borrow().last().cloned())
     }
@@ -596,10 +787,6 @@ impl ValidationContext {
     }
 
     fn build_class_constraint_index(&self) -> Result<ClassConstraintIndex, String> {
-        let sub_class_of =
-            NamedNodeRef::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf");
-        let subclass_quads = self.quads_for_pattern(None, Some(sub_class_of), None, None)?;
-
         let mut term_to_id: HashMap<Term, usize> = HashMap::new();
         let mut next_id = 0usize;
         let mut parent_edges: Vec<(usize, usize)> = Vec::new();
@@ -615,30 +802,37 @@ impl ValidationContext {
             }
         };
 
-        for quad in subclass_quads {
+        let mut subject_type_ids: HashMap<Term, Vec<usize>> = HashMap::new();
+        let sub_class_of =
+            NamedNodeRef::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf");
+        self.for_each_quad_for_pattern(None, Some(sub_class_of), None, None, |quad| {
             let subclass = term_from_subject(&quad.subject);
             let superclass = term_from_term_ref(quad.object.as_ref());
             let (Some(subclass), Some(superclass)) = (subclass, superclass) else {
-                continue;
+                return Ok(());
             };
             let sub_id = intern(subclass);
             let super_id = intern(superclass);
             parent_edges.push((sub_id, super_id));
-        }
+            Ok(())
+        })?;
 
-        let type_quads =
-            self.quads_for_pattern(None, Some(rdf::TYPE), None, Some(self.data_graph_iri_ref()))?;
-
-        let mut subject_type_ids: HashMap<Term, Vec<usize>> = HashMap::new();
-        for quad in type_quads {
-            let subject = term_from_subject(&quad.subject);
-            let class = term_from_term_ref(quad.object.as_ref());
-            let (Some(subject), Some(class)) = (subject, class) else {
-                continue;
-            };
-            let class_id = intern(class);
-            subject_type_ids.entry(subject).or_default().push(class_id);
-        }
+        self.for_each_quad_for_pattern(
+            None,
+            Some(rdf::TYPE),
+            None,
+            Some(self.data_graph_iri_ref()),
+            |quad| {
+                let subject = term_from_subject(&quad.subject);
+                let class = term_from_term_ref(quad.object.as_ref());
+                let (Some(subject), Some(class)) = (subject, class) else {
+                    return Ok(());
+                };
+                let class_id = intern(class);
+                subject_type_ids.entry(subject).or_default().push(class_id);
+                Ok(())
+            },
+        )?;
 
         let class_count = next_id;
         let mut parents: Vec<Vec<usize>> = vec![Vec::new(); class_count];
