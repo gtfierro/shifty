@@ -2764,8 +2764,11 @@ fn generate_prelude_module(plan: &PlanView) -> Result<String, String> {
         use oxigraph::model::vocab::{rdf, xsd};
         use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
         use oxigraph::store::Store;
-        use oxigraph::sparql::{QueryResults, SparqlEvaluator, Variable};
+        use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator, Variable};
         use std::collections::{HashMap, HashSet, VecDeque};
+        use std::sync::{Arc, OnceLock};
+        use fixedbitset::FixedBitSet;
+        use dashmap::DashMap;
         use rayon::prelude::*;
         use regex::Regex;
         use log::info;

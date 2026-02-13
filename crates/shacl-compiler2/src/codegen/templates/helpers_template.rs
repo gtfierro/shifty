@@ -10,16 +10,145 @@ fn query_mentions_bound_var(query: &str, var: &str) -> bool {
     let needle_d = format!("bound(${})", var);
     lower.contains(&needle_q) || lower.contains(&needle_d)
 }
+
+#[derive(Default, Clone)]
+struct SparqlProfileStat {
+    calls: u64,
+    total_micros: u128,
+    max_micros: u128,
+}
+
+fn sparql_profile_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("SHACL_PROFILE_SPARQL").is_ok())
+}
+
+fn sparql_profile_stats() -> &'static std::sync::Mutex<HashMap<String, SparqlProfileStat>> {
+    static STATS: OnceLock<std::sync::Mutex<HashMap<String, SparqlProfileStat>>> = OnceLock::new();
+    STATS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn sparql_profile_call_counter() -> &'static std::sync::atomic::AtomicU64 {
+    static CALLS: OnceLock<std::sync::atomic::AtomicU64> = OnceLock::new();
+    CALLS.get_or_init(|| std::sync::atomic::AtomicU64::new(0))
+}
+
+fn query_key_id(query_key: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    query_key.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn maybe_record_sparql_timing(query_key: &str, elapsed: std::time::Duration) {
+    if !sparql_profile_enabled() {
+        return;
+    }
+
+    let elapsed_micros = elapsed.as_micros();
+    {
+        let mut stats = sparql_profile_stats()
+            .lock()
+            .expect("sparql profile stats mutex poisoned");
+        let entry = stats.entry(query_key.to_string()).or_default();
+        entry.calls += 1;
+        entry.total_micros += elapsed_micros;
+        if elapsed_micros > entry.max_micros {
+            entry.max_micros = elapsed_micros;
+        }
+    }
+
+    let call_no = sparql_profile_call_counter()
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    if call_no % 200 != 0 {
+        return;
+    }
+
+    let (unique_count, snapshot) = {
+        let stats = sparql_profile_stats()
+            .lock()
+            .expect("sparql profile stats mutex poisoned");
+        let mut rows: Vec<(String, SparqlProfileStat)> = stats
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        rows.sort_by(|a, b| b.1.total_micros.cmp(&a.1.total_micros));
+        let unique_count = rows.len();
+        rows.truncate(5);
+        (unique_count, rows)
+    };
+
+    eprintln!(
+        "[sparql-profile] calls={} unique={} top-total-ms:",
+        call_no,
+        unique_count
+    );
+    for (query, stat) in snapshot {
+        let label = query
+            .lines()
+            .map(|line| line.trim())
+            .find(|line| !line.is_empty())
+            .unwrap_or("<empty>");
+        eprintln!(
+            "[sparql-profile] id={:016x} total_ms={:.3} max_ms={:.3} calls={} query={}",
+            query_key_id(&query),
+            stat.total_micros as f64 / 1000.0,
+            stat.max_micros as f64 / 1000.0,
+            stat.calls,
+            label
+        );
+    }
+}
+
+fn cached_prepared_query(query_str: &str) -> Result<PreparedSparqlQuery, String> {
+    if let Some(cached) = sparql_prepared_cache().get(query_str) {
+        return Ok(cached.value().clone());
+    }
+
+    let mut prepared = SparqlEvaluator::new()
+        .parse_query(query_str)
+        .map_err(|e| e.to_string())?;
+    prepared.dataset_mut().set_default_graph_as_union();
+    sparql_prepared_cache().insert(query_str.to_string(), prepared.clone());
+    Ok(prepared)
+}
 thread_local! {
-    static CURRENT_SUBCLASS_CLOSURE : RefCell < SubclassClosure > =
-    RefCell::new(SubclassClosure::new()); static TARGET_CLASS_CACHE : RefCell < HashMap <
-    (String, String), Vec < Term >>> = RefCell::new(HashMap::new()); static
-    TYPE_INDEX_CACHE : RefCell < HashMap < String, HashMap < String, Vec < Term >>>> =
-    RefCell::new(HashMap::new()); static CLASS_MEMBERSHIP_CACHE : RefCell < HashMap <
-    String, HashMap < Term, HashSet < String >>>> = RefCell::new(HashMap::new()); static
-    CLOSED_WORLD_VIOLATION_CACHE : RefCell < HashMap < (u64, String), HashMap < Term, Vec
-    < (NamedNode, Term) >>>> = RefCell::new(HashMap::new()); static ORIGINAL_VALUE_INDEX
-    : RefCell < Option < OriginalValueIndex >> = RefCell::new(None);
+    static CURRENT_SUBCLASS_CLOSURE: RefCell<SubclassClosure> =
+        RefCell::new(SubclassClosure::new());
+    static CLOSED_WORLD_VIOLATION_CACHE: RefCell<HashMap<(u64, String), HashMap<Term, Vec<(NamedNode, Term)>>>> =
+        RefCell::new(HashMap::new());
+    static ORIGINAL_VALUE_INDEX: RefCell<Option<OriginalValueIndex>> = RefCell::new(None);
+}
+
+fn target_class_cache() -> &'static DashMap<(String, String), Vec<Term>> {
+    static CACHE: OnceLock<DashMap<(String, String), Vec<Term>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn type_index_cache() -> &'static DashMap<String, Arc<ClassConstraintIndex>> {
+    static CACHE: OnceLock<DashMap<String, Arc<ClassConstraintIndex>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn class_membership_cache() -> &'static DashMap<String, Arc<ClassConstraintIndex>> {
+    static CACHE: OnceLock<DashMap<String, Arc<ClassConstraintIndex>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn sparql_prefix_cache() -> &'static DashMap<Term, String> {
+    static CACHE: OnceLock<DashMap<Term, String>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn subject_prefix_presence_cache() -> &'static DashMap<(String, String, String), bool> {
+    static CACHE: OnceLock<DashMap<(String, String, String), bool>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn sparql_prepared_cache() -> &'static DashMap<String, PreparedSparqlQuery> {
+    static CACHE: OnceLock<DashMap<String, PreparedSparqlQuery>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
 }
 #[derive(Hash, Eq, PartialEq, Clone)]
 struct LiteralKey {
@@ -232,23 +361,91 @@ fn has_rdf_type_cache_key(graph: Option<GraphNameRef<'_>>) -> String {
         None => "__all__|types-only".to_string(),
     }
 }
-fn build_assignable_class_index(
-    store: &Store,
+struct ClassConstraintIndex {
+    class_to_id: HashMap<String, usize>,
+    descendants_by_super: Vec<FixedBitSet>,
+    subject_type_bits: HashMap<Term, FixedBitSet>,
+}
+
+impl ClassConstraintIndex {
+    fn class_bitset(&self, class_iri: &str) -> Option<&FixedBitSet> {
+        let class_id = self.class_to_id.get(class_iri).copied()?;
+        self.descendants_by_super.get(class_id)
+    }
+
+    fn matches(&self, term: &Term, class_iri: &str) -> bool {
+        let Some(descendants) = self.class_bitset(class_iri) else {
+            return false;
+        };
+        self.subject_type_bits
+            .get(term)
+            .map(|type_bits| type_bits.intersection(descendants).next().is_some())
+            .unwrap_or(false)
+    }
+
+    fn instances_of_class(&self, class_iri: &str) -> Vec<Term> {
+        let Some(descendants) = self.class_bitset(class_iri) else {
+            return Vec::new();
+        };
+        self.subject_type_bits
+            .iter()
+            .filter(|(_, type_bits)| type_bits.intersection(descendants).next().is_some())
+            .map(|(subject, _)| subject.clone())
+            .collect()
+    }
+}
+
+fn class_index_graphs(
     graph: Option<GraphNameRef<'_>>,
-) -> HashMap<Term, HashSet<String>> {
-    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();
-    let mut index: HashMap<Term, HashSet<String>> = HashMap::new();
+    include_shape_graph: bool,
+) -> Vec<Option<GraphNameRef<'_>>> {
     let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();
     if let Some(g) = graph {
         graphs.push(Some(g));
-        let shape_graph = shape_graph_ref();
-        if g != shape_graph {
-            graphs.push(Some(shape_graph));
+        if include_shape_graph {
+            let shape_graph = shape_graph_ref();
+            if g != shape_graph {
+                graphs.push(Some(shape_graph));
+            }
         }
     } else {
         graphs.push(None);
     }
-    for graph_opt in graphs {
+    graphs
+}
+
+fn build_class_constraint_index(
+    store: &Store,
+    graph: Option<GraphNameRef<'_>>,
+    include_shape_graph: bool,
+) -> ClassConstraintIndex {
+    let closure_parents = with_subclass_closure(|closure| closure.parents.clone());
+
+    let mut next_class_id = 0usize;
+    let mut class_to_id: HashMap<String, usize> = HashMap::new();
+    let mut intern = |iri: &str| {
+        if let Some(id) = class_to_id.get(iri).copied() {
+            id
+        } else {
+            let id = next_class_id;
+            next_class_id += 1;
+            class_to_id.insert(iri.to_string(), id);
+            id
+        }
+    };
+
+    let mut parent_edges: Vec<(usize, usize)> = Vec::new();
+    for (subclass, parents) in &closure_parents {
+        let sub_id = intern(subclass);
+        for parent in parents {
+            let super_id = intern(parent);
+            parent_edges.push((sub_id, super_id));
+        }
+    }
+
+    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();
+    let mut subject_type_ids: HashMap<Term, Vec<usize>> = HashMap::new();
+    for graph_opt in class_index_graphs(graph, include_shape_graph) {
         for quad in store.quads_for_pattern(None, Some(rdf_type), None, graph_opt) {
             let quad = match quad {
                 Ok(quad) => quad,
@@ -258,29 +455,66 @@ fn build_assignable_class_index(
                 Term::NamedNode(node) => node,
                 _ => continue,
             };
+            let class_id = intern(class_node.as_str());
             let subject: Term = quad.subject.into();
-            let entry = index.entry(subject).or_default();
-            let class_name = class_node.as_str().to_string();
-            entry.insert(class_name.clone());
-            with_subclass_closure(|closure| {
-                let mut stack: Vec<String> = vec![class_name.clone()];
-                let mut seen: HashSet<String> = HashSet::new();
-                while let Some(curr) = stack.pop() {
-                    if !seen.insert(curr.clone()) {
-                        continue;
-                    }
-                    entry.insert(curr.clone());
-                    if let Some(parents) = closure.parents.get(&curr) {
-                        for parent in parents {
-                            stack.push(parent.clone());
-                        }
-                    }
-                }
-            });
+            subject_type_ids.entry(subject).or_default().push(class_id);
         }
     }
-    index
+
+    let class_count = next_class_id;
+    let mut descendants_by_super: Vec<FixedBitSet> = (0..class_count)
+        .map(|_| FixedBitSet::with_capacity(class_count))
+        .collect();
+
+    if class_count > 0 {
+        let mut parents_by_subclass: Vec<Vec<usize>> = vec![Vec::new(); class_count];
+        for (child, parent) in parent_edges {
+            if !parents_by_subclass[child].contains(&parent) {
+                parents_by_subclass[child].push(parent);
+            }
+        }
+
+        let mut ancestors_by_subclass: Vec<FixedBitSet> = (0..class_count)
+            .map(|_| FixedBitSet::with_capacity(class_count))
+            .collect();
+        for subclass in 0..class_count {
+            let mut stack = vec![subclass];
+            while let Some(node) = stack.pop() {
+                if ancestors_by_subclass[subclass].contains(node) {
+                    continue;
+                }
+                ancestors_by_subclass[subclass].insert(node);
+                for parent in &parents_by_subclass[node] {
+                    stack.push(*parent);
+                }
+            }
+        }
+
+        for (subclass, ancestors) in ancestors_by_subclass.iter().enumerate() {
+            for super_id in ancestors.ones() {
+                descendants_by_super[super_id].insert(subclass);
+            }
+        }
+    }
+
+    let mut subject_type_bits: HashMap<Term, FixedBitSet> = HashMap::new();
+    for (subject, class_ids) in subject_type_ids {
+        let mut bits = FixedBitSet::with_capacity(class_count);
+        for class_id in class_ids {
+            if class_id < class_count {
+                bits.insert(class_id);
+            }
+        }
+        subject_type_bits.insert(subject, bits);
+    }
+
+    ClassConstraintIndex {
+        class_to_id,
+        descendants_by_super,
+        subject_type_bits,
+    }
 }
+
 fn collect_closed_world_violations_for_targets(
     store: &Store,
     graph: Option<GraphNameRef<'_>>,
@@ -307,40 +541,17 @@ fn collect_closed_world_violations_for_targets(
     }
     out
 }
-fn build_type_index(
-    store: &Store,
-    graph: Option<GraphNameRef<'_>>,
-) -> HashMap<String, Vec<Term>> {
-    let rdf_type = NamedNodeRef::new(RDF_TYPE).unwrap();
-    let mut index: HashMap<String, Vec<Term>> = HashMap::new();
-    let mut graphs: Vec<Option<GraphNameRef<'_>>> = Vec::new();
-    if let Some(g) = graph {
-        graphs.push(Some(g));
-    } else {
-        graphs.push(None);
-    }
-    for graph_opt in graphs {
-        for quad in store.quads_for_pattern(None, Some(rdf_type), None, graph_opt) {
-            let quad = match quad {
-                Ok(quad) => quad,
-                Err(_) => continue,
-            };
-            let class_iri = match &quad.object {
-                Term::NamedNode(node) => node.as_str(),
-                _ => continue,
-            };
-            let subject: Term = quad.subject.into();
-            index.entry(class_iri.to_string()).or_default().push(subject);
-        }
-    }
-    index
-}
+
 fn clear_target_class_caches() {
-    TARGET_CLASS_CACHE.with(|cell| cell.borrow_mut().clear());
-    TYPE_INDEX_CACHE.with(|cell| cell.borrow_mut().clear());
-    CLASS_MEMBERSHIP_CACHE.with(|cell| cell.borrow_mut().clear());
+    target_class_cache().clear();
+    type_index_cache().clear();
+    class_membership_cache().clear();
+    sparql_prefix_cache().clear();
+    subject_prefix_presence_cache().clear();
+    sparql_prepared_cache().clear();
     CLOSED_WORLD_VIOLATION_CACHE.with(|cell| cell.borrow_mut().clear());
 }
+
 fn targets_for_class(
     store: &Store,
     graph: Option<GraphNameRef<'_>>,
@@ -348,40 +559,27 @@ fn targets_for_class(
 ) -> Vec<Term> {
     let graph_key = graph_cache_key(graph);
     let cache_key = (graph_key.clone(), class_iri.to_string());
-    if let Some(cached) = TARGET_CLASS_CACHE
-        .with(|cell| cell.borrow().get(&cache_key).cloned())
-    {
-        return cached;
+    if let Some(cached) = target_class_cache().get(&cache_key) {
+        return cached.value().clone();
     }
-    let targets = TYPE_INDEX_CACHE
-        .with(|cell| {
-            let mut cache = cell.borrow_mut();
-            let index = cache
-                .entry(graph_key.clone())
-                .or_insert_with(|| build_type_index(store, graph));
-            with_subclass_closure(|closure| {
-                let mut out: Vec<Term> = Vec::new();
-                let mut seen: HashSet<Term> = HashSet::new();
-                for (class, subjects) in index.iter() {
-                    if closure.is_subclass_of(class.as_str(), class_iri) {
-                        for subject in subjects {
-                            if seen.insert(subject.clone()) {
-                                out.push(subject.clone());
-                            }
-                        }
-                    }
-                }
-                out
-            })
-        });
-    TARGET_CLASS_CACHE
-        .with(|cell| {
-            cell.borrow_mut().insert(cache_key, targets.clone());
-        });
+
+    let index = if let Some(cached) = type_index_cache().get(&graph_key) {
+        cached.value().clone()
+    } else {
+        let built = Arc::new(build_class_constraint_index(store, graph, false));
+        type_index_cache().insert(graph_key.clone(), built.clone());
+        built
+    };
+    let targets = index.instances_of_class(class_iri);
+
+    target_class_cache().insert(cache_key, targets.clone());
     targets
 }
 fn shape_graph_ref() -> GraphNameRef<'static> {
     GraphNameRef::NamedNode(NamedNodeRef::new(SHAPE_GRAPH).unwrap())
+}
+pub fn data_graph_named() -> NamedNode {
+    NamedNode::new(DATA_GRAPH).unwrap()
 }
 fn subject_ref(term: &Term) -> Option<NamedOrBlankNodeRef<'_>> {
     match term {
@@ -615,6 +813,10 @@ fn advanced_select_query(store: &Store, selector: &Term) -> Option<String> {
     None
 }
 fn prefixes_for_selector(store: &Store, selector: &Term) -> String {
+    if let Some(cached) = sparql_prefix_cache().get(selector) {
+        return cached.value().clone();
+    }
+
     let sh_prefixes = NamedNodeRef::new(SHACL_PREFIXES).unwrap();
     let sh_declare = NamedNodeRef::new(SHACL_DECLARE).unwrap();
     let sh_prefix = NamedNodeRef::new(SHACL_PREFIX).unwrap();
@@ -674,6 +876,7 @@ fn prefixes_for_selector(store: &Store, selector: &Term) -> String {
         }
     }
     if prefixes.is_empty() {
+        sparql_prefix_cache().insert(selector.clone(), String::new());
         return String::new();
     }
     let mut keys: Vec<String> = prefixes.keys().cloned().collect();
@@ -684,6 +887,7 @@ fn prefixes_for_selector(store: &Store, selector: &Term) -> String {
             out.push_str(&format!("PREFIX {}: <{}>\n", key, ns));
         }
     }
+    sparql_prefix_cache().insert(selector.clone(), out.clone());
     out
 }
 fn advanced_targets_for(
@@ -706,7 +910,7 @@ fn advanced_targets_for(
     if debug {
         eprintln!("SPARQL query:\n{}", query_str);
     }
-    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {
+    let mut prepared = match cached_prepared_query(&query_str) {
         Ok(prepared) => prepared,
         Err(_) => return Vec::new(),
     };
@@ -716,6 +920,7 @@ fn advanced_targets_for(
         prepared.dataset_mut().set_default_graph_as_union();
     }
     let mut results: HashSet<Term> = HashSet::new();
+    let query_start = std::time::Instant::now();
     match prepared.on_store(store).execute() {
         Ok(QueryResults::Solutions(solutions)) => {
             for solution in solutions {
@@ -736,6 +941,7 @@ fn advanced_targets_for(
         }
         _ => {}
     }
+    maybe_record_sparql_timing(&normalized_query, query_start.elapsed());
     results.into_iter().collect()
 }
 fn has_rdf_type(
@@ -748,14 +954,14 @@ fn has_rdf_type(
         return false;
     }
     let cache_key = has_rdf_type_cache_key(graph);
-    CLASS_MEMBERSHIP_CACHE
-        .with(|cell| {
-            let mut cache = cell.borrow_mut();
-            let index = cache
-                .entry(cache_key)
-                .or_insert_with(|| build_assignable_class_index(store, graph));
-            index.get(term).map(|classes| classes.contains(class_iri)).unwrap_or(false)
-        })
+    let index = if let Some(cached) = class_membership_cache().get(&cache_key) {
+        cached.value().clone()
+    } else {
+        let built = Arc::new(build_class_constraint_index(store, graph, true));
+        class_membership_cache().insert(cache_key, built.clone());
+        built
+    };
+    index.matches(term, class_iri)
 }
 fn matches_node_kind(term: &Term, node_kind_iri: &str) -> bool {
     match node_kind_iri {
@@ -798,8 +1004,8 @@ fn lang_matches(tag: &str, range: &str) -> bool {
     if range == "*" {
         return !tag.is_empty();
     }
-    let tag_lower = tag.to_lowercase();
-    let range_lower = range.to_lowercase();
+    let tag_lower = tag.to_ascii_lowercase();
+    let range_lower = range.to_ascii_lowercase();
     if tag_lower == range_lower {
         return true;
     }
@@ -1068,6 +1274,156 @@ fn query_mentions_var(query: &str, var: &str) -> bool {
     }
     contains(query, '?', var) || contains(query, '$', var)
 }
+
+fn extract_subject_predicate_var(query: &str) -> Option<String> {
+    static TRIPLE_RE: OnceLock<Regex> = OnceLock::new();
+    let triple_re = TRIPLE_RE.get_or_init(|| {
+        Regex::new(
+            r"(?is)[\?\$]this\s+[\?\$]([A-Za-z_][A-Za-z0-9_]*)\s+[\?\$][A-Za-z_][A-Za-z0-9_]*\s*\."
+        )
+        .unwrap()
+    });
+    let captures = triple_re.captures(query)?;
+    captures.get(1).map(|m| m.as_str().to_string())
+}
+
+fn extract_strstarts_prefix_for_var(query: &str, var: &str) -> Option<String> {
+    static STRSTARTS_RE: OnceLock<Regex> = OnceLock::new();
+    let strstarts_re = STRSTARTS_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?is)STRSTARTS\s*\(\s*str\s*\(\s*[\?\$]([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*,\s*\"([^\"]+)\"\s*\)"#,
+        )
+        .unwrap()
+    });
+    for captures in strstarts_re.captures_iter(query) {
+        let capture_var = captures.get(1).map(|m| m.as_str())?;
+        if capture_var == var {
+            return captures.get(2).map(|m| m.as_str().to_string());
+        }
+    }
+    None
+}
+
+fn keyword_scan_text(query: &str) -> String {
+    let mut out = String::with_capacity(query.len());
+    let bytes = query.as_bytes();
+    let mut i = 0usize;
+    let mut in_iri = false;
+    let mut in_string = false;
+    let mut in_comment = false;
+
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                out.push(' ');
+            }
+            i += 1;
+            continue;
+        }
+        if in_iri {
+            if ch == '>' {
+                in_iri = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_string {
+            if ch == '\\' {
+                i += 2;
+                continue;
+            }
+            if ch == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if ch == '#' {
+            in_comment = true;
+            i += 1;
+            continue;
+        }
+        if ch == '<' {
+            in_iri = true;
+            out.push(' ');
+            i += 1;
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            out.push(' ');
+            i += 1;
+            continue;
+        }
+
+        out.push(ch);
+        i += 1;
+    }
+
+    out
+}
+
+fn query_is_simple_subject_prefix_filter(query: &str) -> bool {
+    static COMPLEX_RE: OnceLock<Regex> = OnceLock::new();
+    let complex_re = COMPLEX_RE.get_or_init(|| {
+        Regex::new(
+            r"(?is)\b(union|optional|minus)\b",
+        )
+        .unwrap()
+    });
+
+    let scan = keyword_scan_text(query);
+    !complex_re.is_match(&scan)
+}
+
+fn quick_reject_subject_prefix_query(
+    query: &str,
+    store: &Store,
+    graph: Option<GraphNameRef<'_>>,
+    focus: Option<&Term>,
+) -> bool {
+    if !query_is_simple_subject_prefix_filter(query) {
+        return false;
+    }
+
+    let focus = match focus {
+        Some(term) => term,
+        None => return false,
+    };
+    let subject = match subject_ref(focus) {
+        Some(subject) => subject,
+        None => return false,
+    };
+
+    let predicate_var = match extract_subject_predicate_var(query) {
+        Some(var) => var,
+        None => return false,
+    };
+    let predicate_prefix = match extract_strstarts_prefix_for_var(query, &predicate_var) {
+        Some(prefix) => prefix,
+        None => return false,
+    };
+
+    let cache_key = (
+        graph_cache_key(graph),
+        subject.to_string(),
+        predicate_prefix.clone(),
+    );
+    if let Some(cached) = subject_prefix_presence_cache().get(&cache_key) {
+        return !*cached.value();
+    }
+
+    let has_prefix = store
+        .quads_for_pattern(Some(subject), None, None, graph)
+        .filter_map(Result::ok)
+        .any(|quad| quad.predicate.as_str().starts_with(&predicate_prefix));
+
+    subject_prefix_presence_cache().insert(cache_key, has_prefix);
+    !has_prefix
+}
 fn sparql_any_solution(
     query: &str,
     store: &Store,
@@ -1093,6 +1449,12 @@ fn sparql_any_solution_with_bindings(
 ) -> bool {
     let mut normalized_query = query.replace('$', "?");
     let debug = std::env::var("SHACL_DEBUG_SPARQL").is_ok();
+    if quick_reject_subject_prefix_query(query, store, graph, focus) {
+        if debug {
+            eprintln!("SPARQL quick reject: no matching predicate prefix for bound subject");
+        }
+        return false;
+    }
     let mut bind_lines: Vec<String> = Vec::new();
     let mut remaining: Vec<(String, Term)> = Vec::new();
     let mut bind_everywhere = false;
@@ -1141,7 +1503,7 @@ fn sparql_any_solution_with_bindings(
     if debug {
         eprintln!("SPARQL query:\n{}", query_str);
     }
-    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {
+    let mut prepared = match cached_prepared_query(&query_str) {
         Ok(prepared) => prepared,
         Err(err) => {
             if debug {
@@ -1156,18 +1518,21 @@ fn sparql_any_solution_with_bindings(
         prepared.dataset_mut().set_default_graph_as_union();
     }
     let mut bound = prepared.on_store(store);
-    for (name, term) in remaining.iter() {
+    for (name, term) in &remaining {
         bound = bound
             .substitute_variable(Variable::new_unchecked(name.as_str()), term.clone());
     }
-    match bound.execute() {
+    let query_start = std::time::Instant::now();
+    let result = match bound.execute() {
         Ok(QueryResults::Solutions(solutions)) => {
-            for result in solutions {
-                if result.is_ok() {
-                    return true;
+            let mut found = false;
+            for row in solutions {
+                if row.is_ok() {
+                    found = true;
+                    break;
                 }
             }
-            false
+            found
         }
         Ok(QueryResults::Boolean(val)) => val,
         Ok(QueryResults::Graph(_)) => false,
@@ -1177,7 +1542,9 @@ fn sparql_any_solution_with_bindings(
             }
             false
         }
-    }
+    };
+    maybe_record_sparql_timing(query, query_start.elapsed());
+    result
 }
 fn sparql_select_solutions_with_bindings(
     query: &str,
@@ -1190,6 +1557,12 @@ fn sparql_select_solutions_with_bindings(
 ) -> Vec<HashMap<String, Term>> {
     let mut normalized_query = query.replace('$', "?");
     let debug = std::env::var("SHACL_DEBUG_SPARQL").is_ok();
+    if quick_reject_subject_prefix_query(query, store, graph, focus) {
+        if debug {
+            eprintln!("SPARQL quick reject: no matching predicate prefix for bound subject");
+        }
+        return Vec::new();
+    }
     let mut bind_lines: Vec<String> = Vec::new();
     let mut remaining: Vec<(String, Term)> = Vec::new();
     let mut bind_everywhere = false;
@@ -1238,7 +1611,7 @@ fn sparql_select_solutions_with_bindings(
     if debug {
         eprintln!("SPARQL query:\n{}", query_str);
     }
-    let mut prepared = match SparqlEvaluator::new().parse_query(&query_str) {
+    let mut prepared = match cached_prepared_query(&query_str) {
         Ok(prepared) => prepared,
         Err(err) => {
             if debug {
@@ -1253,11 +1626,12 @@ fn sparql_select_solutions_with_bindings(
         prepared.dataset_mut().set_default_graph_as_union();
     }
     let mut bound = prepared.on_store(store);
-    for (name, term) in remaining.iter() {
+    for (name, term) in &remaining {
         bound = bound
             .substitute_variable(Variable::new_unchecked(name.as_str()), term.clone());
     }
     let mut out: Vec<HashMap<String, Term>> = Vec::new();
+    let query_start = std::time::Instant::now();
     match bound.execute() {
         Ok(QueryResults::Solutions(solutions)) => {
             for solution in solutions {
@@ -1281,38 +1655,12 @@ fn sparql_select_solutions_with_bindings(
             }
         }
     }
+    maybe_record_sparql_timing(query, query_start.elapsed());
     if debug {
         eprintln!("SPARQL solutions: {}", out.len());
     }
     out
 }
-fn sparql_any_solution_lenient(
-    query: &str,
-    store: &Store,
-    graph: Option<GraphNameRef<'_>>,
-    selector: Option<&Term>,
-    focus: Option<&Term>,
-    value: Option<&Term>,
-) -> bool {
-    let prefixes = match selector {
-        Some(selector) => prefixes_for_selector(store, selector),
-        None => String::new(),
-    };
-    sparql_any_solution_with_bindings(query, &prefixes, store, graph, focus, value, &[])
-}
-pub fn data_graph_named() -> NamedNode {
-    NamedNode::new(DATA_GRAPH).unwrap()
-}
-fn load_shape_ir() -> Result<ShapeIR, String> {
-    serde_json::from_str(include_str!("shape_ir.json"))
-        .map_err(|e| format!("Failed to deserialize shape IR: {}", e))
-}
-const SHACL_VALIDATION_REPORT: &str = "http://www.w3.org/ns/shacl#ValidationReport";
-const SHACL_VALIDATION_RESULT: &str = "http://www.w3.org/ns/shacl#ValidationResult";
-const SHACL_RESULT: &str = "http://www.w3.org/ns/shacl#result";
-const SHACL_FOCUS_NODE: &str = "http://www.w3.org/ns/shacl#focusNode";
-const SHACL_SOURCE_SHAPE: &str = "http://www.w3.org/ns/shacl#sourceShape";
-const SHACL_SOURCE_CONSTRAINT_COMPONENT: &str = "http://www.w3.org/ns/shacl#sourceConstraintComponent";
 const SHACL_VALUE: &str = "http://www.w3.org/ns/shacl#value";
 const SHACL_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
 const SHACL_RESULT_SEVERITY: &str = "http://www.w3.org/ns/shacl#resultSeverity";
