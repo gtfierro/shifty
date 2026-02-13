@@ -1110,7 +1110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.0-a5\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = true\n",
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.0-a5\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
                 args.bin_name,
                 shifty_dep,
             );
@@ -1128,6 +1128,8 @@ use oxigraph::store::Store;
 use std::env;
 use std::error::Error;
 use std::fs::File;
+use std::sync::OnceLock;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 fn print_usage(program: &str) {
     eprintln!("usage: {} [--follow-bnodes] <data.ttl>", program);
@@ -1164,15 +1166,28 @@ fn parse_args() -> Result<(String, bool), String> {
     }
 }
 
+fn stage_mark(stage: &str) {
+    static START: OnceLock<Instant> = OnceLock::new();
+    let start = START.get_or_init(Instant::now);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let elapsed = start.elapsed().as_millis();
+    eprintln!("[compiled-stage ts_ms={} elapsed_ms={}] {}", now, elapsed, stage);
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let (data_path, follow_bnodes) =
         parse_args().map_err(|err| Box::<dyn std::error::Error>::from(err))?;
+    stage_mark("program start");
     let store = Store::new()?;
     let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
     let graph_name = GraphName::NamedNode(data_graph.clone());
     let file = File::open(&data_path)?;
     let parser = RdfParser::from_format(RdfFormat::Turtle).for_reader(file);
+    stage_mark(&format!("data graph load start path={}", data_path));
     info!("Starting data graph load from {}", data_path);
     let mut triple_count = 0;
     for triple in parser {
@@ -1187,9 +1202,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         triple_count += 1;
     }
     info!("Finished data graph load ({} triples)", triple_count);
+    stage_mark(&format!("data graph load finish triples={}", triple_count));
 
+    stage_mark("compiled validation+inference start");
     let report = generated::run(&store, Some(&data_graph));
+    stage_mark(&format!("compiled validation+inference finish violations={}", report.violations.len()));
     let output = render_report(&report, &store, follow_bnodes);
+    stage_mark("render report finish");
     println!("{}", output);
     Ok(())
 }

@@ -2767,6 +2767,7 @@ fn generate_prelude_module(plan: &PlanView) -> Result<String, String> {
         use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator, Variable};
         use std::collections::{HashMap, HashSet, VecDeque};
         use std::sync::{Arc, OnceLock};
+        use std::time::{Instant, SystemTime, UNIX_EPOCH};
         use fixedbitset::FixedBitSet;
         use dashmap::DashMap;
         use rayon::prelude::*;
@@ -2787,6 +2788,17 @@ fn generate_prelude_module(plan: &PlanView) -> Result<String, String> {
         const SHACL_DECLARE: &str = "http://www.w3.org/ns/shacl#declare";
         const SHACL_PREFIX: &str = "http://www.w3.org/ns/shacl#prefix";
         const SHACL_NAMESPACE: &str = "http://www.w3.org/ns/shacl#namespace";
+
+        fn compiled_stage(stage: &str) {
+            static START: OnceLock<Instant> = OnceLock::new();
+            let start = START.get_or_init(Instant::now);
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let elapsed = start.elapsed().as_millis();
+            eprintln!("[compiled-stage ts_ms={} elapsed_ms={}] {}", now, elapsed, stage);
+        }
 
         #[derive(Debug, Default)]
         pub struct Report {
@@ -3270,14 +3282,21 @@ fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
                 let mut iterations: usize = 0;
                 loop {
                     info!("Starting inference iteration {}", iterations);
+                    compiled_stage(&format!("inference iteration {} start", iterations));
                     let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
                     let added = run_inference_iteration(store, graph, graph_node, &mut seen_new)?;
                     info!("Iteration {} added {} triples", iterations, added);
+                    compiled_stage(&format!(
+                        "inference iteration {} finish added={}",
+                        iterations,
+                        added
+                    ));
                     if added == 0 || iterations >= INFERENCE_MAX_ITERATIONS {
                         break;
                     }
                     iterations = iterations.saturating_add(1);
                 }
+                compiled_stage(&format!("inference loop finished iterations={}", iterations));
                 Ok(())
             }
         })
@@ -3810,17 +3829,23 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             let graph_node = data_graph.unwrap_or(&default_data_graph);
             let graph = graph_ref(Some(graph_node));
             let mut report = Report::default();
+            compiled_stage("run start");
 
             info!("Starting shape graph load");
+            compiled_stage("shape graph load start");
             insert_shape_triples(store);
             info!("Finished shape graph load");
+            compiled_stage("shape graph load finish");
 
             info!("Merging shape graph into data graph for union execution");
+            compiled_stage("union setup start");
             if let Err(err) = union_shape_graph_into_data_graph(store, graph_node) {
                 eprintln!("Union graph setup failed: {}", err);
                 info!("Union graph setup failed");
+                compiled_stage("union setup failed");
             } else {
                 info!("Finished union graph setup");
+                compiled_stage("union setup finish");
             }
 
             set_current_subclass_closure(subclass_closure_from_shape_edges());
@@ -3832,11 +3857,16 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             clear_target_class_caches();
 
             info!("Starting inference");
+            compiled_stage("inference start");
             match run_inference(store, graph, graph_node) {
-                Ok(_) => info!("Finished inference"),
+                Ok(_) => {
+                    info!("Finished inference");
+                    compiled_stage("inference finish");
+                },
                 Err(err) => {
                     eprintln!("Inference failed: {}", err);
                     info!("Inference failed");
+                    compiled_stage("inference failed");
                 }
             }
             extend_current_subclass_closure_from_store(
@@ -3845,6 +3875,7 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             );
 
             info!("Starting validation");
+            compiled_stage("validation start");
             let validation_closure = with_subclass_closure(|closure| closure.clone());
             let original_index = with_original_value_index(|idx| idx.cloned());
 
@@ -3897,6 +3928,7 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             }
 
             info!("Finished validation");
+            compiled_stage(&format!("validation finish violations={}", report.violations.len()));
             report
         }
     })
