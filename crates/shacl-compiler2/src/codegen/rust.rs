@@ -3815,6 +3815,14 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             insert_shape_triples(store);
             info!("Finished shape graph load");
 
+            info!("Merging shape graph into data graph for union execution");
+            if let Err(err) = union_shape_graph_into_data_graph(store, graph_node) {
+                eprintln!("Union graph setup failed: {}", err);
+                info!("Union graph setup failed");
+            } else {
+                info!("Finished union graph setup");
+            }
+
             set_current_subclass_closure(subclass_closure_from_shape_edges());
             extend_current_subclass_closure_from_store(store, Some(shape_graph_ref()));
             extend_current_subclass_closure_from_store(

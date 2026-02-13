@@ -578,14 +578,16 @@ fn get_validator_shapes_only(
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
+    if args.no_imports {
+        info!(
+            "Ignoring --no-imports for compile; compiled binaries always embed the full shapes imports closure"
+        );
+    }
+
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &args.shapes.shapes_file {
-        if args.no_imports {
-            if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
-                builder = builder.with_shape_ir(shape_ir?);
-            } else {
-                builder = builder.with_shapes_source(Source::File(path.clone()));
-            }
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
         } else {
             builder = builder.with_shapes_source(Source::File(path.clone()));
         }
@@ -600,7 +602,7 @@ fn get_validator_shapes_only_for_compile(
         .with_skip_invalid_rules(args.skip_invalid_rules)
         .with_warnings_are_errors(args.warnings_are_errors)
         .with_strict_custom_constraints(args.strict_custom_constraints)
-        .with_do_imports(!args.no_imports)
+        .with_do_imports(true)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
@@ -973,7 +975,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
         Commands::Compile(args) => {
             let validator = get_validator_shapes_only_for_compile(&args)?;
-            let shape_ir = if args.no_imports {
+            let shapes_file_is_ir = args
+                .shapes
+                .shapes_file
+                .as_ref()
+                .and_then(|path| path.extension().and_then(|ext| ext.to_str()))
+                .map(|ext| ext.eq_ignore_ascii_case("ir"))
+                .unwrap_or(false);
+            let shape_ir = if shapes_file_is_ir {
                 validator.shape_ir().clone()
             } else {
                 validator

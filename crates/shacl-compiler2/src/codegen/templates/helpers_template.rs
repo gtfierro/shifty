@@ -581,6 +581,23 @@ fn shape_graph_ref() -> GraphNameRef<'static> {
 pub fn data_graph_named() -> NamedNode {
     NamedNode::new(DATA_GRAPH).unwrap()
 }
+fn union_shape_graph_into_data_graph(store: &Store, data_graph: &NamedNode) -> Result<(), String> {
+    let shape_graph = shape_graph_ref();
+    let data_graph_name = GraphName::NamedNode(data_graph.clone());
+
+    for quad in store.quads_for_pattern(None, None, None, Some(shape_graph)) {
+        let quad = quad.map_err(|e| e.to_string())?;
+        let merged = Quad::new(
+            quad.subject.clone(),
+            quad.predicate.clone(),
+            quad.object.clone(),
+            data_graph_name.clone(),
+        );
+        store.insert(merged.as_ref()).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
 fn subject_ref(term: &Term) -> Option<NamedOrBlankNodeRef<'_>> {
     match term {
         Term::NamedNode(node) => Some(NamedOrBlankNodeRef::NamedNode(node.as_ref())),
