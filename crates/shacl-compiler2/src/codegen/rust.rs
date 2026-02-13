@@ -3325,14 +3325,25 @@ fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
                     if focus_nodes.is_empty() {
                         continue;
                     }
-                    let delta = apply_inference_rule(
+                    let candidates = collect_inference_rule_candidates(
                         rule_id,
                         store,
                         graph,
-                        graph_node,
                         &focus_nodes,
-                        seen_new,
                     )?;
+                    let mut delta: usize = 0;
+                    for (subject_term, predicate, object_term) in candidates {
+                        if record_inferred_quad(
+                            store,
+                            graph_node,
+                            seen_new,
+                            subject_term,
+                            predicate,
+                            object_term,
+                        )? {
+                            delta += 1;
+                        }
+                    }
                     added += delta;
                     if delta > 0 {
                         node_target_cache.clear();
@@ -3465,27 +3476,25 @@ fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
         .map(|rule| {
             let rule_id = rule.id;
             let fn_ident = format_ident!("inference_rule_{}", rule_id);
-            quote! { #rule_id => #fn_ident(store, graph, graph_node, focus_nodes, seen_new) }
+            quote! { #rule_id => #fn_ident(store, graph, focus_nodes) }
         })
         .collect();
 
     items.push(
         parse2::<Item>(quote! {
-            fn apply_inference_rule(
+            fn collect_inference_rule_candidates(
                 rule_id: u64,
                 store: &Store,
                 graph: Option<GraphNameRef<'_>>,
-                graph_node: &NamedNode,
                 focus_nodes: &[Term],
-                seen_new: &mut HashSet<(Term, NamedNode, Term)>,
-            ) -> Result<usize, String> {
+            ) -> Result<Vec<(Term, NamedNode, Term)>, String> {
                 match rule_id {
                     #(#apply_rule_arms,)*
-                    _ => Ok(0),
+                    _ => Ok(Vec::new()),
                 }
             }
         })
-        .map_err(|err| format!("failed to generate apply_inference_rule: {err}"))?,
+        .map_err(|err| format!("failed to generate collect_inference_rule_candidates: {err}"))?,
     );
 
     for rule in &plan.rules {
@@ -3615,36 +3624,37 @@ fn generate_inference_rule_function(plan: &PlanView, rule: &PlanRuleView) -> Res
             fn #fn_ident(
                 store: &Store,
                 graph: Option<GraphNameRef<'_>>,
-                graph_node: &NamedNode,
                 focus_nodes: &[Term],
-                seen_new: &mut HashSet<(Term, NamedNode, Term)>,
-            ) -> Result<usize, String> {
+            ) -> Result<Vec<(Term, NamedNode, Term)>, String> {
                 let predicate = NamedNode::new(#predicate_lit).unwrap();
-                let mut added: usize = 0;
-                for focus in focus_nodes {
-                    if !rule_conditions_satisfied(#rule_id, store, graph, focus) {
-                        continue;
-                    }
+                let candidates: Result<Vec<Vec<(Term, NamedNode, Term)>>, String> = focus_nodes
+                    .par_iter()
+                    .map(|focus| {
+                        if !rule_conditions_satisfied(#rule_id, store, graph, focus) {
+                            return Ok(Vec::new());
+                        }
 
-                    let subjects = #subject_values_expr;
-                    let objects = #object_values_expr;
-
-                    for subject_term in &subjects {
-                        for object_term in &objects {
-                            if record_inferred_quad(
-                                store,
-                                graph_node,
-                                seen_new,
-                                subject_term.clone(),
-                                predicate.clone(),
-                                object_term.clone(),
-                            )? {
-                                added += 1;
+                        let subjects = #subject_values_expr;
+                        let objects = #object_values_expr;
+                        let mut batch = Vec::with_capacity(subjects.len() * objects.len());
+                        for subject_term in &subjects {
+                            for object_term in &objects {
+                                batch.push((
+                                    subject_term.clone(),
+                                    predicate.clone(),
+                                    object_term.clone(),
+                                ));
                             }
                         }
-                    }
+                        Ok(batch)
+                    })
+                    .collect();
+
+                let mut out = Vec::new();
+                for batch in candidates? {
+                    out.extend(batch);
                 }
-                Ok(added)
+                Ok(out)
             }
         })
         .map_err(|err| {
@@ -3667,100 +3677,90 @@ fn generate_inference_rule_function(plan: &PlanView, rule: &PlanRuleView) -> Res
             fn #fn_ident(
                 store: &Store,
                 graph: Option<GraphNameRef<'_>>,
-                graph_node: &NamedNode,
                 focus_nodes: &[Term],
-                seen_new: &mut HashSet<(Term, NamedNode, Term)>,
-            ) -> Result<usize, String> {
+            ) -> Result<Vec<(Term, NamedNode, Term)>, String> {
                 let base_query = #query_lit;
-                let mut prepared = SparqlEvaluator::new()
-                    .parse_query(base_query)
-                    .map_err(|e| {
-                        format!("Failed to parse inference query {}: {}", #rule_id, e)
-                    })?;
+                let query_has_this = query_mentions_var(base_query, "this");
+                let mut prepared_base = SparqlEvaluator::new().parse_query(base_query).map_err(|e| {
+                    format!("Failed to parse inference query {}: {}", #rule_id, e)
+                })?;
                 if let Some(graph) = graph {
-                    prepared
+                    prepared_base
                         .dataset_mut()
                         .set_default_graph(vec![graph.into_owned()]);
                 } else {
-                    prepared.dataset_mut().set_default_graph_as_union();
+                    prepared_base.dataset_mut().set_default_graph_as_union();
                 }
-                let var_this = Variable::new("this").map_err(|e| {
-                    format!("Inference rule {} failed to build variable: {}", #rule_id, e)
-                })?;
-                let mut added: usize = 0;
-                for focus in focus_nodes {
-                    if !rule_conditions_satisfied(#rule_id, store, graph, focus) {
-                        continue;
-                    }
-                    let mut prepared_query = if query_mentions_var(base_query, "this") {
-                        if let Some(ground) = term_to_sparql_ground(focus) {
-                            let bindings = format!("BIND({} AS ?this)", ground);
-                            let bound_query = inject_bindings_in_where(base_query, &bindings);
-                            let mut parsed = SparqlEvaluator::new()
-                                .parse_query(&bound_query)
-                                .map_err(|e| {
+
+                let candidates: Result<Vec<Vec<(Term, NamedNode, Term)>>, String> = focus_nodes
+                    .par_iter()
+                    .map(|focus| {
+                        if !rule_conditions_satisfied(#rule_id, store, graph, focus) {
+                            return Ok(Vec::new());
+                        }
+
+                        let var_this = Variable::new("this").map_err(|e| {
+                            format!("Inference rule {} failed to build variable: {}", #rule_id, e)
+                        })?;
+
+                        let mut prepared_query = if query_has_this {
+                            if let Some(ground) = term_to_sparql_ground(focus) {
+                                let bindings = format!("BIND({} AS ?this)", ground);
+                                let bound_query = inject_bindings_in_where(base_query, &bindings);
+                                let mut parsed = SparqlEvaluator::new().parse_query(&bound_query).map_err(|e| {
                                     format!("Failed to parse inference query {}: {}", #rule_id, e)
                                 })?;
-                            if let Some(graph) = graph {
+                                if let Some(graph) = graph {
+                                    parsed
+                                        .dataset_mut()
+                                        .set_default_graph(vec![graph.into_owned()]);
+                                } else {
+                                    parsed.dataset_mut().set_default_graph_as_union();
+                                }
                                 parsed
-                                    .dataset_mut()
-                                    .set_default_graph(vec![graph.into_owned()]);
                             } else {
-                                parsed.dataset_mut().set_default_graph_as_union();
+                                prepared_base.clone()
                             }
-                            parsed
                         } else {
-                            prepared.clone()
+                            prepared_base.clone()
+                        };
+
+                        let mut bound = prepared_query.on_store(store);
+                        if query_has_this && term_to_sparql_ground(focus).is_none() {
+                            bound = bound.substitute_variable(var_this, focus.clone());
                         }
-                    } else {
-                        prepared.clone()
-                    };
-                    if let Some(graph) = graph {
-                        prepared_query
-                            .dataset_mut()
-                            .set_default_graph(vec![graph.into_owned()]);
-                    } else {
-                        prepared_query.dataset_mut().set_default_graph_as_union();
-                    }
-                    let mut bound = prepared_query.on_store(store);
-                    if query_mentions_var(base_query, "this")
-                        && term_to_sparql_ground(focus).is_none()
-                    {
-                        bound = bound.substitute_variable(var_this.clone(), focus.clone());
-                    }
-                    match bound.execute() {
-                        Ok(QueryResults::Graph(mut triples)) => {
-                            for triple_res in &mut triples {
-                                let triple = triple_res.map_err(|e| {
-                                    format!("Inference rule {} failed: {}", #rule_id, e)
-                                })?;
-                                let subject_term = named_or_blank_to_term(&triple.subject);
-                                let object_term = triple.object;
-                                let predicate = triple.predicate;
-                                if record_inferred_quad(
-                                    store,
-                                    graph_node,
-                                    seen_new,
-                                    subject_term.clone(),
-                                    predicate.clone(),
-                                    object_term.clone(),
-                                )? {
-                                    added += 1;
+
+                        let mut batch = Vec::new();
+                        match bound.execute() {
+                            Ok(QueryResults::Graph(mut triples)) => {
+                                for triple_res in &mut triples {
+                                    let triple = triple_res.map_err(|e| {
+                                        format!("Inference rule {} failed: {}", #rule_id, e)
+                                    })?;
+                                    let subject_term = named_or_blank_to_term(&triple.subject);
+                                    batch.push((subject_term, triple.predicate, triple.object));
                                 }
                             }
+                            Ok(_) => {
+                                return Err(format!(
+                                    "Inference rule {} returned non-graph result",
+                                    #rule_id
+                                ));
+                            }
+                            Err(e) => {
+                                return Err(e.to_string());
+                            }
                         }
-                        Ok(_) => {
-                            return Err(format!(
-                                "Inference rule {} returned non-graph result",
-                                #rule_id
-                            ));
-                        }
-                        Err(e) => {
-                            return Err(e.to_string());
-                        }
-                    }
+
+                        Ok(batch)
+                    })
+                    .collect();
+
+                let mut out = Vec::new();
+                for batch in candidates? {
+                    out.extend(batch);
                 }
-                Ok(added)
+                Ok(out)
             }
         })
         .map_err(|err| {
