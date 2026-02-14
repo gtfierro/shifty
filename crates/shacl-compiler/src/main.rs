@@ -24,7 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator = Validator::builder()
         .with_shapes_source(Source::File(args.shapes.clone()))
         .with_data_source(Source::Empty)
-        .with_shape_optimization(false)
+        .with_shape_optimization(true)
+        .with_data_dependent_shape_optimization(false)
         .build()?;
     validator
         .copy_shape_graph_to_data_graph()

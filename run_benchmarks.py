@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -39,6 +41,7 @@ from rdflib.util import guess_format
 
 REPO_ROOT = Path(__file__).resolve().parent
 LOGGER = logging.getLogger(__name__)
+MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
 @dataclass
@@ -142,27 +145,68 @@ def configure_logging(level: str) -> None:
     )
 
 
+def _terminate_subprocess(proc: subprocess.Popen[str]) -> None:
+    """Best-effort termination for timed-out benchmark commands."""
+    if proc.poll() is not None:
+        return
+
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+        proc.wait(timeout=3)
+        return
+    except (subprocess.TimeoutExpired, ProcessLookupError):
+        pass
+
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except ProcessLookupError:
+        pass
+
+
+def _run_command(
+    command: List[str], timeout_seconds: float | None = None
+) -> tuple[subprocess.Popen[str], str, str]:
+    proc = subprocess.Popen(
+        command,
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=(os.name == "posix"),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_seconds)
+        return proc, stdout, stderr
+    except subprocess.TimeoutExpired:
+        _terminate_subprocess(proc)
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(
+            cmd=command,
+            timeout=timeout_seconds,
+            output=stdout,
+            stderr=stderr,
+        )
+
+
 def run_checked(
     command: List[str], label: str, timeout_seconds: float | None = None
 ) -> None:
     """Run a command and raise on failure, surfacing stdout/stderr for debugging."""
     LOGGER.info("-> %s: %s", label, " ".join(command))
     try:
-        result = subprocess.run(
-            command,
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
+        proc, stdout, stderr = _run_command(command, timeout_seconds=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         timeout_display = (
-            f"{timeout_seconds:g}"
-            if timeout_seconds is not None
-            else "unspecified"
+            f"{timeout_seconds:g}" if timeout_seconds is not None else "unspecified"
         )
         LOGGER.error(
-            "Command timed out after %s s: %s",
+            "Command timed out after %s s (subprocess terminated): %s",
             timeout_display,
             " ".join(command),
         )
@@ -171,13 +215,19 @@ def run_checked(
         if exc.stderr:
             LOGGER.debug("stderr:\n%s", exc.stderr)
         raise
-    if result.returncode != 0:
-        LOGGER.error("Command failed with exit code %s", result.returncode)
-        if result.stdout:
-            LOGGER.debug("stdout:\n%s", result.stdout)
-        if result.stderr:
-            LOGGER.debug("stderr:\n%s", result.stderr)
-        result.check_returncode()
+
+    if proc.returncode != 0:
+        LOGGER.error("Command failed with exit code %s", proc.returncode)
+        if stdout:
+            LOGGER.debug("stdout:\n%s", stdout)
+        if stderr:
+            LOGGER.debug("stderr:\n%s", stderr)
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            command,
+            output=stdout,
+            stderr=stderr,
+        )
 
 
 def time_command(
@@ -190,18 +240,12 @@ def time_command(
     """
     start = time.perf_counter()
     try:
-        result = subprocess.run(
-            command,
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
+        proc, stdout, stderr = _run_command(command, timeout_seconds=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         duration = time.perf_counter() - start
         timeout_display = f"{timeout_seconds:g}" if timeout_seconds is not None else "?"
         LOGGER.warning(
-            "Command timed out after %s s; recording %.3f s and continuing: %s",
+            "Command timed out after %s s; subprocess terminated; recording %.3f s and continuing: %s",
             timeout_display,
             duration,
             " ".join(command),
@@ -211,14 +255,20 @@ def time_command(
         if exc.stderr:
             LOGGER.debug("stderr:\n%s", exc.stderr)
         return duration, True
+
     duration = time.perf_counter() - start
-    if result.returncode != 0:
+    if proc.returncode != 0:
         LOGGER.error("Command failed: %s", " ".join(command))
-        if result.stdout:
-            LOGGER.debug("stdout:\n%s", result.stdout)
-        if result.stderr:
-            LOGGER.debug("stderr:\n%s", result.stderr)
-        result.check_returncode()
+        if stdout:
+            LOGGER.debug("stdout:\n%s", stdout)
+        if stderr:
+            LOGGER.debug("stderr:\n%s", stderr)
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            command,
+            output=stdout,
+            stderr=stderr,
+        )
     return duration, False
 
 
@@ -360,6 +410,7 @@ def benchmark_platforms(
         LOGGER.info("Model %s/%s: %s", model_index, total_models, data_file.name)
         triples = triple_cache.setdefault(data_file, count_triples(data_file))
         for platform, command_builder in commands.items():
+            consecutive_timeouts = 0
             for run_index in range(1, runs + 1):
                 LOGGER.info(
                     "[%s] %s run %s/%s (%s triples)",
@@ -383,6 +434,23 @@ def benchmark_platforms(
                         timed_out=timed_out,
                     )
                 )
+                if timed_out:
+                    consecutive_timeouts += 1
+                    if (
+                        consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS
+                        and run_index < runs
+                    ):
+                        LOGGER.warning(
+                            "[%s] %s hit %s consecutive timeouts; skipping remaining runs (%s/%s completed)",
+                            platform,
+                            data_file.name,
+                            consecutive_timeouts,
+                            run_index,
+                            runs,
+                        )
+                        break
+                else:
+                    consecutive_timeouts = 0
     return measurements
 
 

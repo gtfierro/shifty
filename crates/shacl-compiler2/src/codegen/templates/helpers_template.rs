@@ -136,6 +136,16 @@ fn class_membership_cache() -> &'static DashMap<String, Arc<ClassConstraintIndex
     CACHE.get_or_init(DashMap::new)
 }
 
+fn class_membership_memo_cache() -> &'static DashMap<(String, Term, String), bool> {
+    static CACHE: OnceLock<DashMap<(String, Term, String), bool>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn advanced_target_cache() -> &'static DashMap<(String, Term), Vec<Term>> {
+    static CACHE: OnceLock<DashMap<(String, Term), Vec<Term>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
 fn sparql_prefix_cache() -> &'static DashMap<Term, String> {
     static CACHE: OnceLock<DashMap<Term, String>> = OnceLock::new();
     CACHE.get_or_init(DashMap::new)
@@ -419,6 +429,13 @@ fn build_class_constraint_index(
     graph: Option<GraphNameRef<'_>>,
     include_shape_graph: bool,
 ) -> ClassConstraintIndex {
+    let graph_key = graph_cache_key(graph);
+    compiled_stage(&format!(
+        "optimization pass class index build start graph={} include_shape_graph={}",
+        graph_key,
+        include_shape_graph
+    ));
+
     let closure_parents = with_subclass_closure(|closure| closure.parents.clone());
 
     let mut next_class_id = 0usize;
@@ -508,6 +525,16 @@ fn build_class_constraint_index(
         subject_type_bits.insert(subject, bits);
     }
 
+    let classes = class_to_id.len();
+    let subjects = subject_type_bits.len();
+    compiled_stage(&format!(
+        "optimization pass class index build finish graph={} include_shape_graph={} classes={} subjects={}",
+        graph_key,
+        include_shape_graph,
+        classes,
+        subjects
+    ));
+
     ClassConstraintIndex {
         class_to_id,
         descendants_by_super,
@@ -546,6 +573,8 @@ fn clear_target_class_caches() {
     target_class_cache().clear();
     type_index_cache().clear();
     class_membership_cache().clear();
+    class_membership_memo_cache().clear();
+    advanced_target_cache().clear();
     sparql_prefix_cache().clear();
     subject_prefix_presence_cache().clear();
     sparql_prepared_cache().clear();
@@ -912,9 +941,19 @@ fn advanced_targets_for(
     graph: Option<GraphNameRef<'_>>,
     selector: &Term,
 ) -> Vec<Term> {
+    let graph_key = graph_cache_key(graph);
+    let cache_key = (graph_key.clone(), selector.clone());
+    if let Some(cached) = advanced_target_cache().get(&cache_key) {
+        return cached.value().clone();
+    }
+
     let query = match advanced_select_query(store, selector) {
         Some(value) => value,
-        None => return Vec::new(),
+        None => {
+            let empty = Vec::new();
+            advanced_target_cache().insert(cache_key, empty.clone());
+            return empty;
+        }
     };
     let normalized_query = query.replace('$', "?");
     let prefixes = prefixes_for_selector(store, selector);
@@ -929,7 +968,11 @@ fn advanced_targets_for(
     }
     let mut prepared = match cached_prepared_query(&query_str) {
         Ok(prepared) => prepared,
-        Err(_) => return Vec::new(),
+        Err(_) => {
+            let empty = Vec::new();
+            advanced_target_cache().insert(cache_key, empty.clone());
+            return empty;
+        }
     };
     if let Some(graph) = graph {
         prepared.dataset_mut().set_default_graph(vec![graph.into_owned()]);
@@ -959,7 +1002,9 @@ fn advanced_targets_for(
         _ => {}
     }
     maybe_record_sparql_timing(&normalized_query, query_start.elapsed());
-    results.into_iter().collect()
+    let out: Vec<Term> = results.into_iter().collect();
+    advanced_target_cache().insert(cache_key, out.clone());
+    out
 }
 fn has_rdf_type(
     store: &Store,
@@ -971,6 +1016,11 @@ fn has_rdf_type(
         return false;
     }
     let cache_key = has_rdf_type_cache_key(graph);
+    let memo_key = (cache_key.clone(), term.clone(), class_iri.to_string());
+    if let Some(cached) = class_membership_memo_cache().get(&memo_key) {
+        return *cached.value();
+    }
+
     let index = if let Some(cached) = class_membership_cache().get(&cache_key) {
         cached.value().clone()
     } else {
@@ -978,7 +1028,9 @@ fn has_rdf_type(
         class_membership_cache().insert(cache_key, built.clone());
         built
     };
-    index.matches(term, class_iri)
+    let result = index.matches(term, class_iri);
+    class_membership_memo_cache().insert(memo_key, result);
+    result
 }
 fn matches_node_kind(term: &Term, node_kind_iri: &str) -> bool {
     match node_kind_iri {

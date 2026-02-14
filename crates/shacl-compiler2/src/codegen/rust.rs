@@ -3792,6 +3792,7 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
         .collect();
 
     let mut node_validators = Vec::new();
+    let mut node_target_specs: Vec<(bool, Vec<String>)> = Vec::new();
     for shape_id in &plan.order.node_shapes {
         let shape = node_shape_lookup
             .get(shape_id)
@@ -3800,9 +3801,23 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             continue;
         }
         node_validators.push(format_ident!("validate_node_shape_{}", shape.id));
+
+        let mut has_non_class_targets = false;
+        let mut class_targets: Vec<String> = Vec::new();
+        for target in &shape.targets {
+            if let Some(term_id) = target.get("Class").and_then(Value::as_u64) {
+                class_targets.push(term_iri(plan, term_id)?);
+            } else {
+                has_non_class_targets = true;
+            }
+        }
+        class_targets.sort();
+        class_targets.dedup();
+        node_target_specs.push((has_non_class_targets, class_targets));
     }
 
     let mut property_validators = Vec::new();
+    let mut property_target_specs: Vec<(bool, Vec<String>)> = Vec::new();
     for shape_id in &plan.order.property_shapes {
         let shape = property_shape_lookup
             .get(shape_id)
@@ -3811,7 +3826,54 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             continue;
         }
         property_validators.push(format_ident!("validate_property_shape_{}", shape.id));
+
+        let mut has_non_class_targets = false;
+        let mut class_targets: Vec<String> = Vec::new();
+        for target in &shape.targets {
+            if let Some(term_id) = target.get("Class").and_then(Value::as_u64) {
+                class_targets.push(term_iri(plan, term_id)?);
+            } else {
+                has_non_class_targets = true;
+            }
+        }
+        class_targets.sort();
+        class_targets.dedup();
+        property_target_specs.push((has_non_class_targets, class_targets));
     }
+
+    let node_target_spec_items: Vec<TokenStream> = node_target_specs
+        .iter()
+        .map(|(has_non_class_targets, class_targets)| {
+            let has_non_class_targets = *has_non_class_targets;
+            let class_lits: Vec<LitStr> = class_targets
+                .iter()
+                .map(|class_iri| LitStr::new(class_iri, Span::call_site()))
+                .collect();
+            quote! {
+                TargetOptimizationSpec {
+                    has_non_class_targets: #has_non_class_targets,
+                    class_targets: &[#(#class_lits),*],
+                }
+            }
+        })
+        .collect();
+
+    let property_target_spec_items: Vec<TokenStream> = property_target_specs
+        .iter()
+        .map(|(has_non_class_targets, class_targets)| {
+            let has_non_class_targets = *has_non_class_targets;
+            let class_lits: Vec<LitStr> = class_targets
+                .iter()
+                .map(|class_iri| LitStr::new(class_iri, Span::call_site()))
+                .collect();
+            quote! {
+                TargetOptimizationSpec {
+                    has_non_class_targets: #has_non_class_targets,
+                    class_targets: &[#(#class_lits),*],
+                }
+            }
+        })
+        .collect();
 
     let file = parse2::<File>(quote! {
         type ValidateFn = for<'a> fn(&Store, Option<GraphNameRef<'a>>, &mut Report);
@@ -3821,8 +3883,67 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             original_index: Option<OriginalValueIndex>,
         }
 
+        #[derive(Clone, Copy)]
+        struct TargetOptimizationSpec {
+            has_non_class_targets: bool,
+            class_targets: &'static [&'static str],
+        }
+
         const NODE_SHAPE_VALIDATORS: &[ValidateFn] = &[#(#node_validators),*];
         const PROPERTY_SHAPE_VALIDATORS: &[ValidateFn] = &[#(#property_validators),*];
+        const NODE_SHAPE_TARGET_OPT_SPECS: &[TargetOptimizationSpec] = &[#(#node_target_spec_items),*];
+        const PROPERTY_SHAPE_TARGET_OPT_SPECS: &[TargetOptimizationSpec] = &[#(#property_target_spec_items),*];
+
+        fn active_validators_for_runtime_data(
+            store: &Store,
+            graph: Option<GraphNameRef<'_>>,
+            validators: &[ValidateFn],
+            specs: &[TargetOptimizationSpec],
+            kind: &str,
+        ) -> Vec<ValidateFn> {
+            if validators.len() != specs.len() {
+                info!(
+                    "Skipping data-dependent shape optimization for {} validators due to metadata mismatch (validators={}, specs={})",
+                    kind,
+                    validators.len(),
+                    specs.len()
+                );
+                return validators.to_vec();
+            }
+
+            let mut class_has_instances: HashMap<&'static str, bool> = HashMap::new();
+            let mut active: Vec<ValidateFn> = Vec::with_capacity(validators.len());
+            let mut pruned = 0usize;
+
+            for (validator, spec) in validators.iter().zip(specs.iter()) {
+                let mut keep = spec.has_non_class_targets;
+                if !keep {
+                    for class_iri in spec.class_targets {
+                        let has_instances = *class_has_instances
+                            .entry(*class_iri)
+                            .or_insert_with(|| !targets_for_class(store, graph, class_iri).is_empty());
+                        if has_instances {
+                            keep = true;
+                            break;
+                        }
+                    }
+                }
+
+                if keep {
+                    active.push(*validator);
+                } else {
+                    pruned += 1;
+                }
+            }
+
+            info!(
+                "Data-dependent shape optimization [{}]: active={} pruned={}",
+                kind,
+                active.len(),
+                pruned
+            );
+            active
+        }
 
         pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {
             let default_data_graph = data_graph_named();
@@ -3874,12 +3995,49 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
                 Some(GraphNameRef::NamedNode(graph_node.as_ref())),
             );
 
+            info!("Starting data-dependent shape optimization");
+            compiled_stage("shape optimization start");
+            let active_node_validators = active_validators_for_runtime_data(
+                store,
+                graph,
+                NODE_SHAPE_VALIDATORS,
+                NODE_SHAPE_TARGET_OPT_SPECS,
+                "node",
+            );
+            let active_property_validators = active_validators_for_runtime_data(
+                store,
+                graph,
+                PROPERTY_SHAPE_VALIDATORS,
+                PROPERTY_SHAPE_TARGET_OPT_SPECS,
+                "property",
+            );
+            let node_pruned = NODE_SHAPE_VALIDATORS
+                .len()
+                .saturating_sub(active_node_validators.len());
+            let property_pruned = PROPERTY_SHAPE_VALIDATORS
+                .len()
+                .saturating_sub(active_property_validators.len());
+            info!(
+                "Finished data-dependent shape optimization (node active={}, node pruned={}, property active={}, property pruned={})",
+                active_node_validators.len(),
+                node_pruned,
+                active_property_validators.len(),
+                property_pruned
+            );
+            compiled_stage(&format!(
+                "shape optimization finish node_active={} node_pruned={} property_active={} property_pruned={}",
+                active_node_validators.len(),
+                node_pruned,
+                active_property_validators.len(),
+                property_pruned
+            ));
+
             info!("Starting validation");
             compiled_stage("validation start");
             let validation_closure = with_subclass_closure(|closure| closure.clone());
             let original_index = with_original_value_index(|idx| idx.cloned());
 
-            let node_reports: Vec<Report> = NODE_SHAPE_VALIDATORS
+            let node_reports: Vec<Report> = active_node_validators
                 .par_iter()
                 .map_init(
                     || ThreadState {
@@ -3903,7 +4061,7 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
                 report.merge(local);
             }
 
-            let prop_reports: Vec<Report> = PROPERTY_SHAPE_VALIDATORS
+            let prop_reports: Vec<Report> = active_property_validators
                 .par_iter()
                 .map_init(
                     || ThreadState {
@@ -3936,7 +4094,6 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
 
     Ok(prettyplease::unparse(&file))
 }
-
 fn generate_shape_triples_module(plan: &PlanView) -> Result<String, String> {
     let shape_graph_iri = term_iri(plan, plan.shape_graph)?;
     let shape_graph_lit = LitStr::new(&shape_graph_iri, Span::call_site());

@@ -566,10 +566,10 @@ fn get_validator_shapes_only(
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
-        // Generate SHACL-IR from parser output without data-dependent shape optimization.
-        // generate-ir uses Source::Empty, so optimization can prune/alter targets based on
-        // the empty data graph and produce IR that diverges from validate --shapes-file.
-        .with_shape_optimization(false)
+        // Generate SHACL-IR with shape-only optimization, but disable data-dependent
+        // target pruning because generate-ir uses Source::Empty.
+        .with_shape_optimization(true)
+        .with_data_dependent_shape_optimization(false)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
@@ -607,7 +607,8 @@ fn get_validator_shapes_only_for_compile(
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
-        .with_shape_optimization(false)
+        .with_shape_optimization(true)
+        .with_data_dependent_shape_optimization(false)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
@@ -1203,6 +1204,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     info!("Finished data graph load ({} triples)", triple_count);
     stage_mark(&format!("data graph load finish triples={}", triple_count));
+
+    info!("Starting store optimization");
+    stage_mark("store optimize start");
+    store.optimize()?;
+    info!("Finished store optimization");
+    stage_mark("store optimize finish");
 
     stage_mark("compiled validation+inference start");
     let report = generated::run(&store, Some(&data_graph));

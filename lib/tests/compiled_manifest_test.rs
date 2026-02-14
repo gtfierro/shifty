@@ -152,7 +152,8 @@ fn compiled_bin_for_shapes(
         .with_env_config(env_config)
         .with_warnings_are_errors(true)
         .with_shapes_data_union(true)
-        .with_shape_optimization(false)
+        .with_shape_optimization(true)
+        .with_data_dependent_shape_optimization(false)
         .build()
         .map_err(|e| io::Error::other(format!("Failed to build validator: {}", e)))?;
 

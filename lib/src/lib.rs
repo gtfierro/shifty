@@ -193,6 +193,7 @@ pub struct ValidatorBuilder {
     temporary_env: bool,
     optimize_store: bool,
     optimize_shapes: bool,
+    optimize_shapes_data_dependent: bool,
     shape_ir: Option<ShapeIR>,
 }
 
@@ -218,6 +219,7 @@ impl ValidatorBuilder {
             temporary_env: true,
             optimize_store: true,
             optimize_shapes: true,
+            optimize_shapes_data_dependent: true,
             shape_ir: None,
         }
     }
@@ -333,6 +335,15 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Enable or disable data-dependent shape optimization passes (default: true).
+    ///
+    /// These passes inspect the current data graph and may prune targets.
+    /// Use `false` for shapes-only compilation flows that do not yet have runtime data.
+    pub fn with_data_dependent_shape_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_shapes_data_dependent = enabled;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
@@ -354,6 +365,7 @@ impl ValidatorBuilder {
             temporary_env,
             optimize_store,
             optimize_shapes,
+            optimize_shapes_data_dependent,
             shape_ir,
         } = self;
 
@@ -595,6 +607,7 @@ impl ValidatorBuilder {
                 strict_custom_constraints,
                 original_values,
                 optimize_shapes,
+                optimize_shapes_data_dependent,
             )?;
             let shape_ir = crate::ir::build_shape_ir(
                 &model,
@@ -925,6 +938,7 @@ impl ValidatorBuilder {
         strict_custom_constraints: bool,
         original_values: Option<OriginalValueIndex>,
         optimize_shapes: bool,
+        optimize_shapes_data_dependent: bool,
     ) -> Result<ShapesModel, Box<dyn Error>> {
         let mut parsing_context = ParsingContext::new(
             store,
@@ -939,7 +953,10 @@ impl ValidatorBuilder {
 
         let final_ctx = if optimize_shapes {
             let mut optimizer = Optimizer::new(parsing_context);
-            optimizer.optimize()?;
+            optimizer.optimize_shape_only()?;
+            if optimize_shapes_data_dependent {
+                optimizer.optimize_data_dependent()?;
+            }
             optimizer.finish()
         } else {
             parsing_context
