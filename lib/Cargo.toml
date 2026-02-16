@@ -42,4 +42,4 @@ oxrdfio = "0.2.1"
 url = { version = "2" }
 
 [dev-dependencies]
-shacl-compiler = { path = "../crates/shacl-compiler" }
+shacl-compiler2 = { path = "../crates/shacl-compiler2" }

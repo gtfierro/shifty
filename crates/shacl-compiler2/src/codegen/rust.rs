@@ -2550,7 +2550,7 @@ fn generate_shape_iri_item(plan: &PlanView) -> Result<Item, String> {
         arms.push(quote! { #shape_id => #iri_lit, });
     }
     parse2::<Item>(quote! {
-        fn shape_iri(shape_id: u64) -> &'static str {
+        pub fn shape_iri(shape_id: u64) -> &'static str {
             match shape_id {
                 #(#arms)*
                 _ => "",
@@ -2630,7 +2630,7 @@ fn generate_component_iri_item(plan: &PlanView) -> Result<Item, String> {
     }
 
     parse2::<Item>(quote! {
-        fn component_iri(component_id: u64) -> &'static str {
+        pub fn component_iri(component_id: u64) -> &'static str {
             match component_id {
                 #(#arms)*
                 _ => "http://www.w3.org/ns/shacl#ConstraintComponent",
@@ -3945,7 +3945,11 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             active
         }
 
-        pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {
+        pub fn run_with_options(
+            store: &Store,
+            data_graph: Option<&NamedNode>,
+            enable_inference: bool,
+        ) -> Report {
             let default_data_graph = data_graph_named();
             let graph_node = data_graph.unwrap_or(&default_data_graph);
             let graph = graph_ref(Some(graph_node));
@@ -3977,18 +3981,23 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             );
             clear_target_class_caches();
 
-            info!("Starting inference");
-            compiled_stage("inference start");
-            match run_inference(store, graph, graph_node) {
-                Ok(_) => {
-                    info!("Finished inference");
-                    compiled_stage("inference finish");
-                },
-                Err(err) => {
-                    eprintln!("Inference failed: {}", err);
-                    info!("Inference failed");
-                    compiled_stage("inference failed");
+            if enable_inference {
+                info!("Starting inference");
+                compiled_stage("inference start");
+                match run_inference(store, graph, graph_node) {
+                    Ok(_) => {
+                        info!("Finished inference");
+                        compiled_stage("inference finish");
+                    },
+                    Err(err) => {
+                        eprintln!("Inference failed: {}", err);
+                        info!("Inference failed");
+                        compiled_stage("inference failed");
+                    }
                 }
+            } else {
+                info!("Skipping inference");
+                compiled_stage("inference skipped");
             }
             extend_current_subclass_closure_from_store(
                 store,
@@ -4088,6 +4097,10 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             info!("Finished validation");
             compiled_stage(&format!("validation finish violations={}", report.violations.len()));
             report
+        }
+
+        pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {
+            run_with_options(store, data_graph, true)
         }
     })
     .map_err(|err| format!("failed to generate run module AST: {err}"))?;

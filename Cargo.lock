@@ -407,7 +407,6 @@ dependencies = [
  "log",
  "oxigraph",
  "serde_json",
- "shacl-compiler",
  "shacl-compiler2",
  "shifty-shacl",
 ]
@@ -3088,17 +3087,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shacl-compiler"
-version = "0.0.6"
-dependencies = [
- "clap",
- "oxigraph",
- "serde",
- "serde_json",
- "shifty-shacl",
-]
-
-[[package]]
 name = "shacl-compiler2"
 version = "0.0.6"
 dependencies = [
@@ -3133,7 +3121,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "shacl-compiler",
+ "shacl-compiler2",
  "spargebra",
  "url",
  "xxhash-rust",

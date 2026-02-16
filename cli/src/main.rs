@@ -3,20 +3,14 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[cfg(feature = "shacl-compiler2")]
 use oxigraph::model::{Graph, Triple};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
-#[cfg(feature = "shacl-compiler")]
-use shacl_compiler::{
-    generate_rust_modules_from_plan as generate_rust_modules_from_plan_v1, PlanIR as PlanIRv1,
-};
 #[cfg(feature = "shacl-compiler2")]
-use shacl_compiler2::{
-    generate_rust_modules_from_plan as generate_rust_modules_from_plan_v2, PlanIR as PlanIRv2,
-};
+use shacl_compiler2::{generate_rust_modules_from_plan, PlanIR};
 use shifty::ir_cache;
-#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[cfg(feature = "shacl-compiler2")]
 use shifty::shacl_ir::ShapeIR;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
@@ -24,7 +18,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[cfg(feature = "shacl-compiler2")]
 use std::process::Command;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
@@ -175,7 +169,7 @@ struct GenerateIrArgs {
     output_file: PathBuf,
 }
 
-#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[cfg(feature = "shacl-compiler2")]
 #[derive(Parser)]
 struct CompileArgs {
     #[clap(flatten)]
@@ -217,11 +211,6 @@ struct CompileArgs {
     #[arg(long, value_name = "NAME", default_value = "shacl-compiled")]
     bin_name: String,
 
-    /// Select the compiler backend (only available when both compiler features are enabled)
-    #[cfg(all(feature = "shacl-compiler", feature = "shacl-compiler2"))]
-    #[arg(long, value_enum, default_value_t = CompileBackend::ShaclCompiler)]
-    compiler_backend: CompileBackend,
-
     /// Optional output path for PlanIR JSON
     #[arg(long, value_name = "FILE")]
     plan_out: Option<PathBuf>,
@@ -241,14 +230,6 @@ struct CompileArgs {
     /// Git revision/tag/branch for the shifty dependency (optional)
     #[arg(long, value_name = "REF")]
     shifty_git_ref: Option<String>,
-}
-
-#[cfg(all(feature = "shacl-compiler", feature = "shacl-compiler2"))]
-#[derive(ValueEnum, Debug, Clone, Copy, Default)]
-enum CompileBackend {
-    #[default]
-    ShaclCompiler,
-    ShaclCompiler2,
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -347,28 +328,28 @@ struct ValidateArgs {
     #[arg(long)]
     follow_bnodes: bool,
 
-    /// Run SHACL rule inference before validation
-    #[arg(long)]
+    /// Run SHACL rule inference before validation (default: true, set false via --run-inference=false)
+    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
     run_inference: bool,
 
-    /// Minimum iterations for inference (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Minimum iterations for inference
+    #[arg(long)]
     inference_min_iterations: Option<usize>,
 
-    /// Maximum iterations for inference (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Maximum iterations for inference
+    #[arg(long)]
     inference_max_iterations: Option<usize>,
 
-    /// Disable convergence-based early exit (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Disable convergence-based early exit
+    #[arg(long)]
     inference_no_converge: bool,
 
-    /// Fail if inference produces blank nodes (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Fail if inference produces blank nodes
+    #[arg(long)]
     inference_error_on_blank_nodes: bool,
 
-    /// Enable verbose inference logging (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Enable verbose inference logging
+    #[arg(long)]
     inference_debug: bool,
 
     /// Print the Graphviz DOT for the shape graph after validation
@@ -485,7 +466,7 @@ enum Commands {
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
     /// Generate + compile a specialized SHACL executable for the given shapes
-    #[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+    #[cfg(feature = "shacl-compiler2")]
     Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
@@ -574,7 +555,7 @@ fn get_validator_shapes_only(
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
 
-#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[cfg(feature = "shacl-compiler2")]
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
@@ -798,6 +779,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Validate(args) => {
+            if !args.run_inference
+                && (args.inference_min_iterations.is_some()
+                    || args.inference_max_iterations.is_some()
+                    || args.inference_no_converge
+                    || args.inference_error_on_blank_nodes
+                    || args.inference_debug)
+            {
+                return Err(
+                    "inference tuning flags require --run-inference=true (default true)".into(),
+                );
+            }
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
             let (report, inference_outcome) = if args.run_inference {
                 let config = build_inference_config(
@@ -973,7 +965,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             emit_validator_traces(&validator, &args.trace)?;
         }
-        #[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+        #[cfg(feature = "shacl-compiler2")]
         Commands::Compile(args) => {
             let validator = get_validator_shapes_only_for_compile(&args)?;
             let shapes_file_is_ir = args
@@ -990,63 +982,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .shape_ir_with_imports(args.import_depth)
                     .map_err(|e| format!("{}", e))?
             };
-            #[cfg(all(feature = "shacl-compiler", feature = "shacl-compiler2"))]
-            let (plan_json, generated_root, generated_files, backend_label) = match args
-                .compiler_backend
-            {
-                CompileBackend::ShaclCompiler => {
-                    let plan = PlanIRv1::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
-                    let plan_json = plan
-                        .to_json_pretty()
-                        .map_err(|e| format!("plan serialization error: {}", e))?;
-                    let generated = generate_rust_modules_from_plan_v1(&plan)?;
-                    (plan_json, generated.root, generated.files, "shacl-compiler")
-                }
-                CompileBackend::ShaclCompiler2 => {
-                    let plan = PlanIRv2::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
-                    let plan_json = plan
-                        .to_json_pretty()
-                        .map_err(|e| format!("plan serialization error: {}", e))?;
-                    let generated = generate_rust_modules_from_plan_v2(&plan)?;
-                    (
-                        plan_json,
-                        generated.root,
-                        generated.files,
-                        "shacl-compiler2",
-                    )
-                }
-            };
-
-            #[cfg(all(feature = "shacl-compiler", not(feature = "shacl-compiler2")))]
-            let (plan_json, generated_root, generated_files, backend_label) = {
-                let plan = PlanIRv1::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
-                let plan_json = plan
-                    .to_json_pretty()
-                    .map_err(|e| format!("plan serialization error: {}", e))?;
-                let generated = generate_rust_modules_from_plan_v1(&plan)?;
-                (plan_json, generated.root, generated.files, "shacl-compiler")
-            };
-
-            #[cfg(all(not(feature = "shacl-compiler"), feature = "shacl-compiler2"))]
-            let (plan_json, generated_root, generated_files, backend_label) = {
-                let plan = PlanIRv2::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
-                let plan_json = plan
-                    .to_json_pretty()
-                    .map_err(|e| format!("plan serialization error: {}", e))?;
-                let generated = generate_rust_modules_from_plan_v2(&plan)?;
-                (
-                    plan_json,
-                    generated.root,
-                    generated.files,
-                    "shacl-compiler2",
-                )
-            };
+            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+            let plan_json = plan
+                .to_json_pretty()
+                .map_err(|e| format!("plan serialization error: {}", e))?;
+            let generated = generate_rust_modules_from_plan(&plan)?;
+            let generated_root = generated.root;
+            let generated_files = generated.files;
 
             if let Some(plan_out) = &args.plan_out {
                 fs::write(plan_out, &plan_json)?;
             }
 
-            info!("Using compile backend: {}", backend_label);
+            info!("Using compile backend: shacl-compiler2");
 
             let out_dir = &args.out_dir;
             let src_dir = out_dir.join("src");
@@ -1117,109 +1065,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
-            let main_rs = r#"
-mod generated;
-
-use env_logger;
-use generated::{render_report, DATA_GRAPH};
-use log::info;
-use oxigraph::model::{GraphName, NamedNode, Quad};
-use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::store::Store;
-use std::env;
-use std::error::Error;
-use std::fs::File;
-use std::sync::OnceLock;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-
-fn print_usage(program: &str) {
-    eprintln!("usage: {} [--follow-bnodes] <data.ttl>", program);
-}
-
-fn parse_args() -> Result<(String, bool), String> {
-    let mut args = env::args();
-    let program = args.next().unwrap_or_else(|| "shacl-compiled".to_string());
-    let mut follow_bnodes = false;
-    let mut data_path = None;
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--follow-bnodes" => follow_bnodes = true,
-            other if other.starts_with("--") => {
-                print_usage(&program);
-                return Err(format!("unknown option: {}", other));
-            }
-            other => {
-                if data_path.is_some() {
-                    print_usage(&program);
-                    return Err("multiple data files provided".into());
-                }
-                data_path = Some(other.to_string());
-            }
-        }
-    }
-
-    if let Some(path) = data_path {
-        Ok((path, follow_bnodes))
-    } else {
-        print_usage(&program);
-        Err("data file argument missing".into())
-    }
-}
-
-fn stage_mark(stage: &str) {
-    static START: OnceLock<Instant> = OnceLock::new();
-    let start = START.get_or_init(Instant::now);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let elapsed = start.elapsed().as_millis();
-    eprintln!("[compiled-stage ts_ms={} elapsed_ms={}] {}", now, elapsed, stage);
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
-    let (data_path, follow_bnodes) =
-        parse_args().map_err(|err| Box::<dyn std::error::Error>::from(err))?;
-    stage_mark("program start");
-    let store = Store::new()?;
-    let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
-    let graph_name = GraphName::NamedNode(data_graph.clone());
-    let file = File::open(&data_path)?;
-    let parser = RdfParser::from_format(RdfFormat::Turtle).for_reader(file);
-    stage_mark(&format!("data graph load start path={}", data_path));
-    info!("Starting data graph load from {}", data_path);
-    let mut triple_count = 0;
-    for triple in parser {
-        let triple = triple?;
-        let quad = Quad::new(
-            triple.subject.clone(),
-            triple.predicate.clone(),
-            triple.object.clone(),
-            graph_name.clone(),
-        );
-        store.insert(&quad)?;
-        triple_count += 1;
-    }
-    info!("Finished data graph load ({} triples)", triple_count);
-    stage_mark(&format!("data graph load finish triples={}", triple_count));
-
-    info!("Starting store optimization");
-    stage_mark("store optimize start");
-    store.optimize()?;
-    info!("Finished store optimization");
-    stage_mark("store optimize finish");
-
-    stage_mark("compiled validation+inference start");
-    let report = generated::run(&store, Some(&data_graph));
-    stage_mark(&format!("compiled validation+inference finish violations={}", report.violations.len()));
-    let output = render_report(&report, &store, follow_bnodes);
-    stage_mark("render report finish");
-    println!("{}", output);
-    Ok(())
-}
-"#;
+            let main_rs = include_str!("compiled_binary_main.rs.tmpl");
             fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
 
             let mut cmd = Command::new("cargo");
@@ -1304,7 +1150,7 @@ impl TraceOutputArgs {
     }
 }
 
-#[cfg(any(feature = "shacl-compiler", feature = "shacl-compiler2"))]
+#[cfg(feature = "shacl-compiler2")]
 fn write_shape_graph_ttl(
     shape_ir: &ShapeIR,
     path: &Path,

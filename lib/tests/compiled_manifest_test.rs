@@ -3,7 +3,7 @@
 use ontoenv::config::Config;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
-use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+use shacl_compiler2::{generate_rust_modules_from_plan, PlanIR};
 use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
 use shifty::test_utils::{list_includes, load_manifest, TestCase};
 use shifty::{Source, Validator};
