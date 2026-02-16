@@ -22,6 +22,7 @@ const INDEX_HTML: &str = r#"<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Compiled SHACL Service</title>
+  <link rel="stylesheet" href="https://unpkg.com/@triply/yasgui/build/yasgui.min.css" />
   <style>
     :root {
       --bg: #f5f7fb;
@@ -164,6 +165,33 @@ const INDEX_HTML: &str = r#"<!doctype html>
       color: var(--muted);
       font-size: 13px;
     }
+    .source-panel {
+      display: none;
+    }
+    .source-panel.active {
+      display: flex;
+    }
+    .wide {
+      flex: 1 1 420px;
+      min-width: 280px;
+    }
+    .wide input,
+    .wide select {
+      width: 100%;
+    }
+    .yasgui-host {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 420px;
+    }
+    .yasgui-host .autocompleteWrapper {
+      display: none !important;
+    }
+    .yasgui-host .yasqe_queryButton {
+      display: none !important;
+    }
     @media (max-width: 700px) {
       .shell {
         padding: 10px;
@@ -193,6 +221,16 @@ const INDEX_HTML: &str = r#"<!doctype html>
       <section id="tab-query" class="tab active">
         <div class="row">
           <div>
+            <label for="query-source-kind">Graph Source</label>
+            <select id="query-source-kind">
+              <option value="upload">Upload file</option>
+              <option value="url">Fetch remote URL</option>
+              <option value="existing">Existing graph</option>
+            </select>
+          </div>
+        </div>
+        <div id="query-source-upload" class="row source-panel active">
+          <div>
             <label for="query-file">RDF Graph File</label>
             <input id="query-file" type="file" accept=".ttl,.nt,.rdf,.xml" />
           </div>
@@ -204,6 +242,29 @@ const INDEX_HTML: &str = r#"<!doctype html>
               <option value="rdfxml">RDF/XML</option>
             </select>
           </div>
+        </div>
+        <div id="query-source-url" class="row source-panel">
+          <div class="wide">
+            <label for="query-url">Remote Graph URL</label>
+            <input id="query-url" type="text" placeholder="https://example.com/graph.ttl" />
+          </div>
+          <div>
+            <label for="query-url-format">Format</label>
+            <select id="query-url-format">
+              <option value="auto">Auto detect</option>
+              <option value="turtle">Turtle</option>
+              <option value="ntriples">N-Triples</option>
+              <option value="rdfxml">RDF/XML</option>
+            </select>
+          </div>
+        </div>
+        <div id="query-source-existing" class="row source-panel">
+          <div class="wide">
+            <label for="query-existing-graph">Existing Graph</label>
+            <select id="query-existing-graph"></select>
+          </div>
+        </div>
+        <div class="row">
           <div>
             <label>&nbsp;</label>
             <button id="query-load" class="secondary" type="button">Load Into Browser Store</button>
@@ -215,18 +276,31 @@ const INDEX_HTML: &str = r#"<!doctype html>
         </div>
         <p id="query-status" class="status"></p>
         <p id="shared-query-status" class="status"></p>
-        <div>
-          <label for="query-text">SPARQL Query</label>
-          <textarea id="query-text">SELECT * WHERE { ?s ?p ?o } LIMIT 25</textarea>
-        </div>
+        <div id="yasgui-host" class="yasgui-host"></div>
         <div class="row">
           <button id="query-run" type="button">Run Query In Browser</button>
         </div>
-        <pre id="query-results"></pre>
       </section>
 
       <section id="tab-validate" class="tab">
         <div class="row">
+          <div>
+            <label for="val-source-kind">Graph Source</label>
+            <select id="val-source-kind">
+              <option value="upload">Upload file</option>
+              <option value="url">Fetch remote URL</option>
+              <option value="existing">Existing graph</option>
+            </select>
+          </div>
+          <div>
+            <label for="val-action">Action</label>
+            <select id="val-action">
+              <option value="validate">Validate</option>
+              <option value="infer">Infer</option>
+            </select>
+          </div>
+        </div>
+        <div id="val-source-upload" class="row source-panel active">
           <div>
             <label for="val-file">RDF Graph File</label>
             <input id="val-file" type="file" accept=".ttl,.nt,.rdf,.xml" />
@@ -239,12 +313,26 @@ const INDEX_HTML: &str = r#"<!doctype html>
               <option value="rdfxml">RDF/XML</option>
             </select>
           </div>
+        </div>
+        <div id="val-source-url" class="row source-panel">
+          <div class="wide">
+            <label for="val-url">Remote Graph URL</label>
+            <input id="val-url" type="text" placeholder="https://example.com/graph.ttl" />
+          </div>
           <div>
-            <label for="val-action">Action</label>
-            <select id="val-action">
-              <option value="validate">Validate</option>
-              <option value="infer">Infer</option>
+            <label for="val-url-format">Format</label>
+            <select id="val-url-format">
+              <option value="auto">Auto detect</option>
+              <option value="turtle">Turtle</option>
+              <option value="ntriples">N-Triples</option>
+              <option value="rdfxml">RDF/XML</option>
             </select>
+          </div>
+        </div>
+        <div id="val-source-existing" class="row source-panel">
+          <div class="wide">
+            <label for="val-existing-graph">Existing Graph</label>
+            <select id="val-existing-graph"></select>
           </div>
         </div>
         <div class="row">
@@ -262,6 +350,7 @@ const INDEX_HTML: &str = r#"<!doctype html>
     </div>
   </div>
 
+  <script src="https://unpkg.com/@triply/yasgui/build/yasgui.min.js"></script>
   <script type="module">
     const tabs = document.querySelectorAll('.tab-btn');
     tabs.forEach(btn => {
@@ -274,78 +363,206 @@ const INDEX_HTML: &str = r#"<!doctype html>
       });
     });
 
-    const queryStatus = document.getElementById('query-status');
-    const sharedQueryStatus = document.getElementById('shared-query-status');
-    const queryResults = document.getElementById('query-results');
-    const valStatus = document.getElementById('val-status');
-    const sharedValStatus = document.getElementById('shared-val-status');
-    const valHuman = document.getElementById('val-human');
-    const valLinks = document.getElementById('val-links');
-    const queryFileInput = document.getElementById('query-file');
-    const queryFormatSelect = document.getElementById('query-format');
-    const valFileInput = document.getElementById('val-file');
-    const valFormatSelect = document.getElementById('val-format');
-    let oxi = null;
-    let queryStore = null;
-    let sharedGraph = null;
+	    const queryStatus = document.getElementById('query-status');
+	    const sharedQueryStatus = document.getElementById('shared-query-status');
+	    const yasguiHost = document.getElementById('yasgui-host');
+	    const valStatus = document.getElementById('val-status');
+	    const sharedValStatus = document.getElementById('shared-val-status');
+	    const valHuman = document.getElementById('val-human');
+	    const valLinks = document.getElementById('val-links');
+	    const querySourceKindSelect = document.getElementById('query-source-kind');
+	    const valSourceKindSelect = document.getElementById('val-source-kind');
+	    const queryExistingGraphSelect = document.getElementById('query-existing-graph');
+	    const valExistingGraphSelect = document.getElementById('val-existing-graph');
+	    const defaultSparqlQuery = 'SELECT * WHERE { ?s ?p ?o } LIMIT 25';
+	    let oxi = null;
+	    let queryStore = null;
+	    let yasgui = null;
+	    const graphLibrary = new Map();
 
-    function setStatus(node, msg, isError = false) {
-      node.textContent = msg;
-      node.classList.toggle('error', isError);
-    }
+	    function setStatus(node, msg, isError = false) {
+	      node.textContent = msg;
+	      node.classList.toggle('error', isError);
+	    }
 
-    function guessFormat(fileName, fallback) {
-      const lower = fileName.toLowerCase();
-      if (lower.endsWith('.nt')) return 'ntriples';
-      if (lower.endsWith('.rdf') || lower.endsWith('.xml')) return 'rdfxml';
-      if (lower.endsWith('.ttl')) return 'turtle';
-      return fallback;
-    }
+	    function createGraphId() {
+	      return `graph-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+	    }
 
-    function formatToMime(format) {
-      if (format === 'ntriples') return 'application/n-triples';
-      if (format === 'rdfxml') return 'application/rdf+xml';
-      return 'text/turtle';
-    }
+	    function guessFormat(fileName, fallback) {
+	      const lower = fileName.toLowerCase();
+	      if (lower.endsWith('.nt')) return 'ntriples';
+	      if (lower.endsWith('.rdf') || lower.endsWith('.xml')) return 'rdfxml';
+	      if (lower.endsWith('.ttl')) return 'turtle';
+	      return fallback;
+	    }
 
-    function updateSharedGraphStatus() {
-      const message = sharedGraph
-        ? `Shared graph in browser memory: ${sharedGraph.name} (${sharedGraph.format})`
-        : 'Shared graph in browser memory: none';
-      sharedQueryStatus.textContent = message;
-      sharedValStatus.textContent = message;
-    }
+	    function guessFormatFromContentType(contentType, fallback) {
+	      if (!contentType) return fallback;
+	      const lower = contentType.toLowerCase();
+	      if (lower.includes('n-triples') || lower.includes('ntriples')) return 'ntriples';
+	      if (lower.includes('rdf+xml')) return 'rdfxml';
+	      if (lower.includes('turtle')) return 'turtle';
+	      return fallback;
+	    }
 
-    function saveSharedGraph(graph) {
-      sharedGraph = graph;
-      updateSharedGraphStatus();
-    }
+	    function guessNameFromUrl(url) {
+	      try {
+	        const parsed = new URL(url);
+	        const path = parsed.pathname || '';
+	        const tail = path.split('/').filter(Boolean).pop();
+	        return tail || parsed.host || 'remote-graph';
+	      } catch {
+	        return 'remote-graph';
+	      }
+	    }
 
-    async function graphFromFile(file, fallbackFormat) {
-      const format = guessFormat(file.name, fallbackFormat);
-      const text = await file.text();
-      return {
-        name: file.name,
-        format,
-        text,
-      };
-    }
+	    function formatToMime(format) {
+	      if (format === 'ntriples') return 'application/n-triples';
+	      if (format === 'rdfxml') return 'application/rdf+xml';
+	      return 'text/turtle';
+	    }
 
-    async function resolveGraph(fileInput, formatSelect) {
-      const file = fileInput.files && fileInput.files[0];
-      if (file) {
-        const graph = await graphFromFile(file, formatSelect.value);
-        saveSharedGraph(graph);
-        return graph;
-      }
-      if (sharedGraph) {
-        return sharedGraph;
-      }
-      throw new Error('Select or load a graph file first.');
-    }
+	    function formatGraphLabel(graph) {
+	      return `${graph.name} (${graph.format})`;
+	    }
 
-    async function ensureOxigraph() {
-      if (oxi && queryStore) return;
+	    function refreshSourcePanels(prefix) {
+	      const kind = document.getElementById(`${prefix}-source-kind`).value;
+	      ['upload', 'url', 'existing'].forEach(sourceKind => {
+	        const panel = document.getElementById(`${prefix}-source-${sourceKind}`);
+	        panel.classList.toggle('active', sourceKind === kind);
+	      });
+	    }
+
+	    function refreshGraphSelectors(preferredId = null) {
+	      const graphs = Array.from(graphLibrary.values());
+	      const selectors = [queryExistingGraphSelect, valExistingGraphSelect];
+	      for (const selector of selectors) {
+	        const current = selector.value;
+	        selector.innerHTML = '';
+	        if (graphs.length === 0) {
+	          const empty = document.createElement('option');
+	          empty.value = '';
+	          empty.textContent = 'No graphs loaded';
+	          selector.appendChild(empty);
+	          selector.disabled = true;
+	          continue;
+	        }
+	        selector.disabled = false;
+	        for (const graph of graphs) {
+	          const option = document.createElement('option');
+	          option.value = graph.id;
+	          option.textContent = formatGraphLabel(graph);
+	          selector.appendChild(option);
+	        }
+	        if (preferredId && graphLibrary.has(preferredId)) {
+	          selector.value = preferredId;
+	        } else if (graphLibrary.has(current)) {
+	          selector.value = current;
+	        } else {
+	          selector.value = graphs[0].id;
+	        }
+	      }
+	    }
+
+	    function updateSharedGraphStatus() {
+	      const graphs = Array.from(graphLibrary.values());
+	      const message = graphs.length === 0
+	        ? 'Shared graph library: none'
+	        : `Shared graph library: ${graphs.length} graph(s) (${graphs.slice(0, 3).map(g => g.name).join(', ')}${graphs.length > 3 ? ', ...' : ''})`;
+	      sharedQueryStatus.textContent = message;
+	      sharedValStatus.textContent = message;
+	    }
+
+	    function saveSharedGraph(graph) {
+	      graphLibrary.set(graph.id, graph);
+	      refreshGraphSelectors(graph.id);
+	      updateSharedGraphStatus();
+	      return graph;
+	    }
+
+	    refreshGraphSelectors();
+	    refreshSourcePanels('query');
+	    refreshSourcePanels('val');
+	    updateSharedGraphStatus();
+
+	    querySourceKindSelect.addEventListener('change', () => refreshSourcePanels('query'));
+	    valSourceKindSelect.addEventListener('change', () => refreshSourcePanels('val'));
+
+	    async function graphFromFile(file, fallbackFormat) {
+	      const format = guessFormat(file.name, fallbackFormat);
+	      const text = await file.text();
+	      return {
+	        id: createGraphId(),
+	        name: file.name,
+	        format,
+	        text,
+	      };
+	    }
+
+	    async function graphFromUrl(urlText, selectedFormat) {
+	      let response;
+	      try {
+	        response = await fetch(urlText);
+	      } catch (err) {
+	        throw new Error(`Could not fetch URL: ${err}. If blocked by CORS, download and upload the file instead.`);
+	      }
+	      if (!response.ok) {
+	        throw new Error(`URL fetch failed: HTTP ${response.status}`);
+	      }
+	      const text = await response.text();
+	      const inferredName = guessNameFromUrl(urlText);
+	      const inferredFormat = guessFormat(
+	        inferredName,
+	        guessFormatFromContentType(response.headers.get('content-type'), 'turtle')
+	      );
+	      const format = selectedFormat === 'auto' ? inferredFormat : selectedFormat;
+	      return {
+	        id: createGraphId(),
+	        name: inferredName,
+	        format,
+	        text,
+	      };
+	    }
+
+	    function selectedExistingGraph(prefix) {
+	      const selector = document.getElementById(`${prefix}-existing-graph`);
+	      const graphId = selector.value;
+	      if (!graphId || !graphLibrary.has(graphId)) {
+	        throw new Error('Select an existing graph first.');
+	      }
+	      return graphLibrary.get(graphId);
+	    }
+
+	    async function resolveGraph(prefix) {
+	      const sourceKind = document.getElementById(`${prefix}-source-kind`).value;
+	      if (sourceKind === 'existing') {
+	        return selectedExistingGraph(prefix);
+	      }
+	      if (sourceKind === 'upload') {
+	        const fileInput = document.getElementById(`${prefix}-file`);
+	        const formatSelect = document.getElementById(`${prefix}-format`);
+	        const file = fileInput.files && fileInput.files[0];
+	        if (!file) {
+	          throw new Error('Select a graph file first.');
+	        }
+	        return saveSharedGraph(await graphFromFile(file, formatSelect.value));
+	      }
+	      if (sourceKind === 'url') {
+	        const urlInput = document.getElementById(`${prefix}-url`);
+	        const formatSelect = document.getElementById(`${prefix}-url-format`);
+	        const url = urlInput.value.trim();
+	        if (!url) {
+	          throw new Error('Enter a remote URL first.');
+	        }
+	        return saveSharedGraph(await graphFromUrl(url, formatSelect.value));
+	      }
+	      throw new Error(`Unsupported graph source: ${sourceKind}`);
+	    }
+
+	    async function ensureOxigraph() {
+	      if (oxi && queryStore) return;
       oxi = await import('https://cdn.jsdelivr.net/npm/oxigraph@0.5.4/web.js');
       if (typeof oxi.default === 'function') {
         const initRes = oxi.default();
@@ -354,8 +571,42 @@ const INDEX_HTML: &str = r#"<!doctype html>
         }
       }
       queryStore = new oxi.Store();
-      setStatus(queryStatus, 'Oxigraph WASM ready.');
-    }
+	      setStatus(queryStatus, 'Oxigraph WASM ready.');
+	    }
+
+	    function ensureYasgui() {
+	      if (yasgui) return yasgui;
+	      if (typeof Yasgui !== 'function') {
+	        throw new Error('Yasgui library failed to load.');
+	      }
+	      yasgui = new Yasgui(yasguiHost, {
+	        copyEndpointOnNewTab: false,
+	        autofocus: false,
+	      });
+	      const tab = yasgui.getTab();
+	      if (tab && typeof tab.setQuery === 'function') {
+	        const current =
+	          tab.yasqe && typeof tab.yasqe.getValue === 'function'
+	            ? tab.yasqe.getValue()
+	            : '';
+	        if (!current.trim()) {
+	          tab.setQuery(defaultSparqlQuery);
+	        }
+	      }
+	      if (tab && tab.yasr && typeof tab.yasr.selectPlugin === 'function') {
+	        tab.yasr.selectPlugin('table');
+	      }
+	      return yasgui;
+	    }
+
+	    function activeYasguiTab() {
+	      const gui = ensureYasgui();
+	      const tab = gui.getTab();
+	      if (!tab || !tab.yasqe || typeof tab.yasqe.getValue !== 'function') {
+	        throw new Error('Yasgui editor is unavailable.');
+	      }
+	      return tab;
+	    }
 
     async function tryLoadData(text, format) {
       const mime = formatToMime(format);
@@ -379,102 +630,282 @@ const INDEX_HTML: &str = r#"<!doctype html>
       throw lastError || new Error('unable to load graph into wasm store');
     }
 
-    function stringifyTerm(term) {
-      if (term === null || term === undefined) return '';
-      if (typeof term === 'string') return term;
-      if (typeof term.value === 'string') return term.value;
-      if (typeof term.toString === 'function') return term.toString();
-      try {
-        return JSON.stringify(term);
-      } catch {
-        return String(term);
-      }
-    }
+	    function normalizeVarName(name) {
+	      const value = String(name ?? '').trim();
+	      if (!value) {
+	        return '';
+	      }
+	      if (value.startsWith('?') || value.startsWith('$')) {
+	        return value.slice(1);
+	      }
+	      return value;
+	    }
 
-    function stringifySolution(solution) {
-      if (!solution) return '';
-      if (solution instanceof Map) {
-        const obj = {};
-        for (const [k, v] of solution.entries()) {
-          obj[k] = stringifyTerm(v);
-        }
-        return JSON.stringify(obj, null, 2);
-      }
-      if (typeof solution === 'object') {
-        const obj = {};
-        for (const [k, v] of Object.entries(solution)) {
-          obj[k] = stringifyTerm(v);
-        }
-        return JSON.stringify(obj, null, 2);
-      }
-      return stringifyTerm(solution);
-    }
+	    function normalizeIri(value) {
+	      if (typeof value !== 'string') {
+	        return String(value ?? '');
+	      }
+	      if (value.startsWith('<') && value.endsWith('>') && value.length > 2) {
+	        return value.slice(1, -1);
+	      }
+	      return value;
+	    }
 
-    async function queryToText(queryResult) {
-      if (queryResult === null || queryResult === undefined) return '';
-      if (typeof queryResult === 'boolean') {
-        return JSON.stringify({ boolean: queryResult }, null, 2);
-      }
-      if (typeof queryResult === 'string') {
-        return queryResult;
-      }
-      if (typeof queryResult[Symbol.asyncIterator] === 'function') {
-        const rows = [];
-        for await (const item of queryResult) {
-          rows.push(stringifySolution(item));
-        }
-        return rows.join('\n');
-      }
-      if (typeof queryResult[Symbol.iterator] === 'function') {
-        const rows = [];
-        for (const item of queryResult) {
-          rows.push(stringifySolution(item));
-        }
-        return rows.join('\n');
-      }
-      return JSON.stringify(queryResult, null, 2);
-    }
+	    function termToSparqlBinding(term) {
+	      if (term === null || term === undefined) {
+	        return null;
+	      }
+	      if (typeof term === 'string') {
+	        if (term.startsWith('_:')) {
+	          return { type: 'bnode', value: term.slice(2) };
+	        }
+	        if (/^(https?:|urn:|file:|tag:)/.test(term)) {
+	          return { type: 'uri', value: normalizeIri(term) };
+	        }
+	        return { type: 'literal', value: term };
+	      }
+	      if (typeof term === 'number' || typeof term === 'boolean') {
+	        return { type: 'literal', value: String(term) };
+	      }
 
-    updateSharedGraphStatus();
+	      const kindText = String(term.termType ?? term.type ?? '').toLowerCase();
+	      let rawValue = '';
+	      if (typeof term.value === 'string') {
+	        rawValue = term.value;
+	      } else if (typeof term.id === 'string') {
+	        rawValue = term.id;
+	      } else if (typeof term.toString === 'function') {
+	        rawValue = term.toString();
+	      } else {
+	        rawValue = String(term);
+	      }
 
-    document.getElementById('query-load').addEventListener('click', async () => {
-      try {
-        await ensureOxigraph();
-        const graph = await resolveGraph(queryFileInput, queryFormatSelect);
-        await tryLoadData(graph.text, graph.format);
-        setStatus(
-          queryStatus,
-          `Loaded ${graph.name} into browser store as ${graph.format}. Available in both tabs.`
-        );
-      } catch (err) {
-        setStatus(queryStatus, `Load failed: ${err}`, true);
-      }
-    });
+	      if (kindText.includes('namednode') || kindText === 'uri' || kindText === 'iri') {
+	        return { type: 'uri', value: normalizeIri(rawValue) };
+	      }
+	      if (kindText.includes('blanknode') || kindText === 'bnode') {
+	        return { type: 'bnode', value: rawValue.startsWith('_:') ? rawValue.slice(2) : rawValue };
+	      }
 
-    document.getElementById('query-clear').addEventListener('click', async () => {
-      await ensureOxigraph();
-      queryStore = new oxi.Store();
-      queryResults.textContent = '';
-      setStatus(queryStatus, 'Cleared browser store.');
-    });
+	      const language = term.language ?? term.lang ?? term['xml:lang'] ?? null;
+	      const datatypeRaw = term.datatype ?? null;
+	      const datatype = typeof datatypeRaw === 'string'
+	        ? datatypeRaw
+	        : datatypeRaw && typeof datatypeRaw.value === 'string'
+	          ? datatypeRaw.value
+	          : null;
 
-    document.getElementById('query-run').addEventListener('click', async () => {
-      const text = document.getElementById('query-text').value;
-      if (!text.trim()) {
-        setStatus(queryStatus, 'Enter a SPARQL query first.', true);
-        return;
-      }
-      try {
-        await ensureOxigraph();
-        const raw = queryStore.query(text);
-        const result = raw && typeof raw.then === 'function' ? await raw : raw;
-        queryResults.textContent = await queryToText(result);
-        setStatus(queryStatus, 'Query completed.');
-      } catch (err) {
-        queryResults.textContent = '';
-        setStatus(queryStatus, `Query failed: ${err}`, true);
-      }
-    });
+	      if (kindText.includes('literal') || language || datatype) {
+	        const out = { type: 'literal', value: rawValue };
+	        if (language) {
+	          out['xml:lang'] = String(language);
+	        } else if (datatype) {
+	          out.datatype = normalizeIri(datatype);
+	        }
+	        return out;
+	      }
+
+	      if (rawValue.startsWith('_:')) {
+	        return { type: 'bnode', value: rawValue.slice(2) };
+	      }
+	      if (/^(https?:|urn:|file:|tag:)/.test(rawValue)) {
+	        return { type: 'uri', value: normalizeIri(rawValue) };
+	      }
+	      return { type: 'literal', value: rawValue };
+	    }
+
+	    function solutionEntries(solution) {
+	      if (solution === null || solution === undefined) {
+	        return [];
+	      }
+	      if (solution instanceof Map) {
+	        return Array.from(solution.entries());
+	      }
+	      if (typeof solution.entries === 'function' && typeof solution.get === 'function') {
+	        try {
+	          return Array.from(solution.entries());
+	        } catch {
+	          // fall through
+	        }
+	      }
+	      if (typeof solution === 'object') {
+	        return Object.entries(solution).filter(([, value]) => typeof value !== 'function');
+	      }
+	      return [['value', solution]];
+	    }
+
+	    function buildBindingFromSolution(solution, vars, bindings) {
+	      const binding = {};
+	      for (const [rawName, rawValue] of solutionEntries(solution)) {
+	        const name = normalizeVarName(rawName);
+	        if (!name) {
+	          continue;
+	        }
+	        const value = termToSparqlBinding(rawValue);
+	        if (!value) {
+	          continue;
+	        }
+	        vars.add(name);
+	        binding[name] = value;
+	      }
+	      if (Object.keys(binding).length > 0) {
+	        bindings.push(binding);
+	      }
+	    }
+
+	    async function iterableToSparqlResults(iterable, isAsync) {
+	      const vars = new Set();
+	      const bindings = [];
+	      if (isAsync) {
+	        for await (const solution of iterable) {
+	          buildBindingFromSolution(solution, vars, bindings);
+	        }
+	      } else {
+	        for (const solution of iterable) {
+	          buildBindingFromSolution(solution, vars, bindings);
+	        }
+	      }
+	      return {
+	        head: { vars: Array.from(vars) },
+	        results: { bindings },
+	      };
+	    }
+
+	    function emptySparqlResultsPayload() {
+	      return {
+	        data: JSON.stringify({ head: { vars: [] }, results: { bindings: [] } }),
+	        contentType: 'application/sparql-results+json',
+	      };
+	    }
+
+	    async function queryToYasguiResponse(queryResult) {
+	      if (queryResult === null || queryResult === undefined) {
+	        return emptySparqlResultsPayload();
+	      }
+	      if (typeof queryResult === 'boolean') {
+	        return {
+	          data: JSON.stringify({ head: { vars: [] }, boolean: queryResult }),
+	          contentType: 'application/sparql-results+json',
+	        };
+	      }
+	      if (typeof queryResult === 'string') {
+	        return {
+	          data: queryResult,
+	          contentType: 'text/plain',
+	        };
+	      }
+	      if (typeof queryResult[Symbol.asyncIterator] === 'function') {
+	        return {
+	          data: JSON.stringify(await iterableToSparqlResults(queryResult, true)),
+	          contentType: 'application/sparql-results+json',
+	        };
+	      }
+	      if (typeof queryResult[Symbol.iterator] === 'function') {
+	        return {
+	          data: JSON.stringify(await iterableToSparqlResults(queryResult, false)),
+	          contentType: 'application/sparql-results+json',
+	        };
+	      }
+	      return {
+	        data: JSON.stringify(queryResult, null, 2),
+	        contentType: 'application/json',
+	      };
+	    }
+
+	    function renderYasguiResult(tab, payload, elapsedMs) {
+	      if (!tab || !tab.yasr || typeof tab.yasr.setResponse !== 'function') {
+	        return false;
+	      }
+	      tab.yasr.setResponse({
+	        data: payload.data,
+	        contentType: payload.contentType,
+	        status: 200,
+	        executionTime: elapsedMs,
+	      });
+	      if (typeof tab.yasr.draw === 'function') {
+	        tab.yasr.draw();
+	      }
+	      return true;
+	    }
+
+	    try {
+	      ensureYasgui();
+	      setStatus(queryStatus, 'Yasgui ready. Load a graph to start querying.');
+	    } catch (err) {
+	      setStatus(queryStatus, `Yasgui initialization failed: ${err}`, true);
+	    }
+
+	    document.getElementById('query-load').addEventListener('click', async () => {
+	      try {
+	        await ensureOxigraph();
+	        const graph = await resolveGraph('query');
+	        await tryLoadData(graph.text, graph.format);
+	        setStatus(
+	          queryStatus,
+	          `Loaded ${graph.name} into browser store as ${graph.format}.`
+	        );
+	      } catch (err) {
+	        setStatus(queryStatus, `Load failed: ${err}`, true);
+	      }
+	    });
+
+	    document.getElementById('query-clear').addEventListener('click', async () => {
+	      await ensureOxigraph();
+	      queryStore = new oxi.Store();
+	      try {
+	        const tab = activeYasguiTab();
+	        if (tab.yasr && typeof tab.yasr.setResponse === 'function') {
+	          const emptyPayload = emptySparqlResultsPayload();
+	          tab.yasr.setResponse({
+	            data: emptyPayload.data,
+	            contentType: emptyPayload.contentType,
+	            status: 200,
+	            executionTime: 0,
+	          });
+	          if (typeof tab.yasr.draw === 'function') {
+	            tab.yasr.draw();
+	          }
+	        }
+	      } catch (err) {
+	        setStatus(queryStatus, `Store cleared, but result panel reset failed: ${err}`, true);
+	        return;
+	      }
+	      setStatus(queryStatus, 'Cleared browser store.');
+	    });
+
+	    document.getElementById('query-run').addEventListener('click', async () => {
+	      let tab;
+	      let text;
+	      try {
+	        tab = activeYasguiTab();
+	        text = tab.yasqe.getValue();
+	      } catch (err) {
+	        setStatus(queryStatus, `Query editor unavailable: ${err}`, true);
+	        return;
+	      }
+	      if (!text.trim()) {
+	        setStatus(queryStatus, 'Enter a SPARQL query first.', true);
+	        return;
+	      }
+	      try {
+	        await ensureOxigraph();
+	        const started = performance.now();
+	        const raw = queryStore.query(text);
+	        const result = raw && typeof raw.then === 'function' ? await raw : raw;
+	        const payload = await queryToYasguiResponse(result);
+	        const rendered = renderYasguiResult(
+	          tab,
+	          payload,
+	          Math.round(performance.now() - started)
+	        );
+	        if (!rendered) {
+	          throw new Error('Yasgui result panel unavailable.');
+	        }
+	        setStatus(queryStatus, 'Query completed.');
+	      } catch (err) {
+	        setStatus(queryStatus, `Query failed: ${err}`, true);
+	      }
+	    });
 
     function setLinks(links) {
       valLinks.innerHTML = '';
@@ -487,15 +918,15 @@ const INDEX_HTML: &str = r#"<!doctype html>
       }
     }
 
-    document.getElementById('val-run').addEventListener('click', async () => {
-      const action = document.getElementById('val-action').value;
-      let graphInput;
-      try {
-        graphInput = await resolveGraph(valFileInput, valFormatSelect);
-      } catch (err) {
-        setStatus(valStatus, `${err}`, true);
-        return;
-      }
+	    document.getElementById('val-run').addEventListener('click', async () => {
+	      const action = document.getElementById('val-action').value;
+	      let graphInput;
+	      try {
+	        graphInput = await resolveGraph('val');
+	      } catch (err) {
+	        setStatus(valStatus, `${err}`, true);
+	        return;
+	      }
       const body = {
         graph: graphInput.text,
         format: graphInput.format,
@@ -523,7 +954,7 @@ const INDEX_HTML: &str = r#"<!doctype html>
         }
 
         if (action === 'validate') {
-          valHuman.textContent = payload.human_report || '';
+          valHuman.textContent = payload.report_ttl || '';
           const reportBlob = new Blob([payload.report_ttl || ''], { type: 'text/turtle' });
           const reportUrl = URL.createObjectURL(reportBlob);
           setLinks([
