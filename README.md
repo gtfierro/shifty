@@ -30,7 +30,7 @@ cargo build --workspace
 To enable the optional SHACL compiler (`compile` subcommand), build the CLI with the feature flag:
 
 ```bash
-cargo build -p cli --features shacl-compiler2
+cargo build -p cli --features shacl-compiler
 ```
 
 Format, lint, and test when contributing:
@@ -106,7 +106,7 @@ Run `shifty --help` to see every subcommand. The most common entry points are:
 - `heat`: validate the data and print a table of component/node/property invocation frequencies.
 - `trace`: validate the data and dump every execution trace collected during validation.
 - `generate-ir`: parse a shapes graph and write the `SHACL-IR` artifact that other commands can reuse via `--shacl-ir path/to/cache`.
-- `compile`: generate and build a specialized SHACL executable (requires `--features shacl-compiler2` when building the CLI).
+- `compile`: generate and build a specialized SHACL executable (requires `--features shacl-compiler` when building the CLI).
 
 You can now request the visualization artifacts directly from `validate` or `infer` by appending:
 

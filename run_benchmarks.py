@@ -96,17 +96,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-build",
         action="store_true",
-        help="Skip initial build/compile steps for shifty and shacl-compiler2.",
+        help="Skip initial build/compile steps for shifty and shacl-compiler.",
     )
     parser.add_argument(
         "--compiled-out-dir",
         default="target/compiled-shacl-benchmark",
-        help="Output directory for the generated shacl-compiler2 benchmark executable.",
+        help="Output directory for the generated shacl-compiler benchmark executable.",
     )
     parser.add_argument(
         "--compiled-bin-name",
         default="shacl-compiled-benchmark",
-        help="Binary name for the generated shacl-compiler2 benchmark executable.",
+        help="Binary name for the generated shacl-compiler benchmark executable.",
     )
     parser.add_argument(
         "--uv",
@@ -297,7 +297,7 @@ def resolve_compiled_binary(out_dir: Path, bin_name: str) -> Path:
             return candidate
     candidate_list = ", ".join(str(candidate) for candidate in candidates)
     raise FileNotFoundError(
-        "Compiled shacl-compiler2 executable not found. "
+        "Compiled shacl-compiler executable not found. "
         f"Looked in: {candidate_list}"
     )
 
@@ -335,7 +335,7 @@ def benchmark_platforms(
                 "-p",
                 "cli",
                 "--features",
-                "shacl-compiler2",
+                "shacl-compiler",
                 "--",
                 "compile",
                 "--shapes-file",
@@ -348,11 +348,11 @@ def benchmark_platforms(
                 "--shifty-path",
                 str(REPO_ROOT / "lib"),
             ],
-            "shifty compile (shacl-compiler2)",
+            "shifty compile (shacl-compiler)",
         )
 
     compiled_binary = resolve_compiled_binary(compiled_out_dir, compiled_bin_name)
-    LOGGER.info("Using shacl-compiler2 executable: %s", compiled_binary)
+    LOGGER.info("Using shacl-compiler executable: %s", compiled_binary)
 
     commands: dict[str, Callable[[Path], List[str]]] = {
         "shifty-pre": lambda data: [
@@ -373,7 +373,7 @@ def benchmark_platforms(
             str(shapes_file),
             "--run-inference",
         ],
-        "shacl-compiler2": lambda data: [
+        "shacl-compiler": lambda data: [
             str(compiled_binary),
             str(data),
         ],
@@ -479,7 +479,7 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
     preferred_order = [
         "shifty-pre",
         "shifty",
-        "shacl-compiler2",
+        "shacl-compiler",
         "pyshacl",
         "topquadrant",
         "bmotif-topquadrant",
