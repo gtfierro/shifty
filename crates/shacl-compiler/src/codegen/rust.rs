@@ -589,7 +589,7 @@ fn emit_run_section(
     writeln!(
         run,
         "{}",
-        "pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {"
+        "pub fn run_with_options(store: &Store, data_graph: Option<&NamedNode>, enable_inference: bool) -> Report {"
     )
     .unwrap();
     writeln!(run, "    let default_data_graph = data_graph_named();").unwrap();
@@ -619,23 +619,32 @@ fn emit_run_section(
     )
     .unwrap();
     writeln!(run, "    clear_target_class_caches();").unwrap();
-    writeln!(run, "{}", "    info!(\"Starting inference\");").unwrap();
+    writeln!(run, "{}", "    if enable_inference {").unwrap();
+    writeln!(run, "{}", "        info!(\"Starting inference\");").unwrap();
     writeln!(
         run,
         "{}",
-        "    match run_inference(store, graph, graph_node) {"
+        "        match run_inference(store, graph, graph_node) {"
     )
     .unwrap();
-    writeln!(run, "{}", "        Ok(_) => info!(\"Finished inference\"),").unwrap();
-    writeln!(run, "{}", "        Err(err) => {").unwrap();
     writeln!(
         run,
         "{}",
-        "            eprintln!(\"Inference failed: {}\", err);"
+        "            Ok(_) => info!(\"Finished inference\"),"
     )
     .unwrap();
-    writeln!(run, "{}", "            info!(\"Inference failed\");").unwrap();
+    writeln!(run, "{}", "            Err(err) => {").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "                eprintln!(\"Inference failed: {}\", err);"
+    )
+    .unwrap();
+    writeln!(run, "{}", "                info!(\"Inference failed\");").unwrap();
+    writeln!(run, "{}", "            }").unwrap();
     writeln!(run, "{}", "        }").unwrap();
+    writeln!(run, "{}", "    } else {").unwrap();
+    writeln!(run, "{}", "        info!(\"Skipping inference\");").unwrap();
     writeln!(run, "{}", "    }").unwrap();
     writeln!(
         run,
@@ -735,6 +744,15 @@ fn emit_run_section(
     writeln!(run, "{}", "    }").unwrap();
     writeln!(run, "{}", "    info!(\"Finished validation\");").unwrap();
     writeln!(run, "    report").unwrap();
+    writeln!(run, "{}", "}").unwrap();
+    writeln!(run, "").unwrap();
+    writeln!(
+        run,
+        "{}",
+        "pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {"
+    )
+    .unwrap();
+    writeln!(run, "{}", "    run_with_options(store, data_graph, true)").unwrap();
     writeln!(run, "{}", "}").unwrap();
     writeln!(run, "").unwrap();
     Ok(())
@@ -5029,7 +5047,7 @@ fn emit_shape_and_component_maps(out: &mut String, plan: &PlanIR) -> Result<(), 
 }
 
 fn emit_shape_iri_map(out: &mut String, plan: &PlanIR) -> Result<(), String> {
-    writeln!(out, "fn shape_iri(shape_id: u64) -> &'static str {{").unwrap();
+    writeln!(out, "pub fn shape_iri(shape_id: u64) -> &'static str {{").unwrap();
     writeln!(out, "    match shape_id {{").unwrap();
     for shape in &plan.shapes {
         let iri = term_iri(plan, shape.term)?;
@@ -5051,7 +5069,7 @@ fn emit_shape_iri_map(out: &mut String, plan: &PlanIR) -> Result<(), String> {
 fn emit_component_iri_map(out: &mut String, plan: &PlanIR) -> Result<(), String> {
     writeln!(
         out,
-        "fn component_iri(component_id: u64) -> &'static str {{"
+        "pub fn component_iri(component_id: u64) -> &'static str {{"
     )
     .unwrap();
     writeln!(out, "    match component_id {{").unwrap();

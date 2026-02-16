@@ -41,7 +41,6 @@ from rdflib.util import guess_format
 
 REPO_ROOT = Path(__file__).resolve().parent
 LOGGER = logging.getLogger(__name__)
-MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
 @dataclass
@@ -97,17 +96,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-build",
         action="store_true",
-        help="Skip initial build/compile steps for shifty and shacl-compiler.",
+        help="Skip initial build/compile steps for shifty and shacl-compiler2.",
     )
     parser.add_argument(
         "--compiled-out-dir",
         default="target/compiled-shacl-benchmark",
-        help="Output directory for the generated shacl-compiler benchmark executable.",
+        help="Output directory for the generated shacl-compiler2 benchmark executable.",
     )
     parser.add_argument(
         "--compiled-bin-name",
         default="shacl-compiled-benchmark",
-        help="Binary name for the generated shacl-compiler benchmark executable.",
+        help="Binary name for the generated shacl-compiler2 benchmark executable.",
     )
     parser.add_argument(
         "--uv",
@@ -298,7 +297,7 @@ def resolve_compiled_binary(out_dir: Path, bin_name: str) -> Path:
             return candidate
     candidate_list = ", ".join(str(candidate) for candidate in candidates)
     raise FileNotFoundError(
-        "Compiled shacl-compiler executable not found. "
+        "Compiled shacl-compiler2 executable not found. "
         f"Looked in: {candidate_list}"
     )
 
@@ -336,7 +335,7 @@ def benchmark_platforms(
                 "-p",
                 "cli",
                 "--features",
-                "shacl-compiler",
+                "shacl-compiler2",
                 "--",
                 "compile",
                 "--shapes-file",
@@ -349,11 +348,11 @@ def benchmark_platforms(
                 "--shifty-path",
                 str(REPO_ROOT / "lib"),
             ],
-            "shifty compile (shacl-compiler)",
+            "shifty compile (shacl-compiler2)",
         )
 
     compiled_binary = resolve_compiled_binary(compiled_out_dir, compiled_bin_name)
-    LOGGER.info("Using shacl-compiler executable: %s", compiled_binary)
+    LOGGER.info("Using shacl-compiler2 executable: %s", compiled_binary)
 
     commands: dict[str, Callable[[Path], List[str]]] = {
         "shifty-pre": lambda data: [
@@ -374,7 +373,7 @@ def benchmark_platforms(
             str(shapes_file),
             "--run-inference",
         ],
-        "shacl-compiler": lambda data: [
+        "shacl-compiler2": lambda data: [
             str(compiled_binary),
             str(data),
         ],
@@ -410,7 +409,6 @@ def benchmark_platforms(
         LOGGER.info("Model %s/%s: %s", model_index, total_models, data_file.name)
         triples = triple_cache.setdefault(data_file, count_triples(data_file))
         for platform, command_builder in commands.items():
-            consecutive_timeouts = 0
             for run_index in range(1, runs + 1):
                 LOGGER.info(
                     "[%s] %s run %s/%s (%s triples)",
@@ -434,23 +432,15 @@ def benchmark_platforms(
                         timed_out=timed_out,
                     )
                 )
-                if timed_out:
-                    consecutive_timeouts += 1
-                    if (
-                        consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS
-                        and run_index < runs
-                    ):
-                        LOGGER.warning(
-                            "[%s] %s hit %s consecutive timeouts; skipping remaining runs (%s/%s completed)",
-                            platform,
-                            data_file.name,
-                            consecutive_timeouts,
-                            run_index,
-                            runs,
-                        )
-                        break
-                else:
-                    consecutive_timeouts = 0
+                if timed_out and run_index < runs:
+                    LOGGER.warning(
+                        "[%s] %s timed out on run %s/%s; skipping remaining runs for this benchmark",
+                        platform,
+                        data_file.name,
+                        run_index,
+                        runs,
+                    )
+                    break
     return measurements
 
 
@@ -489,7 +479,7 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
     preferred_order = [
         "shifty-pre",
         "shifty",
-        "shacl-compiler",
+        "shacl-compiler2",
         "pyshacl",
         "topquadrant",
         "bmotif-topquadrant",
