@@ -5,18 +5,191 @@ use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
+use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
-use oxigraph::model::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Quad, Term};
+use fixedbitset::FixedBitSet;
+use oxigraph::model::{
+    vocab::rdf, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
+    Term, TermRef,
+};
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
-use shacl_ir::ShapeIR;
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ComponentGraphCallKey {
+    component_id: ComponentID,
+    source_shape: SourceShape,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct GraphCallStats {
+    quads_for_pattern_calls: u64,
+    execute_prepared_calls: u64,
+    component_invocations: u64,
+    runtime_nanos_total: u128,
+    runtime_nanos_sum_squares: f64,
+    runtime_nanos_min: u64,
+    runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct TimingStats {
+    invocations: u64,
+    runtime_nanos_total: u128,
+    runtime_nanos_sum_squares: f64,
+    runtime_nanos_min: u64,
+    runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SparqlQueryCallKey {
+    component_id: ComponentID,
+    source_shape: SourceShape,
+    constraint_term: Term,
+    query_hash: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ClosedWorldConstraintMode {
+    S223Relation,
+    QudtPredicate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ClosedWorldBatchCacheKey {
+    component_id: ComponentID,
+    source_shape: SourceShape,
+    query_hash: u64,
+    mode: ClosedWorldConstraintMode,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ClosedWorldViolation {
+    pub(crate) predicate: NamedNode,
+    pub(crate) object: Term,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ClosedWorldBatchResult {
+    pub(crate) violations_by_focus: HashMap<Term, Vec<ClosedWorldViolation>>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SparqlQueryStats {
+    invocations: u64,
+    rows_returned_total: u64,
+    rows_returned_min: u64,
+    rows_returned_max: u64,
+    runtime_nanos_total: u128,
+    runtime_nanos_sum_squares: f64,
+    runtime_nanos_min: u64,
+    runtime_nanos_max: u64,
+}
+
+pub(crate) struct ActiveComponentScope;
+
+#[derive(Debug, Clone)]
+pub(crate) struct ComponentGraphCallStatRecord {
+    pub(crate) component_id: ComponentID,
+    pub(crate) source_shape: SourceShape,
+    pub(crate) quads_for_pattern_calls: u64,
+    pub(crate) execute_prepared_calls: u64,
+    pub(crate) component_invocations: u64,
+    pub(crate) runtime_nanos_total: u128,
+    pub(crate) runtime_nanos_sum_squares: f64,
+    pub(crate) runtime_nanos_min: u64,
+    pub(crate) runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ShapeTimingPhase {
+    NodeTargetSelection,
+    NodeValueSelection,
+    PropertyTargetSelection,
+    PropertyValueSelection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ShapeTimingKey {
+    source_shape: SourceShape,
+    phase: ShapeTimingPhase,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ShapeTimingStatRecord {
+    pub(crate) source_shape: SourceShape,
+    pub(crate) phase: ShapeTimingPhase,
+    pub(crate) invocations: u64,
+    pub(crate) runtime_nanos_total: u128,
+    pub(crate) runtime_nanos_sum_squares: f64,
+    pub(crate) runtime_nanos_min: u64,
+    pub(crate) runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SparqlQueryCallStatRecord {
+    pub(crate) component_id: ComponentID,
+    pub(crate) source_shape: SourceShape,
+    pub(crate) constraint_term: Term,
+    pub(crate) query_hash: u64,
+    pub(crate) invocations: u64,
+    pub(crate) rows_returned_total: u64,
+    pub(crate) rows_returned_min: u64,
+    pub(crate) rows_returned_max: u64,
+    pub(crate) runtime_nanos_total: u128,
+    pub(crate) runtime_nanos_sum_squares: f64,
+    pub(crate) runtime_nanos_min: u64,
+    pub(crate) runtime_nanos_max: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum GraphCallKind {
+    QuadsForPattern,
+    ExecutePrepared,
+}
+
+thread_local! {
+    static ACTIVE_COMPONENT_STACK: RefCell<Vec<ComponentGraphCallKey>> = const { RefCell::new(Vec::new()) };
+}
+
+#[derive(Debug)]
+struct ClassConstraintIndex {
+    term_to_id: HashMap<Term, usize>,
+    descendants_by_super: Vec<FixedBitSet>,
+    subject_type_bits: HashMap<Term, FixedBitSet>,
+}
+
+impl ClassConstraintIndex {
+    fn class_bitset(&self, class: &Term) -> Option<&FixedBitSet> {
+        let class_id = self.term_to_id.get(class).copied()?;
+        self.descendants_by_super.get(class_id)
+    }
+
+    /// Return all subjects that are instances of `class` (transitively via rdfs:subClassOf).
+    fn instances_of_class(&self, class: &Term) -> Vec<Term> {
+        let Some(descendants) = self.class_bitset(class) else {
+            return Vec::new();
+        };
+        self.subject_type_bits
+            .iter()
+            .filter(|(_, type_bits)| type_bits.intersection(descendants).next().is_some())
+            .map(|(subject, _)| subject.clone())
+            .collect()
+    }
+}
+
+/// Runtime context shared across validators during a validation run.
+///
+/// Owns caches (targets, advanced targets), shape/model data, and shared services
+/// (SPARQL executor, trace sinks) to avoid recomputation and to centralize state.
 pub struct ValidationContext {
     pub(crate) model: Arc<ShapesModel>,
     pub(crate) data_graph_iri: NamedNode,
@@ -33,6 +206,13 @@ pub struct ValidationContext {
     pub(crate) trace_sink: Arc<dyn TraceSink>,
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
     pub(crate) shape_ir: Arc<ShapeIR>,
+    graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
+    sparql_query_stats: Mutex<HashMap<SparqlQueryCallKey, SparqlQueryStats>>,
+    closed_world_batch_cache:
+        Mutex<HashMap<ClosedWorldBatchCacheKey, Arc<Result<ClosedWorldBatchResult, String>>>>,
+    shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
+    class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
+    class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
 }
 
 impl ValidationContext {
@@ -91,6 +271,12 @@ impl ValidationContext {
             trace_sink: Arc::new(memory_sink),
             trace_events,
             shape_ir,
+            graph_call_stats: Mutex::new(HashMap::new()),
+            sparql_query_stats: Mutex::new(HashMap::new()),
+            closed_world_batch_cache: Mutex::new(HashMap::new()),
+            shape_timing_stats: Mutex::new(HashMap::new()),
+            class_constraint_index: RwLock::new(None),
+            class_constraint_memo: RwLock::new(HashMap::new()),
         }
     }
 
@@ -180,6 +366,7 @@ impl ValidationContext {
         substitutions: &[Binding],
         enforce_values_clause: bool,
     ) -> Result<QueryResults<'a>, String> {
+        self.record_graph_call(GraphCallKind::ExecutePrepared);
         self.backend
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
     }
@@ -195,8 +382,25 @@ impl ValidationContext {
         object: Option<&Term>,
         graph: Option<GraphNameRef<'_>>,
     ) -> Result<Vec<Quad>, String> {
+        self.record_graph_call(GraphCallKind::QuadsForPattern);
         self.backend
             .quads_for_pattern(subject, predicate, object, graph)
+    }
+
+    pub(crate) fn for_each_quad_for_pattern<F>(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+        callback: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(Quad) -> Result<(), String>,
+    {
+        self.record_graph_call(GraphCallKind::QuadsForPattern);
+        self.backend
+            .for_each_quad_for_pattern(subject, predicate, object, graph, callback)
     }
 
     pub(crate) fn insert_quads(&self, quads: &[Quad]) -> Result<(), String> {
@@ -249,6 +453,435 @@ impl ValidationContext {
 
     pub(crate) fn store_prop_targets(&self, id: PropShapeID, nodes: Vec<Term>) {
         self.prop_target_cache.write().unwrap().insert(id, nodes);
+    }
+
+    pub(crate) fn enter_component_scope(
+        &self,
+        component_id: ComponentID,
+        source_shape: SourceShape,
+    ) -> ActiveComponentScope {
+        ACTIVE_COMPONENT_STACK.with(|stack| {
+            stack.borrow_mut().push(ComponentGraphCallKey {
+                component_id,
+                source_shape,
+            });
+        });
+        ActiveComponentScope
+    }
+
+    pub(crate) fn reset_component_graph_call_stats(&self) {
+        self.graph_call_stats.lock().unwrap().clear();
+    }
+
+    pub(crate) fn reset_validation_run_state(&self) {
+        self.reset_component_graph_call_stats();
+        self.sparql_query_stats.lock().unwrap().clear();
+        self.closed_world_batch_cache.lock().unwrap().clear();
+        self.shape_timing_stats.lock().unwrap().clear();
+        self.class_constraint_memo.write().unwrap().clear();
+        *self.class_constraint_index.write().unwrap() = None;
+    }
+
+    pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
+        let mut rows: Vec<ComponentGraphCallStatRecord> = self
+            .graph_call_stats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, stats)| ComponentGraphCallStatRecord {
+                component_id: key.component_id,
+                source_shape: key.source_shape.clone(),
+                quads_for_pattern_calls: stats.quads_for_pattern_calls,
+                execute_prepared_calls: stats.execute_prepared_calls,
+                component_invocations: stats.component_invocations,
+                runtime_nanos_total: stats.runtime_nanos_total,
+                runtime_nanos_sum_squares: stats.runtime_nanos_sum_squares,
+                runtime_nanos_min: stats.runtime_nanos_min,
+                runtime_nanos_max: stats.runtime_nanos_max,
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            b.runtime_nanos_total
+                .cmp(&a.runtime_nanos_total)
+                .then_with(|| b.component_invocations.cmp(&a.component_invocations))
+                .then_with(|| {
+                    let a_total = a.quads_for_pattern_calls + a.execute_prepared_calls;
+                    let b_total = b.quads_for_pattern_calls + b.execute_prepared_calls;
+                    b_total.cmp(&a_total)
+                })
+                .then_with(|| b.quads_for_pattern_calls.cmp(&a.quads_for_pattern_calls))
+                .then_with(|| b.execute_prepared_calls.cmp(&a.execute_prepared_calls))
+        });
+        rows
+    }
+
+    pub(crate) fn record_component_duration(
+        &self,
+        component_id: ComponentID,
+        source_shape: SourceShape,
+        duration: Duration,
+    ) {
+        let nanos_u128 = duration.as_nanos();
+        let nanos_u64 = if nanos_u128 > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            nanos_u128 as u64
+        };
+        let nanos_f64 = nanos_u64 as f64;
+        let mut stats = self.graph_call_stats.lock().unwrap();
+        let counters = stats
+            .entry(ComponentGraphCallKey {
+                component_id,
+                source_shape,
+            })
+            .or_default();
+        counters.component_invocations += 1;
+        counters.runtime_nanos_total = counters.runtime_nanos_total.saturating_add(nanos_u128);
+        counters.runtime_nanos_sum_squares += nanos_f64 * nanos_f64;
+        if counters.runtime_nanos_min == 0 || nanos_u64 < counters.runtime_nanos_min {
+            counters.runtime_nanos_min = nanos_u64;
+        }
+        if nanos_u64 > counters.runtime_nanos_max {
+            counters.runtime_nanos_max = nanos_u64;
+        }
+    }
+
+    pub(crate) fn record_shape_phase_duration(
+        &self,
+        source_shape: SourceShape,
+        phase: ShapeTimingPhase,
+        duration: Duration,
+    ) {
+        let nanos_u128 = duration.as_nanos();
+        let nanos_u64 = if nanos_u128 > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            nanos_u128 as u64
+        };
+        let nanos_f64 = nanos_u64 as f64;
+        let mut stats = self.shape_timing_stats.lock().unwrap();
+        let counters = stats
+            .entry(ShapeTimingKey {
+                source_shape,
+                phase,
+            })
+            .or_default();
+        counters.invocations += 1;
+        counters.runtime_nanos_total = counters.runtime_nanos_total.saturating_add(nanos_u128);
+        counters.runtime_nanos_sum_squares += nanos_f64 * nanos_f64;
+        if counters.runtime_nanos_min == 0 || nanos_u64 < counters.runtime_nanos_min {
+            counters.runtime_nanos_min = nanos_u64;
+        }
+        if nanos_u64 > counters.runtime_nanos_max {
+            counters.runtime_nanos_max = nanos_u64;
+        }
+    }
+
+    pub(crate) fn shape_timing_stats(&self) -> Vec<ShapeTimingStatRecord> {
+        let mut rows: Vec<ShapeTimingStatRecord> = self
+            .shape_timing_stats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, stats)| ShapeTimingStatRecord {
+                source_shape: key.source_shape.clone(),
+                phase: key.phase,
+                invocations: stats.invocations,
+                runtime_nanos_total: stats.runtime_nanos_total,
+                runtime_nanos_sum_squares: stats.runtime_nanos_sum_squares,
+                runtime_nanos_min: stats.runtime_nanos_min,
+                runtime_nanos_max: stats.runtime_nanos_max,
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            b.runtime_nanos_total
+                .cmp(&a.runtime_nanos_total)
+                .then_with(|| b.invocations.cmp(&a.invocations))
+        });
+        rows
+    }
+
+    pub(crate) fn record_sparql_query_call(
+        &self,
+        source_shape: SourceShape,
+        component_id: ComponentID,
+        constraint_term: &Term,
+        query_hash: u64,
+        rows_returned: u64,
+        duration: Duration,
+    ) {
+        let nanos_u128 = duration.as_nanos();
+        let nanos_u64 = if nanos_u128 > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            nanos_u128 as u64
+        };
+        let nanos_f64 = nanos_u64 as f64;
+
+        let mut stats = self.sparql_query_stats.lock().unwrap();
+        let counters = stats
+            .entry(SparqlQueryCallKey {
+                component_id,
+                source_shape,
+                constraint_term: constraint_term.clone(),
+                query_hash,
+            })
+            .or_default();
+
+        counters.invocations += 1;
+        counters.rows_returned_total = counters.rows_returned_total.saturating_add(rows_returned);
+        if counters.rows_returned_min == 0 || rows_returned < counters.rows_returned_min {
+            counters.rows_returned_min = rows_returned;
+        }
+        if rows_returned > counters.rows_returned_max {
+            counters.rows_returned_max = rows_returned;
+        }
+        counters.runtime_nanos_total = counters.runtime_nanos_total.saturating_add(nanos_u128);
+        counters.runtime_nanos_sum_squares += nanos_f64 * nanos_f64;
+        if counters.runtime_nanos_min == 0 || nanos_u64 < counters.runtime_nanos_min {
+            counters.runtime_nanos_min = nanos_u64;
+        }
+        if nanos_u64 > counters.runtime_nanos_max {
+            counters.runtime_nanos_max = nanos_u64;
+        }
+    }
+
+    pub(crate) fn sparql_query_call_stats(&self) -> Vec<SparqlQueryCallStatRecord> {
+        let mut rows: Vec<SparqlQueryCallStatRecord> = self
+            .sparql_query_stats
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, stats)| SparqlQueryCallStatRecord {
+                component_id: key.component_id,
+                source_shape: key.source_shape.clone(),
+                constraint_term: key.constraint_term.clone(),
+                query_hash: key.query_hash,
+                invocations: stats.invocations,
+                rows_returned_total: stats.rows_returned_total,
+                rows_returned_min: stats.rows_returned_min,
+                rows_returned_max: stats.rows_returned_max,
+                runtime_nanos_total: stats.runtime_nanos_total,
+                runtime_nanos_sum_squares: stats.runtime_nanos_sum_squares,
+                runtime_nanos_min: stats.runtime_nanos_min,
+                runtime_nanos_max: stats.runtime_nanos_max,
+            })
+            .collect();
+
+        rows.sort_by(|a, b| {
+            b.runtime_nanos_total
+                .cmp(&a.runtime_nanos_total)
+                .then_with(|| b.rows_returned_total.cmp(&a.rows_returned_total))
+                .then_with(|| b.invocations.cmp(&a.invocations))
+                .then_with(|| a.query_hash.cmp(&b.query_hash))
+        });
+        rows
+    }
+
+    pub(crate) fn get_or_compute_closed_world_batch<F>(
+        &self,
+        source_shape: SourceShape,
+        component_id: ComponentID,
+        query_hash: u64,
+        mode: ClosedWorldConstraintMode,
+        compute: F,
+    ) -> Arc<Result<ClosedWorldBatchResult, String>>
+    where
+        F: FnOnce() -> Result<ClosedWorldBatchResult, String>,
+    {
+        let key = ClosedWorldBatchCacheKey {
+            component_id,
+            source_shape,
+            query_hash,
+            mode,
+        };
+
+        let mut cache = self.closed_world_batch_cache.lock().unwrap();
+        if let Some(cached) = cache.get(&key).cloned() {
+            return cached;
+        }
+
+        // Compute while holding this lock to prevent parallel focus-node
+        // threads from recomputing the same batch query.
+        let computed = Arc::new(compute());
+        cache.insert(key, Arc::clone(&computed));
+        computed
+    }
+
+    fn current_component_key(&self) -> Option<ComponentGraphCallKey> {
+        ACTIVE_COMPONENT_STACK.with(|stack| stack.borrow().last().cloned())
+    }
+
+    fn record_graph_call(&self, call_kind: GraphCallKind) {
+        let Some(key) = self.current_component_key() else {
+            return;
+        };
+        let mut stats = self.graph_call_stats.lock().unwrap();
+        let counters = stats.entry(key).or_default();
+        match call_kind {
+            GraphCallKind::QuadsForPattern => {
+                counters.quads_for_pattern_calls += 1;
+            }
+            GraphCallKind::ExecutePrepared => {
+                counters.execute_prepared_calls += 1;
+            }
+        }
+    }
+
+    pub(crate) fn class_constraint_matches_fast(
+        &self,
+        value_node: &Term,
+        class_term: &Term,
+    ) -> Result<Option<bool>, String> {
+        if !matches!(class_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(None);
+        }
+        if !matches!(value_node, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(Some(false));
+        }
+
+        let memo_key = (value_node.clone(), class_term.clone());
+        if let Some(result) = self.class_constraint_memo.read().unwrap().get(&memo_key) {
+            return Ok(Some(*result));
+        }
+
+        let index = self.ensure_class_constraint_index()?;
+        let Some(descendants) = index.class_bitset(class_term) else {
+            self.class_constraint_memo
+                .write()
+                .unwrap()
+                .insert(memo_key, false);
+            return Ok(Some(false));
+        };
+        let result = index
+            .subject_type_bits
+            .get(value_node)
+            .map(|type_bits| type_bits.intersection(descendants).next().is_some())
+            .unwrap_or(false);
+
+        self.class_constraint_memo
+            .write()
+            .unwrap()
+            .insert(memo_key, result);
+        Ok(Some(result))
+    }
+
+    /// Return all subjects that are `rdf:type` instances of `class` (or any
+    /// subclass of it), using the precomputed bitmap index.
+    pub(crate) fn instances_of_class(&self, class: &Term) -> Result<Vec<Term>, String> {
+        let index = self.ensure_class_constraint_index()?;
+        Ok(index.instances_of_class(class))
+    }
+
+    fn ensure_class_constraint_index(&self) -> Result<Arc<ClassConstraintIndex>, String> {
+        if let Some(index) = self.class_constraint_index.read().unwrap().as_ref() {
+            return Ok(Arc::clone(index));
+        }
+        let index = Arc::new(self.build_class_constraint_index()?);
+        let mut cache = self.class_constraint_index.write().unwrap();
+        if let Some(existing) = cache.as_ref() {
+            return Ok(Arc::clone(existing));
+        }
+        *cache = Some(Arc::clone(&index));
+        Ok(index)
+    }
+
+    fn build_class_constraint_index(&self) -> Result<ClassConstraintIndex, String> {
+        let mut term_to_id: HashMap<Term, usize> = HashMap::new();
+        let mut next_id = 0usize;
+        let mut parent_edges: Vec<(usize, usize)> = Vec::new();
+
+        let mut intern = |term: Term| {
+            if let Some(id) = term_to_id.get(&term).copied() {
+                id
+            } else {
+                let id = next_id;
+                next_id += 1;
+                term_to_id.insert(term, id);
+                id
+            }
+        };
+
+        let mut subject_type_ids: HashMap<Term, Vec<usize>> = HashMap::new();
+        let sub_class_of =
+            NamedNodeRef::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf");
+        self.for_each_quad_for_pattern(None, Some(sub_class_of), None, None, |quad| {
+            let subclass = term_from_subject(&quad.subject);
+            let superclass = term_from_term_ref(quad.object.as_ref());
+            let (Some(subclass), Some(superclass)) = (subclass, superclass) else {
+                return Ok(());
+            };
+            let sub_id = intern(subclass);
+            let super_id = intern(superclass);
+            parent_edges.push((sub_id, super_id));
+            Ok(())
+        })?;
+
+        self.for_each_quad_for_pattern(
+            None,
+            Some(rdf::TYPE),
+            None,
+            Some(self.data_graph_iri_ref()),
+            |quad| {
+                let subject = term_from_subject(&quad.subject);
+                let class = term_from_term_ref(quad.object.as_ref());
+                let (Some(subject), Some(class)) = (subject, class) else {
+                    return Ok(());
+                };
+                let class_id = intern(class);
+                subject_type_ids.entry(subject).or_default().push(class_id);
+                Ok(())
+            },
+        )?;
+
+        let class_count = next_id;
+        let mut parents: Vec<Vec<usize>> = vec![Vec::new(); class_count];
+        for (child, parent) in parent_edges {
+            if !parents[child].contains(&parent) {
+                parents[child].push(parent);
+            }
+        }
+
+        let mut ancestors_by_subclass: Vec<FixedBitSet> = (0..class_count)
+            .map(|_| FixedBitSet::with_capacity(class_count))
+            .collect();
+        for subclass in 0..class_count {
+            let mut visited = HashSet::new();
+            let mut stack = vec![subclass];
+            while let Some(node) = stack.pop() {
+                if !visited.insert(node) {
+                    continue;
+                }
+                ancestors_by_subclass[subclass].insert(node);
+                for parent in &parents[node] {
+                    stack.push(*parent);
+                }
+            }
+        }
+
+        let mut descendants_by_super: Vec<FixedBitSet> = (0..class_count)
+            .map(|_| FixedBitSet::with_capacity(class_count))
+            .collect();
+        for (subclass, ancestors) in ancestors_by_subclass.iter().enumerate() {
+            for super_id in ancestors.ones() {
+                descendants_by_super[super_id].insert(subclass);
+            }
+        }
+
+        let mut subject_type_bits: HashMap<Term, FixedBitSet> = HashMap::new();
+        for (subject, class_ids) in subject_type_ids {
+            let mut bits = FixedBitSet::with_capacity(class_count);
+            for class_id in class_ids {
+                bits.insert(class_id);
+            }
+            subject_type_bits.insert(subject, bits);
+        }
+
+        Ok(ClassConstraintIndex {
+            term_to_id,
+            descendants_by_super,
+            subject_type_bits,
+        })
     }
 
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
@@ -308,6 +941,21 @@ fn custom_component_cache_key(
         .collect();
     entries.sort();
     format!("{}|{}", definition.iri.as_str(), entries.join("|"))
+}
+
+fn term_from_subject(subject: &NamedOrBlankNode) -> Option<Term> {
+    match subject {
+        NamedOrBlankNode::NamedNode(nn) => Some(Term::NamedNode(nn.clone())),
+        NamedOrBlankNode::BlankNode(bn) => Some(Term::BlankNode(bn.clone())),
+    }
+}
+
+fn term_from_term_ref(term: TermRef<'_>) -> Option<Term> {
+    match term {
+        TermRef::NamedNode(nn) => Some(Term::NamedNode(nn.into_owned())),
+        TermRef::BlankNode(bn) => Some(Term::BlankNode(bn.into_owned())),
+        TermRef::Literal(_) => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -452,5 +1100,13 @@ impl Context {
 
     pub(crate) fn trace_index(&self) -> usize {
         self.trace_index
+    }
+}
+
+impl Drop for ActiveComponentScope {
+    fn drop(&mut self) {
+        ACTIVE_COMPONENT_STACK.with(|stack| {
+            let _ = stack.borrow_mut().pop();
+        });
     }
 }

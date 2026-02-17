@@ -475,6 +475,7 @@ pub struct NodeShapeIR {
     pub id: ID,
     pub targets: Vec<Target>,
     pub constraints: Vec<ComponentID>,
+    pub property_shapes: Vec<PropShapeID>,
     pub severity: Severity,
     pub deactivated: bool,
 }

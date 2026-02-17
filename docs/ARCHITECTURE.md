@@ -1,23 +1,127 @@
-# Module Layout Plan
+# Architecture Overview
 
-## Model Layer
-- `model/shapes.rs`: owns `NodeShape`, `PropertyShape`, `TargetSpec`, and supporting value types required to describe SHACL structures without behaviour.
-- `model/components.rs`: describes parsed constraint metadata (e.g., datatype, cardinality, sparql fragments) as inert descriptors.
-- `model/mod.rs`: re-exports structural DTOs and coordinates cross-cutting helpers like ID lookup tables.
+This document describes the core components of the `shifty` validation engine and how they fit
+together. The library is organized as a pipeline: parse shapes → build an internal model →
+plan execution → validate/infer → produce reports and diagnostics.
 
-## Parser Layer
-- `parser/mod.rs`: converts Oxigraph triples into model descriptors; depends on `ParsingContext` utilities and produces a `ModelBundle` aggregate.
-- `parser/components.rs`: translates SHACL predicates into `ComponentDescriptor` instances, intentionally unaware of evaluator implementations.
+## High-Level Pipeline
 
-## Runtime Layer
-- `runtime/engine.rs`: builds executable constraint evaluators from descriptors and coordinates validation passes.
-- `runtime/validators/`: houses component-specific logic (e.g., `cardinality.rs`, `string_based.rs`) implementing a shared `ConstraintEvaluator` trait.
-- `runtime/shapes.rs`: hosts `ValidateShape` implementations that orchestrate evaluator invocation against model data.
+1. **Inputs**: Shapes + data graphs are loaded from `Source` (files or named graphs).
+2. **Parsing**: `parser` converts RDF into a data-only model (`ShapesModel`).
+3. **IR**: `ir` and `shifty::shacl_ir` serialize/deserialize that model for caching and reuse.
+4. **Planning**: `planning` builds a dependency-aware execution order.
+5. **Validation**: `validate` executes shape targets and components in parallel.
+6. **Reporting**: `report` renders results to Turtle/Graph and captures traces.
+7. **Inference (optional)**: `inference` evaluates SHACL rules over the data graph.
 
-## Context & Facade
-- `context.rs`: narrowed to store runtime state (graphs, traces, evaluator registry) and remain free of parsing responsibilities.
-- `lib.rs`: wires the pipeline (`Source` → parser → optimizer → runtime) and exposes stable entry points (`Validator`, `ShapesModel`).
+## Data Model
 
-## CLI & Integration
-- CLI layer (`cli/src/main.rs`) consumes the facade without observing parser or runtime internals.
-- Integration tests (`lib/tests/`) interact through the facade and can opt into parser-only verification helpers for descriptor inspection.
+**Primary types**
+
+- `NodeShape` and `PropertyShape` in `model/shapes.rs` are immutable descriptors.
+- Each shape contains:
+  - `targets`: target selectors (class, node, subjects-of, etc.).
+  - `constraints`: component IDs (cardinality, datatype, SPARQL, etc.).
+  - `property_shapes` (node shapes only): the `sh:property` links, preserved for IR and diagnostics.
+- Components are parsed into `ComponentDescriptor` (data-only) and later instantiated into
+  runtime `Component`s.
+
+**Identifiers**
+
+The model uses stable integer IDs (`ID`, `PropShapeID`, `ComponentID`, `RuleID`) stored in
+lookup tables so shapes and components can be referenced cheaply in caches and IR.
+
+## Parsing Layer
+
+`parser/mod.rs` is responsible for turning RDF triples into the model:
+
+- **Node shapes** are collected from `rdf:type sh:NodeShape` and shape-based constraints
+  (`sh:and`, `sh:or`, `sh:not`, etc.).
+- **Property shapes** are collected from `rdf:type sh:PropertyShape` and `sh:property` links.
+- **Constraints** are parsed via `parser/components.rs`, which maps SHACL predicates to
+  `ComponentDescriptor` instances (datatype, cardinality, sparql, etc.).
+- **Custom components** are parsed when SHACL-AF is enabled.
+
+The parser is intentionally decoupled from execution: it produces descriptors and IDs only.
+
+## ShapeIR (Caching)
+
+`ir.rs` builds a serialized `ShapeIR` (defined in `shifty::shacl_ir`) that captures:
+
+- Shape descriptors (node + property shapes).
+- Constraint descriptors.
+- Shape graph triples.
+- Rule definitions.
+
+`ir_cache.rs` reads/writes `ShapeIR` to disk to avoid re-parsing shapes for repeated runs.
+
+## Validation Planning
+
+`planning.rs` builds a **validation plan**:
+
+- Shapes are treated as nodes in a dependency graph.
+- Dependencies are derived from constraint descriptors (e.g., `sh:node`, `sh:property`,
+  `sh:qualifiedValueShape`).
+- The plan groups shapes into independent trees so validation can run in parallel without
+  violating dependencies.
+
+## Validation Runtime
+
+The runtime execution happens in `validate.rs` and `runtime/`:
+
+1. **Context setup**: `ValidationContext` holds the model, caches, and SPARQL services.
+2. **Targets**: Shapes compute focus nodes from targets and cache results.
+3. **Constraint evaluation**:
+   - Each `ComponentDescriptor` is instantiated into a runtime `Component`.
+   - Components are invoked against a `Context` (focus/value nodes, source shape).
+4. **Property shapes**:
+   - As standalone shapes: run against their own targets.
+   - As `sh:property` constraints: evaluated with the node shape’s focus node as context.
+
+### Component System
+
+- `runtime/engine.rs` builds runtime components from descriptors.
+- `runtime/validators/*` implement individual constraint behaviors.
+- `runtime/validators/shape_based.rs` handles shape-based constraints (`sh:node`,
+  `sh:property`, `sh:qualifiedValueShape`).
+
+### Reporting & Tracing
+
+- `report.rs` builds the validation report graph and serializes it to Turtle/RDF.
+- `trace.rs` collects execution traces, which are referenced by failures to explain
+  *why* a violation occurred.
+- The CLI can render graphviz/heatmap outputs using the same trace data.
+
+## SPARQL Subsystem
+
+`sparql/` provides:
+
+- Parsing and execution helpers (`SparqlServices`).
+- Pre-binding validation (`validate_prebound_variable_usage`) to ensure required variables
+  are referenced.
+- Query execution helpers used by SPARQL constraints and advanced targets.
+
+Custom components and advanced targets reuse this subsystem for query evaluation.
+
+## Inference (SHACL Rules)
+
+`inference/` evaluates SHACL rules to produce inferred triples:
+
+- Supports triple rules and SPARQL rules.
+- Operates over a graph union (data + shapes when enabled).
+- Tracks and de-duplicates inferred triples to avoid loops.
+
+## Graph Handling & Skolemization
+
+- Shapes and data graphs can be unioned for validation (`--no-union-graphs` disables).
+- Blank nodes are optionally skolemized for stable identifiers in reports and caching.
+
+## Concurrency
+
+Validation uses Rayon to:
+
+- Execute independent shape trees in parallel.
+- Evaluate per-target checks concurrently.
+
+Thread-local state (e.g., subclass closures, original value indices) is propagated so
+parallel execution preserves semantics.

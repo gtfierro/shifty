@@ -1,0 +1,1667 @@
+mod generated;
+
+use generated::{component_iri, render_report, shape_iri, ResultPath, DATA_GRAPH};
+use log::info;
+use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
+use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad, TripleRef};
+use oxigraph::store::Store;
+use serde_json::{json, Value};
+use std::env;
+use std::error::Error;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const INDEX_HTML: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Compiled SHACL Service</title>
+  <link rel="stylesheet" href="https://unpkg.com/@triply/yasgui/build/yasgui.min.css" />
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #4b5563;
+      --accent: #0f766e;
+      --line: #d1d5db;
+      --danger: #b91c1c;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(180deg, #eef4f7 0%, #f7fafc 100%);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      overflow: hidden;
+    }
+    .head {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, #ecfeff, #f8fafc);
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+    .title {
+      font-size: 18px;
+      margin: 0;
+      font-weight: 700;
+    }
+    .sub {
+      color: var(--muted);
+      margin: 0;
+      font-size: 13px;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+    }
+    .tab-btn {
+      background: transparent;
+      border: 0;
+      padding: 12px 16px;
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }
+    .tab {
+      display: none;
+      padding: 18px;
+      gap: 14px;
+      flex-direction: column;
+    }
+    .tab.active {
+      display: flex;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    label {
+      font-size: 13px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 4px;
+    }
+    input[type="file"], select, textarea, button, input[type="text"], input[type="number"] {
+      font: inherit;
+    }
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    button {
+      border: 1px solid #0d9488;
+      background: #0f766e;
+      color: #fff;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.secondary {
+      border-color: #94a3b8;
+      background: #f8fafc;
+      color: #111827;
+    }
+    pre {
+      margin: 0;
+      background: #0b1020;
+      color: #d1d5db;
+      border-radius: 10px;
+      padding: 12px;
+      overflow: auto;
+      font-size: 12px;
+      max-height: 340px;
+    }
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .status.error {
+      color: var(--danger);
+      font-weight: 600;
+    }
+    .links a {
+      color: var(--accent);
+      text-decoration: none;
+      margin-right: 14px;
+    }
+    .inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .source-panel {
+      display: none;
+    }
+    .source-panel.active {
+      display: flex;
+    }
+    .wide {
+      flex: 1 1 420px;
+      min-width: 280px;
+    }
+    .wide input,
+    .wide select {
+      width: 100%;
+    }
+    .yasgui-host {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 420px;
+    }
+    .yasgui-host .autocompleteWrapper {
+      display: none !important;
+    }
+    .yasgui-host .yasqe_queryButton {
+      display: none !important;
+    }
+    @media (max-width: 700px) {
+      .shell {
+        padding: 10px;
+      }
+      .head {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <div class="head">
+        <div>
+          <p class="title">Compiled SHACL Service</p>
+          <p class="sub">In-browser SPARQL query + backend inference/validation API</p>
+        </div>
+        <p class="sub">Data stays in browser memory unless you call backend validation/inference.</p>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="query">Query</button>
+        <button class="tab-btn" data-tab="validate">Inference / Validation</button>
+      </div>
+
+      <section id="tab-query" class="tab active">
+        <div class="row">
+          <div>
+            <label for="query-source-kind">Graph Source</label>
+            <select id="query-source-kind">
+              <option value="upload">Upload file</option>
+              <option value="url">Fetch remote URL</option>
+              <option value="existing">Existing graph</option>
+            </select>
+          </div>
+        </div>
+        <div id="query-source-upload" class="row source-panel active">
+          <div>
+            <label for="query-file">RDF Graph File</label>
+            <input id="query-file" type="file" accept=".ttl,.nt,.rdf,.xml" />
+          </div>
+          <div>
+            <label for="query-format">Format</label>
+            <select id="query-format">
+              <option value="turtle">Turtle</option>
+              <option value="ntriples">N-Triples</option>
+              <option value="rdfxml">RDF/XML</option>
+            </select>
+          </div>
+        </div>
+        <div id="query-source-url" class="row source-panel">
+          <div class="wide">
+            <label for="query-url">Remote Graph URL</label>
+            <input id="query-url" type="text" placeholder="https://example.com/graph.ttl" />
+          </div>
+          <div>
+            <label for="query-url-format">Format</label>
+            <select id="query-url-format">
+              <option value="auto">Auto detect</option>
+              <option value="turtle">Turtle</option>
+              <option value="ntriples">N-Triples</option>
+              <option value="rdfxml">RDF/XML</option>
+            </select>
+          </div>
+        </div>
+        <div id="query-source-existing" class="row source-panel">
+          <div class="wide">
+            <label for="query-existing-graph">Existing Graph</label>
+            <select id="query-existing-graph"></select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>&nbsp;</label>
+            <button id="query-load" class="secondary" type="button">Load Into Browser Store</button>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button id="query-clear" class="secondary" type="button">Clear Store</button>
+          </div>
+        </div>
+        <p id="query-status" class="status"></p>
+        <p id="shared-query-status" class="status"></p>
+        <div id="yasgui-host" class="yasgui-host"></div>
+        <div class="row">
+          <button id="query-run" type="button">Run Query In Browser</button>
+        </div>
+      </section>
+
+      <section id="tab-validate" class="tab">
+        <div class="row">
+          <div>
+            <label for="val-source-kind">Graph Source</label>
+            <select id="val-source-kind">
+              <option value="upload">Upload file</option>
+              <option value="url">Fetch remote URL</option>
+              <option value="existing">Existing graph</option>
+            </select>
+          </div>
+          <div>
+            <label for="val-action">Action</label>
+            <select id="val-action">
+              <option value="validate">Validate</option>
+              <option value="infer">Infer</option>
+            </select>
+          </div>
+        </div>
+        <div id="val-source-upload" class="row source-panel active">
+          <div>
+            <label for="val-file">RDF Graph File</label>
+            <input id="val-file" type="file" accept=".ttl,.nt,.rdf,.xml" />
+          </div>
+          <div>
+            <label for="val-format">Format</label>
+            <select id="val-format">
+              <option value="turtle">Turtle</option>
+              <option value="ntriples">N-Triples</option>
+              <option value="rdfxml">RDF/XML</option>
+            </select>
+          </div>
+        </div>
+        <div id="val-source-url" class="row source-panel">
+          <div class="wide">
+            <label for="val-url">Remote Graph URL</label>
+            <input id="val-url" type="text" placeholder="https://example.com/graph.ttl" />
+          </div>
+          <div>
+            <label for="val-url-format">Format</label>
+            <select id="val-url-format">
+              <option value="auto">Auto detect</option>
+              <option value="turtle">Turtle</option>
+              <option value="ntriples">N-Triples</option>
+              <option value="rdfxml">RDF/XML</option>
+            </select>
+          </div>
+        </div>
+        <div id="val-source-existing" class="row source-panel">
+          <div class="wide">
+            <label for="val-existing-graph">Existing Graph</label>
+            <select id="val-existing-graph"></select>
+          </div>
+        </div>
+        <div class="row">
+          <label class="inline"><input type="checkbox" id="val-run-inference" checked /> run inference during validation</label>
+          <label class="inline"><input type="checkbox" id="val-follow-bnodes" /> follow bnodes in report</label>
+        </div>
+        <div class="row">
+          <button id="val-run" type="button">Execute</button>
+        </div>
+        <p id="val-status" class="status"></p>
+        <p id="shared-val-status" class="status"></p>
+        <div class="links" id="val-links"></div>
+        <pre id="val-human"></pre>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@triply/yasgui/build/yasgui.min.js"></script>
+  <script type="module">
+    const tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabs.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+        document.getElementById(`tab-${tab}`).classList.add('active');
+      });
+    });
+
+	    const queryStatus = document.getElementById('query-status');
+	    const sharedQueryStatus = document.getElementById('shared-query-status');
+	    const yasguiHost = document.getElementById('yasgui-host');
+	    const valStatus = document.getElementById('val-status');
+	    const sharedValStatus = document.getElementById('shared-val-status');
+	    const valHuman = document.getElementById('val-human');
+	    const valLinks = document.getElementById('val-links');
+	    const querySourceKindSelect = document.getElementById('query-source-kind');
+	    const valSourceKindSelect = document.getElementById('val-source-kind');
+	    const queryExistingGraphSelect = document.getElementById('query-existing-graph');
+	    const valExistingGraphSelect = document.getElementById('val-existing-graph');
+	    const defaultSparqlQuery = 'SELECT * WHERE { ?s ?p ?o } LIMIT 25';
+	    let oxi = null;
+	    let queryStore = null;
+	    let yasgui = null;
+	    const graphLibrary = new Map();
+
+	    function setStatus(node, msg, isError = false) {
+	      node.textContent = msg;
+	      node.classList.toggle('error', isError);
+	    }
+
+	    function createGraphId() {
+	      return `graph-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+	    }
+
+	    function guessFormat(fileName, fallback) {
+	      const lower = fileName.toLowerCase();
+	      if (lower.endsWith('.nt')) return 'ntriples';
+	      if (lower.endsWith('.rdf') || lower.endsWith('.xml')) return 'rdfxml';
+	      if (lower.endsWith('.ttl')) return 'turtle';
+	      return fallback;
+	    }
+
+	    function guessFormatFromContentType(contentType, fallback) {
+	      if (!contentType) return fallback;
+	      const lower = contentType.toLowerCase();
+	      if (lower.includes('n-triples') || lower.includes('ntriples')) return 'ntriples';
+	      if (lower.includes('rdf+xml')) return 'rdfxml';
+	      if (lower.includes('turtle')) return 'turtle';
+	      return fallback;
+	    }
+
+	    function guessNameFromUrl(url) {
+	      try {
+	        const parsed = new URL(url);
+	        const path = parsed.pathname || '';
+	        const tail = path.split('/').filter(Boolean).pop();
+	        return tail || parsed.host || 'remote-graph';
+	      } catch {
+	        return 'remote-graph';
+	      }
+	    }
+
+	    function formatToMime(format) {
+	      if (format === 'ntriples') return 'application/n-triples';
+	      if (format === 'rdfxml') return 'application/rdf+xml';
+	      return 'text/turtle';
+	    }
+
+	    function formatGraphLabel(graph) {
+	      return `${graph.name} (${graph.format})`;
+	    }
+
+	    function refreshSourcePanels(prefix) {
+	      const kind = document.getElementById(`${prefix}-source-kind`).value;
+	      ['upload', 'url', 'existing'].forEach(sourceKind => {
+	        const panel = document.getElementById(`${prefix}-source-${sourceKind}`);
+	        panel.classList.toggle('active', sourceKind === kind);
+	      });
+	    }
+
+	    function refreshGraphSelectors(preferredId = null) {
+	      const graphs = Array.from(graphLibrary.values());
+	      const selectors = [queryExistingGraphSelect, valExistingGraphSelect];
+	      for (const selector of selectors) {
+	        const current = selector.value;
+	        selector.innerHTML = '';
+	        if (graphs.length === 0) {
+	          const empty = document.createElement('option');
+	          empty.value = '';
+	          empty.textContent = 'No graphs loaded';
+	          selector.appendChild(empty);
+	          selector.disabled = true;
+	          continue;
+	        }
+	        selector.disabled = false;
+	        for (const graph of graphs) {
+	          const option = document.createElement('option');
+	          option.value = graph.id;
+	          option.textContent = formatGraphLabel(graph);
+	          selector.appendChild(option);
+	        }
+	        if (preferredId && graphLibrary.has(preferredId)) {
+	          selector.value = preferredId;
+	        } else if (graphLibrary.has(current)) {
+	          selector.value = current;
+	        } else {
+	          selector.value = graphs[0].id;
+	        }
+	      }
+	    }
+
+	    function updateSharedGraphStatus() {
+	      const graphs = Array.from(graphLibrary.values());
+	      const message = graphs.length === 0
+	        ? 'Shared graph library: none'
+	        : `Shared graph library: ${graphs.length} graph(s) (${graphs.slice(0, 3).map(g => g.name).join(', ')}${graphs.length > 3 ? ', ...' : ''})`;
+	      sharedQueryStatus.textContent = message;
+	      sharedValStatus.textContent = message;
+	    }
+
+	    function saveSharedGraph(graph) {
+	      graphLibrary.set(graph.id, graph);
+	      refreshGraphSelectors(graph.id);
+	      updateSharedGraphStatus();
+	      return graph;
+	    }
+
+	    refreshGraphSelectors();
+	    refreshSourcePanels('query');
+	    refreshSourcePanels('val');
+	    updateSharedGraphStatus();
+
+	    querySourceKindSelect.addEventListener('change', () => refreshSourcePanels('query'));
+	    valSourceKindSelect.addEventListener('change', () => refreshSourcePanels('val'));
+
+	    async function graphFromFile(file, fallbackFormat) {
+	      const format = guessFormat(file.name, fallbackFormat);
+	      const text = await file.text();
+	      return {
+	        id: createGraphId(),
+	        name: file.name,
+	        format,
+	        text,
+	      };
+	    }
+
+	    async function graphFromUrl(urlText, selectedFormat) {
+	      let response;
+	      try {
+	        response = await fetch(urlText);
+	      } catch (err) {
+	        throw new Error(`Could not fetch URL: ${err}. If blocked by CORS, download and upload the file instead.`);
+	      }
+	      if (!response.ok) {
+	        throw new Error(`URL fetch failed: HTTP ${response.status}`);
+	      }
+	      const text = await response.text();
+	      const inferredName = guessNameFromUrl(urlText);
+	      const inferredFormat = guessFormat(
+	        inferredName,
+	        guessFormatFromContentType(response.headers.get('content-type'), 'turtle')
+	      );
+	      const format = selectedFormat === 'auto' ? inferredFormat : selectedFormat;
+	      return {
+	        id: createGraphId(),
+	        name: inferredName,
+	        format,
+	        text,
+	      };
+	    }
+
+	    function selectedExistingGraph(prefix) {
+	      const selector = document.getElementById(`${prefix}-existing-graph`);
+	      const graphId = selector.value;
+	      if (!graphId || !graphLibrary.has(graphId)) {
+	        throw new Error('Select an existing graph first.');
+	      }
+	      return graphLibrary.get(graphId);
+	    }
+
+	    async function resolveGraph(prefix) {
+	      const sourceKind = document.getElementById(`${prefix}-source-kind`).value;
+	      if (sourceKind === 'existing') {
+	        return selectedExistingGraph(prefix);
+	      }
+	      if (sourceKind === 'upload') {
+	        const fileInput = document.getElementById(`${prefix}-file`);
+	        const formatSelect = document.getElementById(`${prefix}-format`);
+	        const file = fileInput.files && fileInput.files[0];
+	        if (!file) {
+	          throw new Error('Select a graph file first.');
+	        }
+	        return saveSharedGraph(await graphFromFile(file, formatSelect.value));
+	      }
+	      if (sourceKind === 'url') {
+	        const urlInput = document.getElementById(`${prefix}-url`);
+	        const formatSelect = document.getElementById(`${prefix}-url-format`);
+	        const url = urlInput.value.trim();
+	        if (!url) {
+	          throw new Error('Enter a remote URL first.');
+	        }
+	        return saveSharedGraph(await graphFromUrl(url, formatSelect.value));
+	      }
+	      throw new Error(`Unsupported graph source: ${sourceKind}`);
+	    }
+
+	    async function ensureOxigraph() {
+	      if (oxi && queryStore) return;
+      oxi = await import('https://cdn.jsdelivr.net/npm/oxigraph@0.5.4/web.js');
+      if (typeof oxi.default === 'function') {
+        const initRes = oxi.default();
+        if (initRes && typeof initRes.then === 'function') {
+          await initRes;
+        }
+      }
+      queryStore = new oxi.Store();
+	      setStatus(queryStatus, 'Oxigraph WASM ready.');
+	    }
+
+	    function ensureYasgui() {
+	      if (yasgui) return yasgui;
+	      if (typeof Yasgui !== 'function') {
+	        throw new Error('Yasgui library failed to load.');
+	      }
+	      yasgui = new Yasgui(yasguiHost, {
+	        copyEndpointOnNewTab: false,
+	        autofocus: false,
+	      });
+	      const tab = yasgui.getTab();
+	      if (tab && typeof tab.setQuery === 'function') {
+	        const current =
+	          tab.yasqe && typeof tab.yasqe.getValue === 'function'
+	            ? tab.yasqe.getValue()
+	            : '';
+	        if (!current.trim()) {
+	          tab.setQuery(defaultSparqlQuery);
+	        }
+	      }
+	      if (tab && tab.yasr && typeof tab.yasr.selectPlugin === 'function') {
+	        tab.yasr.selectPlugin('table');
+	      }
+	      return yasgui;
+	    }
+
+	    function activeYasguiTab() {
+	      const gui = ensureYasgui();
+	      const tab = gui.getTab();
+	      if (!tab || !tab.yasqe || typeof tab.yasqe.getValue !== 'function') {
+	        throw new Error('Yasgui editor is unavailable.');
+	      }
+	      return tab;
+	    }
+
+    async function tryLoadData(text, format) {
+      const mime = formatToMime(format);
+      const loaders = [
+        () => queryStore.load(text, mime),
+        () => queryStore.load(text, { format: mime }),
+        () => queryStore.load(text, mime, null, null),
+      ];
+      let lastError = null;
+      for (const load of loaders) {
+        try {
+          const result = load();
+          if (result && typeof result.then === 'function') {
+            await result;
+          }
+          return;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError || new Error('unable to load graph into wasm store');
+    }
+
+	    function normalizeVarName(name) {
+	      const value = String(name ?? '').trim();
+	      if (!value) {
+	        return '';
+	      }
+	      if (value.startsWith('?') || value.startsWith('$')) {
+	        return value.slice(1);
+	      }
+	      return value;
+	    }
+
+	    function normalizeIri(value) {
+	      if (typeof value !== 'string') {
+	        return String(value ?? '');
+	      }
+	      if (value.startsWith('<') && value.endsWith('>') && value.length > 2) {
+	        return value.slice(1, -1);
+	      }
+	      return value;
+	    }
+
+	    function termToSparqlBinding(term) {
+	      if (term === null || term === undefined) {
+	        return null;
+	      }
+	      if (typeof term === 'string') {
+	        if (term.startsWith('_:')) {
+	          return { type: 'bnode', value: term.slice(2) };
+	        }
+	        if (/^(https?:|urn:|file:|tag:)/.test(term)) {
+	          return { type: 'uri', value: normalizeIri(term) };
+	        }
+	        return { type: 'literal', value: term };
+	      }
+	      if (typeof term === 'number' || typeof term === 'boolean') {
+	        return { type: 'literal', value: String(term) };
+	      }
+
+	      const kindText = String(term.termType ?? term.type ?? '').toLowerCase();
+	      let rawValue = '';
+	      if (typeof term.value === 'string') {
+	        rawValue = term.value;
+	      } else if (typeof term.id === 'string') {
+	        rawValue = term.id;
+	      } else if (typeof term.toString === 'function') {
+	        rawValue = term.toString();
+	      } else {
+	        rawValue = String(term);
+	      }
+
+	      if (kindText.includes('namednode') || kindText === 'uri' || kindText === 'iri') {
+	        return { type: 'uri', value: normalizeIri(rawValue) };
+	      }
+	      if (kindText.includes('blanknode') || kindText === 'bnode') {
+	        return { type: 'bnode', value: rawValue.startsWith('_:') ? rawValue.slice(2) : rawValue };
+	      }
+
+	      const language = term.language ?? term.lang ?? term['xml:lang'] ?? null;
+	      const datatypeRaw = term.datatype ?? null;
+	      const datatype = typeof datatypeRaw === 'string'
+	        ? datatypeRaw
+	        : datatypeRaw && typeof datatypeRaw.value === 'string'
+	          ? datatypeRaw.value
+	          : null;
+
+	      if (kindText.includes('literal') || language || datatype) {
+	        const out = { type: 'literal', value: rawValue };
+	        if (language) {
+	          out['xml:lang'] = String(language);
+	        } else if (datatype) {
+	          out.datatype = normalizeIri(datatype);
+	        }
+	        return out;
+	      }
+
+	      if (rawValue.startsWith('_:')) {
+	        return { type: 'bnode', value: rawValue.slice(2) };
+	      }
+	      if (/^(https?:|urn:|file:|tag:)/.test(rawValue)) {
+	        return { type: 'uri', value: normalizeIri(rawValue) };
+	      }
+	      return { type: 'literal', value: rawValue };
+	    }
+
+	    function solutionEntries(solution) {
+	      if (solution === null || solution === undefined) {
+	        return [];
+	      }
+	      if (solution instanceof Map) {
+	        return Array.from(solution.entries());
+	      }
+	      if (typeof solution.entries === 'function' && typeof solution.get === 'function') {
+	        try {
+	          return Array.from(solution.entries());
+	        } catch {
+	          // fall through
+	        }
+	      }
+	      if (typeof solution === 'object') {
+	        return Object.entries(solution).filter(([, value]) => typeof value !== 'function');
+	      }
+	      return [['value', solution]];
+	    }
+
+	    function buildBindingFromSolution(solution, vars, bindings) {
+	      const binding = {};
+	      for (const [rawName, rawValue] of solutionEntries(solution)) {
+	        const name = normalizeVarName(rawName);
+	        if (!name) {
+	          continue;
+	        }
+	        const value = termToSparqlBinding(rawValue);
+	        if (!value) {
+	          continue;
+	        }
+	        vars.add(name);
+	        binding[name] = value;
+	      }
+	      if (Object.keys(binding).length > 0) {
+	        bindings.push(binding);
+	      }
+	    }
+
+	    async function iterableToSparqlResults(iterable, isAsync) {
+	      const vars = new Set();
+	      const bindings = [];
+	      if (isAsync) {
+	        for await (const solution of iterable) {
+	          buildBindingFromSolution(solution, vars, bindings);
+	        }
+	      } else {
+	        for (const solution of iterable) {
+	          buildBindingFromSolution(solution, vars, bindings);
+	        }
+	      }
+	      return {
+	        head: { vars: Array.from(vars) },
+	        results: { bindings },
+	      };
+	    }
+
+	    function emptySparqlResultsPayload() {
+	      return {
+	        data: JSON.stringify({ head: { vars: [] }, results: { bindings: [] } }),
+	        contentType: 'application/sparql-results+json',
+	      };
+	    }
+
+	    async function queryToYasguiResponse(queryResult) {
+	      if (queryResult === null || queryResult === undefined) {
+	        return emptySparqlResultsPayload();
+	      }
+	      if (typeof queryResult === 'boolean') {
+	        return {
+	          data: JSON.stringify({ head: { vars: [] }, boolean: queryResult }),
+	          contentType: 'application/sparql-results+json',
+	        };
+	      }
+	      if (typeof queryResult === 'string') {
+	        return {
+	          data: queryResult,
+	          contentType: 'text/plain',
+	        };
+	      }
+	      if (typeof queryResult[Symbol.asyncIterator] === 'function') {
+	        return {
+	          data: JSON.stringify(await iterableToSparqlResults(queryResult, true)),
+	          contentType: 'application/sparql-results+json',
+	        };
+	      }
+	      if (typeof queryResult[Symbol.iterator] === 'function') {
+	        return {
+	          data: JSON.stringify(await iterableToSparqlResults(queryResult, false)),
+	          contentType: 'application/sparql-results+json',
+	        };
+	      }
+	      return {
+	        data: JSON.stringify(queryResult, null, 2),
+	        contentType: 'application/json',
+	      };
+	    }
+
+	    function renderYasguiResult(tab, payload, elapsedMs) {
+	      if (!tab || !tab.yasr || typeof tab.yasr.setResponse !== 'function') {
+	        return false;
+	      }
+	      tab.yasr.setResponse({
+	        data: payload.data,
+	        contentType: payload.contentType,
+	        status: 200,
+	        executionTime: elapsedMs,
+	      });
+	      if (typeof tab.yasr.draw === 'function') {
+	        tab.yasr.draw();
+	      }
+	      return true;
+	    }
+
+	    try {
+	      ensureYasgui();
+	      setStatus(queryStatus, 'Yasgui ready. Load a graph to start querying.');
+	    } catch (err) {
+	      setStatus(queryStatus, `Yasgui initialization failed: ${err}`, true);
+	    }
+
+	    document.getElementById('query-load').addEventListener('click', async () => {
+	      try {
+	        await ensureOxigraph();
+	        const graph = await resolveGraph('query');
+	        await tryLoadData(graph.text, graph.format);
+	        setStatus(
+	          queryStatus,
+	          `Loaded ${graph.name} into browser store as ${graph.format}.`
+	        );
+	      } catch (err) {
+	        setStatus(queryStatus, `Load failed: ${err}`, true);
+	      }
+	    });
+
+	    document.getElementById('query-clear').addEventListener('click', async () => {
+	      await ensureOxigraph();
+	      queryStore = new oxi.Store();
+	      try {
+	        const tab = activeYasguiTab();
+	        if (tab.yasr && typeof tab.yasr.setResponse === 'function') {
+	          const emptyPayload = emptySparqlResultsPayload();
+	          tab.yasr.setResponse({
+	            data: emptyPayload.data,
+	            contentType: emptyPayload.contentType,
+	            status: 200,
+	            executionTime: 0,
+	          });
+	          if (typeof tab.yasr.draw === 'function') {
+	            tab.yasr.draw();
+	          }
+	        }
+	      } catch (err) {
+	        setStatus(queryStatus, `Store cleared, but result panel reset failed: ${err}`, true);
+	        return;
+	      }
+	      setStatus(queryStatus, 'Cleared browser store.');
+	    });
+
+	    document.getElementById('query-run').addEventListener('click', async () => {
+	      let tab;
+	      let text;
+	      try {
+	        tab = activeYasguiTab();
+	        text = tab.yasqe.getValue();
+	      } catch (err) {
+	        setStatus(queryStatus, `Query editor unavailable: ${err}`, true);
+	        return;
+	      }
+	      if (!text.trim()) {
+	        setStatus(queryStatus, 'Enter a SPARQL query first.', true);
+	        return;
+	      }
+	      try {
+	        await ensureOxigraph();
+	        const started = performance.now();
+	        const raw = queryStore.query(text);
+	        const result = raw && typeof raw.then === 'function' ? await raw : raw;
+	        const payload = await queryToYasguiResponse(result);
+	        const rendered = renderYasguiResult(
+	          tab,
+	          payload,
+	          Math.round(performance.now() - started)
+	        );
+	        if (!rendered) {
+	          throw new Error('Yasgui result panel unavailable.');
+	        }
+	        setStatus(queryStatus, 'Query completed.');
+	      } catch (err) {
+	        setStatus(queryStatus, `Query failed: ${err}`, true);
+	      }
+	    });
+
+    function setLinks(links) {
+      valLinks.innerHTML = '';
+      for (const link of links) {
+        const a = document.createElement('a');
+        a.href = link.href;
+        a.download = link.name;
+        a.textContent = link.label;
+        valLinks.appendChild(a);
+      }
+    }
+
+	    document.getElementById('val-run').addEventListener('click', async () => {
+	      const action = document.getElementById('val-action').value;
+	      let graphInput;
+	      try {
+	        graphInput = await resolveGraph('val');
+	      } catch (err) {
+	        setStatus(valStatus, `${err}`, true);
+	        return;
+	      }
+      const body = {
+        graph: graphInput.text,
+        format: graphInput.format,
+      };
+
+      if (action === 'validate') {
+        body.run_inference = document.getElementById('val-run-inference').checked;
+        body.follow_bnodes = document.getElementById('val-follow-bnodes').checked;
+      }
+
+      try {
+        setStatus(valStatus, 'Running...');
+        valHuman.textContent = '';
+        setLinks([]);
+
+        const response = await fetch(action === 'validate' ? '/api/validate' : '/api/infer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+
+        if (action === 'validate') {
+          valHuman.textContent = payload.report_ttl || '';
+          const reportBlob = new Blob([payload.report_ttl || ''], { type: 'text/turtle' });
+          const reportUrl = URL.createObjectURL(reportBlob);
+          setLinks([
+            {
+              href: reportUrl,
+              name: payload.report_file_name || 'validation-report.ttl',
+              label: 'Download TTL report',
+            },
+          ]);
+          setStatus(valStatus, `Validation complete. conforms=${payload.conforms} inference=${payload.run_inference}`);
+        } else {
+          valHuman.textContent = `Inference completed.\nTriples in output graph: ${payload.triples}\nValidation violations observed during inference run: ${payload.violations}`;
+          const graphBlob = new Blob([payload.graph_ttl || ''], { type: 'text/turtle' });
+          const graphUrl = URL.createObjectURL(graphBlob);
+          setLinks([
+            {
+              href: graphUrl,
+              name: payload.graph_file_name || 'inferred-graph.ttl',
+              label: 'Download inferred graph',
+            },
+          ]);
+          setStatus(valStatus, 'Inference complete.');
+        }
+      } catch (err) {
+        setStatus(valStatus, `Execution failed: ${err}`, true);
+      }
+    });
+  </script>
+</body>
+</html>
+"#;
+
+#[derive(Debug)]
+enum CommandSpec {
+    Validate {
+        data_path: PathBuf,
+        follow_bnodes: bool,
+        run_inference: bool,
+    },
+    Infer {
+        data_path: PathBuf,
+    },
+    Serve {
+        bind: String,
+    },
+    Help,
+}
+
+#[derive(Debug)]
+struct HttpRequest {
+    method: String,
+    path: String,
+    body: Vec<u8>,
+}
+
+fn print_usage(program: &str) {
+    eprintln!(
+        "usage:\n  {} [--follow-bnodes] [--run-inference=true|false] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference=true|false] <data.rdf>\n  {} infer <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
+        program, program, program, program
+    );
+}
+
+fn parse_bool_arg(value: &str) -> Result<bool, String> {
+    match value {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        other => Err(format!("invalid boolean value: {}", other)),
+    }
+}
+
+fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
+    let mut follow_bnodes = false;
+    let mut run_inference = true;
+    let mut data_path: Option<PathBuf> = None;
+
+    for arg in args {
+        if arg == "--follow-bnodes" {
+            follow_bnodes = true;
+        } else if arg == "--no-run-inference" {
+            run_inference = false;
+        } else if arg == "--run-inference" {
+            run_inference = true;
+        } else if let Some(value) = arg.strip_prefix("--run-inference=") {
+            run_inference = parse_bool_arg(value)?;
+        } else if arg.starts_with("--") {
+            print_usage(program);
+            return Err(format!("unknown option: {}", arg));
+        } else if data_path.is_none() {
+            data_path = Some(PathBuf::from(arg));
+        } else {
+            print_usage(program);
+            return Err("multiple data files provided".into());
+        }
+    }
+
+    match data_path {
+        Some(path) => Ok(CommandSpec::Validate {
+            data_path: path,
+            follow_bnodes,
+            run_inference,
+        }),
+        None => {
+            print_usage(program);
+            Err("data file argument missing".into())
+        }
+    }
+}
+
+fn parse_infer_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
+    let mut data_path: Option<PathBuf> = None;
+    for arg in args {
+        if arg.starts_with("--") {
+            print_usage(program);
+            return Err(format!("unknown option: {}", arg));
+        }
+        if data_path.is_none() {
+            data_path = Some(PathBuf::from(arg));
+        } else {
+            print_usage(program);
+            return Err("multiple data files provided".into());
+        }
+    }
+    match data_path {
+        Some(path) => Ok(CommandSpec::Infer { data_path: path }),
+        None => {
+            print_usage(program);
+            Err("data file argument missing".into())
+        }
+    }
+}
+
+fn parse_serve_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
+    let mut bind = String::new();
+    let mut host = "127.0.0.1".to_string();
+    let mut port = 8080u16;
+    let mut idx = 0usize;
+
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "--bind" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--bind requires HOST:PORT".into());
+                }
+                bind = args[idx].clone();
+            }
+            "--host" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--host requires a value".into());
+                }
+                host = args[idx].clone();
+            }
+            "--port" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err("--port requires a value".into());
+                }
+                port = args[idx]
+                    .parse::<u16>()
+                    .map_err(|e| format!("invalid --port value: {}", e))?;
+            }
+            other => {
+                print_usage(program);
+                return Err(format!("unknown serve option: {}", other));
+            }
+        }
+        idx += 1;
+    }
+
+    if bind.is_empty() {
+        bind = format!("{}:{}", host, port);
+    }
+
+    Ok(CommandSpec::Serve { bind })
+}
+
+fn parse_args() -> Result<CommandSpec, String> {
+    let mut args = env::args().collect::<Vec<_>>();
+    let program = args
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "shacl-compiled".to_string());
+
+    if args.len() <= 1 {
+        print_usage(&program);
+        return Err("command missing".into());
+    }
+
+    args.remove(0);
+    match args[0].as_str() {
+        "-h" | "--help" | "help" => Ok(CommandSpec::Help),
+        "serve" => parse_serve_args(&args[1..], &program),
+        "infer" => parse_infer_args(&args[1..], &program),
+        "validate" => parse_validate_args(&args[1..], &program),
+        _ => parse_validate_args(&args, &program),
+    }
+}
+
+fn stage_mark(stage: &str) {
+    static START: OnceLock<Instant> = OnceLock::new();
+    let start = START.get_or_init(Instant::now);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let elapsed = start.elapsed().as_millis();
+    eprintln!("[compiled-stage ts_ms={} elapsed_ms={}] {}", now, elapsed, stage);
+}
+
+fn sniff_format(path: &Path) -> Result<RdfFormat, String> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "ttl" => Ok(RdfFormat::Turtle),
+        "nt" => Ok(RdfFormat::NTriples),
+        "rdf" | "xml" => Ok(RdfFormat::RdfXml),
+        other => Err(format!("unsupported RDF format .{}", other)),
+    }
+}
+
+fn parse_api_format(value: Option<&str>) -> Result<RdfFormat, String> {
+    match value.unwrap_or("turtle").to_ascii_lowercase().as_str() {
+        "turtle" | "ttl" => Ok(RdfFormat::Turtle),
+        "ntriples" | "nt" => Ok(RdfFormat::NTriples),
+        "rdfxml" | "rdf/xml" | "rdf+xml" | "xml" => Ok(RdfFormat::RdfXml),
+        other => Err(format!("unsupported format: {}", other)),
+    }
+}
+
+fn load_data_graph_from_file(
+    store: &Store,
+    data_graph: &NamedNode,
+    path: &Path,
+) -> Result<usize, String> {
+    let format = sniff_format(path)?;
+    let file = File::open(path).map_err(|e| format!("failed to open {}: {}", path.display(), e))?;
+    let parser = RdfParser::from_format(format).for_reader(file);
+    let graph_name = GraphName::NamedNode(data_graph.clone());
+    let mut triple_count = 0usize;
+
+    for triple in parser {
+        let triple = triple.map_err(|e| format!("failed parsing RDF {}: {}", path.display(), e))?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            graph_name.clone(),
+        );
+        store
+            .insert(&quad)
+            .map_err(|e| format!("store insert failed: {}", e))?;
+        triple_count = triple_count.saturating_add(1);
+    }
+    Ok(triple_count)
+}
+
+fn load_data_graph_from_bytes(
+    store: &Store,
+    data_graph: &NamedNode,
+    bytes: &[u8],
+    format: RdfFormat,
+) -> Result<usize, String> {
+    let parser = RdfParser::from_format(format).for_slice(bytes);
+    let graph_name = GraphName::NamedNode(data_graph.clone());
+    let mut triple_count = 0usize;
+
+    for triple in parser {
+        let triple = triple.map_err(|e| format!("RDF parse error: {}", e))?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            graph_name.clone(),
+        );
+        store
+            .insert(&quad)
+            .map_err(|e| format!("store insert failed: {}", e))?;
+        triple_count = triple_count.saturating_add(1);
+    }
+    Ok(triple_count)
+}
+
+fn serialize_graph_to_turtle(store: &Store, graph: &NamedNode) -> Result<String, String> {
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle).for_writer(Vec::new());
+    let graph_ref = GraphNameRef::NamedNode(graph.as_ref());
+    for quad in store.quads_for_pattern(None, None, None, Some(graph_ref)) {
+        let quad = quad.map_err(|e| format!("failed iterating graph: {}", e))?;
+        let triple_ref = TripleRef::new(
+            quad.subject.as_ref(),
+            quad.predicate.as_ref(),
+            quad.object.as_ref(),
+        );
+        serializer
+            .serialize_triple(triple_ref)
+            .map_err(|e| format!("failed serializing triple: {}", e))?;
+    }
+    let out = serializer
+        .finish()
+        .map_err(|e| format!("failed finalizing serialization: {}", e))?;
+    String::from_utf8(out).map_err(|e| format!("non-utf8 turtle output: {}", e))
+}
+
+fn count_graph_triples(store: &Store, graph: &NamedNode) -> Result<usize, String> {
+    let graph_ref = GraphNameRef::NamedNode(graph.as_ref());
+    let mut count = 0usize;
+    for quad in store.quads_for_pattern(None, None, None, Some(graph_ref)) {
+        let _ = quad.map_err(|e| format!("failed iterating graph: {}", e))?;
+        count = count.saturating_add(1);
+    }
+    Ok(count)
+}
+
+fn format_human_report(report: &generated::Report, run_inference: bool) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Conforms: {}",
+        if report.violations.is_empty() {
+            "true"
+        } else {
+            "false"
+        }
+    ));
+    lines.push(format!("Inference during validation: {}", run_inference));
+    lines.push(format!("Violations: {}", report.violations.len()));
+    lines.push(String::new());
+
+    if report.violations.is_empty() {
+        lines.push("No violations found.".to_string());
+        return lines.join("\n");
+    }
+
+    for (idx, violation) in report.violations.iter().enumerate() {
+        lines.push(format!("#{}", idx + 1));
+        lines.push(format!(
+            "  source_shape: {}",
+            shape_iri(violation.shape_id)
+        ));
+        lines.push(format!(
+            "  constraint_component: {}",
+            component_iri(violation.component_id)
+        ));
+        lines.push(format!("  focus: {}", violation.focus));
+        if let Some(value) = &violation.value {
+            lines.push(format!("  value: {}", value));
+        }
+        if let Some(path) = &violation.path {
+            match path {
+                ResultPath::Term(term) => lines.push(format!("  path: {}", term)),
+                ResultPath::PathId(_) => {
+                    lines.push("  path: (compiled property path; see TTL report)".to_string())
+                }
+            }
+        }
+        lines.push(String::new());
+    }
+
+    lines.join("\n")
+}
+
+fn load_store_for_path(path: &Path) -> Result<(Store, NamedNode), String> {
+    let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
+    let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
+    stage_mark(&format!("data graph load start path={}", path.display()));
+    let triple_count = load_data_graph_from_file(&store, &data_graph, path)?;
+    info!(
+        "Loaded {} triple(s) into data graph from {}",
+        triple_count,
+        path.display()
+    );
+    stage_mark(&format!("data graph load finish triples={}", triple_count));
+
+    info!("Starting store optimization");
+    stage_mark("store optimize start");
+    store
+        .optimize()
+        .map_err(|e| format!("store optimize failed: {}", e))?;
+    info!("Finished store optimization");
+    stage_mark("store optimize finish");
+
+    Ok((store, data_graph))
+}
+
+fn run_validate_command(
+    path: &Path,
+    follow_bnodes: bool,
+    run_inference: bool,
+) -> Result<String, String> {
+    let (store, data_graph) = load_store_for_path(path)?;
+    stage_mark("compiled validation start");
+    let report = generated::run_with_options(&store, Some(&data_graph), run_inference);
+    stage_mark(&format!(
+        "compiled validation finish violations={}",
+        report.violations.len()
+    ));
+    render_report_output(&store, &report, follow_bnodes)
+}
+
+fn render_report_output(
+    store: &Store,
+    report: &generated::Report,
+    follow_bnodes: bool,
+) -> Result<String, String> {
+    Ok(render_report(report, store, follow_bnodes))
+}
+
+fn run_infer_command(path: &Path) -> Result<String, String> {
+    let (store, data_graph) = load_store_for_path(path)?;
+    stage_mark("compiled inference start");
+    let report = generated::run_with_options(&store, Some(&data_graph), true);
+    stage_mark(&format!(
+        "compiled inference finish violations={}",
+        report.violations.len()
+    ));
+    serialize_graph_to_turtle(&store, &data_graph)
+}
+
+fn parse_http_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(|e| format!("failed to set timeout: {}", e))?;
+
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let header_end;
+
+    loop {
+        let bytes = stream
+            .read(&mut chunk)
+            .map_err(|e| format!("failed reading request: {}", e))?;
+        if bytes == 0 {
+            return Err("connection closed before headers".into());
+        }
+        buffer.extend_from_slice(&chunk[..bytes]);
+        if let Some(idx) = find_header_end(&buffer) {
+            header_end = idx;
+            break;
+        }
+        if buffer.len() > 1024 * 1024 {
+            return Err("request headers too large".into());
+        }
+    }
+
+    let headers_raw = &buffer[..header_end];
+    let headers_text = std::str::from_utf8(headers_raw)
+        .map_err(|e| format!("invalid utf8 in headers: {}", e))?;
+    let mut lines = headers_text.split("\r\n");
+    let request_line = lines
+        .next()
+        .ok_or_else(|| "missing request line".to_string())?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts
+        .next()
+        .ok_or_else(|| "missing method".to_string())?
+        .to_string();
+    let path = request_parts
+        .next()
+        .ok_or_else(|| "missing path".to_string())?
+        .to_string();
+
+    let mut content_length = 0usize;
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = value
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|e| format!("invalid content-length: {}", e))?;
+            }
+        }
+    }
+
+    let body_start = header_end + 4;
+    let mut body = if body_start < buffer.len() {
+        buffer[body_start..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    while body.len() < content_length {
+        let bytes = stream
+            .read(&mut chunk)
+            .map_err(|e| format!("failed reading request body: {}", e))?;
+        if bytes == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..bytes]);
+        if body.len() > 32 * 1024 * 1024 {
+            return Err("request body too large".into());
+        }
+    }
+
+    body.truncate(content_length);
+    Ok(HttpRequest { method, path, body })
+}
+
+fn find_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+fn write_http_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+) -> Result<(), String> {
+    let head = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n",
+        status,
+        content_type,
+        body.len()
+    );
+    stream
+        .write_all(head.as_bytes())
+        .map_err(|e| format!("failed writing response headers: {}", e))?;
+    stream
+        .write_all(body)
+        .map_err(|e| format!("failed writing response body: {}", e))?;
+    stream
+        .flush()
+        .map_err(|e| format!("failed flushing response: {}", e))?;
+    Ok(())
+}
+
+fn write_json_response(stream: &mut TcpStream, status: &str, value: &Value) -> Result<(), String> {
+    let body = serde_json::to_vec(value).map_err(|e| format!("json encode error: {}", e))?;
+    write_http_response(stream, status, "application/json; charset=utf-8", &body)
+}
+
+fn write_error_json(stream: &mut TcpStream, status: &str, message: &str) -> Result<(), String> {
+    write_json_response(stream, status, &json!({ "ok": false, "error": message }))
+}
+
+fn parse_graph_payload(body: &[u8]) -> Result<(String, RdfFormat, Value), String> {
+    let value: Value = serde_json::from_slice(body).map_err(|e| format!("invalid JSON: {}", e))?;
+    let graph = value
+        .get("graph")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing string field 'graph'".to_string())?
+        .to_string();
+    let format = parse_api_format(value.get("format").and_then(Value::as_str))?;
+    Ok((graph, format, value))
+}
+
+fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
+    let (graph, format, payload) = parse_graph_payload(body)?;
+    let run_inference = payload
+        .get("run_inference")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let follow_bnodes = payload
+        .get("follow_bnodes")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
+    let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
+    let _ = load_data_graph_from_bytes(&store, &data_graph, graph.as_bytes(), format)?;
+    store
+        .optimize()
+        .map_err(|e| format!("store optimize failed: {}", e))?;
+
+    let report = generated::run_with_options(&store, Some(&data_graph), run_inference);
+    let report_ttl = render_report_output(&store, &report, follow_bnodes)?;
+    let human_report = format_human_report(&report, run_inference);
+    let conforms = report.violations.is_empty();
+
+    Ok(json!({
+        "ok": true,
+        "conforms": conforms,
+        "run_inference": run_inference,
+        "human_report": human_report,
+        "report_ttl": report_ttl,
+        "report_file_name": "validation-report.ttl"
+    }))
+}
+
+fn handle_infer_api(body: &[u8]) -> Result<Value, String> {
+    let (graph, format, _payload) = parse_graph_payload(body)?;
+
+    let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
+    let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
+    let _ = load_data_graph_from_bytes(&store, &data_graph, graph.as_bytes(), format)?;
+    store
+        .optimize()
+        .map_err(|e| format!("store optimize failed: {}", e))?;
+
+    let report = generated::run_with_options(&store, Some(&data_graph), true);
+    let graph_ttl = serialize_graph_to_turtle(&store, &data_graph)?;
+    let triples = count_graph_triples(&store, &data_graph)?;
+
+    Ok(json!({
+        "ok": true,
+        "triples": triples,
+        "violations": report.violations.len(),
+        "graph_ttl": graph_ttl,
+        "graph_file_name": "inferred-graph.ttl"
+    }))
+}
+
+fn handle_connection(mut stream: TcpStream) {
+    let request = match parse_http_request(&mut stream) {
+        Ok(request) => request,
+        Err(err) => {
+            let _ = write_error_json(&mut stream, "400 Bad Request", &err);
+            return;
+        }
+    };
+
+    let path = request
+        .path
+        .split('?')
+        .next()
+        .unwrap_or(request.path.as_str());
+
+    match (request.method.as_str(), path) {
+        ("GET", "/") | ("GET", "/index.html") => {
+            let _ = write_http_response(
+                &mut stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                INDEX_HTML.as_bytes(),
+            );
+        }
+        ("GET", "/health") => {
+            let _ = write_json_response(&mut stream, "200 OK", &json!({"ok": true}));
+        }
+        ("POST", "/api/validate") => match handle_validate_api(&request.body) {
+            Ok(payload) => {
+                let _ = write_json_response(&mut stream, "200 OK", &payload);
+            }
+            Err(err) => {
+                let _ = write_error_json(&mut stream, "400 Bad Request", &err);
+            }
+        },
+        ("POST", "/api/infer") => match handle_infer_api(&request.body) {
+            Ok(payload) => {
+                let _ = write_json_response(&mut stream, "200 OK", &payload);
+            }
+            Err(err) => {
+                let _ = write_error_json(&mut stream, "400 Bad Request", &err);
+            }
+        },
+        ("OPTIONS", _) => {
+            let _ = write_http_response(&mut stream, "204 No Content", "text/plain", b"");
+        }
+        _ => {
+            let _ = write_error_json(&mut stream, "404 Not Found", "route not found");
+        }
+    }
+}
+
+fn run_server(bind: &str) -> Result<(), String> {
+    let listener = TcpListener::bind(bind).map_err(|e| format!("failed to bind {}: {}", bind, e))?;
+    println!("Compiled SHACL server listening on http://{}", bind);
+    println!("Open http://{}/ in your browser.", bind);
+
+    for incoming in listener.incoming() {
+        match incoming {
+            Ok(stream) => {
+                thread::spawn(move || {
+                    handle_connection(stream);
+                });
+            }
+            Err(err) => {
+                eprintln!("accept error: {}", err);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
+    let command = match parse_args() {
+        Ok(cmd) => cmd,
+        Err(err) => return Err(Box::<dyn Error>::from(err)),
+    };
+
+    match command {
+        CommandSpec::Help => {
+            let program = env::args()
+                .next()
+                .unwrap_or_else(|| "shacl-compiled".to_string());
+            print_usage(&program);
+            Ok(())
+        }
+        CommandSpec::Serve { bind } => run_server(&bind).map_err(Box::<dyn Error>::from),
+        CommandSpec::Validate {
+            data_path,
+            follow_bnodes,
+            run_inference,
+        } => {
+            let output = run_validate_command(&data_path, follow_bnodes, run_inference)
+                .map_err(Box::<dyn Error>::from)?;
+            println!("{}", output);
+            Ok(())
+        }
+        CommandSpec::Infer { data_path } => {
+            let output = run_infer_command(&data_path).map_err(Box::<dyn Error>::from)?;
+            println!("{}", output);
+            Ok(())
+        }
+    }
+}

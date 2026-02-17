@@ -7,6 +7,7 @@ pub mod inference;
 pub mod ir;
 pub mod ir_cache;
 pub mod model;
+pub mod shacl_ir;
 pub mod shape;
 pub(crate) mod skolem;
 pub mod trace;
@@ -14,6 +15,7 @@ pub mod types;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
 pub use report::{ValidationReport, ValidationReportOptions};
+pub use types::ComponentID;
 
 // Internal modules.
 pub mod canonicalization;
@@ -35,6 +37,7 @@ use crate::context::{
 };
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
+use crate::shacl_ir::{FeatureToggles, ShapeIR};
 use log::{debug, info, warn};
 use ontoenv::api::OntoEnv;
 use ontoenv::api::ResolveTarget;
@@ -45,11 +48,10 @@ use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
-use shacl_ir::{FeatureToggles, ShapeIR};
 use std::collections::HashSet;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use url::Url;
 
 /// Represents the source of shapes or data, which can be either a local file or a named graph from an `OntoEnv`.
@@ -63,11 +65,120 @@ pub enum Source {
     Empty,
 }
 
+/// Aggregated graph-call counters for a specific constraint component execution context.
+#[derive(Debug, Clone)]
+pub struct ComponentGraphCallStat {
+    /// Constraint component ID (`sh:...` instance in SHACL-IR).
+    pub component_id: ComponentID,
+    /// Source shape identifier that owns the component.
+    pub source_shape: String,
+    /// Human-readable component label (e.g., `MinCount`, `SPARQLConstraint`).
+    pub component_label: String,
+    /// Number of `quads_for_pattern` calls issued while this component was active.
+    pub quads_for_pattern_calls: u64,
+    /// Number of `execute_prepared` calls issued while this component was active.
+    pub execute_prepared_calls: u64,
+    /// Number of component validator invocations observed.
+    pub component_invocations: u64,
+    /// Total runtime across invocations, in milliseconds.
+    pub runtime_total_ms: f64,
+    /// Minimum runtime across invocations, in milliseconds.
+    pub runtime_min_ms: f64,
+    /// Maximum runtime across invocations, in milliseconds.
+    pub runtime_max_ms: f64,
+    /// Mean runtime across invocations, in milliseconds.
+    pub runtime_mean_ms: f64,
+    /// Standard deviation of runtime across invocations, in milliseconds.
+    pub runtime_stddev_ms: f64,
+}
+
+/// Aggregated runtime counters for shape-level selection phases.
+#[derive(Debug, Clone)]
+pub struct ShapePhaseTimingStat {
+    /// Source shape identifier/term.
+    pub source_shape: String,
+    /// Phase name (`node_target_selection`, `property_target_selection`, `property_value_selection`).
+    pub phase: String,
+    /// Number of phase invocations observed.
+    pub invocations: u64,
+    /// Total runtime across invocations, in milliseconds.
+    pub runtime_total_ms: f64,
+    /// Minimum runtime across invocations, in milliseconds.
+    pub runtime_min_ms: f64,
+    /// Maximum runtime across invocations, in milliseconds.
+    pub runtime_max_ms: f64,
+    /// Mean runtime across invocations, in milliseconds.
+    pub runtime_mean_ms: f64,
+    /// Standard deviation of runtime across invocations, in milliseconds.
+    pub runtime_stddev_ms: f64,
+}
+
+/// Aggregated runtime counters for SPARQL constraint query execution.
+#[derive(Debug, Clone)]
+pub struct SparqlQueryCallStat {
+    /// Source shape identifier/term that owns the SPARQL component.
+    pub source_shape: String,
+    /// Constraint component ID (`sh:...` instance in SHACL-IR).
+    pub component_id: ComponentID,
+    /// Constraint node term identifying the concrete `sh:sparql` constraint.
+    pub constraint_term: String,
+    /// 64-bit hash of the fully rendered SPARQL query string.
+    pub query_hash: u64,
+    /// Number of query executions observed for this key.
+    pub invocations: u64,
+    /// Total number of solution rows returned across invocations.
+    pub rows_returned_total: u64,
+    /// Minimum rows returned by a single invocation.
+    pub rows_returned_min: u64,
+    /// Maximum rows returned by a single invocation.
+    pub rows_returned_max: u64,
+    /// Mean rows returned per invocation.
+    pub rows_returned_mean: f64,
+    /// Total runtime across invocations, in milliseconds.
+    pub runtime_total_ms: f64,
+    /// Minimum runtime across invocations, in milliseconds.
+    pub runtime_min_ms: f64,
+    /// Maximum runtime across invocations, in milliseconds.
+    pub runtime_max_ms: f64,
+    /// Mean runtime across invocations, in milliseconds.
+    pub runtime_mean_ms: f64,
+    /// Standard deviation of runtime across invocations, in milliseconds.
+    pub runtime_stddev_ms: f64,
+}
+
+type SharedEnvHandle = Arc<RwLock<OntoEnv>>;
+
+static SHARED_ONTOENV: OnceLock<Mutex<Option<SharedEnvHandle>>> = OnceLock::new();
+
+fn shared_ontoenv_slot() -> &'static Mutex<Option<SharedEnvHandle>> {
+    SHARED_ONTOENV.get_or_init(|| Mutex::new(None))
+}
+
+/// Replace the process-wide shared OntoEnv handle.
+pub fn set_shared_ontoenv(env: OntoEnv) -> SharedEnvHandle {
+    let handle = Arc::new(RwLock::new(env));
+    *shared_ontoenv_slot().lock().unwrap() = Some(handle.clone());
+    handle
+}
+
+/// Clear the process-wide shared OntoEnv handle.
+pub fn clear_shared_ontoenv() {
+    *shared_ontoenv_slot().lock().unwrap() = None;
+}
+
+fn get_shared_ontoenv() -> Option<SharedEnvHandle> {
+    shared_ontoenv_slot().lock().unwrap().clone()
+}
+
 /// Configurable builder for constructing `Validator` instances.
+///
+/// The builder owns all validation-time flags (imports, union graphs, AF/rules, etc.) so
+/// callers can create repeatable validators without threading configuration through every call.
 pub struct ValidatorBuilder {
     shapes_source: Option<Source>,
     data_source: Option<Source>,
     env_config: Option<Config>,
+    use_shared_env: bool,
     skolemize_shapes: bool,
     skolemize_data: bool,
     use_shapes_graph_union: bool,
@@ -81,6 +192,8 @@ pub struct ValidatorBuilder {
     import_depth: i32,
     temporary_env: bool,
     optimize_store: bool,
+    optimize_shapes: bool,
+    optimize_shapes_data_dependent: bool,
     shape_ir: Option<ShapeIR>,
 }
 
@@ -91,6 +204,7 @@ impl ValidatorBuilder {
             shapes_source: None,
             data_source: None,
             env_config: None,
+            use_shared_env: false,
             skolemize_shapes: true,
             skolemize_data: true,
             use_shapes_graph_union: true,
@@ -104,6 +218,8 @@ impl ValidatorBuilder {
             import_depth: -1,
             temporary_env: true,
             optimize_store: true,
+            optimize_shapes: true,
+            optimize_shapes_data_dependent: true,
             shape_ir: None,
         }
     }
@@ -136,6 +252,12 @@ impl ValidatorBuilder {
     /// Overrides the `OntoEnv` configuration.
     pub fn with_env_config(mut self, config: Config) -> Self {
         self.env_config = Some(config);
+        self
+    }
+
+    /// Use the process-wide shared OntoEnv for this validator.
+    pub fn with_shared_ontoenv(mut self, enabled: bool) -> Self {
+        self.use_shared_env = enabled;
         self
     }
 
@@ -207,12 +329,28 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Optimize parsed shapes (defaults to true). Disable to preserve raw parser output.
+    pub fn with_shape_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_shapes = enabled;
+        self
+    }
+
+    /// Enable or disable data-dependent shape optimization passes (default: true).
+    ///
+    /// These passes inspect the current data graph and may prune targets.
+    /// Use `false` for shapes-only compilation flows that do not yet have runtime data.
+    pub fn with_data_dependent_shape_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_shapes_data_dependent = enabled;
+        self
+    }
+
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
             shapes_source,
             data_source,
             env_config,
+            use_shared_env,
             skolemize_shapes,
             skolemize_data,
             use_shapes_graph_union,
@@ -226,6 +364,8 @@ impl ValidatorBuilder {
             import_depth,
             temporary_env,
             optimize_store,
+            optimize_shapes,
+            optimize_shapes_data_dependent,
             shape_ir,
         } = self;
 
@@ -239,149 +379,162 @@ impl ValidatorBuilder {
             None => Self::default_config(temporary_env)?,
         };
 
-        let mut env: OntoEnv = match OntoEnv::open_or_init(config, false) {
-            Ok(env) => env,
-            Err(e) if !temporary_env => {
-                warn!(
-                    "Failed to open existing OntoEnv ({}); falling back to temporary store",
-                    e
-                );
-                let fallback_config = Self::default_config(true)?;
-                OntoEnv::init(fallback_config, false)?
-            }
-            Err(e) => return Err(e.into()),
-        };
-        let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
-            (ir.shape_graph.clone(), false)
+        let env_handle = if use_shared_env {
+            Self::get_or_init_shared_env(config, temporary_env)?
         } else {
-            let source =
-                shapes_source.ok_or_else(|| "shapes source must be specified".to_string())?;
-            Self::add_source(&mut env, &source, "shapes")?
-        };
-        let (data_graph_iri, data_in_env) = match &data_source {
-            Source::Empty => (
-                NamedNode::new("urn:shifty:null-data")
-                    .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
-                false,
-            ),
-            _ => {
-                let (iri, in_env) = Self::add_source(&mut env, &data_source, "data")?;
-                (iri, in_env)
-            }
+            Arc::new(RwLock::new(Self::open_env(config, temporary_env)?))
         };
 
-        let shapes_closure_ids = if do_imports && shapes_in_env {
-            let graph_id = env
-                .resolve(ResolveTarget::Graph(shapes_graph_iri.clone()))
-                .ok_or_else(|| {
-                    Box::new(std::io::Error::other(format!(
-                        "Ontology not found for shapes graph {}",
-                        shapes_graph_iri
-                    ))) as Box<dyn Error>
-                })?;
-            let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Failed to build imports closure for shapes graph {}: {}",
-                    shapes_graph_iri, e
-                ))) as Box<dyn Error>
-            })?;
-            if !closure_ids.contains(&graph_id) {
-                closure_ids.push(graph_id.clone());
-            }
-            Some(closure_ids)
-        } else {
-            None
-        };
-        let data_closure_ids = if do_imports && data_in_env {
-            let graph_id = env
-                .resolve(ResolveTarget::Graph(data_graph_iri.clone()))
-                .ok_or_else(|| {
-                    Box::new(std::io::Error::other(format!(
-                        "Ontology not found for data graph {}",
-                        data_graph_iri
-                    ))) as Box<dyn Error>
-                })?;
-            let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Failed to build imports closure for data graph {}: {}",
-                    data_graph_iri, e
-                ))) as Box<dyn Error>
-            })?;
-            if !closure_ids.contains(&graph_id) {
-                closure_ids.push(graph_id.clone());
-            }
-            Some(closure_ids)
-        } else {
-            None
-        };
+        let (
+            shapes_graph_iri,
+            data_graph_iri,
+            mut shape_graphs_for_union,
+            _shapes_closure_ids,
+            _data_closure_ids,
+            store,
+        ) = {
+            let mut env = env_handle.write().unwrap();
+            let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
+                (ir.shape_graph.clone(), false)
+            } else {
+                let source =
+                    shapes_source.ok_or_else(|| "shapes source must be specified".to_string())?;
+                Self::add_source(&mut env, &source, "shapes")?
+            };
+            let (data_graph_iri, data_in_env) = match &data_source {
+                Source::Empty => (
+                    NamedNode::new("urn:shifty:null-data")
+                        .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
+                    false,
+                ),
+                _ => {
+                    let (iri, in_env) = Self::add_source(&mut env, &data_source, "data")?;
+                    (iri, in_env)
+                }
+            };
 
-        let mut shape_graphs_for_union: Vec<NamedNode> = vec![shapes_graph_iri.clone()];
-        if let Some(ids) = &shapes_closure_ids {
-            for id in ids {
-                if let Ok(ont) = env.get_ontology(id) {
-                    let name = ont.name().clone();
-                    if !shape_graphs_for_union.iter().any(|g| g == &name) {
-                        shape_graphs_for_union.push(name);
+            let shapes_closure_ids = if do_imports && shapes_in_env {
+                let graph_id = env
+                    .resolve(ResolveTarget::Graph(shapes_graph_iri.clone()))
+                    .ok_or_else(|| {
+                        Box::new(std::io::Error::other(format!(
+                            "Ontology not found for shapes graph {}",
+                            shapes_graph_iri
+                        ))) as Box<dyn Error>
+                    })?;
+                let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to build imports closure for shapes graph {}: {}",
+                        shapes_graph_iri, e
+                    ))) as Box<dyn Error>
+                })?;
+                if !closure_ids.contains(&graph_id) {
+                    closure_ids.push(graph_id.clone());
+                }
+                Some(closure_ids)
+            } else {
+                None
+            };
+            let data_closure_ids = if do_imports && data_in_env {
+                let graph_id = env
+                    .resolve(ResolveTarget::Graph(data_graph_iri.clone()))
+                    .ok_or_else(|| {
+                        Box::new(std::io::Error::other(format!(
+                            "Ontology not found for data graph {}",
+                            data_graph_iri
+                        ))) as Box<dyn Error>
+                    })?;
+                let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to build imports closure for data graph {}: {}",
+                        data_graph_iri, e
+                    ))) as Box<dyn Error>
+                })?;
+                if !closure_ids.contains(&graph_id) {
+                    closure_ids.push(graph_id.clone());
+                }
+                Some(closure_ids)
+            } else {
+                None
+            };
+
+            let mut shape_graphs_for_union: Vec<NamedNode> = vec![shapes_graph_iri.clone()];
+            if let Some(ids) = &shapes_closure_ids {
+                for id in ids {
+                    if let Ok(ont) = env.get_ontology(id) {
+                        let name = ont.name().clone();
+                        if !shape_graphs_for_union.iter().any(|g| g == &name) {
+                            shape_graphs_for_union.push(name);
+                        }
                     }
                 }
             }
-        }
 
-        let store = if do_imports {
-            let store = Store::new().map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Error creating in-memory store: {}",
-                    e
-                ))) as Box<dyn Error>
-            })?;
+            let store = if do_imports {
+                let store = Store::new().map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Error creating in-memory store: {}",
+                        e
+                    ))) as Box<dyn Error>
+                })?;
 
-            let mut populated = false;
-            if let Some(ids) = &shapes_closure_ids {
-                let union = env
-                    .get_union_graph(ids, Some(false), Some(false))
-                    .map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to load union graph for shapes graph {}: {}",
-                            shapes_graph_iri, e
-                        ))) as Box<dyn Error>
-                    })?;
-                for quad in union.dataset.iter() {
-                    store.insert(quad).map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to insert quad into store: {}",
-                            e
-                        ))) as Box<dyn Error>
-                    })?;
+                let mut populated = false;
+                if let Some(ids) = &shapes_closure_ids {
+                    let union = env
+                        .get_union_graph(ids, shapes_graph_iri.as_ref(), Some(false), Some(false))
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to load union graph for shapes graph {}: {}",
+                                shapes_graph_iri, e
+                            ))) as Box<dyn Error>
+                        })?;
+                    for quad in union.dataset.iter() {
+                        store.insert(quad).map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to insert quad into store: {}",
+                                e
+                            ))) as Box<dyn Error>
+                        })?;
+                    }
+                    populated = true;
                 }
-                populated = true;
-            }
-            if let Some(ids) = &data_closure_ids {
-                let union = env
-                    .get_union_graph(ids, Some(false), Some(false))
-                    .map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to load union graph for data graph {}: {}",
-                            data_graph_iri, e
-                        ))) as Box<dyn Error>
-                    })?;
-                for quad in union.dataset.iter() {
-                    store.insert(quad).map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to insert quad into store: {}",
-                            e
-                        ))) as Box<dyn Error>
-                    })?;
+                if let Some(ids) = &data_closure_ids {
+                    let union = env
+                        .get_union_graph(ids, data_graph_iri.as_ref(), Some(false), Some(false))
+                        .map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to load union graph for data graph {}: {}",
+                                data_graph_iri, e
+                            ))) as Box<dyn Error>
+                        })?;
+                    for quad in union.dataset.iter() {
+                        store.insert(quad).map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Failed to insert quad into store: {}",
+                                e
+                            ))) as Box<dyn Error>
+                        })?;
+                    }
+                    populated = true;
                 }
-                populated = true;
-            }
 
-            if populated {
-                store
+                if populated {
+                    store
+                } else {
+                    env.io().store().clone()
+                }
             } else {
                 env.io().store().clone()
-            }
-        } else {
-            env.io().store().clone()
+            };
+
+            (
+                shapes_graph_iri,
+                data_graph_iri,
+                shape_graphs_for_union,
+                shapes_closure_ids,
+                data_closure_ids,
+                store,
+            )
         };
 
         if let Some(ir) = shape_ir.as_ref() {
@@ -437,17 +590,24 @@ impl ValidatorBuilder {
         }
 
         let (model, shape_ir_arc) = if let Some(ir) = cached_shape_ir {
-            let model = ShapesModel::from_shape_ir(ir.clone(), store, env, original_values)?;
+            let model = ShapesModel::from_shape_ir(
+                ir.clone(),
+                store,
+                Arc::clone(&env_handle),
+                original_values,
+            )?;
             (model, Arc::new(ir))
         } else {
             let model = Self::build_shapes_model(
-                env,
+                Arc::clone(&env_handle),
                 store,
                 shapes_graph_iri.clone(),
                 data_graph_iri.clone(),
                 features.clone(),
                 strict_custom_constraints,
                 original_values,
+                optimize_shapes,
+                optimize_shapes_data_dependent,
             )?;
             let shape_ir = crate::ir::build_shape_ir(
                 &model,
@@ -513,6 +673,34 @@ impl ValidatorBuilder {
                     e
                 ))) as Box<dyn Error>
             })
+    }
+
+    fn open_env(config: Config, temporary_env: bool) -> Result<OntoEnv, Box<dyn Error>> {
+        match OntoEnv::open_or_init(config, false) {
+            Ok(env) => Ok(env),
+            Err(e) if !temporary_env => {
+                warn!(
+                    "Failed to open existing OntoEnv ({}); falling back to temporary store",
+                    e
+                );
+                let fallback_config = Self::default_config(true)?;
+                Ok(OntoEnv::init(fallback_config, false)?)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn get_or_init_shared_env(
+        config: Config,
+        temporary_env: bool,
+    ) -> Result<SharedEnvHandle, Box<dyn Error>> {
+        if let Some(handle) = get_shared_ontoenv() {
+            return Ok(handle);
+        }
+        let env = Self::open_env(config, temporary_env)?;
+        let handle = Arc::new(RwLock::new(env));
+        *shared_ontoenv_slot().lock().unwrap() = Some(handle.clone());
+        Ok(handle)
     }
 
     fn add_source(
@@ -634,6 +822,12 @@ impl ValidatorBuilder {
                     parse_err
                 ))
             })?;
+            let quad = Quad::new(
+                quad.subject,
+                quad.predicate,
+                quad.object,
+                GraphName::NamedNode(graph_iri.clone()),
+            );
             env.io().store().insert(quad.as_ref()).map_err(|ins_err| {
                 std::io::Error::other(format!(
                     "Failed to insert quad into {} graph {}: {}",
@@ -736,13 +930,15 @@ impl ValidatorBuilder {
     }
 
     fn build_shapes_model(
-        env: OntoEnv,
+        env: SharedEnvHandle,
         store: Store,
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
         features: FeatureToggles,
         strict_custom_constraints: bool,
         original_values: Option<OriginalValueIndex>,
+        optimize_shapes: bool,
+        optimize_shapes_data_dependent: bool,
     ) -> Result<ShapesModel, Box<dyn Error>> {
         let mut parsing_context = ParsingContext::new(
             store,
@@ -755,9 +951,16 @@ impl ValidatorBuilder {
         );
         shacl_parser::run_parser(&mut parsing_context)?;
 
-        let mut optimizer = Optimizer::new(parsing_context);
-        optimizer.optimize()?;
-        let final_ctx = optimizer.finish();
+        let final_ctx = if optimize_shapes {
+            let mut optimizer = Optimizer::new(parsing_context);
+            optimizer.optimize_shape_only()?;
+            if optimize_shapes_data_dependent {
+                optimizer.optimize_data_dependent()?;
+            }
+            optimizer.finish()
+        } else {
+            parsing_context
+        };
 
         Ok(ShapesModel {
             nodeshape_id_lookup: final_ctx.nodeshape_id_lookup,
@@ -797,6 +1000,10 @@ impl Default for ValidatorBuilder {
 ///
 /// For more advanced control, such as inspecting the parsed shapes or performing
 /// optimizations, use `ValidationContext` directly.
+/// A configured SHACL validator instance.
+///
+/// Holds parsed model + runtime context for repeated validation/inference runs against
+/// the same shapes + data sources.
 pub struct Validator {
     context: ValidationContext,
 }
@@ -850,9 +1057,208 @@ impl Validator {
     /// The report contains the outcome of the validation (conformity) and detailed
     /// results for any failures. The returned report is tied to the lifetime of the Validator.
     pub fn validate(&self) -> ValidationReport<'_> {
+        self.context.reset_validation_run_state();
         let report_builder = validate::validate(&self.context);
         // The report needs the context to be able to serialize itself later.
         ValidationReport::new(report_builder.unwrap(), &self.context)
+    }
+
+    /// Returns per-component counters for graph-query operations collected during validation.
+    pub fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStat> {
+        self.context
+            .component_graph_call_stats()
+            .into_iter()
+            .map(|row| {
+                let descriptor = self
+                    .context
+                    .shape_ir()
+                    .components
+                    .get(&row.component_id)
+                    .or_else(|| {
+                        self.context
+                            .model
+                            .get_component_descriptor(&row.component_id)
+                    });
+                let component_label = descriptor
+                    .map(|d| crate::runtime::build_component_from_descriptor(d).label())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let total_nanos = row.runtime_nanos_total as f64;
+                let (mean_nanos, variance_nanos) = if row.component_invocations == 0 {
+                    (0.0, 0.0)
+                } else {
+                    let invocations_f = row.component_invocations as f64;
+                    let mean_nanos = total_nanos / invocations_f;
+                    let mean_sq = row.runtime_nanos_sum_squares / invocations_f;
+                    let variance_nanos = (mean_sq - (mean_nanos * mean_nanos)).max(0.0);
+                    (mean_nanos, variance_nanos)
+                };
+                ComponentGraphCallStat {
+                    component_id: row.component_id,
+                    source_shape: row
+                        .source_shape
+                        .get_term(&self.context)
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| row.source_shape.to_string()),
+                    component_label,
+                    quads_for_pattern_calls: row.quads_for_pattern_calls,
+                    execute_prepared_calls: row.execute_prepared_calls,
+                    component_invocations: row.component_invocations,
+                    runtime_total_ms: total_nanos / 1_000_000.0,
+                    runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
+                    runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
+                    runtime_mean_ms: mean_nanos / 1_000_000.0,
+                    runtime_stddev_ms: variance_nanos.sqrt() / 1_000_000.0,
+                }
+            })
+            .collect()
+    }
+
+    /// Returns per-shape timing statistics for target/value selection phases.
+    pub fn shape_phase_timing_stats(&self) -> Vec<ShapePhaseTimingStat> {
+        self.context
+            .shape_timing_stats()
+            .into_iter()
+            .map(|row| {
+                let total_nanos = row.runtime_nanos_total as f64;
+                let (mean_nanos, variance_nanos) = if row.invocations == 0 {
+                    (0.0, 0.0)
+                } else {
+                    let invocations_f = row.invocations as f64;
+                    let mean_nanos = total_nanos / invocations_f;
+                    let mean_sq = row.runtime_nanos_sum_squares / invocations_f;
+                    let variance_nanos = (mean_sq - (mean_nanos * mean_nanos)).max(0.0);
+                    (mean_nanos, variance_nanos)
+                };
+                let phase = match row.phase {
+                    crate::context::ShapeTimingPhase::NodeTargetSelection => {
+                        "node_target_selection"
+                    }
+                    crate::context::ShapeTimingPhase::NodeValueSelection => "node_value_selection",
+                    crate::context::ShapeTimingPhase::PropertyTargetSelection => {
+                        "property_target_selection"
+                    }
+                    crate::context::ShapeTimingPhase::PropertyValueSelection => {
+                        "property_value_selection"
+                    }
+                };
+                ShapePhaseTimingStat {
+                    source_shape: row
+                        .source_shape
+                        .get_term(&self.context)
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| row.source_shape.to_string()),
+                    phase: phase.to_string(),
+                    invocations: row.invocations,
+                    runtime_total_ms: total_nanos / 1_000_000.0,
+                    runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
+                    runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
+                    runtime_mean_ms: mean_nanos / 1_000_000.0,
+                    runtime_stddev_ms: variance_nanos.sqrt() / 1_000_000.0,
+                }
+            })
+            .collect()
+    }
+
+    /// Returns per-SPARQL-query timing and row-count statistics collected during validation.
+    pub fn sparql_query_call_stats(&self) -> Vec<SparqlQueryCallStat> {
+        self.context
+            .sparql_query_call_stats()
+            .into_iter()
+            .map(|row| {
+                let total_nanos = row.runtime_nanos_total as f64;
+                let invocations_f = row.invocations as f64;
+                let (mean_nanos, variance_nanos) = if row.invocations == 0 {
+                    (0.0, 0.0)
+                } else {
+                    let mean_nanos = total_nanos / invocations_f;
+                    let mean_sq = row.runtime_nanos_sum_squares / invocations_f;
+                    let variance_nanos = (mean_sq - (mean_nanos * mean_nanos)).max(0.0);
+                    (mean_nanos, variance_nanos)
+                };
+                let rows_returned_mean = if row.invocations == 0 {
+                    0.0
+                } else {
+                    row.rows_returned_total as f64 / invocations_f
+                };
+
+                SparqlQueryCallStat {
+                    source_shape: row
+                        .source_shape
+                        .get_term(&self.context)
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| row.source_shape.to_string()),
+                    component_id: row.component_id,
+                    constraint_term: row.constraint_term.to_string(),
+                    query_hash: row.query_hash,
+                    invocations: row.invocations,
+                    rows_returned_total: row.rows_returned_total,
+                    rows_returned_min: row.rows_returned_min,
+                    rows_returned_max: row.rows_returned_max,
+                    rows_returned_mean,
+                    runtime_total_ms: total_nanos / 1_000_000.0,
+                    runtime_min_ms: row.runtime_nanos_min as f64 / 1_000_000.0,
+                    runtime_max_ms: row.runtime_nanos_max as f64 / 1_000_000.0,
+                    runtime_mean_ms: mean_nanos / 1_000_000.0,
+                    runtime_stddev_ms: variance_nanos.sqrt() / 1_000_000.0,
+                }
+            })
+            .collect()
+    }
+
+    /// Returns the parsed SHACL-IR for the current validator.
+    pub fn shape_ir(&self) -> &ShapeIR {
+        self.context.shape_ir()
+    }
+
+    /// Returns a SHACL-IR copy with owl:imports resolved into the shapes graph.
+    pub fn shape_ir_with_imports(&self, import_depth: i32) -> Result<ShapeIR, String> {
+        let mut shape_ir = self.context.shape_ir().clone();
+        let shapes_graph = shape_ir.shape_graph.clone();
+        let graph_id = {
+            let env = self.context.model.env.read().unwrap();
+            env.resolve(ResolveTarget::Graph(shapes_graph.clone()))
+                .ok_or_else(|| format!("Ontology not found for shapes graph {}", shapes_graph))?
+        };
+        let mut closure_ids = {
+            let env = self.context.model.env.read().unwrap();
+            env.get_closure(&graph_id, import_depth).map_err(|e| {
+                format!(
+                    "Failed to build imports closure for shapes graph {}: {}",
+                    shapes_graph, e
+                )
+            })?
+        };
+        if !closure_ids.contains(&graph_id) {
+            closure_ids.push(graph_id);
+        }
+        let mut graph_names = Vec::new();
+        for id in &closure_ids {
+            let env = self.context.model.env.read().unwrap();
+            if let Ok(ont) = env.get_ontology(id) {
+                let name = ont.name().clone();
+                if !graph_names.iter().any(|g| g == &name) {
+                    graph_names.push(name);
+                }
+            }
+        }
+        if graph_names.is_empty() {
+            graph_names.push(shapes_graph.clone());
+        }
+        let mut merged: HashSet<Quad> = shape_ir.shape_quads.iter().cloned().collect();
+        for graph in graph_names {
+            let graph_name = GraphName::NamedNode(graph.clone());
+            for quad_res in self.context.model.store.quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(graph_name.as_ref()),
+            ) {
+                let quad = quad_res.map_err(|e| e.to_string())?;
+                merged.insert(quad);
+            }
+        }
+        shape_ir.shape_quads = merged.into_iter().collect();
+        Ok(shape_ir)
     }
 
     /// Executes inference with a custom configuration and returns the outcome.
@@ -882,6 +1288,44 @@ impl Validator {
             quads.push(quad);
         }
         Ok(quads)
+    }
+
+    /// Copies all quads from the shapes graph(s) into the data graph.
+    pub fn copy_shape_graph_to_data_graph(&self) -> Result<(), String> {
+        let data_graph_iri = self.context.data_graph_iri.clone();
+        let store = &self.context.model.store;
+        let mut graphs = HashSet::new();
+
+        for quad in &self.context.shape_ir().shape_quads {
+            if let GraphName::NamedNode(nn) = &quad.graph_name {
+                graphs.insert(nn.clone());
+            }
+        }
+
+        if graphs.is_empty() {
+            graphs.insert(self.context.model.shape_graph_iri.clone());
+        }
+
+        for graph in graphs {
+            if graph == data_graph_iri {
+                continue;
+            }
+            let graph_name = GraphName::NamedNode(graph.clone());
+            for quad_res in store.quads_for_pattern(None, None, None, Some(graph_name.as_ref())) {
+                let quad = quad_res.map_err(|e| format!("Failed to read shape quad: {}", e))?;
+                let new_quad = Quad::new(
+                    quad.subject.clone(),
+                    quad.predicate.clone(),
+                    quad.object.clone(),
+                    GraphName::NamedNode(data_graph_iri.clone()),
+                );
+                store
+                    .insert(&new_quad)
+                    .map_err(|e| format!("Failed to insert shape quad into data graph: {}", e))?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Runs inference followed by validation, yielding both the inference outcome and report.

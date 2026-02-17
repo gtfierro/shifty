@@ -1,13 +1,12 @@
-use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
-use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef, Variable};
-use oxigraph::sparql::QueryResults;
-pub use shacl_ir::{
+pub use crate::shacl_ir::{
     ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, ParameterBindings, Path,
     PropShapeID, PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target,
     TriplePatternTerm, ID,
 };
+use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
+use oxigraph::sparql::QueryResults;
 use std::fmt;
 use std::hash::Hash;
 
@@ -34,49 +33,12 @@ impl TargetEvalExt for Target {
                 source_shape,
             )),
             Target::Class(c) => {
-                let query_str = "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-                PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-                    SELECT DISTINCT ?inst ?target_class WHERE { ?inst rdf:type ?c . ?c rdfs:subClassOf* ?target_class }";
-                let target_class_var = Variable::new("target_class").map_err(|e| e.to_string())?;
-
-                let prepared = context.prepare_query(query_str).map_err(|e| {
-                    format!(
-                        "SPARQL parse error for Target::Class: {} {:?}",
-                        query_str, e
-                    )
-                })?;
-
-                let substitutions: Vec<Binding> = vec![(target_class_var, c.clone())];
-                let results = context
-                    .execute_prepared(query_str, &prepared, &substitutions, false)
-                    .map_err(|e| {
-                        format!("SPARQL query error for Target::Class: {} {}", query_str, e)
-                    })?;
-
-                match results {
-                    QueryResults::Solutions(solutions) => solutions
-                        .map(|solution_result| {
-                            let solution = solution_result.map_err(|e| e.to_string())?;
-                            solution
-                                .get("inst")
-                                .map(|term_ref| {
-                                    build_context(
-                                        context,
-                                        term_ref.to_owned(),
-                                        source_shape.clone(),
-                                    )
-                                })
-                                .ok_or_else(|| {
-                                    "Variable 'inst' not found in Target::Class query solution"
-                                        .to_string()
-                                })
-                        })
-                        .collect(),
-                    _ => Err(format!(
-                        "Unexpected result type for Target::Class: {}",
-                        query_str
-                    )),
-                }
+                let instances = context.instances_of_class(c)?;
+                Ok(contexts_from_terms(
+                    context,
+                    instances.into_iter(),
+                    source_shape,
+                ))
             }
             Target::SubjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
@@ -243,6 +205,10 @@ impl TargetEvalExt for Target {
                                     targets.push(t.to_owned());
                                 } else if let Some(t) = solution.get("target") {
                                     targets.push(t.to_owned());
+                                } else if let Some(var) = solution.variables().first() {
+                                    if let Some(t) = solution.get(var.as_str()) {
+                                        targets.push(t.to_owned());
+                                    }
                                 }
                             }
                         }

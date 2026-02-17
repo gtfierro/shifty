@@ -1,5 +1,8 @@
 #![allow(deprecated)]
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{
+    format_term_for_label, ClosedWorldBatchResult, ClosedWorldConstraintMode, ClosedWorldViolation,
+    Context, ValidationContext,
+};
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::named_nodes::SHACL;
 use crate::runtime::{
@@ -14,7 +17,10 @@ use log::debug;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{QueryResults, Variable};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::time::Instant;
 
 fn query_mentions_var(query: &str, var: &str) -> bool {
     fn contains(query: &str, prefix: char, var: &str) -> bool {
@@ -82,6 +88,264 @@ fn term_to_message_value(term: &Term) -> String {
 
 fn term_ref_to_message_value(term: TermRef<'_>) -> String {
     term_to_message_value(&term.into_owned())
+}
+
+fn hash_query_64(query: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    query.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn closed_world_mode_for_shape(shape_term: Option<&Term>) -> Option<ClosedWorldConstraintMode> {
+    let Term::NamedNode(shape) = shape_term? else {
+        return None;
+    };
+    let iri = shape.as_str();
+    if iri.ends_with("#ClosedWorld223Shape") {
+        return Some(ClosedWorldConstraintMode::S223Relation);
+    }
+    if iri.ends_with("#ClosedWorldQUDTShape") {
+        return Some(ClosedWorldConstraintMode::QudtPredicate);
+    }
+    None
+}
+
+fn build_values_clause_terms(focus_nodes: &[Term]) -> Vec<Term> {
+    let mut seen = HashSet::new();
+    focus_nodes
+        .iter()
+        .filter(|node| matches!(node, Term::NamedNode(_) | Term::BlankNode(_)))
+        .filter_map(|node| {
+            if seen.insert(node.clone()) {
+                Some(node.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn superclass_closure(
+    class_term: &Term,
+    direct_superclasses: &HashMap<Term, Vec<Term>>,
+    memo: &mut HashMap<Term, HashSet<Term>>,
+) -> HashSet<Term> {
+    if let Some(cached) = memo.get(class_term) {
+        return cached.clone();
+    }
+    let mut closure = HashSet::new();
+    closure.insert(class_term.clone());
+    if let Some(parents) = direct_superclasses.get(class_term) {
+        for parent in parents {
+            closure.extend(superclass_closure(parent, direct_superclasses, memo));
+        }
+    }
+    memo.insert(class_term.clone(), closure.clone());
+    closure
+}
+
+fn run_closed_world_batch_query(
+    context: &ValidationContext,
+    focus_nodes: &[Term],
+    mode: ClosedWorldConstraintMode,
+) -> Result<ClosedWorldBatchResult, String> {
+    let focus_terms = build_values_clause_terms(focus_nodes);
+    if focus_terms.is_empty() {
+        return Ok(ClosedWorldBatchResult::default());
+    }
+
+    let shacl = SHACL::new();
+    let node_shape_term = Term::NamedNode(shacl.node_shape.into_owned());
+    let relation_root = Term::NamedNode(NamedNode::new_unchecked(
+        "http://data.ashrae.org/standard223#Relation",
+    ));
+    let rdfs_sub_class_of =
+        NamedNode::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf");
+    let rdf_type = NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
+
+    let mut direct_superclasses: HashMap<Term, Vec<Term>> = HashMap::new();
+    context.for_each_quad_for_pattern(
+        None,
+        Some(rdfs_sub_class_of.as_ref()),
+        None,
+        None,
+        |quad| {
+            let sub_class_term = match quad.subject {
+                oxigraph::model::NamedOrBlankNode::NamedNode(nn) => Term::NamedNode(nn),
+                oxigraph::model::NamedOrBlankNode::BlankNode(bn) => Term::BlankNode(bn),
+            };
+            let super_class_term = quad.object;
+            if !matches!(super_class_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+                return Ok(());
+            }
+            direct_superclasses
+                .entry(sub_class_term)
+                .or_default()
+                .push(super_class_term);
+            Ok(())
+        },
+    )?;
+    let mut superclass_memo: HashMap<Term, HashSet<Term>> = HashMap::new();
+
+    let mut is_s223_relation_predicate: HashMap<NamedNode, bool> = HashMap::new();
+    let mut allowed_by_class: HashMap<Term, HashSet<NamedNode>> = HashMap::new();
+    let allowed_query = r#"
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT DISTINCT ?class ?p
+WHERE {
+  { ?class sh:property/sh:path ?p . }
+  UNION
+  { ?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p . }
+  UNION
+  { ?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p . }
+}
+"#;
+    let allowed_prepared = context
+        .prepare_query(allowed_query)
+        .map_err(|e| format!("Failed to prepare closed-world predicate map query: {}", e))?;
+    let allowed_results = context
+        .execute_prepared(allowed_query, &allowed_prepared, &[], false)
+        .map_err(|e| format!("Failed to execute closed-world predicate map query: {}", e))?;
+    let class_var = Variable::new("class")
+        .map_err(|e| format!("Internal error creating SPARQL variable ?class: {}", e))?;
+    let p_var = Variable::new("p")
+        .map_err(|e| format!("Internal error creating SPARQL variable ?p: {}", e))?;
+    match allowed_results {
+        QueryResults::Solutions(solutions) => {
+            for row in solutions {
+                let row = row.map_err(|e| e.to_string())?;
+                let Some(class_term) = row.get(&class_var).cloned() else {
+                    continue;
+                };
+                let Some(Term::NamedNode(path_predicate)) = row.get(&p_var).cloned() else {
+                    continue;
+                };
+                allowed_by_class
+                    .entry(class_term)
+                    .or_default()
+                    .insert(path_predicate);
+            }
+        }
+        _ => {
+            return Err(
+                "Closed-world predicate map query returned unexpected non-solution results"
+                    .to_string(),
+            );
+        }
+    }
+
+    let mut violations_by_focus: HashMap<Term, Vec<ClosedWorldViolation>> = HashMap::new();
+
+    for focus_term in focus_terms {
+        let Ok(focus_subject) = focus_term.try_to_subject_ref() else {
+            continue;
+        };
+
+        let mut is_node_shape = false;
+        context.for_each_quad_for_pattern(
+            Some(focus_subject),
+            Some(rdf_type.as_ref()),
+            Some(&node_shape_term),
+            None,
+            |_| {
+                is_node_shape = true;
+                Ok(())
+            },
+        )?;
+        if is_node_shape {
+            continue;
+        }
+
+        let mut class_closure: HashSet<Term> = HashSet::new();
+        context.for_each_quad_for_pattern(
+            Some(focus_subject),
+            Some(rdf_type.as_ref()),
+            None,
+            None,
+            |class_quad| {
+                let class_term = class_quad.object;
+                if !matches!(class_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+                    return Ok(());
+                }
+                class_closure.extend(superclass_closure(
+                    &class_term,
+                    &direct_superclasses,
+                    &mut superclass_memo,
+                ));
+                Ok(())
+            },
+        )?;
+
+        context.for_each_quad_for_pattern(Some(focus_subject), None, None, None, |quad| {
+            let predicate = quad.predicate.clone();
+            let predicate_allowed_scope = match mode {
+                ClosedWorldConstraintMode::QudtPredicate => predicate
+                    .as_str()
+                    .starts_with("http://qudt.org/schema/qudt"),
+                ClosedWorldConstraintMode::S223Relation => {
+                    if let Some(cached) = is_s223_relation_predicate.get(&predicate) {
+                        *cached
+                    } else {
+                        let predicate_subject: Term = Term::NamedNode(predicate.clone());
+                        let mut matches_relation = false;
+                        context.for_each_quad_for_pattern(
+                            Some(predicate_subject.to_subject_ref()),
+                            Some(rdf_type.as_ref()),
+                            None,
+                            None,
+                            |type_quad| {
+                                let predicate_class = type_quad.object;
+                                if !matches!(
+                                    predicate_class,
+                                    Term::NamedNode(_) | Term::BlankNode(_)
+                                ) {
+                                    return Ok(());
+                                }
+                                let supers = superclass_closure(
+                                    &predicate_class,
+                                    &direct_superclasses,
+                                    &mut superclass_memo,
+                                );
+                                if supers.contains(&relation_root) {
+                                    matches_relation = true;
+                                }
+                                Ok(())
+                            },
+                        )?;
+                        is_s223_relation_predicate.insert(predicate.clone(), matches_relation);
+                        matches_relation
+                    }
+                }
+            };
+            if !predicate_allowed_scope {
+                return Ok(());
+            }
+
+            let is_allowed_for_any_class = class_closure.iter().any(|class_term| {
+                allowed_by_class
+                    .get(class_term)
+                    .map(|predicates| predicates.contains(&predicate))
+                    .unwrap_or(false)
+            });
+            if is_allowed_for_any_class {
+                return Ok(());
+            }
+
+            violations_by_focus
+                .entry(focus_term.clone())
+                .or_default()
+                .push(ClosedWorldViolation {
+                    predicate,
+                    object: quad.object,
+                });
+            Ok(())
+        })?;
+    }
+
+    Ok(ClosedWorldBatchResult {
+        violations_by_focus,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -305,7 +569,94 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .map(|q| q.object)
             .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
+        let source_shape = c.source_shape();
+        let query_hash = hash_query_64(&full_query_str);
+        if let Some(mode) = closed_world_mode_for_shape(current_shape_term.as_ref()) {
+            if let Some(node_shape_id) = source_shape.as_node_id() {
+                if let Some(focus_nodes) = context.cached_node_targets(node_shape_id) {
+                    let query_started = Instant::now();
+                    let batch_result = context.get_or_compute_closed_world_batch(
+                        source_shape.clone(),
+                        component_id,
+                        query_hash,
+                        mode,
+                        || run_closed_world_batch_query(context, &focus_nodes, mode),
+                    );
+                    match batch_result.as_ref() {
+                        Ok(batch) => {
+                            let focus_violations = batch
+                                .violations_by_focus
+                                .get(c.focus_node())
+                                .cloned()
+                                .unwrap_or_default();
+                            let rows_returned = focus_violations.len() as u64;
+                            let mut results = Vec::new();
+                            if let Some(first_violation) = focus_violations.first() {
+                                let failed_value_node = if c.source_shape().as_node_id().is_some() {
+                                    Some(c.focus_node().clone())
+                                } else {
+                                    None
+                                };
+                                let mut substitutions_for_messages = gather_default_substitutions(
+                                    c,
+                                    current_shape_term.as_ref(),
+                                    failed_value_node.as_ref(),
+                                    path_substitution_value.as_ref(),
+                                );
+                                substitutions_for_messages.push((
+                                    "p".to_string(),
+                                    term_to_message_value(&Term::NamedNode(
+                                        first_violation.predicate.clone(),
+                                    )),
+                                ));
+                                substitutions_for_messages.push((
+                                    "o".to_string(),
+                                    term_to_message_value(&first_violation.object),
+                                ));
+                                let (message_opt, message_terms) = sparql_services
+                                    .instantiate_messages(&messages, &substitutions_for_messages);
+                                let message = message_opt.unwrap_or_else(|| {
+                                    "Node does not conform to SPARQL constraint".to_string()
+                                });
+                                let failure = ValidationFailure::new(
+                                    component_id,
+                                    failed_value_node,
+                                    message,
+                                    None,
+                                    Some(self.constraint_node.clone()),
+                                )
+                                .with_severity(severity)
+                                .with_message_terms(message_terms);
+                                results.push(ComponentValidationResult::Fail(c.clone(), failure));
+                            }
+                            context.record_sparql_query_call(
+                                source_shape,
+                                component_id,
+                                &self.constraint_node,
+                                query_hash,
+                                rows_returned,
+                                query_started.elapsed(),
+                            );
+                            return Ok(results);
+                        }
+                        Err(err) => {
+                            context.record_sparql_query_call(
+                                source_shape,
+                                component_id,
+                                &self.constraint_node,
+                                query_hash,
+                                0,
+                                query_started.elapsed(),
+                            );
+                            return Err(err.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         // Execute query
+        let query_started = Instant::now();
         let query_outcome =
             context.execute_prepared(&full_query_str, &prepared_query, &substitutions, true);
 
@@ -313,16 +664,39 @@ impl ValidateComponent for SPARQLConstraintComponent {
             Ok(QueryResults::Solutions(solutions)) => {
                 let mut results = vec![];
                 let mut seen_solutions = HashSet::new();
+                let mut rows_returned = 0u64;
                 #[cfg(debug_assertions)]
                 let debug_prebinding = std::env::var("SHACL_DEBUG_PRE_BINDING").is_ok();
                 #[cfg(not(debug_assertions))]
                 let debug_prebinding = false;
                 let mut solution_count = 0usize;
                 for solution_res in solutions {
-                    let solution = solution_res.map_err(|e| e.to_string())?;
+                    rows_returned = rows_returned.saturating_add(1);
+                    let solution = match solution_res {
+                        Ok(solution) => solution,
+                        Err(e) => {
+                            context.record_sparql_query_call(
+                                source_shape.clone(),
+                                component_id,
+                                &self.constraint_node,
+                                query_hash,
+                                rows_returned,
+                                query_started.elapsed(),
+                            );
+                            return Err(e.to_string());
+                        }
+                    };
 
                     if let Some(Term::Literal(failure)) = solution.get("failure") {
                         if failure.datatype() == xsd::BOOLEAN && failure.value() == "true" {
+                            context.record_sparql_query_call(
+                                source_shape.clone(),
+                                component_id,
+                                &self.constraint_node,
+                                query_hash,
+                                rows_returned,
+                                query_started.elapsed(),
+                            );
                             return Err("SPARQL query reported a failure.".to_string());
                         }
                     }
@@ -399,10 +773,38 @@ impl ValidateComponent for SPARQLConstraintComponent {
                         solution_count
                     );
                 }
+                context.record_sparql_query_call(
+                    source_shape,
+                    component_id,
+                    &self.constraint_node,
+                    query_hash,
+                    rows_returned,
+                    query_started.elapsed(),
+                );
                 Ok(results)
             }
-            Err(e) => Err(format!("SPARQL query failed: {}", e)),
-            _ => Ok(vec![]), // Other query result types are ignored
+            Err(e) => {
+                context.record_sparql_query_call(
+                    source_shape,
+                    component_id,
+                    &self.constraint_node,
+                    query_hash,
+                    0,
+                    query_started.elapsed(),
+                );
+                Err(format!("SPARQL query failed: {}", e))
+            }
+            _ => {
+                context.record_sparql_query_call(
+                    source_shape,
+                    component_id,
+                    &self.constraint_node,
+                    query_hash,
+                    0,
+                    query_started.elapsed(),
+                );
+                Ok(vec![]) // Other query result types are ignored
+            }
         }
     }
 }

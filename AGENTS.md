@@ -6,6 +6,8 @@ This workspace hosts two Rust crates: `lib/` (the SHACL validation engine under 
 ## Build, Test, and Development Commands
 Use `cargo build --workspace` to compile every crate, and `cargo fmt --all` before sending changes to ensure consistent formatting. Run `cargo clippy --workspace --all-targets --all-features` to surface lints the CI expects. Execute `cargo test --workspace` (or `./run_test.sh`) to run unit and integration suites; tests will emit `report.ttl` and `expected.ttl` diffs in the repo root for debugging. To exercise the CLI locally, try `cargo run -p cli -- validate --shapes-file examples/shapes.ttl --data-file examples/data.ttl` and adjust to match your fixture paths.
 
+Unless specifically directed, run the tests after making changes to ensure the tests still pass. If the tests break, continue to make changes until the tests pass
+
 ## Coding Style & Naming Conventions
 Target Rust 2021 idioms with four-space indentation and `rustfmt` defaults. Modules and files stay `snake_case` (e.g., `named_nodes.rs`), types use `UpperCamelCase`, and functions or locals prefer `snake_case`. Keep public APIs documented with Rustdoc comments and favor expressive enum variants over boolean flags. Log output goes through `env_logger`; prefer structured log messages over `println!` in library code.
 

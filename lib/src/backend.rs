@@ -58,6 +58,24 @@ pub trait GraphBackend {
         graph: Option<GraphNameRef<'_>>,
     ) -> Result<Vec<Quad>, Self::Error>;
 
+    /// Stream quads matching a pattern through a callback.
+    fn for_each_quad_for_pattern<F>(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+        mut callback: F,
+    ) -> Result<(), Self::Error>
+    where
+        F: FnMut(Quad) -> Result<(), Self::Error>,
+    {
+        for quad in self.quads_for_pattern(subject, predicate, object, graph)? {
+            callback(quad)?;
+        }
+        Ok(())
+    }
+
     /// Insert quads, typically used by rule engines.
     fn insert_quads(&self, quads: &[Quad]) -> Result<(), Self::Error>;
 
@@ -170,6 +188,35 @@ impl GraphBackend for OxigraphBackend {
             out.push(q.map_err(|e| e.to_string())?);
         }
         Ok(out)
+    }
+
+    fn for_each_quad_for_pattern<F>(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        graph: Option<GraphNameRef<'_>>,
+        mut callback: F,
+    ) -> Result<(), Self::Error>
+    where
+        F: FnMut(Quad) -> Result<(), Self::Error>,
+    {
+        let object_ref: Option<TermRef<'_>> = object.map(|t| match t {
+            Term::NamedNode(nn) => nn.as_ref().into(),
+            Term::BlankNode(bn) => bn.as_ref().into(),
+            Term::Literal(l) => l.as_ref().into(),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("Unsupported term type in quads_for_pattern object"),
+        });
+
+        for q in self
+            .store
+            .as_ref()
+            .quads_for_pattern(subject, predicate, object_ref, graph)
+        {
+            callback(q.map_err(|e| e.to_string())?)?;
+        }
+        Ok(())
     }
 
     fn insert_quads(&self, quads: &[Quad]) -> Result<(), Self::Error> {

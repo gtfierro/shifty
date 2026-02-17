@@ -1,3 +1,3 @@
-pub use shacl_ir::{
+pub use crate::shacl_ir::{
     CustomConstraintComponentDefinition, Parameter, ParameterBindings, SPARQLValidator,
 };

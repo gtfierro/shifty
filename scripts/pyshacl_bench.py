@@ -3,7 +3,7 @@
 # dependencies = [
 #   "rdflib",
 #   "pyshacl",
-#   "pyontoenv>=0.4.1a1",
+#   "pyontoenv>=0.5.0a5",
 # ]
 # ///
 from rdflib import Graph
@@ -19,6 +19,7 @@ ont_id = env.add(sys.argv[2])
 # returns an rdflib Graph of the ontology with all its dependencies, e.g. QUDT
 ont_with_dependencies = env.get_graph(ont_id)
 env.import_dependencies(ont_with_dependencies)
+model_graph += ont_with_dependencies
 print(len(ont_with_dependencies))
 
 for i in range(5):

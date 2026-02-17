@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use super::ids::IDLookupTable;
 use crate::model::{
     components::sparql::CustomConstraintComponentDefinition, components::ComponentDescriptor,
@@ -6,6 +5,7 @@ use crate::model::{
 };
 use crate::optimize::Optimizer;
 use crate::parser;
+use crate::shacl_ir::{FeatureToggles, ShapeIR};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::skolem::skolem_base;
 use crate::sparql::SparqlServices;
@@ -16,9 +16,8 @@ use ontoenv::ontology::OntologyLocation;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
-use oxigraph::model::{Literal, Subject};
+use oxigraph::model::{Literal, NamedOrBlankNode};
 use oxigraph::store::Store;
-use shacl_ir::{FeatureToggles, ShapeIR};
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
@@ -85,7 +84,7 @@ impl OriginalValueIndex {
 
     fn record_triple(
         &mut self,
-        subject: Subject,
+        subject: NamedOrBlankNode,
         predicate: NamedNode,
         object: Term,
         skolem_base: Option<&str>,
@@ -105,10 +104,10 @@ impl OriginalValueIndex {
         }
     }
 
-    fn canonicalize_subject(subject: Subject, skolem_base: Option<&str>) -> Term {
+    fn canonicalize_subject(subject: NamedOrBlankNode, skolem_base: Option<&str>) -> Term {
         match subject {
-            Subject::NamedNode(nn) => Term::NamedNode(nn),
-            Subject::BlankNode(bn) => {
+            NamedOrBlankNode::NamedNode(nn) => Term::NamedNode(nn),
+            NamedOrBlankNode::BlankNode(bn) => {
                 if let Some(base) = skolem_base {
                     Term::NamedNode(NamedNode::new_unchecked(format!("{}{}", base, bn.as_str())))
                 } else {
@@ -173,7 +172,7 @@ pub struct ShapesModel {
     pub(crate) rules: HashMap<RuleID, Rule>,
     pub(crate) node_shape_rules: HashMap<ID, Vec<RuleID>>,
     pub(crate) prop_shape_rules: HashMap<PropShapeID, Vec<RuleID>>,
-    pub(crate) env: OntoEnv,
+    pub(crate) env: Arc<RwLock<OntoEnv>>,
     pub(crate) sparql: Arc<SparqlServices>,
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
@@ -218,7 +217,7 @@ impl ShapesModel {
 
         let mut ctx = ParsingContext::new(
             store,
-            env,
+            Arc::new(RwLock::new(env)),
             shape_graph_iri.clone(),
             dummy_data_graph_iri,
             FeatureToggles::default(),
@@ -267,7 +266,7 @@ impl ShapesModel {
     pub(crate) fn from_shape_ir(
         shape_ir: ShapeIR,
         store: Store,
-        env: OntoEnv,
+        env: Arc<RwLock<OntoEnv>>,
         original_values: Option<OriginalValueIndex>,
     ) -> Result<Self, Box<dyn Error>> {
         let ShapeIR {
@@ -307,6 +306,7 @@ impl ShapesModel {
                         shape.id,
                         shape.targets,
                         shape.constraints,
+                        shape.property_shapes,
                         Some(shape.severity),
                         shape.deactivated,
                     ),
@@ -396,7 +396,7 @@ pub(crate) struct ParsingContext {
     pub(crate) rules: HashMap<RuleID, Rule>,
     pub(crate) node_shape_rules: HashMap<ID, Vec<RuleID>>,
     pub(crate) prop_shape_rules: HashMap<PropShapeID, Vec<RuleID>>,
-    pub(crate) env: OntoEnv,
+    pub(crate) env: Arc<RwLock<OntoEnv>>,
     pub(crate) sparql: Arc<SparqlServices>,
     #[allow(dead_code)]
     pub(crate) features: FeatureToggles,
@@ -412,7 +412,7 @@ impl ParsingContext {
 
     pub(crate) fn new(
         store: Store,
-        env: OntoEnv,
+        env: Arc<RwLock<OntoEnv>>,
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
         features: FeatureToggles,

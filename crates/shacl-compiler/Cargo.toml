@@ -1,0 +1,16 @@
+[package]
+name = "shacl-compiler"
+version = "0.0.6"
+edition = "2021"
+description = "Token-based SHACL compiler prototype built on quote/proc_macro2"
+
+[dependencies]
+oxigraph = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+shifty = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+quote = "1"
+proc-macro2 = "1"
+syn = { version = "2", features = ["full", "parsing"] }
+prettyplease = "0.2"

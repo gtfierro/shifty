@@ -3,17 +3,25 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
+#[cfg(feature = "shacl-compiler")]
+use oxigraph::model::{Graph, Triple};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
+#[cfg(feature = "shacl-compiler")]
+use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
 use shifty::ir_cache;
+#[cfg(feature = "shacl-compiler")]
+use shifty::shacl_ir::ShapeIR;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "shacl-compiler")]
+use std::process::Command;
 
-fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shacl_ir::ShapeIR, String>> {
+fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
     let is_ir = path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -161,6 +169,69 @@ struct GenerateIrArgs {
     output_file: PathBuf,
 }
 
+#[cfg(feature = "shacl-compiler")]
+#[derive(Parser)]
+struct CompileArgs {
+    #[clap(flatten)]
+    shapes: ShapesSourceCli,
+
+    /// Skip invalid SHACL constructs when generating the plan
+    #[arg(long)]
+    skip_invalid_rules: bool,
+
+    /// Treat SHACL warnings as errors when generating the plan
+    #[arg(long)]
+    warnings_are_errors: bool,
+
+    /// Require custom constraint components to declare validators
+    #[arg(long)]
+    strict_custom_constraints: bool,
+
+    /// Disable resolving owl:imports for the shapes graph while generating the plan
+    #[arg(long)]
+    no_imports: bool,
+
+    /// Maximum owl:imports recursion depth for shapes (-1 = unlimited, 0 = only the root graph)
+    #[arg(long, default_value_t = -1)]
+    import_depth: i32,
+
+    /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
+    #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
+    temporary: bool,
+
+    /// Disable store optimization when building the plan
+    #[arg(long)]
+    no_store_optimize: bool,
+
+    /// Output directory for the generated crate and binary
+    #[arg(long, value_name = "DIR", default_value = "target/compiled-shacl")]
+    out_dir: PathBuf,
+
+    /// Name for the generated crate/binary
+    #[arg(long, value_name = "NAME", default_value = "shacl-compiled")]
+    bin_name: String,
+
+    /// Optional output path for PlanIR JSON
+    #[arg(long, value_name = "FILE")]
+    plan_out: Option<PathBuf>,
+
+    /// Build in release mode
+    #[arg(long)]
+    release: bool,
+
+    /// Use a local path for the shifty dependency in the generated Cargo.toml (non-portable)
+    #[arg(long, value_name = "DIR")]
+    shifty_path: Option<PathBuf>,
+
+    /// Git URL for the shifty dependency in the generated Cargo.toml (default: this repo)
+    #[arg(long, value_name = "URL")]
+    shifty_git: Option<String>,
+
+    /// Git revision/tag/branch for the shifty dependency (optional)
+    #[arg(long, value_name = "REF")]
+    shifty_git_ref: Option<String>,
+}
+
 #[derive(Parser, Debug, Clone, Default)]
 struct ShaclIrArgs {
     /// Path to a serialized SHACL-IR artifact (optional)
@@ -257,28 +328,28 @@ struct ValidateArgs {
     #[arg(long)]
     follow_bnodes: bool,
 
-    /// Run SHACL rule inference before validation
-    #[arg(long)]
+    /// Run SHACL rule inference before validation (default: true, set false via --run-inference=false)
+    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
     run_inference: bool,
 
-    /// Minimum iterations for inference (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Minimum iterations for inference
+    #[arg(long)]
     inference_min_iterations: Option<usize>,
 
-    /// Maximum iterations for inference (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Maximum iterations for inference
+    #[arg(long)]
     inference_max_iterations: Option<usize>,
 
-    /// Disable convergence-based early exit (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Disable convergence-based early exit
+    #[arg(long)]
     inference_no_converge: bool,
 
-    /// Fail if inference produces blank nodes (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Fail if inference produces blank nodes
+    #[arg(long)]
     inference_error_on_blank_nodes: bool,
 
-    /// Enable verbose inference logging (requires --run-inference)
-    #[arg(long, requires = "run_inference")]
+    /// Enable verbose inference logging
+    #[arg(long)]
     inference_debug: bool,
 
     /// Print the Graphviz DOT for the shape graph after validation
@@ -292,6 +363,10 @@ struct ValidateArgs {
     /// Include shapes/components that did not execute in the heatmap (requires --pdf-heatmap)
     #[arg(long, requires = "pdf_heatmap")]
     pdf_heatmap_all: bool,
+
+    /// Print per-component graph call counts captured during validation
+    #[arg(long)]
+    component_graph_calls: bool,
 }
 
 #[derive(Parser)]
@@ -390,6 +465,9 @@ enum Commands {
     VisualizeHeatmap(VisualizeHeatmapArgs),
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
+    /// Generate + compile a specialized SHACL executable for the given shapes
+    #[cfg(feature = "shacl-compiler")]
+    Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
     /// Run SHACL rule inference without performing validation
@@ -469,6 +547,49 @@ fn get_validator_shapes_only(
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
+        // Generate SHACL-IR with shape-only optimization, but disable data-dependent
+        // target pruning because generate-ir uses Source::Empty.
+        .with_shape_optimization(true)
+        .with_data_dependent_shape_optimization(false)
+        .build()
+        .map_err(|e| format!("Error creating validator: {}", e).into())
+}
+
+#[cfg(feature = "shacl-compiler")]
+fn get_validator_shapes_only_for_compile(
+    args: &CompileArgs,
+) -> Result<Validator, Box<dyn std::error::Error>> {
+    if args.no_imports {
+        info!(
+            "Ignoring --no-imports for compile; compiled binaries always embed the full shapes imports closure"
+        );
+    }
+
+    let mut builder = ValidatorBuilder::new();
+    if let Some(path) = &args.shapes.shapes_file {
+        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+            builder = builder.with_shape_ir(shape_ir?);
+        } else {
+            builder = builder.with_shapes_source(Source::File(path.clone()));
+        }
+    } else if let Some(graph) = &args.shapes.shapes_graph {
+        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else {
+        return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
+    }
+
+    builder
+        .with_data_source(Source::Empty)
+        .with_skip_invalid_rules(args.skip_invalid_rules)
+        .with_warnings_are_errors(args.warnings_are_errors)
+        .with_strict_custom_constraints(args.strict_custom_constraints)
+        .with_do_imports(true)
+        .with_temporary_env(args.temporary)
+        .with_import_depth(args.import_depth)
+        .with_store_optimization(!args.no_store_optimize)
+        .with_shapes_data_union(true)
+        .with_shape_optimization(true)
+        .with_data_dependent_shape_optimization(false)
         .build()
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
@@ -658,6 +779,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Validate(args) => {
+            if !args.run_inference
+                && (args.inference_min_iterations.is_some()
+                    || args.inference_max_iterations.is_some()
+                    || args.inference_no_converge
+                    || args.inference_error_on_blank_nodes
+                    || args.inference_debug)
+            {
+                return Err(
+                    "inference tuning flags require --run-inference=true (default true)".into(),
+                );
+            }
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
             let (report, inference_outcome) = if args.run_inference {
                 let config = build_inference_config(
@@ -716,6 +848,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 write_pdf_from_dot(dot_string, pdf_path, "PDF heatmap")?;
             }
 
+            if args.component_graph_calls {
+                println!(
+                    "SourceShape\tComponentID\tComponent\tinvocations\tquads_for_pattern\texecute_prepared\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
+                );
+                for stat in validator.component_graph_call_stats() {
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
+                        stat.source_shape,
+                        stat.component_id,
+                        stat.component_label,
+                        stat.component_invocations,
+                        stat.quads_for_pattern_calls,
+                        stat.execute_prepared_calls,
+                        stat.runtime_total_ms,
+                        stat.runtime_min_ms,
+                        stat.runtime_max_ms,
+                        stat.runtime_mean_ms,
+                        stat.runtime_stddev_ms
+                    );
+                }
+                println!();
+                println!(
+                    "SourceShape\tPhase\tinvocations\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
+                );
+                for stat in validator.shape_phase_timing_stats() {
+                    println!(
+                        "{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
+                        stat.source_shape,
+                        stat.phase,
+                        stat.invocations,
+                        stat.runtime_total_ms,
+                        stat.runtime_min_ms,
+                        stat.runtime_max_ms,
+                        stat.runtime_mean_ms,
+                        stat.runtime_stddev_ms
+                    );
+                }
+                println!();
+                println!(
+                    "SourceShape\tComponentID\tConstraint\tquery_hash\tinvocations\trows_total\trows_min\trows_max\trows_mean\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
+                );
+                for stat in validator.sparql_query_call_stats() {
+                    let constraint = stat.constraint_term.replace('\n', " ").replace('\t', " ");
+                    println!(
+                        "{}\t{}\t{}\t{:016x}\t{}\t{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
+                        stat.source_shape,
+                        stat.component_id,
+                        constraint,
+                        stat.query_hash,
+                        stat.invocations,
+                        stat.rows_returned_total,
+                        stat.rows_returned_min,
+                        stat.rows_returned_max,
+                        stat.rows_returned_mean,
+                        stat.runtime_total_ms,
+                        stat.runtime_min_ms,
+                        stat.runtime_max_ms,
+                        stat.runtime_mean_ms,
+                        stat.runtime_stddev_ms
+                    );
+                }
+            }
+
             emit_validator_traces(&validator, &args.trace)?;
         }
         Commands::Infer(args) => {
@@ -769,6 +964,126 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             emit_validator_traces(&validator, &args.trace)?;
+        }
+        #[cfg(feature = "shacl-compiler")]
+        Commands::Compile(args) => {
+            let validator = get_validator_shapes_only_for_compile(&args)?;
+            let shapes_file_is_ir = args
+                .shapes
+                .shapes_file
+                .as_ref()
+                .and_then(|path| path.extension().and_then(|ext| ext.to_str()))
+                .map(|ext| ext.eq_ignore_ascii_case("ir"))
+                .unwrap_or(false);
+            let shape_ir = if shapes_file_is_ir {
+                validator.shape_ir().clone()
+            } else {
+                validator
+                    .shape_ir_with_imports(args.import_depth)
+                    .map_err(|e| format!("{}", e))?
+            };
+            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+            let plan_json = plan
+                .to_json_pretty()
+                .map_err(|e| format!("plan serialization error: {}", e))?;
+            let generated = generate_rust_modules_from_plan(&plan)?;
+            let generated_root = generated.root;
+            let generated_files = generated.files;
+
+            if let Some(plan_out) = &args.plan_out {
+                fs::write(plan_out, &plan_json)?;
+            }
+
+            info!("Using compile backend: shacl-compiler");
+
+            let out_dir = &args.out_dir;
+            let src_dir = out_dir.join("src");
+            let generated_dir = src_dir.join("generated");
+            fs::create_dir_all(&src_dir)?;
+            fs::create_dir_all(&generated_dir)?;
+            fs::write(generated_dir.join("mod.rs"), generated_root)?;
+            for (name, content) in generated_files {
+                fs::write(generated_dir.join(name), content)?;
+            }
+            let shape_ir_json = serde_json::to_string(&shape_ir)
+                .map_err(|e| format!("Failed to serialize SHACL-IR: {}", e))?;
+            fs::write(generated_dir.join("shape_ir.json"), shape_ir_json)?;
+            write_shape_graph_ttl(&shape_ir, &out_dir.join("shape_graph.ttl"))?;
+
+            let workspace_root = std::env::current_dir()?
+                .canonicalize()
+                .map_err(|e| format!("Failed to canonicalize current dir: {}", e))?;
+            let shifty_dep = if let Some(path) = args.shifty_path.as_ref() {
+                format!(
+                    "shifty = {{ path = \"{}\", package = \"shifty-shacl\" }}",
+                    path.display()
+                )
+            } else {
+                let repo = args
+                    .shifty_git
+                    .clone()
+                    .unwrap_or_else(|| env!("CARGO_PKG_REPOSITORY").to_string());
+                if repo.is_empty() {
+                    let shifty_path = workspace_root.join("lib");
+                    format!(
+                        "shifty = {{ path = \"{}\", package = \"shifty-shacl\" }}",
+                        shifty_path.display()
+                    )
+                } else {
+                    let inferred_ref = std::process::Command::new("git")
+                        .args(["rev-parse", "HEAD"])
+                        .current_dir(&workspace_root)
+                        .output()
+                        .ok()
+                        .and_then(|output| {
+                            if output.status.success() {
+                                let rev =
+                                    String::from_utf8_lossy(&output.stdout).trim().to_string();
+                                if rev.is_empty() {
+                                    None
+                                } else {
+                                    Some(rev)
+                                }
+                            } else {
+                                None
+                            }
+                        });
+                    let git_ref = args.shifty_git_ref.clone().or(inferred_ref);
+                    let mut dep =
+                        format!("shifty = {{ git = \"{}\", package = \"shifty-shacl\"", repo);
+                    if let Some(git_ref) = git_ref {
+                        dep.push_str(&format!(", rev = \"{}\"", git_ref));
+                    }
+                    dep.push_str(" }");
+                    dep
+                }
+            };
+            let cargo_toml = format!(
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.0-a5\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
+                args.bin_name,
+                shifty_dep,
+            );
+            fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
+
+            let main_rs = include_str!("compiled_binary_main.rs.tmpl");
+            fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
+
+            let mut cmd = Command::new("cargo");
+            cmd.arg("build");
+            if args.release {
+                cmd.arg("--release");
+            }
+            cmd.arg("--manifest-path").arg(out_dir.join("Cargo.toml"));
+            let status = cmd.status()?;
+            if !status.success() {
+                return Err("failed to build compiled executable".into());
+            }
+
+            let target_dir = out_dir
+                .join("target")
+                .join(if args.release { "release" } else { "debug" })
+                .join(&args.bin_name);
+            println!("Built executable: {}", target_dir.display());
         }
         Commands::Heat(args) => {
             let validator = get_validator(&args.common, None)?;
@@ -833,4 +1148,33 @@ impl TraceOutputArgs {
     fn requested(&self) -> bool {
         self.trace_events || self.trace_file.is_some() || self.trace_jsonl.is_some()
     }
+}
+
+#[cfg(feature = "shacl-compiler")]
+fn write_shape_graph_ttl(
+    shape_ir: &ShapeIR,
+    path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut graph = Graph::new();
+    for quad in &shape_ir.shape_quads {
+        let triple = Triple::new(
+            quad.subject.clone(),
+            quad.predicate.clone(),
+            quad.object.clone(),
+        );
+        graph.insert(&triple);
+    }
+
+    let mut writer = Vec::new();
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
+        .with_prefix("sh", "http://www.w3.org/ns/shacl#")?
+        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")?
+        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")?
+        .for_writer(&mut writer);
+    for triple in graph.iter() {
+        serializer.serialize_triple(triple)?;
+    }
+    serializer.finish()?;
+    fs::write(path, &writer)?;
+    Ok(())
 }

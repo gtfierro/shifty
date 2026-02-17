@@ -1,10 +1,9 @@
-#![allow(deprecated)]
 use crate::context::{format_term_for_label, Context, ValidationContext};
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
 };
 use crate::types::{ComponentID, TraceItem};
-use oxigraph::model::{Literal, NamedNode, Subject, Term};
+use oxigraph::model::{Literal, NamedNode, NamedOrBlankNode, Term};
 use oxigraph::sparql::QueryResults;
 
 fn escape_sparql_string(s: &str) -> String {
@@ -23,10 +22,10 @@ fn escape_sparql_string(s: &str) -> String {
 }
 
 #[allow(dead_code)]
-fn subject_to_sparql(subject: &Subject) -> String {
+fn subject_to_sparql(subject: &NamedOrBlankNode) -> String {
     match subject {
-        Subject::NamedNode(nn) => format!("<{}>", nn.as_str()),
-        Subject::BlankNode(bn) => format!("_:{}", bn.as_str()),
+        NamedOrBlankNode::NamedNode(nn) => format!("<{}>", nn.as_str()),
+        NamedOrBlankNode::BlankNode(bn) => format!("_:{}", bn.as_str()),
     }
 }
 

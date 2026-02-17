@@ -15,7 +15,7 @@ The workspace also ships with Python bindings (`python/`) so the same validator 
 
 ## Highlights
 
-- `generate-ir` writes a `shacl-ir` cache so every invocation of `validate` or `infer` can skip reparsing the shapes graph and reuse the cached `ShapeIR`; the cache now includes the shapes graph (and resolved imports) so downstream runs don't need to reload shapes separately.
+- `generate-ir` writes a `SHACL-IR` cache so every invocation of `validate` or `infer` can skip reparsing the shapes graph and reuse the cached `ShapeIR`; the cache now includes the shapes graph (and resolved imports) so downstream runs don't need to reload shapes separately.
 - `heat`, `trace`, `visualize-heatmap`, and `pdf-heatmap` commands expose component frequencies, execution traces, and heatmap diagnostics for validation runs.
 - Validation and inference run against the union of the data graph **and** shapes graph by default; disable with `--no-union-graphs` if you want to keep them separate.
 - All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, `--no-imports`, and `--no-union-graphs`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`infer` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
@@ -25,6 +25,12 @@ The workspace also ships with Python bindings (`python/`) so the same validator 
 
 ```bash
 cargo build --workspace
+```
+
+To enable the optional SHACL compiler (`compile` subcommand), build the CLI with the feature flag:
+
+```bash
+cargo build -p cli --features shacl-compiler
 ```
 
 Format, lint, and test when contributing:
@@ -99,7 +105,8 @@ Run `shifty --help` to see every subcommand. The most common entry points are:
 - `visualize-heatmap`: dump the execution heatmap DOT (add `--pdf <FILE>` to render the heatmap to PDF, optionally including non-executed nodes via `--all`).
 - `heat`: validate the data and print a table of component/node/property invocation frequencies.
 - `trace`: validate the data and dump every execution trace collected during validation.
-- `generate-ir`: parse a shapes graph and write the `shacl-ir` artifact that other commands can reuse via `--shacl-ir path/to/cache`.
+- `generate-ir`: parse a shapes graph and write the `SHACL-IR` artifact that other commands can reuse via `--shacl-ir path/to/cache`.
+- `compile`: generate and build a specialized SHACL executable (requires `--features shacl-compiler` when building the CLI).
 
 You can now request the visualization artifacts directly from `validate` or `infer` by appending:
 
@@ -143,7 +150,7 @@ Use `--union` to emit the original data plus inferred triples.
 
 ## SHACL-IR caching
 
-The CLI ships with a `generate-ir` subcommand that parses the shapes graph, serializes the resulting `ShapeIR`, and writes it to disk. This makes repeated validations much faster because `validate`, `inference`, `heat`, and `trace` can all consume the `--shacl-ir cache.ttl` artifact instead of reparsing the shapes every time. The helper crate under `shacl-ir/` defines the serde-friendly IR data structures, so the cache can also be shared between the CLI and other embedders.
+The CLI ships with a `generate-ir` subcommand that parses the shapes graph, serializes the resulting `ShapeIR`, and writes it to disk. This makes repeated validations much faster because `validate`, `inference`, `heat`, and `trace` can all consume the `--shacl-ir cache.ttl` artifact instead of reparsing the shapes every time. The `shifty::shacl_ir` module defines the serde-friendly IR data structures, so the cache can also be shared between the CLI and other embedders.
 
 ```bash
 shifty generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
@@ -248,6 +255,7 @@ conforms, results_graph, report_text, diag = shifty.validate(
     skip_invalid_rules=False,
     warnings_are_errors=False,
     do_imports=True,
+    follow_bnodes=False,
     graphviz=False,
     heatmap=False,
     heatmap_all=False,
@@ -312,7 +320,7 @@ lib/      # core validator crate (exported as `shacl`)
 cli/      # command-line interface
 python/   # PyO3 bindings and RDFlib examples
 docs/     # additional design docs and profiles
-shacl-ir/ # serde-backed ShapeIR crate for caching parsed shapes
+lib/src/shacl_ir.rs # serde-backed ShapeIR module for caching parsed shapes
 scripts/  # helper scripts (Python tooling, benchmarks, etc.)
 ```
 

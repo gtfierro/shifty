@@ -1,2 +1,2 @@
-pub use shacl_ir::ComponentDescriptor;
+pub use crate::shacl_ir::ComponentDescriptor;
 pub mod sparql;

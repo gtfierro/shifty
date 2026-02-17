@@ -38,7 +38,20 @@ impl Optimizer {
 
     /// Runs all optimization passes.
     pub(crate) fn optimize(&mut self) -> Result<(), String> {
-        // Remove unreachable targets from node shapes
+        self.optimize_shape_only()?;
+        self.optimize_data_dependent()?;
+        Ok(())
+    }
+
+    /// Runs shape-only optimization passes that do not depend on data graph contents.
+    pub(crate) fn optimize_shape_only(&mut self) -> Result<(), String> {
+        // Placeholder for shape-graph-only passes.
+        Ok(())
+    }
+
+    /// Runs optimization passes that depend on data graph contents.
+    pub(crate) fn optimize_data_dependent(&mut self) -> Result<(), String> {
+        // Remove unreachable targets from node shapes based on observed data graph types.
         self.remove_unreachable_targets()?;
         Ok(())
     }

@@ -1,5 +1,5 @@
+use crate::shacl_ir::{ComponentID, PropShapeID, RuleID, ID};
 use oxigraph::model::Term;
-use shacl_ir::{ComponentID, PropShapeID, RuleID, ID};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -72,10 +72,6 @@ impl<IdType: Copy + Eq + Hash + From<u64> + IdValue> IDLookupTable<IdType> {
 }
 
 impl<IdType: Copy + Eq + Hash + IdValue> IDLookupTable<IdType> {
-    pub(crate) fn get(&self, term: &Term) -> Option<IdType> {
-        self.id_map.get(term).copied()
-    }
-
     pub(crate) fn get_term(&self, id: IdType) -> Option<&Term> {
         self.id_to_term.get(&id)
     }
