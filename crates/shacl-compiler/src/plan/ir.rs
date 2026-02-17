@@ -12,6 +12,11 @@ pub type ShapeId = u64;
 pub type PropId = u64;
 pub type CompId = u64;
 pub type RuleId = u64;
+type RulesBuildOutput = (
+    Vec<PlanRule>,
+    HashMap<ShapeId, Vec<RuleId>>,
+    HashMap<PropId, Vec<RuleId>>,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PlanShapeKind {
@@ -727,17 +732,7 @@ impl PlanBuilder {
         Ok(id)
     }
 
-    fn build_rules(
-        &mut self,
-        ir: &ShapeIR,
-    ) -> Result<
-        (
-            Vec<PlanRule>,
-            HashMap<ShapeId, Vec<RuleId>>,
-            HashMap<PropId, Vec<RuleId>>,
-        ),
-        String,
-    > {
+    fn build_rules(&mut self, ir: &ShapeIR) -> Result<RulesBuildOutput, String> {
         let mut rule_ids: Vec<RuleID> = ir.rules.keys().cloned().collect();
         rule_ids.sort_by_key(|id| id.0);
         let mut rules: Vec<PlanRule> = Vec::new();
@@ -810,8 +805,8 @@ impl PlanBuilder {
     fn rule_conditions(&self, conditions: &[RuleCondition]) -> Vec<ShapeId> {
         conditions
             .iter()
-            .filter_map(|cond| match cond {
-                RuleCondition::NodeShape(shape_id) => Some(shape_id.0),
+            .map(|cond| match cond {
+                RuleCondition::NodeShape(shape_id) => shape_id.0,
             })
             .collect()
     }
@@ -847,7 +842,7 @@ fn plan_custom_validator(validator: &shifty::shacl_ir::SPARQLValidator) -> PlanC
 }
 
 fn local_name(iri: &str) -> String {
-    iri.rsplit(|ch| ch == '#' || ch == '/')
+    iri.rsplit(['#', '/'])
         .next()
         .unwrap_or(iri)
         .to_string()

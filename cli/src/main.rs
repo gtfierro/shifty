@@ -890,7 +890,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "SourceShape\tComponentID\tConstraint\tquery_hash\tinvocations\trows_total\trows_min\trows_max\trows_mean\ttotal_ms\tmin_ms\tmax_ms\tmean_ms\tstddev_ms"
                 );
                 for stat in validator.sparql_query_call_stats() {
-                    let constraint = stat.constraint_term.replace('\n', " ").replace('\t', " ");
+                    let constraint = stat.constraint_term.replace(['\n', '\t'], " ");
                     println!(
                         "{}\t{}\t{}\t{:016x}\t{}\t{}\t{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}",
                         stat.source_shape,
@@ -980,9 +980,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 validator
                     .shape_ir_with_imports(args.import_depth)
-                    .map_err(|e| format!("{}", e))?
+                    .map_err(|e| e.to_string())?
             };
-            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| format!("{}", e))?;
+            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| e.to_string())?;
             let plan_json = plan
                 .to_json_pretty()
                 .map_err(|e| format!("plan serialization error: {}", e))?;

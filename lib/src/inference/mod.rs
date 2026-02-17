@@ -17,6 +17,9 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Mutex;
 
+type CandidateTriple = (Term, NamedNode, Term);
+type CandidateBatches = Result<Vec<Vec<CandidateTriple>>, InferenceError>;
+
 /// Configuration options governing inference execution.
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -458,7 +461,7 @@ impl<'a> InferenceEngine<'a> {
 
         // Phase 1: parallel SPARQL execution — each thread prepares its own
         // query (hits the prepared-query cache) and collects candidate triples.
-        let candidates: Result<Vec<Vec<(Term, NamedNode, Term)>>, InferenceError> = focus_nodes
+        let candidates: CandidateBatches = focus_nodes
             .par_iter()
             .map(|focus| {
                 if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
@@ -535,7 +538,7 @@ impl<'a> InferenceEngine<'a> {
     ) -> Result<usize, InferenceError> {
         // Phase 1: parallel template evaluation — each thread evaluates
         // subjects/objects and builds the cross-product of candidate triples.
-        let candidates: Result<Vec<Vec<(Term, NamedNode, Term)>>, InferenceError> = focus_nodes
+        let candidates: CandidateBatches = focus_nodes
             .par_iter()
             .map(|focus| {
                 if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {

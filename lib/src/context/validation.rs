@@ -111,10 +111,10 @@ pub(crate) struct ComponentGraphCallStatRecord {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ShapeTimingPhase {
-    NodeTargetSelection,
-    NodeValueSelection,
-    PropertyTargetSelection,
-    PropertyValueSelection,
+    NodeTarget,
+    NodeValue,
+    PropertyTarget,
+    PropertyValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -845,14 +845,18 @@ impl ValidationContext {
         let mut ancestors_by_subclass: Vec<FixedBitSet> = (0..class_count)
             .map(|_| FixedBitSet::with_capacity(class_count))
             .collect();
-        for subclass in 0..class_count {
+        for (subclass, ancestors) in ancestors_by_subclass
+            .iter_mut()
+            .enumerate()
+            .take(class_count)
+        {
             let mut visited = HashSet::new();
             let mut stack = vec![subclass];
             while let Some(node) = stack.pop() {
                 if !visited.insert(node) {
                     continue;
                 }
-                ancestors_by_subclass[subclass].insert(node);
+                ancestors.insert(node);
                 for parent in &parents[node] {
                     stack.push(*parent);
                 }

@@ -142,6 +142,8 @@ struct PortedValidators {
     remove_node_fn_names: HashSet<String>,
 }
 
+type HelperOverrides = (Vec<Item>, HashSet<String>, HashSet<String>);
+
 fn deserialize_plan_view(plan: &PlanIR) -> Result<PlanView, String> {
     let json = plan
         .to_json()
@@ -162,7 +164,7 @@ fn build_ported_validators(plan: &PlanView) -> Result<PortedValidators, String> 
                 if !shape.constraints.iter().all(|id| {
                     component_lookup
                         .get(id)
-                        .map_or(false, |c| property_component_supported(&c.kind))
+                        .is_some_and(|c| property_component_supported(&c.kind))
                 }) {
                     continue;
                 }
@@ -1181,7 +1183,7 @@ fn build_ported_validators(plan: &PlanView) -> Result<PortedValidators, String> 
                 if !shape.constraints.iter().all(|id| {
                     component_lookup
                         .get(id)
-                        .map_or(false, |c| node_component_supported(&c.kind))
+                        .is_some_and(|c| node_component_supported(&c.kind))
                 }) {
                     continue;
                 }
@@ -2512,9 +2514,7 @@ fn simple_predicate_iri(plan: &PlanView, path_id: u64) -> Result<Option<String>,
     }
 }
 
-fn generate_helper_overrides(
-    plan: &PlanView,
-) -> Result<(Vec<Item>, HashSet<String>, HashSet<String>), String> {
+fn generate_helper_overrides(plan: &PlanView) -> Result<HelperOverrides, String> {
     let items = vec![
         generate_shape_iri_item(plan)?,
         generate_component_iri_item(plan)?,

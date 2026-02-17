@@ -197,6 +197,14 @@ pub struct ValidatorBuilder {
     shape_ir: Option<ShapeIR>,
 }
 
+struct BuildShapesModelConfig {
+    features: FeatureToggles,
+    strict_custom_constraints: bool,
+    original_values: Option<OriginalValueIndex>,
+    optimize_shapes: bool,
+    optimize_shapes_data_dependent: bool,
+}
+
 impl ValidatorBuilder {
     /// Creates a new builder with default configuration.
     pub fn new() -> Self {
@@ -598,16 +606,19 @@ impl ValidatorBuilder {
             )?;
             (model, Arc::new(ir))
         } else {
+            let model_config = BuildShapesModelConfig {
+                features: features.clone(),
+                strict_custom_constraints,
+                original_values,
+                optimize_shapes,
+                optimize_shapes_data_dependent,
+            };
             let model = Self::build_shapes_model(
                 Arc::clone(&env_handle),
                 store,
                 shapes_graph_iri.clone(),
                 data_graph_iri.clone(),
-                features.clone(),
-                strict_custom_constraints,
-                original_values,
-                optimize_shapes,
-                optimize_shapes_data_dependent,
+                model_config,
             )?;
             let shape_ir = crate::ir::build_shape_ir(
                 &model,
@@ -934,12 +945,15 @@ impl ValidatorBuilder {
         store: Store,
         shape_graph_iri: NamedNode,
         data_graph_iri: NamedNode,
-        features: FeatureToggles,
-        strict_custom_constraints: bool,
-        original_values: Option<OriginalValueIndex>,
-        optimize_shapes: bool,
-        optimize_shapes_data_dependent: bool,
+        config: BuildShapesModelConfig,
     ) -> Result<ShapesModel, Box<dyn Error>> {
+        let BuildShapesModelConfig {
+            features,
+            strict_custom_constraints,
+            original_values,
+            optimize_shapes,
+            optimize_shapes_data_dependent,
+        } = config;
         let mut parsing_context = ParsingContext::new(
             store,
             env,
@@ -1130,14 +1144,14 @@ impl Validator {
                     (mean_nanos, variance_nanos)
                 };
                 let phase = match row.phase {
-                    crate::context::ShapeTimingPhase::NodeTargetSelection => {
+                    crate::context::ShapeTimingPhase::NodeTarget => {
                         "node_target_selection"
                     }
-                    crate::context::ShapeTimingPhase::NodeValueSelection => "node_value_selection",
-                    crate::context::ShapeTimingPhase::PropertyTargetSelection => {
+                    crate::context::ShapeTimingPhase::NodeValue => "node_value_selection",
+                    crate::context::ShapeTimingPhase::PropertyTarget => {
                         "property_target_selection"
                     }
-                    crate::context::ShapeTimingPhase::PropertyValueSelection => {
+                    crate::context::ShapeTimingPhase::PropertyValue => {
                         "property_value_selection"
                     }
                 };

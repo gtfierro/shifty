@@ -207,7 +207,7 @@ impl ValidateShape for NodeShape {
         };
         context.record_shape_phase_duration(
             SourceShape::NodeShape(*self.identifier()),
-            ShapeTimingPhase::NodeTargetSelection,
+            ShapeTimingPhase::NodeTarget,
             target_selection_started.elapsed(),
         );
 
@@ -237,7 +237,7 @@ impl ValidateShape for NodeShape {
                 );
                 context.record_shape_phase_duration(
                     SourceShape::NodeShape(*self.identifier()),
-                    ShapeTimingPhase::NodeValueSelection,
+                    ShapeTimingPhase::NodeValue,
                     node_value_selection_started.elapsed(),
                 );
                 let trace_index = target_context.trace_index();
@@ -413,7 +413,7 @@ impl ValidateShape for PropertyShape {
         };
         context.record_shape_phase_duration(
             SourceShape::PropertyShape(*self.identifier()),
-            ShapeTimingPhase::PropertyTargetSelection,
+            ShapeTimingPhase::PropertyTarget,
             target_selection_started.elapsed(),
         );
 
@@ -697,7 +697,7 @@ impl PropertyShape {
                 canonicalize_value_nodes(context, self, &focus_node, raw_values.clone());
             context.record_shape_phase_duration(
                 SourceShape::PropertyShape(*self.identifier()),
-                ShapeTimingPhase::PropertyValueSelection,
+                ShapeTimingPhase::PropertyValue,
                 value_selection_started.elapsed(),
             );
 
