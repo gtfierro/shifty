@@ -437,7 +437,7 @@ impl ValidatorBuilder {
                     .expect("shapes source is initialized when SHACL-IR is absent");
                 Self::add_source(
                     &mut env,
-                    &source,
+                    source,
                     "shapes",
                     include_imports_on_add,
                     refresh_strategy,
@@ -547,7 +547,7 @@ impl ValidatorBuilder {
 
             let mut shape_graphs_for_union: Vec<NamedNode> = vec![shapes_graph_iri.clone()];
             shape_graphs_for_union.extend(shapes_quads_import_graphs);
-            let shape_union_closure_ids = shapes_closure_ids.as_ref().or_else(|| {
+            let shape_union_closure_ids = shapes_closure_ids.as_ref().or({
                 if data_contains_shapes {
                     data_closure_ids.as_ref()
                 } else {

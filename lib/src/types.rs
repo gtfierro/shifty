@@ -158,7 +158,7 @@ impl TargetEvalExt for Target {
                         let Term::Literal(lit) = q.object else {
                             continue;
                         };
-                        if q.subject == selector_ref.clone().into() {
+                        if q.subject == selector_ref.into() {
                             subject_select = Some(lit.value().to_string());
                             break;
                         }
