@@ -18,6 +18,7 @@ The workspace also ships with Python bindings (`python/`) so the same validator 
 - `generate-ir` writes a `SHACL-IR` cache so every invocation of `validate` or `infer` can skip reparsing the shapes graph and reuse the cached `ShapeIR`; the cache now includes the shapes graph (and resolved imports) so downstream runs don't need to reload shapes separately.
 - `heat`, `trace`, `visualize-heatmap`, and `pdf-heatmap` commands expose component frequencies, execution traces, and heatmap diagnostics for validation runs.
 - Validation and inference run against the union of the data graph **and** shapes graph by default; disable with `--no-union-graphs` if you want to keep them separate.
+- For data-bearing workflows (`validate`, `infer`, `heat`, `trace`, `visualize`, `visualize-heatmap`), the shapes input is optional; if omitted, Shifty treats the data graph as the shapes graph.
 - All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, `--no-imports`, and `--no-union-graphs`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`infer` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
 - `ARCHITECTURE.md` documents the validation pipeline end-to-end, and `AGENTS.md` captures the repository contribution guidelines.
 
@@ -54,6 +55,8 @@ shifty \
   --data-file examples/data.ttl \
   --format turtle
 ```
+
+You can omit `--shapes-file`/`--shapes-graph`; in that case Shifty assumes all required SHACL triples are already present in the data graph.
 
 Reuse a cached ShapeIR for faster repeated runs:
 
@@ -114,7 +117,7 @@ You can now request the visualization artifacts directly from `validate` or `inf
 - `--pdf-heatmap heatmap.pdf [--pdf-heatmap-all]` to write the heatmap PDF (the `infer` command will trigger a validation pass when this flag is set)
 
 All commands accept the shared `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports` flags so you can skip problematic constructs, treat warnings as failures, or avoid resolving `owl:imports` when working in offline environments.
-`validate`, `infer`, and other data-bearing commands additionally accept `--no-union-graphs` to keep shapes and data separate (the default is to union them so targets and rules can see shapes triples alongside data).
+`validate`, `infer`, and other data-bearing commands additionally accept `--no-union-graphs` to keep shapes and data separate (the default is to union them so targets and rules can see shapes triples alongside data). These commands can also omit explicit shapes input and will treat the data graph as the shapes graph.
 
 ### Validation example
 
@@ -177,7 +180,7 @@ Install the extension module from PyPI as `pyshifty` (import it as `shifty`), or
 
 - `generate_ir(shapes_graph, ...)` parses the shapes once and returns a `CompiledShapeGraph` Python object.
 - `CompiledShapeGraph.validate` / `.infer` reuse the cached IR and accept the same flags as the CLI `validate`/`infer` commands.
-- One-off helpers `shifty.validate` and `shifty.infer` still exist for quick runs when you don't need caching.
+- One-off helpers `shifty.validate` and `shifty.infer` still exist for quick runs when you don't need caching; `shapes_graph` is optional and defaults to `data_graph`.
 
 ```python
 import shifty

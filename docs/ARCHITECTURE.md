@@ -6,7 +6,7 @@ plan execution → validate/infer → produce reports and diagnostics.
 
 ## High-Level Pipeline
 
-1. **Inputs**: Shapes + data graphs are loaded from `Source` (files or named graphs).
+1. **Inputs**: Shapes + data graphs are loaded from `Source` (files or named graphs). If shapes are not explicitly supplied, the data source is reused as the shapes source.
 2. **Parsing**: `parser` converts RDF into a data-only model (`ShapesModel`).
 3. **IR**: `ir` and `shifty::shacl_ir` serialize/deserialize that model for caching and reuse.
 4. **Planning**: `planning` builds a dependency-aware execution order.
@@ -125,3 +125,33 @@ Validation uses Rayon to:
 
 Thread-local state (e.g., subclass closures, original value indices) is propagated so
 parallel execution preserves semantics.
+
+## Optimization Parity (Core vs Compiler)
+
+The `shacl-compiler` backend tracks the same major optimization themes used by the core
+`lib` validator:
+
+- **Import/cache loading controls**:
+  - Core: `ValidatorBuilder` supports imports toggling, refresh strategy, and import depth.
+  - Compiler: `crates/shacl-compiler/src/main.rs` now forwards `--no-imports`,
+    `--force-refresh`, and `--import-depth` into the same builder path before codegen.
+- **Data-dependent shape pruning**:
+  - Core: shape optimization can prune inactive shapes from runtime execution.
+  - Compiler: generated `run` module prunes node/property validators at runtime via
+    `active_validators_for_runtime_data`.
+- **Class hierarchy indexing**:
+  - Core: fixed-bitset class-closure index accelerates `rdf:type` and subclass checks.
+  - Compiler: generated helpers build and cache a `ClassConstraintIndex` with the same
+    bitset strategy.
+- **Closed-world caching**:
+  - Core: closed-world checks are batched and memoized per shape/query key.
+  - Compiler: generated code caches closed-world violations per shape/graph and reuses
+    them across focus nodes.
+- **Parallel execution**:
+  - Core: validation and inference stages use Rayon where safe.
+  - Compiler: generated validation and inference use `par_iter` over active validators and
+    inferred candidates.
+- **SPARQL cache reuse**:
+  - Core: prepared/algebra/prefix caches are reused across calls.
+  - Compiler: generated helpers cache prepared queries, prefix expansion, and advanced-target
+    query results.

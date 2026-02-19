@@ -106,11 +106,11 @@ fn init_logging(base: LogLevel, verbose: u8, quiet: u8) {
 
 #[derive(Parser, Debug)]
 struct ShapesSourceCli {
-    /// Path to the shapes file
+    /// Path to the shapes file (optional for data-bearing commands; defaults to the data graph when omitted)
     #[arg(short, long, value_name = "FILE")]
     shapes_file: Option<PathBuf>,
 
-    /// URI of the shapes graph
+    /// URI of the shapes graph (optional for data-bearing commands; defaults to the data graph when omitted)
     #[arg(long, value_name = "URI")]
     shapes_graph: Option<String>,
 }
@@ -152,6 +152,10 @@ struct GenerateIrArgs {
     #[arg(long)]
     no_imports: bool,
 
+    /// Force-refresh ontology fetches instead of reusing cached copies
+    #[arg(long)]
+    force_refresh: bool,
+
     /// Maximum owl:imports recursion depth for shapes (-1 = unlimited, 0 = only the root graph)
     #[arg(long, default_value_t = -1)]
     import_depth: i32,
@@ -190,6 +194,10 @@ struct CompileArgs {
     /// Disable resolving owl:imports for the shapes graph while generating the plan
     #[arg(long)]
     no_imports: bool,
+
+    /// Force-refresh ontology fetches instead of reusing cached copies
+    #[arg(long)]
+    force_refresh: bool,
 
     /// Maximum owl:imports recursion depth for shapes (-1 = unlimited, 0 = only the root graph)
     #[arg(long, default_value_t = -1)]
@@ -258,6 +266,10 @@ struct CommonArgs {
     #[arg(long)]
     no_imports: bool,
 
+    /// Force-refresh ontology fetches instead of reusing cached copies
+    #[arg(long)]
+    force_refresh: bool,
+
     /// Disable using the union of the shapes and data graphs for validation/inference
     #[arg(long)]
     no_union_graphs: bool,
@@ -309,7 +321,6 @@ enum ValidateOutputFormat {
 #[derive(Parser)]
 #[clap(group(
     clap::ArgGroup::new("shapes_input")
-        .required(true)
         .args(&["shapes_file", "shapes_graph", "shacl_ir"]),
 ))]
 struct ValidateArgs {
@@ -372,7 +383,6 @@ struct ValidateArgs {
 #[derive(Parser)]
 #[clap(group(
     clap::ArgGroup::new("shapes_input")
-        .required(true)
         .args(&["shapes_file", "shapes_graph", "shacl_ir"]),
 ))]
 struct InferenceArgs {
@@ -493,6 +503,7 @@ fn get_validator(
         .with_skip_sparql_blank_targets(!common.allow_sparql_blank_targets)
         .with_strict_custom_constraints(common.strict_custom_constraints)
         .with_do_imports(!common.no_imports)
+        .with_force_refresh(common.force_refresh)
         .with_temporary_env(common.temporary)
         .with_import_depth(common.import_depth)
         .with_shapes_data_union(!common.no_union_graphs)
@@ -510,10 +521,6 @@ fn get_validator(
         }
     } else if let Some(graph) = &common.shapes.shapes_graph {
         builder = builder.with_shapes_source(Source::Graph(graph.clone()));
-    } else {
-        return Err(
-            "shapes input must be provided via --shapes-file, --shapes-graph, or --shacl-ir".into(),
-        );
     }
 
     builder
@@ -543,6 +550,7 @@ fn get_validator_shapes_only(
         .with_warnings_are_errors(args.warnings_are_errors)
         .with_strict_custom_constraints(args.strict_custom_constraints)
         .with_do_imports(!args.no_imports)
+        .with_force_refresh(args.force_refresh)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
@@ -584,6 +592,7 @@ fn get_validator_shapes_only_for_compile(
         .with_warnings_are_errors(args.warnings_are_errors)
         .with_strict_custom_constraints(args.strict_custom_constraints)
         .with_do_imports(true)
+        .with_force_refresh(args.force_refresh)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
         .with_store_optimization(!args.no_store_optimize)
@@ -1059,7 +1068,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.0-a5\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.0-a8\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
                 args.bin_name,
                 shifty_dep,
             );
@@ -1074,6 +1083,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cmd.arg("--release");
             }
             cmd.arg("--manifest-path").arg(out_dir.join("Cargo.toml"));
+            // Ensure ccache (if configured via workspace env) uses a writable temp dir
+            // when compiling the generated crate in restricted environments.
+            let ccache_tmp = workspace_root.join(out_dir).join("ccache-tmp");
+            let ccache_dir = workspace_root.join(out_dir).join("ccache");
+            fs::create_dir_all(&ccache_tmp)?;
+            fs::create_dir_all(&ccache_dir)?;
+            cmd.env("CCACHE_TEMPDIR", &ccache_tmp);
+            cmd.env("CCACHE_DIR", &ccache_dir);
             let status = cmd.status()?;
             if !status.success() {
                 return Err("failed to build compiled executable".into());

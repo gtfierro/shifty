@@ -42,25 +42,30 @@ use log::{debug, info, warn};
 use ontoenv::api::OntoEnv;
 use ontoenv::api::ResolveTarget;
 use ontoenv::config::Config;
-use ontoenv::ontology::OntologyLocation;
+use ontoenv::ontology::{GraphIdentifier, OntologyLocation};
 use ontoenv::options::CacheMode;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
+use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad, Term};
 use oxigraph::store::Store;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use url::Url;
 
 /// Represents the source of shapes or data, which can be either a local file or a named graph from an `OntoEnv`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Source {
     /// A local file path.
     File(PathBuf),
     /// The URI of a named graph.
     Graph(String),
+    /// In-memory quads scoped to a graph identifier.
+    ///
+    /// Callers should provide quads that belong to this logical graph. During loading,
+    /// quads from the default graph are assigned to `graph`.
+    Quads { graph: String, quads: Vec<Quad> },
     /// An in-memory empty graph (used when a data graph is not needed).
     Empty,
 }
@@ -189,6 +194,7 @@ pub struct ValidatorBuilder {
     skip_sparql_blank_targets: bool,
     strict_custom_constraints: bool,
     do_imports: bool,
+    refresh_strategy: RefreshStrategy,
     import_depth: i32,
     temporary_env: bool,
     optimize_store: bool,
@@ -223,6 +229,7 @@ impl ValidatorBuilder {
             skip_sparql_blank_targets: true,
             strict_custom_constraints: false,
             do_imports: true,
+            refresh_strategy: RefreshStrategy::UseCache,
             import_depth: -1,
             temporary_env: true,
             optimize_store: true,
@@ -246,6 +253,9 @@ impl ValidatorBuilder {
     }
 
     /// Sets the shapes source used for validation.
+    ///
+    /// If omitted, `build()` reuses the configured data source as the shapes source.
+    /// This fallback is only available when the data source is not `Source::Empty`.
     pub fn with_shapes_source(mut self, source: Source) -> Self {
         self.shapes_source = Some(source);
         self
@@ -318,6 +328,16 @@ impl ValidatorBuilder {
         self
     }
 
+    /// Force-refresh ontologies instead of using cached entries (default: use cache).
+    pub fn with_force_refresh(mut self, force_refresh: bool) -> Self {
+        self.refresh_strategy = if force_refresh {
+            RefreshStrategy::Force
+        } else {
+            RefreshStrategy::UseCache
+        };
+        self
+    }
+
     /// Set the maximum owl:imports recursion depth (-1 = unlimited, 0 = only the root graph).
     pub fn with_import_depth(mut self, import_depth: i32) -> Self {
         self.import_depth = import_depth;
@@ -355,7 +375,7 @@ impl ValidatorBuilder {
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
-            shapes_source,
+            mut shapes_source,
             data_source,
             env_config,
             use_shared_env,
@@ -369,6 +389,7 @@ impl ValidatorBuilder {
             skip_sparql_blank_targets,
             strict_custom_constraints,
             do_imports,
+            refresh_strategy,
             import_depth,
             temporary_env,
             optimize_store,
@@ -377,10 +398,16 @@ impl ValidatorBuilder {
             shape_ir,
         } = self;
 
-        if shape_ir.is_none() && shapes_source.is_none() {
-            return Err("shapes source must be specified".to_string().into());
-        }
         let data_source = data_source.ok_or_else(|| "data source must be specified".to_string())?;
+        if shape_ir.is_none() && shapes_source.is_none() {
+            if matches!(data_source, Source::Empty) {
+                return Err("shapes source must be specified when data source is empty"
+                    .to_string()
+                    .into());
+            }
+            info!("No shapes source provided; using data source as shapes source");
+            shapes_source = Some(data_source.clone());
+        }
 
         let config = match env_config {
             Some(config) => config,
@@ -397,17 +424,25 @@ impl ValidatorBuilder {
             shapes_graph_iri,
             data_graph_iri,
             mut shape_graphs_for_union,
-            _shapes_closure_ids,
-            _data_closure_ids,
+            _merged_closure_ids,
             store,
         ) = {
             let mut env = env_handle.write().unwrap();
+            let include_imports_on_add = do_imports && import_depth != 0;
             let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
                 (ir.shape_graph.clone(), false)
             } else {
-                let source =
-                    shapes_source.ok_or_else(|| "shapes source must be specified".to_string())?;
-                Self::add_source(&mut env, &source, "shapes")?
+                let source = shapes_source
+                    .as_ref()
+                    .expect("shapes source is initialized when SHACL-IR is absent");
+                Self::add_source(
+                    &mut env,
+                    &source,
+                    "shapes",
+                    include_imports_on_add,
+                    refresh_strategy,
+                    import_depth,
+                )?
             };
             let (data_graph_iri, data_in_env) = match &data_source {
                 Source::Empty => (
@@ -416,131 +451,190 @@ impl ValidatorBuilder {
                     false,
                 ),
                 _ => {
-                    let (iri, in_env) = Self::add_source(&mut env, &data_source, "data")?;
+                    let (iri, in_env) = Self::add_source(
+                        &mut env,
+                        &data_source,
+                        "data",
+                        include_imports_on_add,
+                        refresh_strategy,
+                        import_depth,
+                    )?;
                     (iri, in_env)
                 }
             };
 
-            let shapes_closure_ids = if do_imports && shapes_in_env {
-                let graph_id = env
-                    .resolve(ResolveTarget::Graph(shapes_graph_iri.clone()))
-                    .ok_or_else(|| {
-                        Box::new(std::io::Error::other(format!(
-                            "Ontology not found for shapes graph {}",
-                            shapes_graph_iri
-                        ))) as Box<dyn Error>
-                    })?;
-                let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
-                    Box::new(std::io::Error::other(format!(
-                        "Failed to build imports closure for shapes graph {}: {}",
-                        shapes_graph_iri, e
-                    ))) as Box<dyn Error>
-                })?;
-                if !closure_ids.contains(&graph_id) {
-                    closure_ids.push(graph_id.clone());
+            let shapes_quads_import_graphs = if do_imports && !shapes_in_env {
+                if let Some(Source::Quads { quads, .. }) = shapes_source.as_ref() {
+                    Self::load_import_graphs_for_quads(
+                        &mut env,
+                        quads,
+                        import_depth,
+                        "shapes",
+                        refresh_strategy,
+                    )?
+                } else {
+                    Vec::new()
                 }
-                Some(closure_ids)
+            } else {
+                Vec::new()
+            };
+            let data_closure_ids = if do_imports && data_in_env {
+                Some(Self::resolve_closure_ids_for_graph(
+                    &mut env,
+                    &data_graph_iri,
+                    import_depth,
+                    "data",
+                )?)
             } else {
                 None
             };
-            let data_closure_ids = if do_imports && data_in_env {
-                let graph_id = env
-                    .resolve(ResolveTarget::Graph(data_graph_iri.clone()))
-                    .ok_or_else(|| {
-                        Box::new(std::io::Error::other(format!(
-                            "Ontology not found for data graph {}",
-                            data_graph_iri
-                        ))) as Box<dyn Error>
-                    })?;
-                let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
-                    Box::new(std::io::Error::other(format!(
-                        "Failed to build imports closure for data graph {}: {}",
-                        data_graph_iri, e
-                    ))) as Box<dyn Error>
-                })?;
-                if !closure_ids.contains(&graph_id) {
-                    closure_ids.push(graph_id.clone());
+            if do_imports && !data_in_env {
+                if let Source::Quads { quads, .. } = &data_source {
+                    let _ = Self::load_import_graphs_for_quads(
+                        &mut env,
+                        quads,
+                        import_depth,
+                        "data",
+                        refresh_strategy,
+                    )?;
                 }
-                Some(closure_ids)
+            }
+            let data_contains_shapes = data_closure_ids
+                .as_ref()
+                .is_some_and(|ids| Self::closure_contains_graph(ids, &shapes_graph_iri));
+            let shapes_closure_ids = if do_imports && shapes_in_env {
+                if data_contains_shapes {
+                    info!(
+                        "Data imports closure already contains shapes graph <{}>; skipping separate shapes closure resolution",
+                        shapes_graph_iri
+                    );
+                    None
+                } else {
+                    Some(Self::resolve_closure_ids_for_graph(
+                        &mut env,
+                        &shapes_graph_iri,
+                        import_depth,
+                        "shapes",
+                    )?)
+                }
+            } else {
+                None
+            };
+            let merged_closure_ids = if do_imports {
+                let merged = Self::merge_closure_ids_by_ontology_uri(
+                    shapes_closure_ids.as_ref(),
+                    data_closure_ids.as_ref(),
+                );
+                if merged.is_empty() {
+                    None
+                } else {
+                    if data_contains_shapes {
+                        info!(
+                            "Resolving imports once from data closure ({} ontologies)",
+                            merged.len()
+                        );
+                    } else if data_closure_ids.is_some() && shapes_closure_ids.is_some() {
+                        info!(
+                            "Merged shapes/data import closures with explicit shapes-source precedence ({} ontologies)",
+                            merged.len()
+                        );
+                    }
+                    Some(merged)
+                }
             } else {
                 None
             };
 
             let mut shape_graphs_for_union: Vec<NamedNode> = vec![shapes_graph_iri.clone()];
-            if let Some(ids) = &shapes_closure_ids {
+            shape_graphs_for_union.extend(shapes_quads_import_graphs);
+            let shape_union_closure_ids = shapes_closure_ids.as_ref().or_else(|| {
+                if data_contains_shapes {
+                    data_closure_ids.as_ref()
+                } else {
+                    None
+                }
+            });
+            if let Some(ids) = shape_union_closure_ids {
                 for id in ids {
-                    if let Ok(ont) = env.get_ontology(id) {
-                        let name = ont.name().clone();
-                        if !shape_graphs_for_union.iter().any(|g| g == &name) {
-                            shape_graphs_for_union.push(name);
-                        }
+                    let name = id.name().into_owned();
+                    if name == data_graph_iri {
+                        continue;
+                    }
+                    if !shape_graphs_for_union.iter().any(|g| g == &name) {
+                        shape_graphs_for_union.push(name);
                     }
                 }
             }
 
             let store = if do_imports {
-                let store = Store::new().map_err(|e| {
+                if let Some(ids) = &merged_closure_ids {
+                    let can_reuse_env_store = Self::can_reuse_ontoenv_store_for_imports(
+                        temporary_env,
+                        use_shared_env,
+                        shapes_closure_ids.as_ref(),
+                        data_closure_ids.as_ref(),
+                    );
+                    if can_reuse_env_store {
+                        info!(
+                            "Using OntoEnv store directly for merged imports closure ({} ontologies); skipping union store materialization",
+                            ids.len()
+                        );
+                        env.io().store().clone()
+                    } else {
+                        let store = Store::new().map_err(|e| {
+                            Box::new(std::io::Error::other(format!(
+                                "Error creating in-memory store: {}",
+                                e
+                            ))) as Box<dyn Error>
+                        })?;
+                        let union_base = if ids
+                            .iter()
+                            .any(|id| id.name().as_str() == shapes_graph_iri.as_str())
+                        {
+                            shapes_graph_iri.as_ref()
+                        } else {
+                            data_graph_iri.as_ref()
+                        };
+                        let union = env
+                            .get_union_graph(ids, union_base, Some(false), Some(false))
+                            .map_err(|e| {
+                                Box::new(std::io::Error::other(format!(
+                                    "Failed to load merged union graph for shape/data closures: {}",
+                                    e
+                                ))) as Box<dyn Error>
+                            })?;
+                        for quad in union.dataset.iter() {
+                            store.insert(quad).map_err(|e| {
+                                Box::new(std::io::Error::other(format!(
+                                    "Failed to insert quad into store: {}",
+                                    e
+                                ))) as Box<dyn Error>
+                            })?;
+                        }
+                        store
+                    }
+                } else {
+                    env.io().store().clone()
+                }
+            } else {
+                let scoped_store = Store::new().map_err(|e| {
                     Box::new(std::io::Error::other(format!(
                         "Error creating in-memory store: {}",
                         e
                     ))) as Box<dyn Error>
                 })?;
-
-                let mut populated = false;
-                if let Some(ids) = &shapes_closure_ids {
-                    let union = env
-                        .get_union_graph(ids, shapes_graph_iri.as_ref(), Some(false), Some(false))
-                        .map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to load union graph for shapes graph {}: {}",
-                                shapes_graph_iri, e
-                            ))) as Box<dyn Error>
-                        })?;
-                    for quad in union.dataset.iter() {
-                        store.insert(quad).map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to insert quad into store: {}",
-                                e
-                            ))) as Box<dyn Error>
-                        })?;
-                    }
-                    populated = true;
+                Self::copy_named_graph(env.io().store(), &scoped_store, &shapes_graph_iri)?;
+                if !matches!(data_source, Source::Empty) && data_graph_iri != shapes_graph_iri {
+                    Self::copy_named_graph(env.io().store(), &scoped_store, &data_graph_iri)?;
                 }
-                if let Some(ids) = &data_closure_ids {
-                    let union = env
-                        .get_union_graph(ids, data_graph_iri.as_ref(), Some(false), Some(false))
-                        .map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to load union graph for data graph {}: {}",
-                                data_graph_iri, e
-                            ))) as Box<dyn Error>
-                        })?;
-                    for quad in union.dataset.iter() {
-                        store.insert(quad).map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to insert quad into store: {}",
-                                e
-                            ))) as Box<dyn Error>
-                        })?;
-                    }
-                    populated = true;
-                }
-
-                if populated {
-                    store
-                } else {
-                    env.io().store().clone()
-                }
-            } else {
-                env.io().store().clone()
+                scoped_store
             };
 
             (
                 shapes_graph_iri,
                 data_graph_iri,
                 shape_graphs_for_union,
-                shapes_closure_ids,
-                data_closure_ids,
+                merged_closure_ids,
                 store,
             )
         };
@@ -576,7 +670,7 @@ impl ValidatorBuilder {
                 let base_ref = data_skolem_base.as_deref();
                 Some(OriginalValueIndex::from_path(path, base_ref)?)
             }
-            Source::Graph(_) | Source::Empty => None,
+            Source::Graph(_) | Source::Quads { .. } | Source::Empty => None,
         };
 
         if let Some(ir) = shape_ir.as_ref() {
@@ -653,6 +747,10 @@ impl ValidatorBuilder {
                     e
                 )))
             })?;
+            info!(
+                "Finished store optimization with shape graph <{}> and data graph <{}>",
+                shapes_graph_iri, data_graph_iri
+            );
         } else {
             info!(
                 "Skipping store optimization for shape graph <{}> and data graph <{}>",
@@ -718,6 +816,9 @@ impl ValidatorBuilder {
         env: &mut OntoEnv,
         source: &Source,
         label: &str,
+        include_imports: bool,
+        refresh_strategy: RefreshStrategy,
+        import_depth: i32,
     ) -> Result<(NamedNode, bool), Box<dyn Error>> {
         let file_path = match source {
             Source::File(path) => {
@@ -733,32 +834,92 @@ impl ValidatorBuilder {
         let fallback_location = match source {
             Source::File(path) => path.display().to_string(),
             Source::Graph(uri) => uri.clone(),
+            Source::Quads { graph, quads } => {
+                format!("{} ({} in-memory quads)", graph, quads.len())
+            }
             Source::Empty => "<empty>".to_string(),
         };
 
+        if let Source::Quads { graph, quads } = source {
+            let normalized_graph = graph
+                .strip_prefix('<')
+                .and_then(|s| s.strip_suffix('>'))
+                .unwrap_or(graph.as_str());
+            let graph_iri = NamedNode::new(normalized_graph).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Invalid graph IRI for {} graph {}: {}",
+                    label, graph, e
+                ))) as Box<dyn Error>
+            })?;
+
+            for quad in quads {
+                let quad_to_insert = match &quad.graph_name {
+                    GraphName::NamedNode(_) => quad.clone(),
+                    _ => Quad::new(
+                        quad.subject.clone(),
+                        quad.predicate.clone(),
+                        quad.object.clone(),
+                        GraphName::NamedNode(graph_iri.clone()),
+                    ),
+                };
+                env.io()
+                    .store()
+                    .insert(quad_to_insert.as_ref())
+                    .map_err(|ins_err| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to insert in-memory quad into {} graph {}: {}",
+                            label, graph_iri, ins_err
+                        ))) as Box<dyn Error>
+                    })?;
+            }
+
+            debug!(
+                "Loaded {} graph {} from in-memory quads ({})",
+                label,
+                graph_iri,
+                quads.len()
+            );
+            info!("Added {} graph from in-memory quads: {}", label, graph_iri);
+            return Ok((graph_iri, false));
+        }
+
         // Try OntoEnv first.
         let from_env = match source {
-            Source::Graph(uri) => env.add(
-                OntologyLocation::Url(uri.clone()),
-                Overwrite::Allow,
-                RefreshStrategy::Force,
-            ),
-            Source::File(_) => env.add(
-                OntologyLocation::File(
+            Source::Graph(uri) => {
+                if include_imports {
+                    env.add(
+                        OntologyLocation::Url(uri.clone()),
+                        Overwrite::Allow,
+                        refresh_strategy,
+                    )
+                } else {
+                    env.add_no_imports(
+                        OntologyLocation::Url(uri.clone()),
+                        Overwrite::Allow,
+                        refresh_strategy,
+                    )
+                }
+            }
+            Source::File(_) => {
+                let location = OntologyLocation::File(
                     file_path
                         .as_ref()
                         .ok_or_else(|| std::io::Error::other("Missing file path"))?
                         .clone(),
-                ),
-                Overwrite::Allow,
-                RefreshStrategy::Force,
-            ),
+                );
+                if include_imports {
+                    env.add(location, Overwrite::Allow, refresh_strategy)
+                } else {
+                    env.add_no_imports(location, Overwrite::Allow, refresh_strategy)
+                }
+            }
             Source::Empty => {
                 return Err(Box::new(std::io::Error::other(format!(
                     "Empty source is not loadable for {} graph",
                     label
                 ))))
             }
+            Source::Quads { .. } => unreachable!("in-memory quads handled above"),
         };
 
         // Resolve through OntoEnv when possible.
@@ -824,6 +985,7 @@ impl ValidatorBuilder {
                     parse_err
                 ))
             })?;
+        let mut parsed_quads = Vec::new();
         for quad in parser.for_reader(std::io::Cursor::new(content.as_bytes())) {
             let quad = quad.map_err(|parse_err| {
                 std::io::Error::other(format!(
@@ -847,6 +1009,19 @@ impl ValidatorBuilder {
                     ins_err
                 ))
             })?;
+            parsed_quads.push(quad);
+        }
+
+        if include_imports {
+            // Keep fallback/manual parsing behavior aligned with OntoEnv-backed modes.
+            // This follows owl:imports links directly from the loaded quads.
+            let _ = Self::load_import_graphs_for_quads(
+                env,
+                &parsed_quads,
+                import_depth,
+                label,
+                refresh_strategy,
+            )?;
         }
 
         debug!(
@@ -861,13 +1036,245 @@ impl ValidatorBuilder {
         Ok((graph_iri, false))
     }
 
+    fn extract_import_iris_from_quads(quads: &[Quad]) -> Vec<String> {
+        let mut imports = Vec::new();
+        let mut seen = HashSet::new();
+        let owl_imports = "http://www.w3.org/2002/07/owl#imports";
+        for quad in quads {
+            if quad.predicate.as_str() != owl_imports {
+                continue;
+            }
+            if let Term::NamedNode(node) = &quad.object {
+                let iri = node.as_str().to_string();
+                if seen.insert(iri.clone()) {
+                    imports.push(iri);
+                }
+            }
+        }
+        imports
+    }
+
+    fn load_import_graphs_for_quads(
+        env: &mut OntoEnv,
+        quads: &[Quad],
+        import_depth: i32,
+        label: &str,
+        refresh_strategy: RefreshStrategy,
+    ) -> Result<Vec<NamedNode>, Box<dyn Error>> {
+        if import_depth == 0 {
+            return Ok(Vec::new());
+        }
+
+        let imports = Self::extract_import_iris_from_quads(quads);
+        if imports.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut imported_graphs = Vec::new();
+        let mut seen = HashSet::new();
+        let strict = env.is_strict();
+        let closure_depth = if import_depth < 0 {
+            -1
+        } else {
+            import_depth - 1
+        };
+
+        for import_iri in imports {
+            let location = match OntologyLocation::from_str(&import_iri) {
+                Ok(location) => location,
+                Err(err) => {
+                    if strict {
+                        return Err(err.into());
+                    }
+                    warn!(
+                        "Failed to parse {} import location {} from in-memory graph: {}",
+                        label, import_iri, err
+                    );
+                    continue;
+                }
+            };
+            let graph_id = match env.add(location, Overwrite::Allow, refresh_strategy) {
+                Ok(id) => id,
+                Err(err) => {
+                    if strict {
+                        return Err(err.into());
+                    }
+                    warn!(
+                        "Failed to load {} import {} from in-memory graph: {}",
+                        label, import_iri, err
+                    );
+                    continue;
+                }
+            };
+            let imported_graph_iri = graph_id.name().into_owned();
+
+            let graph_id = match env.resolve(ResolveTarget::Graph(imported_graph_iri.clone())) {
+                Some(id) => id,
+                None => {
+                    let message = format!(
+                        "Failed to resolve imported {} graph {} after loading",
+                        label, imported_graph_iri
+                    );
+                    if strict {
+                        return Err(std::io::Error::other(message).into());
+                    }
+                    warn!("{}", message);
+                    continue;
+                }
+            };
+
+            let closure = match env.get_closure(&graph_id, closure_depth) {
+                Ok(ids) => ids,
+                Err(err) => {
+                    if strict {
+                        return Err(err.into());
+                    }
+                    warn!(
+                        "Failed to compute imports closure for {} import {}: {}",
+                        label, imported_graph_iri, err
+                    );
+                    continue;
+                }
+            };
+
+            for id in closure {
+                let name = id.name().into_owned();
+                if seen.insert(name.clone()) {
+                    imported_graphs.push(name);
+                }
+            }
+        }
+
+        Ok(imported_graphs)
+    }
+
     fn skolem_base(iri: &NamedNode) -> String {
         skolem::skolem_base(iri)
+    }
+
+    fn copy_named_graph(
+        source: &Store,
+        target: &Store,
+        graph_iri: &NamedNode,
+    ) -> Result<(), Box<dyn Error>> {
+        for quad_res in source.quads_for_pattern(
+            None,
+            None,
+            None,
+            Some(GraphNameRef::NamedNode(graph_iri.as_ref())),
+        ) {
+            let quad = quad_res.map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to read quad from graph {}: {}",
+                    graph_iri, e
+                ))) as Box<dyn Error>
+            })?;
+            target.insert(quad.as_ref()).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to insert quad from graph {}: {}",
+                    graph_iri, e
+                ))) as Box<dyn Error>
+            })?;
+        }
+        Ok(())
     }
 
     fn dedup_graphs(graphs: &mut Vec<NamedNode>) {
         let mut seen = HashSet::new();
         graphs.retain(|g| seen.insert(g.clone()));
+    }
+
+    fn resolve_closure_ids_for_graph(
+        env: &mut OntoEnv,
+        graph_iri: &NamedNode,
+        import_depth: i32,
+        label: &str,
+    ) -> Result<Vec<GraphIdentifier>, Box<dyn Error>> {
+        let graph_id = env
+            .resolve(ResolveTarget::Graph(graph_iri.clone()))
+            .ok_or_else(|| {
+                Box::new(std::io::Error::other(format!(
+                    "Ontology not found for {} graph {}",
+                    label, graph_iri
+                ))) as Box<dyn Error>
+            })?;
+        let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to build imports closure for {} graph {}: {}",
+                label, graph_iri, e
+            ))) as Box<dyn Error>
+        })?;
+        if !closure_ids.contains(&graph_id) {
+            closure_ids.push(graph_id);
+        }
+        Ok(closure_ids)
+    }
+
+    fn closure_contains_graph(closure_ids: &[GraphIdentifier], graph_iri: &NamedNode) -> bool {
+        closure_ids
+            .iter()
+            .any(|id| id.name().as_str() == graph_iri.as_str())
+    }
+
+    fn has_conflicting_graph_sources_for_same_uri(
+        primary_ids: Option<&Vec<GraphIdentifier>>,
+        secondary_ids: Option<&Vec<GraphIdentifier>>,
+    ) -> bool {
+        let mut primary_by_uri: HashMap<String, &GraphIdentifier> = HashMap::new();
+        if let Some(ids) = primary_ids {
+            for id in ids {
+                primary_by_uri.insert(id.name().as_str().to_string(), id);
+            }
+        }
+        if let Some(ids) = secondary_ids {
+            for id in ids {
+                if let Some(primary) = primary_by_uri.get(id.name().as_str()) {
+                    if *primary != id {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn can_reuse_ontoenv_store_for_imports(
+        temporary_env: bool,
+        use_shared_env: bool,
+        shapes_closure_ids: Option<&Vec<GraphIdentifier>>,
+        data_closure_ids: Option<&Vec<GraphIdentifier>>,
+    ) -> bool {
+        if !temporary_env || use_shared_env {
+            return false;
+        }
+        // If the same ontology URI resolves to different sources, keep materialization so
+        // merged-closure source precedence stays deterministic.
+        !Self::has_conflicting_graph_sources_for_same_uri(shapes_closure_ids, data_closure_ids)
+    }
+
+    /// Merge closure IDs and deduplicate by ontology URI.
+    ///
+    /// IDs from `preferred_closure_ids` win when both closures contain the same URI.
+    fn merge_closure_ids_by_ontology_uri(
+        preferred_closure_ids: Option<&Vec<GraphIdentifier>>,
+        secondary_closure_ids: Option<&Vec<GraphIdentifier>>,
+    ) -> Vec<GraphIdentifier> {
+        let mut merged = Vec::new();
+        let mut seen_uris: HashSet<String> = HashSet::new();
+
+        for ids in [preferred_closure_ids, secondary_closure_ids]
+            .into_iter()
+            .flatten()
+        {
+            for id in ids {
+                let uri = id.name().as_str().to_string();
+                if seen_uris.insert(uri) {
+                    merged.push(id.clone());
+                }
+            }
+        }
+
+        merged
     }
 
     fn graph_names_from_quads(quads: &[Quad], fallback: &NamedNode) -> Vec<NamedNode> {
@@ -1071,10 +1478,21 @@ impl Validator {
     /// The report contains the outcome of the validation (conformity) and detailed
     /// results for any failures. The returned report is tied to the lifetime of the Validator.
     pub fn validate(&self) -> ValidationReport<'_> {
+        info!(
+            "Starting validation with shape graph <{}> and data graph <{}>",
+            self.context.model.shape_graph_iri, self.context.data_graph_iri
+        );
         self.context.reset_validation_run_state();
         let report_builder = validate::validate(&self.context);
         // The report needs the context to be able to serialize itself later.
-        ValidationReport::new(report_builder.unwrap(), &self.context)
+        let report = ValidationReport::new(report_builder.unwrap(), &self.context);
+        info!(
+            "Finished validation with shape graph <{}> and data graph <{}>; conforms={}",
+            self.context.model.shape_graph_iri,
+            self.context.data_graph_iri,
+            report.conforms()
+        );
+        report
     }
 
     /// Returns per-component counters for graph-query operations collected during validation.
@@ -1144,16 +1562,10 @@ impl Validator {
                     (mean_nanos, variance_nanos)
                 };
                 let phase = match row.phase {
-                    crate::context::ShapeTimingPhase::NodeTarget => {
-                        "node_target_selection"
-                    }
+                    crate::context::ShapeTimingPhase::NodeTarget => "node_target_selection",
                     crate::context::ShapeTimingPhase::NodeValue => "node_value_selection",
-                    crate::context::ShapeTimingPhase::PropertyTarget => {
-                        "property_target_selection"
-                    }
-                    crate::context::ShapeTimingPhase::PropertyValue => {
-                        "property_value_selection"
-                    }
+                    crate::context::ShapeTimingPhase::PropertyTarget => "property_target_selection",
+                    crate::context::ShapeTimingPhase::PropertyValue => "property_value_selection",
                 };
                 ShapePhaseTimingStat {
                     source_shape: row
@@ -1280,7 +1692,26 @@ impl Validator {
         &self,
         config: InferenceConfig,
     ) -> Result<InferenceOutcome, InferenceError> {
-        crate::inference::run_inference(&self.context, config)
+        info!(
+            "Starting inference with shape graph <{}> and data graph <{}>",
+            self.context.model.shape_graph_iri, self.context.data_graph_iri
+        );
+        let outcome = crate::inference::run_inference(&self.context, config);
+        match &outcome {
+            Ok(outcome) => info!(
+                "Finished inference with shape graph <{}> and data graph <{}>; iterations={} triples_added={} converged={}",
+                self.context.model.shape_graph_iri,
+                self.context.data_graph_iri,
+                outcome.iterations_executed,
+                outcome.triples_added,
+                outcome.converged
+            ),
+            Err(err) => warn!(
+                "Finished inference with shape graph <{}> and data graph <{}>; failed with error: {}",
+                self.context.model.shape_graph_iri, self.context.data_graph_iri, err
+            ),
+        }
+        outcome
     }
 
     /// Runs inference using the default configuration.
@@ -1381,12 +1812,14 @@ mod tests {
     use crate::runtime::Component;
     use crate::sparql::validate_prebound_variable_usage;
     use oxigraph::model::vocab::rdf;
-    use oxigraph::model::{NamedNode, NamedOrBlankNode, Term, TermRef};
+    use oxigraph::model::{
+        GraphName, GraphNameRef, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
+    };
     use std::error::Error;
     use std::fs;
     use std::io::Write;
     use std::panic;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1398,9 +1831,376 @@ mod tests {
         Ok(dir)
     }
 
+    fn temp_env_config(root: &Path) -> Result<Config, Box<dyn Error>> {
+        Config::builder()
+            .root(root.to_path_buf())
+            .locations(vec![root.to_path_buf()])
+            .offline(false)
+            .temporary(true)
+            .build()
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to build test OntoEnv config: {}",
+                    e
+                ))) as Box<dyn Error>
+            })
+    }
+
+    fn store_has_graph(store: &Store, graph_iri: &NamedNode) -> bool {
+        store
+            .quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(GraphNameRef::NamedNode(graph_iri.as_ref())),
+            )
+            .next()
+            .is_some()
+    }
+
     fn validator_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn validates_from_in_memory_quads_source() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+
+        let shape_graph = NamedNode::new("urn:shifty:test:shape")?;
+        let data_graph = NamedNode::new("urn:shifty:test:data")?;
+        let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")?;
+        let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape")?;
+        let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode")?;
+        let sh_class = NamedNode::new("http://www.w3.org/ns/shacl#class")?;
+        let person_shape = NamedNode::new("http://example.com/PersonShape")?;
+        let alice = NamedNode::new("http://example.com/Alice")?;
+        let person = NamedNode::new("http://example.com/Person")?;
+
+        let shape_quads = vec![
+            Quad::new(
+                person_shape.clone(),
+                rdf_type.clone(),
+                sh_node_shape.clone(),
+                GraphName::NamedNode(shape_graph.clone()),
+            ),
+            Quad::new(
+                person_shape.clone(),
+                sh_target_node.clone(),
+                alice.clone(),
+                GraphName::NamedNode(shape_graph.clone()),
+            ),
+            Quad::new(
+                person_shape.clone(),
+                sh_class.clone(),
+                person.clone(),
+                GraphName::NamedNode(shape_graph.clone()),
+            ),
+        ];
+        let data_quads = vec![Quad::new(
+            alice.clone(),
+            rdf_type,
+            person,
+            GraphName::NamedNode(data_graph.clone()),
+        )];
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::Quads {
+                graph: shape_graph.to_string(),
+                quads: shape_quads,
+            })
+            .with_data_source(Source::Quads {
+                graph: data_graph.to_string(),
+                quads: data_quads,
+            })
+            .with_do_imports(false)
+            .build()?;
+
+        let report = validator.validate();
+        assert!(report.conforms(), "Expected validation to pass");
+        Ok(())
+    }
+
+    #[test]
+    fn defaults_shapes_source_to_data_source_when_omitted() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+
+        let data_graph = NamedNode::new("urn:shifty:test:data-as-shapes")?;
+        let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")?;
+        let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape")?;
+        let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode")?;
+        let sh_class = NamedNode::new("http://www.w3.org/ns/shacl#class")?;
+        let person_shape = NamedNode::new("http://example.com/PersonShape")?;
+        let alice = NamedNode::new("http://example.com/Alice")?;
+        let person = NamedNode::new("http://example.com/Person")?;
+
+        let merged_quads = vec![
+            Quad::new(
+                person_shape.clone(),
+                rdf_type.clone(),
+                sh_node_shape,
+                GraphName::NamedNode(data_graph.clone()),
+            ),
+            Quad::new(
+                person_shape.clone(),
+                sh_target_node,
+                alice.clone(),
+                GraphName::NamedNode(data_graph.clone()),
+            ),
+            Quad::new(
+                person_shape,
+                sh_class,
+                person.clone(),
+                GraphName::NamedNode(data_graph.clone()),
+            ),
+            Quad::new(
+                alice,
+                rdf_type,
+                person,
+                GraphName::NamedNode(data_graph.clone()),
+            ),
+        ];
+
+        let validator = Validator::builder()
+            .with_data_source(Source::Quads {
+                graph: data_graph.to_string(),
+                quads: merged_quads,
+            })
+            .with_do_imports(false)
+            .build()?;
+
+        assert_eq!(
+            validator.context.model.shape_graph_iri, data_graph,
+            "shape graph should default to the data graph when omitted"
+        );
+        let report = validator.validate();
+        assert!(report.conforms(), "Expected validation to pass");
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_missing_shapes_when_data_is_empty() {
+        let _guard = validator_lock().lock().unwrap();
+        let err = Validator::builder()
+            .with_data_source(Source::Empty)
+            .build()
+            .err()
+            .expect("expected builder error when both shapes and data are absent");
+        assert!(
+            err.to_string()
+                .contains("shapes source must be specified when data source is empty"),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn in_memory_quads_can_load_import_dependencies() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_in_memory_imports")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        fs::write(
+            &imported_path,
+            "<http://example.com/s> <http://example.com/p> <http://example.com/o> .\n",
+        )?;
+        let imported_url = format!("file://{}", imported_path.display());
+
+        let shapes_graph = NamedNode::new("urn:shifty:test:shape-import-root")?;
+        let data_graph = NamedNode::new("urn:shifty:test:data-import-root")?;
+        let root_ontology = NamedNode::new("urn:shifty:test:root-ontology")?;
+        let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")?;
+        let owl_ontology = NamedNode::new("http://www.w3.org/2002/07/owl#Ontology")?;
+        let owl_imports = NamedNode::new("http://www.w3.org/2002/07/owl#imports")?;
+        let imported_node = NamedNode::new(imported_url.clone())?;
+
+        let shape_quads = vec![
+            Quad::new(
+                root_ontology.clone(),
+                rdf_type,
+                owl_ontology,
+                GraphName::NamedNode(shapes_graph.clone()),
+            ),
+            Quad::new(
+                root_ontology,
+                owl_imports,
+                imported_node.clone(),
+                GraphName::NamedNode(shapes_graph.clone()),
+            ),
+        ];
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::Quads {
+                graph: shapes_graph.to_string(),
+                quads: shape_quads,
+            })
+            .with_data_source(Source::Quads {
+                graph: data_graph.to_string(),
+                quads: Vec::new(),
+            })
+            .with_do_imports(true)
+            .build()?;
+
+        let imported_graph = NamedNode::new(imported_url)?;
+        let has_imported_triples = validator
+            .context
+            .model
+            .store
+            .quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(GraphNameRef::NamedNode(imported_graph.as_ref())),
+            )
+            .next()
+            .is_some();
+        assert!(
+            has_imported_triples,
+            "Expected imported graph triples to be loaded for in-memory source"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn file_and_quads_sources_skip_imports_when_disabled() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_skip_imports_parity")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        fs::write(
+            &imported_path,
+            "<http://example.com/s> <http://example.com/p> <http://example.com/o> .\n",
+        )?;
+        let imported_url = format!("file://{}", imported_path.display());
+        let imported_graph = NamedNode::new(imported_url.clone())?;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:shifty:test:root> a owl:Ontology ; owl:imports <{}> .\n",
+            imported_url
+        );
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let file_validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(false)
+            .build()?;
+        assert!(
+            !store_has_graph(&file_validator.context.model.store, &imported_graph),
+            "file source should not load imports when do_imports=false"
+        );
+
+        let shapes_graph = NamedNode::new("urn:shifty:test:shape-import-root")?;
+        let root_ontology = NamedNode::new("urn:shifty:test:root-ontology")?;
+        let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")?;
+        let owl_ontology = NamedNode::new("http://www.w3.org/2002/07/owl#Ontology")?;
+        let owl_imports = NamedNode::new("http://www.w3.org/2002/07/owl#imports")?;
+        let imported_node = NamedNode::new(imported_url)?;
+        let shape_quads = vec![
+            Quad::new(
+                root_ontology.clone(),
+                rdf_type,
+                owl_ontology,
+                GraphName::NamedNode(shapes_graph.clone()),
+            ),
+            Quad::new(
+                root_ontology,
+                owl_imports,
+                imported_node,
+                GraphName::NamedNode(shapes_graph.clone()),
+            ),
+        ];
+
+        let quads_validator = Validator::builder()
+            .with_shapes_source(Source::Quads {
+                graph: shapes_graph.to_string(),
+                quads: shape_quads,
+            })
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(false)
+            .build()?;
+        assert!(
+            !store_has_graph(&quads_validator.context.model.store, &imported_graph),
+            "quads source should not load imports when do_imports=false"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn file_and_quads_sources_load_imports_when_enabled() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_load_imports_parity")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        fs::write(
+            &imported_path,
+            "<http://example.com/s> <http://example.com/p> <http://example.com/o> .\n",
+        )?;
+        let imported_url = format!("file://{}", imported_path.display());
+        let imported_graph = NamedNode::new(imported_url.clone())?;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:shifty:test:root> a owl:Ontology ; owl:imports <{}> .\n",
+            imported_url
+        );
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let file_validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+        assert!(
+            store_has_graph(&file_validator.context.model.store, &imported_graph),
+            "file source should load imports when do_imports=true"
+        );
+
+        let shapes_graph = NamedNode::new("urn:shifty:test:shape-import-root-enabled")?;
+        let root_ontology = NamedNode::new("urn:shifty:test:root-ontology-enabled")?;
+        let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")?;
+        let owl_ontology = NamedNode::new("http://www.w3.org/2002/07/owl#Ontology")?;
+        let owl_imports = NamedNode::new("http://www.w3.org/2002/07/owl#imports")?;
+        let imported_node = NamedNode::new(imported_url)?;
+        let shape_quads = vec![
+            Quad::new(
+                root_ontology.clone(),
+                rdf_type,
+                owl_ontology,
+                GraphName::NamedNode(shapes_graph.clone()),
+            ),
+            Quad::new(
+                root_ontology,
+                owl_imports,
+                imported_node,
+                GraphName::NamedNode(shapes_graph.clone()),
+            ),
+        ];
+
+        let quads_validator = Validator::builder()
+            .with_shapes_source(Source::Quads {
+                graph: shapes_graph.to_string(),
+                quads: shape_quads,
+            })
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+        assert!(
+            store_has_graph(&quads_validator.context.model.store, &imported_graph),
+            "quads source should load imports when do_imports=true"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
     }
 
     #[test]
