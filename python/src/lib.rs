@@ -7,7 +7,10 @@ use ::shifty::shacl_ir::ShapeIR;
 use ::shifty::trace::TraceEvent;
 use ::shifty::{InferenceConfig, Source, ValidationReportOptions, Validator};
 use ontoenv::config::Config;
-use oxigraph::model::Quad;
+use oxigraph::model::{
+    BlankNode, Graph, GraphName, Literal, NamedNode, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
+    Term, TermRef,
+};
 use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -21,30 +24,139 @@ fn map_err<E: std::fmt::Display>(err: E) -> PyErr {
     PyValueError::new_err(err.to_string())
 }
 
-fn write_graph_to_file(
-    py: Python<'_>,
-    graph: &Bound<'_, PyAny>,
-    dir: &Path,
-    filename: &str,
-) -> PyResult<PathBuf> {
-    let turtle = serialize_graph(py, graph, "turtle")?;
+const PY_SHAPES_GRAPH_IRI: &str = "urn:shifty:python:shapes";
+const PY_DATA_GRAPH_IRI: &str = "urn:shifty:python:data";
+const XSD_STRING_IRI: &str = "http://www.w3.org/2001/XMLSchema#string";
 
-    let path = dir.join(filename);
-    fs::write(&path, turtle).map_err(map_err)?;
-    Ok(path)
+struct RdflibTerms {
+    graph: Py<PyAny>,
+    uri_ref: Py<PyAny>,
+    bnode: Py<PyAny>,
+    literal: Py<PyAny>,
 }
 
-fn serialize_graph(py: Python<'_>, graph: &Bound<'_, PyAny>, format: &str) -> PyResult<String> {
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("format", format)?;
-    let serialized = graph.call_method("serialize", (), Some(&kwargs))?;
-    match serialized.extract::<String>() {
-        Ok(s) => Ok(s),
-        Err(_) => {
-            let bytes: Vec<u8> = serialized.extract()?;
-            String::from_utf8(bytes).map_err(map_err)
-        }
+fn rdflib_terms(py: Python<'_>) -> PyResult<RdflibTerms> {
+    let rdflib = PyModule::import(py, "rdflib")?;
+    let term = PyModule::import(py, "rdflib.term")?;
+    Ok(RdflibTerms {
+        graph: rdflib.getattr("Graph")?.unbind(),
+        uri_ref: term.getattr("URIRef")?.unbind(),
+        bnode: term.getattr("BNode")?.unbind(),
+        literal: term.getattr("Literal")?.unbind(),
+    })
+}
+
+fn py_term_as_string(term: &Bound<'_, PyAny>) -> PyResult<String> {
+    Ok(term.str()?.to_string())
+}
+
+fn py_term_to_named_or_blank(
+    py: Python<'_>,
+    term: &Bound<'_, PyAny>,
+    terms: &RdflibTerms,
+    role: &str,
+) -> PyResult<NamedOrBlankNode> {
+    if term.is_instance(terms.uri_ref.bind(py))? {
+        let iri = py_term_as_string(term)?;
+        let node = NamedNode::new(iri).map_err(map_err)?;
+        return Ok(NamedOrBlankNode::NamedNode(node));
     }
+    if term.is_instance(terms.bnode.bind(py))? {
+        let id = py_term_as_string(term)?;
+        let node = BlankNode::new(id).map_err(map_err)?;
+        return Ok(NamedOrBlankNode::BlankNode(node));
+    }
+    Err(PyValueError::new_err(format!(
+        "Expected URIRef or BNode for {}",
+        role
+    )))
+}
+
+fn py_term_to_predicate(
+    py: Python<'_>,
+    term: &Bound<'_, PyAny>,
+    terms: &RdflibTerms,
+) -> PyResult<NamedNode> {
+    if !term.is_instance(terms.uri_ref.bind(py))? {
+        return Err(PyValueError::new_err(
+            "Predicate must be an rdflib.term.URIRef",
+        ));
+    }
+    NamedNode::new(py_term_as_string(term)?).map_err(map_err)
+}
+
+fn py_term_to_object(
+    py: Python<'_>,
+    term: &Bound<'_, PyAny>,
+    terms: &RdflibTerms,
+) -> PyResult<Term> {
+    if term.is_instance(terms.uri_ref.bind(py))? {
+        let iri = py_term_as_string(term)?;
+        return Ok(Term::NamedNode(NamedNode::new(iri).map_err(map_err)?));
+    }
+
+    if term.is_instance(terms.bnode.bind(py))? {
+        let id = py_term_as_string(term)?;
+        return Ok(Term::BlankNode(BlankNode::new(id).map_err(map_err)?));
+    }
+
+    if term.is_instance(terms.literal.bind(py))? {
+        let lexical = py_term_as_string(term)?;
+        let language_obj = term.getattr("language")?;
+        if !language_obj.is_none() {
+            let language = py_term_as_string(&language_obj)?;
+            let literal =
+                Literal::new_language_tagged_literal(lexical, language).map_err(map_err)?;
+            return Ok(Term::Literal(literal));
+        }
+
+        let datatype_obj = term.getattr("datatype")?;
+        if !datatype_obj.is_none() {
+            let datatype = NamedNode::new(py_term_as_string(&datatype_obj)?).map_err(map_err)?;
+            return Ok(Term::Literal(Literal::new_typed_literal(lexical, datatype)));
+        }
+
+        return Ok(Term::Literal(Literal::new_simple_literal(lexical)));
+    }
+
+    Err(PyValueError::new_err(
+        "Object must be an rdflib.term.URIRef, BNode, or Literal",
+    ))
+}
+
+fn graph_to_quads(
+    py: Python<'_>,
+    graph: &Bound<'_, PyAny>,
+    graph_iri: &str,
+) -> PyResult<Vec<Quad>> {
+    let terms = rdflib_terms(py)?;
+    let graph_name = NamedNode::new(graph_iri).map_err(map_err)?;
+    let mut quads = Vec::new();
+
+    for item in graph.try_iter()? {
+        let triple = item?;
+        let triple = triple.cast::<PyTuple>()?;
+        if triple.len() != 3 {
+            return Err(PyValueError::new_err(
+                "Expected graph iteration to yield 3-tuples",
+            ));
+        }
+        let subject_py = triple.get_item(0)?;
+        let predicate_py = triple.get_item(1)?;
+        let object_py = triple.get_item(2)?;
+
+        let subject = py_term_to_named_or_blank(py, &subject_py, &terms, "subject")?;
+        let predicate = py_term_to_predicate(py, &predicate_py, &terms)?;
+        let object = py_term_to_object(py, &object_py, &terms)?;
+        quads.push(Quad::new(
+            subject,
+            predicate,
+            object,
+            GraphName::NamedNode(graph_name.clone()),
+        ));
+    }
+
+    Ok(quads)
 }
 
 fn build_env_config(root: &Path) -> PyResult<Config> {
@@ -60,7 +172,7 @@ fn build_env_config(root: &Path) -> PyResult<Config> {
 
 fn build_validator_from_graphs(
     py: Python<'_>,
-    shapes_graph: &Bound<'_, PyAny>,
+    shapes_graph: Option<&Bound<'_, PyAny>>,
     data_graph: &Bound<'_, PyAny>,
     enable_af: bool,
     enable_rules: bool,
@@ -69,14 +181,22 @@ fn build_validator_from_graphs(
     do_imports: bool,
 ) -> PyResult<Validator> {
     let temp_dir = tempdir().map_err(map_err)?;
-    let shapes_path = write_graph_to_file(py, shapes_graph, temp_dir.path(), "shapes.ttl")?;
-    let data_path = write_graph_to_file(py, data_graph, temp_dir.path(), "data.ttl")?;
-
+    let data_quads = graph_to_quads(py, data_graph, PY_DATA_GRAPH_IRI)?;
     let config = build_env_config(temp_dir.path())?;
+    let mut builder = Validator::builder();
+    if let Some(shapes_graph) = shapes_graph {
+        let shapes_quads = graph_to_quads(py, shapes_graph, PY_SHAPES_GRAPH_IRI)?;
+        builder = builder.with_shapes_source(Source::Quads {
+            graph: PY_SHAPES_GRAPH_IRI.to_string(),
+            quads: shapes_quads,
+        });
+    }
 
-    let validator = Validator::builder()
-        .with_shapes_source(Source::File(shapes_path))
-        .with_data_source(Source::File(data_path))
+    let validator = builder
+        .with_data_source(Source::Quads {
+            graph: PY_DATA_GRAPH_IRI.to_string(),
+            quads: data_quads,
+        })
         .with_env_config(config)
         .with_af_enabled(enable_af)
         .with_rules_enabled(enable_rules)
@@ -100,12 +220,15 @@ fn build_validator_from_ir(
     do_imports: bool,
 ) -> PyResult<Validator> {
     let temp_dir = tempdir().map_err(map_err)?;
-    let data_path = write_graph_to_file(py, data_graph, temp_dir.path(), "data.ttl")?;
+    let data_quads = graph_to_quads(py, data_graph, PY_DATA_GRAPH_IRI)?;
     let config = build_env_config(temp_dir.path())?;
 
     Validator::builder()
         .with_shape_ir(shape_ir.clone())
-        .with_data_source(Source::File(data_path))
+        .with_data_source(Source::Quads {
+            graph: PY_DATA_GRAPH_IRI.to_string(),
+            quads: data_quads,
+        })
         .with_env_config(config)
         .with_af_enabled(enable_af)
         .with_rules_enabled(enable_rules)
@@ -355,43 +478,102 @@ fn resolve_run_until(
     }
 }
 
-fn quads_to_ntriples(quads: &[Quad]) -> String {
-    let mut buffer = String::new();
-    for quad in quads {
-        buffer.push_str(&quad.subject.to_string());
-        buffer.push(' ');
-        buffer.push_str(&quad.predicate.to_string());
-        buffer.push(' ');
-        buffer.push_str(&quad.object.to_string());
-        buffer.push_str(" .\n");
-    }
-    buffer
-}
-
 fn empty_graph(py: Python<'_>) -> PyResult<Py<PyAny>> {
-    let rdflib = PyModule::import(py, "rdflib")?;
-    let graph = rdflib.getattr("Graph")?.call0()?;
+    let terms = rdflib_terms(py)?;
+    let graph = terms.graph.bind(py).call0()?;
     Ok(graph.into())
 }
 
-fn graph_from_data(py: Python<'_>, data: &str, format: &str) -> PyResult<Py<PyAny>> {
-    if data.trim().is_empty() {
+fn named_or_blank_ref_to_py(
+    py: Python<'_>,
+    terms: &RdflibTerms,
+    node: NamedOrBlankNodeRef<'_>,
+) -> PyResult<Py<PyAny>> {
+    match node {
+        NamedOrBlankNodeRef::NamedNode(node) => {
+            Ok(terms.uri_ref.bind(py).call1((node.as_str(),))?.into())
+        }
+        NamedOrBlankNodeRef::BlankNode(node) => {
+            Ok(terms.bnode.bind(py).call1((node.as_str(),))?.into())
+        }
+    }
+}
+
+fn term_ref_to_py(py: Python<'_>, terms: &RdflibTerms, term: TermRef<'_>) -> PyResult<Py<PyAny>> {
+    match term {
+        TermRef::NamedNode(node) => Ok(terms.uri_ref.bind(py).call1((node.as_str(),))?.into()),
+        TermRef::BlankNode(node) => Ok(terms.bnode.bind(py).call1((node.as_str(),))?.into()),
+        TermRef::Literal(literal) => {
+            let kwargs = PyDict::new(py);
+            if let Some(language) = literal.language() {
+                kwargs.set_item("lang", language)?;
+            } else if literal.datatype().as_str() != XSD_STRING_IRI {
+                let datatype = terms
+                    .uri_ref
+                    .bind(py)
+                    .call1((literal.datatype().as_str(),))?;
+                kwargs.set_item("datatype", datatype)?;
+            }
+            Ok(terms
+                .literal
+                .bind(py)
+                .call((literal.value(),), Some(&kwargs))?
+                .into())
+        }
+    }
+}
+
+fn append_quad_triple_to_graph(
+    py: Python<'_>,
+    terms: &RdflibTerms,
+    graph: &Bound<'_, PyAny>,
+    quad: &Quad,
+) -> PyResult<()> {
+    let subject = named_or_blank_ref_to_py(py, terms, quad.subject.as_ref())?;
+    let predicate = terms
+        .uri_ref
+        .bind(py)
+        .call1((quad.predicate.as_str(),))?
+        .into();
+    let object = term_ref_to_py(py, terms, quad.object.as_ref())?;
+    let triple = PyTuple::new(py, &[subject, predicate, object])?;
+    graph.call_method1("add", (triple,))?;
+    Ok(())
+}
+
+fn graph_from_quads(py: Python<'_>, quads: &[Quad]) -> PyResult<Py<PyAny>> {
+    if quads.is_empty() {
         return empty_graph(py);
     }
 
-    let rdflib = PyModule::import(py, "rdflib")?;
-    let graph = rdflib.getattr("Graph")?.call0()?;
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("data", data)?;
-    kwargs.set_item("format", format)?;
-    graph.call_method("parse", (), Some(&kwargs))?;
+    let terms = rdflib_terms(py)?;
+    let graph = terms.graph.bind(py).call0()?;
+    for quad in quads {
+        append_quad_triple_to_graph(py, &terms, &graph, quad)?;
+    }
+    Ok(graph.into())
+}
+
+fn graph_from_oxigraph_graph(py: Python<'_>, ox_graph: &Graph) -> PyResult<Py<PyAny>> {
+    let terms = rdflib_terms(py)?;
+    let graph = terms.graph.bind(py).call0()?;
+    for triple in ox_graph.iter() {
+        let subject = named_or_blank_ref_to_py(py, &terms, triple.subject)?;
+        let predicate = terms
+            .uri_ref
+            .bind(py)
+            .call1((triple.predicate.as_str(),))?
+            .into();
+        let object = term_ref_to_py(py, &terms, triple.object)?;
+        let tuple = PyTuple::new(py, &[subject, predicate, object])?;
+        graph.call_method1("add", (tuple,))?;
+    }
     Ok(graph.into())
 }
 
 fn execute_infer(
     py: Python<'_>,
     validator: Validator,
-    data_graph: &Bound<'_, PyAny>,
     min_iterations: Option<usize>,
     max_iterations: Option<usize>,
     run_until_converged: Option<bool>,
@@ -425,19 +607,11 @@ fn execute_infer(
         .run_inference_with_config(config)
         .map_err(map_err)?;
 
-    let inferred_data = quads_to_ntriples(&outcome.inferred_quads);
     let output_graph = if union {
-        let data_serialized = serialize_graph(py, data_graph, "nt")?;
-        let graph = graph_from_data(py, &data_serialized, "nt")?;
-        if !inferred_data.trim().is_empty() {
-            let kwargs = PyDict::new(py);
-            kwargs.set_item("data", &inferred_data)?;
-            kwargs.set_item("format", "nt")?;
-            graph.bind(py).call_method("parse", (), Some(&kwargs))?;
-        }
-        graph
+        let all_data_quads = validator.data_graph_quads().map_err(map_err)?;
+        graph_from_quads(py, &all_data_quads)?
     } else {
-        graph_from_data(py, &inferred_data, "nt")?
+        graph_from_quads(py, &outcome.inferred_quads)?
     };
 
     let diagnostics = PyDict::new(py);
@@ -709,7 +883,8 @@ fn execute_validate(
     let report_turtle = report
         .to_turtle_with_options(ValidationReportOptions { follow_bnodes })
         .map_err(map_err)?;
-    let report_graph = graph_from_data(py, &report_turtle, "turtle")?;
+    let report_graph_ox = report.to_graph_with_options(ValidationReportOptions { follow_bnodes });
+    let report_graph = graph_from_oxigraph_graph(py, &report_graph_ox)?;
     let diagnostics = PyDict::new(py);
 
     if graphviz {
@@ -821,7 +996,6 @@ impl PyCompiledShapeGraph {
         execute_infer(
             py,
             validator,
-            data_graph,
             min_iterations,
             max_iterations,
             run_until_converged,
@@ -924,10 +1098,13 @@ fn generate_ir(
     do_imports: bool,
 ) -> PyResult<PyCompiledShapeGraph> {
     let temp_dir = tempdir().map_err(map_err)?;
-    let shapes_path = write_graph_to_file(py, shapes_graph, temp_dir.path(), "shapes.ttl")?;
+    let shapes_quads = graph_to_quads(py, shapes_graph, PY_SHAPES_GRAPH_IRI)?;
     let config = build_env_config(temp_dir.path())?;
     let validator = Validator::builder()
-        .with_shapes_source(Source::File(shapes_path))
+        .with_shapes_source(Source::Quads {
+            graph: PY_SHAPES_GRAPH_IRI.to_string(),
+            quads: shapes_quads,
+        })
         .with_data_source(Source::Empty)
         .with_env_config(config)
         .with_af_enabled(enable_af)
@@ -944,11 +1121,12 @@ fn generate_ir(
 }
 
 /// Run SHACL rules to infer additional triples, optionally with diagnostics.
-#[pyfunction(signature = (data_graph, shapes_graph, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false, union=false))]
+/// If `shapes_graph` is omitted, the data graph is used as both data and shapes input.
+#[pyfunction(signature = (data_graph, shapes_graph=None, *, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false, union=false))]
 fn infer(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
-    shapes_graph: &Bound<'_, PyAny>,
+    shapes_graph: Option<&Bound<'_, PyAny>>,
     min_iterations: Option<usize>,
     max_iterations: Option<usize>,
     run_until_converged: Option<bool>,
@@ -988,7 +1166,6 @@ fn infer(
     execute_infer(
         py,
         validator,
-        data_graph,
         min_iterations,
         max_iterations,
         run_until_converged,
@@ -1006,11 +1183,12 @@ fn infer(
 }
 
 /// Validate data against SHACL shapes, with optional inference and diagnostics.
-#[pyfunction(signature = (data_graph, shapes_graph, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, follow_bnodes=false, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
+/// If `shapes_graph` is omitted, the data graph is used as both data and shapes input.
+#[pyfunction(signature = (data_graph, shapes_graph=None, *, run_inference=false, inference=None, min_iterations=None, max_iterations=None, run_until_converged=None, no_converge=None, inference_min_iterations=None, inference_max_iterations=None, inference_no_converge=None, error_on_blank_nodes=None, inference_error_on_blank_nodes=None, enable_af=true, enable_rules=true, debug=None, inference_debug=None, skip_invalid_rules=false, warnings_are_errors=false, do_imports=true, follow_bnodes=false, graphviz=false, heatmap=false, heatmap_all=false, trace_events=false, trace_file=None, trace_jsonl=None, return_inference_outcome=false))]
 fn validate(
     py: Python<'_>,
     data_graph: &Bound<'_, PyAny>,
-    shapes_graph: &Bound<'_, PyAny>,
+    shapes_graph: Option<&Bound<'_, PyAny>>,
     run_inference: bool,
     inference: Option<&Bound<'_, PyAny>>,
     min_iterations: Option<usize>,

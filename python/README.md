@@ -34,7 +34,7 @@ import shifty
 # Validation. When you request diagnostics, a fourth element is returned.
 conforms, results_graph, report_text, diag = shifty.validate(
     data_graph,
-    shapes_graph,
+    shapes_graph,  # optional; omit to reuse data_graph as shapes_graph
     run_inference=True,
     inference={"min_iterations": 1, "max_iterations": 8},
     graphviz=True,
@@ -50,7 +50,7 @@ print(diag["inference_outcome"])
 # Inference-only. Diagnostics are returned as a second element when requested.
 inferred_graph, diag = shifty.infer(
     data_graph,
-    shapes_graph,
+    shapes_graph,  # optional; omit to reuse data_graph as shapes_graph
     min_iterations=1,
     max_iterations=4,
     graphviz=True,
@@ -73,6 +73,11 @@ print("Compiled cache conforms?", conforms)
 Key options (mirroring the CLI flags):
 
 - `skip_invalid_rules` (default: `False`), `warnings_are_errors`, `do_imports`
+- `shapes_graph` is optional for top-level `validate`/`infer`; when omitted (or `None`),
+  Shifty uses the provided `data_graph` as both the data and shapes graph.
+- RDFlib inputs are ingested in-memory (no temporary Turtle graph files written by the binding).
+  When `do_imports=True`, Shifty reads `owl:imports` IRIs from the in-memory root graph and
+  asks OntoEnv to resolve those dependencies from their declared locations.
 - Inference knobs: `min_iterations`, `max_iterations`, `run_until_converged`/`no_converge`,
   `error_on_blank_nodes`, `debug`, `union` (include original data); the `inference={...}` dict
   still works and aliases like `inference_min_iterations` remain.

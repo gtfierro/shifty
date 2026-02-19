@@ -7,7 +7,7 @@ Basic validation::
 
    conforms, results_graph, report_text = shifty.validate(
        data_graph,
-       shapes_graph,
+       shapes_graph,  # optional; defaults to data_graph when omitted
        run_inference=True,
        inference={"min_iterations": 1, "max_iterations": 8},
        graphviz=True,
@@ -20,7 +20,7 @@ Inference-only::
 
    inferred_graph, diagnostics = shifty.infer(
        data_graph,
-       shapes_graph,
+       shapes_graph,  # optional; defaults to data_graph when omitted
        min_iterations=1,
        max_iterations=4,
        graphviz=True,

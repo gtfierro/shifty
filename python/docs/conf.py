@@ -40,4 +40,3 @@ exclude_patterns = ["_build"]
 
 html_theme = "alabaster"
 html_static_path = ["_static"]
-

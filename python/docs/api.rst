@@ -6,9 +6,10 @@ API Reference
 Functions
 ---------
 
-.. py:function:: validate(data_graph, shapes_graph, **options)
+.. py:function:: validate(data_graph, shapes_graph=None, **options)
 
    Validate data against SHACL shapes.
+   If ``shapes_graph`` is omitted, ``data_graph`` is used as both data and shapes.
 
    Returns ``(conforms, report_graph, report_text)`` by default. When any
    diagnostics are requested, returns ``(conforms, report_graph, report_text,
@@ -21,15 +22,18 @@ Functions
    - ``min_iterations`` / ``max_iterations`` / ``run_until_converged``
    - ``error_on_blank_nodes`` / ``debug``
    - ``skip_invalid_rules`` / ``warnings_are_errors`` / ``do_imports``
+   - RDFlib graphs are ingested in-memory. With ``do_imports=True``, ``owl:imports``
+     IRIs from the root graph are resolved via OntoEnv from their declared locations.
    - ``graphviz`` / ``heatmap`` / ``heatmap_all`` / ``trace_events``
    - ``trace_file`` / ``trace_jsonl`` / ``return_inference_outcome``
    - ``union``: include original data alongside inferred triples (inference output)
 
-.. py:function:: infer(data_graph, shapes_graph, **options)
+.. py:function:: infer(data_graph, shapes_graph=None, **options)
 
    Run SHACL rule inference and return the inferred graph. When diagnostics are
    requested, returns ``(graph, diagnostics)``. Set ``union=True`` to include
    the original data triples in the returned graph.
+   If ``shapes_graph`` is omitted, ``data_graph`` is used as both data and shapes.
 
    Options mirror ``validate`` but omit validation-only toggles.
 

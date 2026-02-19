@@ -9,7 +9,6 @@ from rdflib import Graph
 
 Pathish = str | PathLike[str]
 
-
 class InferenceOptions(TypedDict, total=False):
     """Accepted keys for the `inference` options mapping."""
 
@@ -28,14 +27,12 @@ class InferenceOptions(TypedDict, total=False):
     debug: bool
     inference_debug: bool
 
-
 class InferenceOutcome(TypedDict):
     """Summary of an inference run."""
 
     iterations_executed: int
     triples_added: int
     converged: bool
-
 
 class TraceEvent(TypedDict, total=False):
     """Tracing event emitted during validation/inference."""
@@ -58,7 +55,6 @@ class TraceEvent(TypedDict, total=False):
     rule_id: int
     inserted: int
 
-
 class Diagnostics(TypedDict, total=False):
     """Extra outputs returned when diagnostics are requested."""
 
@@ -66,7 +62,6 @@ class Diagnostics(TypedDict, total=False):
     heatmap: str
     trace_events: list[TraceEvent]
     inference_outcome: InferenceOutcome
-
 
 class CompiledShapeGraph:
     """Cached ShapeIR that can repeatedly validate or infer against new data."""
@@ -130,7 +125,6 @@ class CompiledShapeGraph:
     ) -> tuple[bool, Graph, str] | tuple[bool, Graph, str, Diagnostics]:
         """Validate data against cached shapes, optionally running inference."""
 
-
 def generate_ir(
     shapes_graph: Graph,
     *,
@@ -142,10 +136,9 @@ def generate_ir(
 ) -> CompiledShapeGraph:
     """Compile and cache the ShapeIR for the provided shapes graph."""
 
-
 def infer(
     data_graph: Graph,
-    shapes_graph: Graph,
+    shapes_graph: Graph | None = ...,
     *,
     min_iterations: int | None = ...,
     max_iterations: int | None = ...,
@@ -167,12 +160,15 @@ def infer(
     return_inference_outcome: bool = ...,
     union: bool = ...,
 ) -> Graph | tuple[Graph, Diagnostics]:
-    """Run inference directly from RDFLib graphs."""
+    """Run inference directly from RDFLib graphs.
 
+    If ``shapes_graph`` is omitted or ``None``, ``data_graph`` is used as both
+    the data and shapes graph.
+    """
 
 def validate(
     data_graph: Graph,
-    shapes_graph: Graph,
+    shapes_graph: Graph | None = ...,
     *,
     run_inference: bool = ...,
     inference: bool | InferenceOptions | None = ...,
@@ -201,8 +197,11 @@ def validate(
     trace_jsonl: Pathish | None = ...,
     return_inference_outcome: bool = ...,
 ) -> tuple[bool, Graph, str] | tuple[bool, Graph, str, Diagnostics]:
-    """Validate RDFLib graphs against SHACL shapes."""
+    """Validate RDFLib graphs against SHACL shapes.
 
+    If ``shapes_graph`` is omitted or ``None``, ``data_graph`` is used as both
+    the data and shapes graph.
+    """
 
 def init_logging() -> None:
     """Initialize Rust logging using the current environment (e.g., RUST_LOG)."""
