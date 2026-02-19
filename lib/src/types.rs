@@ -9,6 +9,7 @@ use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
 use oxigraph::sparql::QueryResults;
 use std::fmt;
 use std::hash::Hash;
+use std::sync::Arc;
 
 // ----------- Extension helpers (runtime-specific) -----------
 
@@ -134,7 +135,7 @@ impl TargetEvalExt for Target {
                 if let Some(cached) = context.cached_advanced_target(selector) {
                     Ok(contexts_from_terms(
                         context,
-                        cached.into_iter(),
+                        cached.iter().cloned(),
                         source_shape,
                     ))
                 } else {
@@ -149,30 +150,23 @@ impl TargetEvalExt for Target {
                         format!("Failed to resolve prefixes for advanced target: {}", e)
                     })?;
 
-                    // sh:select branch
-                    let select_q = context
-                        .quads_for_pattern(None, Some(sh.select), None, None)?
-                        .into_iter()
-                        .find_map(|q| {
-                            if q.subject == selector_ref.into() {
-                                if let Term::Literal(l) = q.object {
-                                    return Some(l.value().to_string());
-                                }
-                            }
-                            None
-                        });
-
-                    let select_q = select_q.or_else(|| {
-                        context
-                            .quads_for_pattern(None, Some(sh.select), None, None)
-                            .ok()
-                            .and_then(|iter| {
-                                iter.into_iter().find_map(|q| match q.object {
-                                    Term::Literal(l) => Some(l.value().to_string()),
-                                    _ => None,
-                                })
-                            })
-                    });
+                    // sh:select branch. Scan once: prefer selector-specific value, otherwise
+                    // fall back to the first available sh:select literal.
+                    let mut subject_select: Option<String> = None;
+                    let mut fallback_select: Option<String> = None;
+                    for q in context.quads_for_pattern(None, Some(sh.select), None, None)? {
+                        let Term::Literal(lit) = q.object else {
+                            continue;
+                        };
+                        if q.subject == selector_ref.clone().into() {
+                            subject_select = Some(lit.value().to_string());
+                            break;
+                        }
+                        if fallback_select.is_none() {
+                            fallback_select = Some(lit.value().to_string());
+                        }
+                    }
+                    let select_q = subject_select.or(fallback_select);
 
                     if let Some(select_q) = select_q {
                         let query_str = if prefixes.trim().is_empty() {
@@ -212,10 +206,11 @@ impl TargetEvalExt for Target {
                                 }
                             }
                         }
-                        context.store_advanced_target(selector, &targets);
+                        let targets: Arc<[Term]> = targets.into();
+                        context.store_advanced_target(selector, Arc::clone(&targets));
                         return Ok(contexts_from_terms(
                             context,
-                            targets.into_iter(),
+                            targets.iter().cloned(),
                             source_shape,
                         ));
                     }

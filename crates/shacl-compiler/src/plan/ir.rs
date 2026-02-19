@@ -842,8 +842,5 @@ fn plan_custom_validator(validator: &shifty::shacl_ir::SPARQLValidator) -> PlanC
 }
 
 fn local_name(iri: &str) -> String {
-    iri.rsplit(['#', '/'])
-        .next()
-        .unwrap_or(iri)
-        .to_string()
+    iri.rsplit(['#', '/']).next().unwrap_or(iri).to_string()
 }

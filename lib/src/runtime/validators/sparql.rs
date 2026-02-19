@@ -187,7 +187,6 @@ fn run_closed_world_batch_query(
     )?;
     let mut superclass_memo: HashMap<Term, HashSet<Term>> = HashMap::new();
 
-    let mut is_s223_relation_predicate: HashMap<NamedNode, bool> = HashMap::new();
     let mut allowed_by_class: HashMap<Term, HashSet<NamedNode>> = HashMap::new();
     let allowed_query = r#"
 PREFIX sh: <http://www.w3.org/ns/shacl#>
@@ -233,6 +232,35 @@ WHERE {
                     .to_string(),
             );
         }
+    }
+
+    let mut s223_relation_predicates: HashSet<NamedNode> = HashSet::new();
+    if mode == ClosedWorldConstraintMode::S223Relation {
+        context.for_each_quad_for_pattern(
+            None,
+            Some(rdf_type.as_ref()),
+            None,
+            None,
+            |type_quad| {
+                let predicate = match type_quad.subject {
+                    oxigraph::model::NamedOrBlankNode::NamedNode(nn) => nn,
+                    oxigraph::model::NamedOrBlankNode::BlankNode(_) => return Ok(()),
+                };
+                let predicate_class = type_quad.object;
+                if !matches!(predicate_class, Term::NamedNode(_) | Term::BlankNode(_)) {
+                    return Ok(());
+                }
+                let supers = superclass_closure(
+                    &predicate_class,
+                    &direct_superclasses,
+                    &mut superclass_memo,
+                );
+                if supers.contains(&relation_root) {
+                    s223_relation_predicates.insert(predicate);
+                }
+                Ok(())
+            },
+        )?;
     }
 
     let mut violations_by_focus: HashMap<Term, Vec<ClosedWorldViolation>> = HashMap::new();
@@ -284,38 +312,7 @@ WHERE {
                     .as_str()
                     .starts_with("http://qudt.org/schema/qudt"),
                 ClosedWorldConstraintMode::S223Relation => {
-                    if let Some(cached) = is_s223_relation_predicate.get(&predicate) {
-                        *cached
-                    } else {
-                        let predicate_subject: Term = Term::NamedNode(predicate.clone());
-                        let mut matches_relation = false;
-                        context.for_each_quad_for_pattern(
-                            Some(predicate_subject.to_subject_ref()),
-                            Some(rdf_type.as_ref()),
-                            None,
-                            None,
-                            |type_quad| {
-                                let predicate_class = type_quad.object;
-                                if !matches!(
-                                    predicate_class,
-                                    Term::NamedNode(_) | Term::BlankNode(_)
-                                ) {
-                                    return Ok(());
-                                }
-                                let supers = superclass_closure(
-                                    &predicate_class,
-                                    &direct_superclasses,
-                                    &mut superclass_memo,
-                                );
-                                if supers.contains(&relation_root) {
-                                    matches_relation = true;
-                                }
-                                Ok(())
-                            },
-                        )?;
-                        is_s223_relation_predicate.insert(predicate.clone(), matches_relation);
-                        matches_relation
-                    }
+                    s223_relation_predicates.contains(&predicate)
                 }
             };
             if !predicate_allowed_scope {
@@ -580,7 +577,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
                         component_id,
                         query_hash,
                         mode,
-                        || run_closed_world_batch_query(context, &focus_nodes, mode),
+                        || run_closed_world_batch_query(context, focus_nodes.as_ref(), mode),
                     );
                     match batch_result.as_ref() {
                         Ok(batch) => {

@@ -214,6 +214,10 @@ impl ShapesModel {
                 e
             )))
         })?;
+        info!(
+            "Finished store optimization with shape graph <{}>",
+            shape_graph_iri
+        );
 
         let mut ctx = ParsingContext::new(
             store,

@@ -1,10 +1,12 @@
 use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::runtime::validators::compare_terms_fast;
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
 };
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{Literal, NamedNode, NamedOrBlankNode, Term};
 use oxigraph::sparql::QueryResults;
+use std::cmp::Ordering;
 
 fn escape_sparql_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -116,19 +118,26 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
         let mut results = Vec::new();
 
         for value_node in &value_nodes {
-            // For each value node v where the SPARQL expression $minExclusive < v does not return true, there is a validation result.
-            let query_str = format!(
-                "ASK {{ FILTER({} < {}) }}",
-                term_to_sparql(&self.min_exclusive),
-                term_to_sparql(value_node)
-            );
+            // For each value node v where the expression $minExclusive < v does not return true,
+            // there is a validation result.
+            let is_valid =
+                if let Some(ordering) = compare_terms_fast(&self.min_exclusive, value_node) {
+                    ordering == Ordering::Less
+                } else {
+                    let query_str = format!(
+                        "ASK {{ FILTER({} < {}) }}",
+                        term_to_sparql(&self.min_exclusive),
+                        term_to_sparql(value_node)
+                    );
 
-            let prepared = context.prepare_query(&query_str)?;
-            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
-                Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
-                Err(_) => true, // Incomparable values are ignored (treated as valid)
-            };
+                    let prepared = context.prepare_query(&query_str)?;
+                    let query_result = context.execute_prepared(&query_str, &prepared, &[], false);
+                    match query_result {
+                        Ok(QueryResults::Boolean(b)) => b,
+                        Ok(_) => false, // Should not happen for ASK
+                        Err(_) => true, // Incomparable values are ignored (treated as valid)
+                    }
+                };
 
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);
@@ -218,19 +227,26 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
         let mut results = Vec::new();
 
         for value_node in &value_nodes {
-            // For each value node v where the SPARQL expression $minInclusive <= v does not return true, there is a validation result.
-            let query_str = format!(
-                "ASK {{ FILTER({} <= {}) }}",
-                term_to_sparql(&self.min_inclusive),
-                term_to_sparql(value_node)
-            );
+            // For each value node v where the expression $minInclusive <= v does not return true,
+            // there is a validation result.
+            let is_valid =
+                if let Some(ordering) = compare_terms_fast(&self.min_inclusive, value_node) {
+                    ordering == Ordering::Less || ordering == Ordering::Equal
+                } else {
+                    let query_str = format!(
+                        "ASK {{ FILTER({} <= {}) }}",
+                        term_to_sparql(&self.min_inclusive),
+                        term_to_sparql(value_node)
+                    );
 
-            let prepared = context.prepare_query(&query_str)?;
-            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
-                Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
-                Err(_) => true, // Incomparable values are ignored (treated as valid)
-            };
+                    let prepared = context.prepare_query(&query_str)?;
+                    let query_result = context.execute_prepared(&query_str, &prepared, &[], false);
+                    match query_result {
+                        Ok(QueryResults::Boolean(b)) => b,
+                        Ok(_) => false, // Should not happen for ASK
+                        Err(_) => true, // Incomparable values are ignored (treated as valid)
+                    }
+                };
 
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);
@@ -320,19 +336,26 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
         let mut results = Vec::new();
 
         for value_node in &value_nodes {
-            // For each value node v where the SPARQL expression $maxExclusive > v does not return true, there is a validation result.
-            let query_str = format!(
-                "ASK {{ FILTER({} > {}) }}",
-                term_to_sparql(&self.max_exclusive),
-                term_to_sparql(value_node)
-            );
+            // For each value node v where the expression $maxExclusive > v does not return true,
+            // there is a validation result.
+            let is_valid =
+                if let Some(ordering) = compare_terms_fast(&self.max_exclusive, value_node) {
+                    ordering == Ordering::Greater
+                } else {
+                    let query_str = format!(
+                        "ASK {{ FILTER({} > {}) }}",
+                        term_to_sparql(&self.max_exclusive),
+                        term_to_sparql(value_node)
+                    );
 
-            let prepared = context.prepare_query(&query_str)?;
-            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
-                Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
-                Err(_) => true, // Incomparable values are ignored (treated as valid)
-            };
+                    let prepared = context.prepare_query(&query_str)?;
+                    let query_result = context.execute_prepared(&query_str, &prepared, &[], false);
+                    match query_result {
+                        Ok(QueryResults::Boolean(b)) => b,
+                        Ok(_) => false, // Should not happen for ASK
+                        Err(_) => true, // Incomparable values are ignored (treated as valid)
+                    }
+                };
 
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);
@@ -423,19 +446,26 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
         let mut results = Vec::new();
 
         for value_node in &value_nodes {
-            // For each value node v where the SPARQL expression $maxInclusive >= v does not return true, there is a validation result.
-            let query_str = format!(
-                "ASK {{ FILTER({} >= {}) }}",
-                term_to_sparql(&self.max_inclusive),
-                term_to_sparql(value_node)
-            );
+            // For each value node v where the expression $maxInclusive >= v does not return true,
+            // there is a validation result.
+            let is_valid =
+                if let Some(ordering) = compare_terms_fast(&self.max_inclusive, value_node) {
+                    ordering == Ordering::Greater || ordering == Ordering::Equal
+                } else {
+                    let query_str = format!(
+                        "ASK {{ FILTER({} >= {}) }}",
+                        term_to_sparql(&self.max_inclusive),
+                        term_to_sparql(value_node)
+                    );
 
-            let prepared = context.prepare_query(&query_str)?;
-            let is_valid = match context.execute_prepared(&query_str, &prepared, &[], false) {
-                Ok(QueryResults::Boolean(b)) => b,
-                Ok(_) => false, // Should not happen for ASK
-                Err(_) => true, // Incomparable values are ignored (treated as valid)
-            };
+                    let prepared = context.prepare_query(&query_str)?;
+                    let query_result = context.execute_prepared(&query_str, &prepared, &[], false);
+                    match query_result {
+                        Ok(QueryResults::Boolean(b)) => b,
+                        Ok(_) => false, // Should not happen for ASK
+                        Err(_) => true, // Incomparable values are ignored (treated as valid)
+                    }
+                };
 
             if !is_valid {
                 let reported_term = preserve_numeric_lexical(value_node);

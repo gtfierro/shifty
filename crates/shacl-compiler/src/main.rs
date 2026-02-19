@@ -11,6 +11,15 @@ use std::path::PathBuf;
 struct Args {
     /// Path to the SHACL shapes graph (Turtle)
     shapes: PathBuf,
+    /// Disable owl:imports resolution for compile-time shape loading
+    #[arg(long)]
+    no_imports: bool,
+    /// Force-refresh ontology fetches instead of reusing cached copies
+    #[arg(long)]
+    force_refresh: bool,
+    /// Maximum owl:imports recursion depth for shapes (-1 = unlimited, 0 = only the root graph)
+    #[arg(long, default_value_t = -1)]
+    import_depth: i32,
     /// Output file for generated Rust (stdout if omitted)
     #[arg(long)]
     out: Option<PathBuf>,
@@ -24,6 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator = Validator::builder()
         .with_shapes_source(Source::File(args.shapes.clone()))
         .with_data_source(Source::Empty)
+        .with_do_imports(!args.no_imports)
+        .with_force_refresh(args.force_refresh)
+        .with_import_depth(args.import_depth)
         .with_shape_optimization(true)
         .with_data_dependent_shape_optimization(false)
         .build()?;

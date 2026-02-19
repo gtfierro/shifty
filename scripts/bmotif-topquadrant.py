@@ -9,7 +9,7 @@ from buildingmotif.dataclasses import Model
 from buildingmotif.dataclasses import Library
 import sys
 
-bm = BuildingMOTIF("sqlite://", shacl_engine='topquadrant') # in-memory
+bm = BuildingMOTIF("sqlite://", shacl_engine="topquadrant")  # in-memory
 
 
 # load ontologies

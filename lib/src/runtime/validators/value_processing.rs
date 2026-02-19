@@ -15,12 +15,10 @@ where
         return Vec::new();
     }
 
-    let template = context_template.clone();
-
     value_nodes
         .into_par_iter()
         .filter_map(move |value_node| {
-            let ctx = template.clone();
+            let ctx = context_template.clone_for_parallel_value_check(&value_node);
             check(value_node, ctx)
         })
         .collect()

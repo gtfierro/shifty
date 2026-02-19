@@ -17,6 +17,7 @@ use oxigraph::model::{Literal, Term};
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::Instant;
 
 pub(crate) fn validate(context: &ValidationContext) -> Result<ValidationReportBuilder, String> {
@@ -105,18 +106,19 @@ fn canonicalize_value_nodes(
         return nodes;
     }
 
-    let mut exact_matches: HashSet<Term> = raw_objects.iter().cloned().collect();
+    let mut exact_matches: HashSet<Term> = HashSet::with_capacity(raw_objects.len());
     let mut literals_by_signature: HashMap<(String, Option<String>), VecDeque<Term>> =
         HashMap::new();
 
-    for term in &raw_objects {
-        if let Term::Literal(lit) = term {
+    for term in raw_objects {
+        if let Term::Literal(lit) = &term {
             let key = literal_signature(lit);
             literals_by_signature
                 .entry(key)
                 .or_default()
                 .push_back(term.clone());
         }
+        exact_matches.insert(term);
     }
 
     let original_index = validation_context.model.original_values.as_ref();
@@ -202,8 +204,9 @@ impl ValidateShape for NodeShape {
                 }
             }
             let vec: Vec<Term> = nodes.into_iter().collect();
-            context.store_node_targets(*self.identifier(), vec.clone());
-            vec
+            let cached: Arc<[Term]> = vec.into();
+            context.store_node_targets(*self.identifier(), Arc::clone(&cached));
+            cached
         };
         context.record_shape_phase_duration(
             SourceShape::NodeShape(*self.identifier()),
@@ -224,6 +227,7 @@ impl ValidateShape for NodeShape {
         let constraints = context.order_constraints(self.constraints());
 
         let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
+            .as_ref()
             .par_iter()
             .map(|focus_node| {
                 let mut local_report = ValidationReportBuilder::with_capacity(8);
@@ -408,8 +412,9 @@ impl ValidateShape for PropertyShape {
                 }
             }
             let vec: Vec<Term> = nodes.into_iter().collect();
-            context.store_prop_targets(*self.identifier(), vec.clone());
-            vec
+            let cached: Arc<[Term]> = vec.into();
+            context.store_prop_targets(*self.identifier(), Arc::clone(&cached));
+            cached
         };
         context.record_shape_phase_duration(
             SourceShape::PropertyShape(*self.identifier()),
@@ -422,6 +427,7 @@ impl ValidateShape for PropertyShape {
         }
 
         let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
+            .as_ref()
             .par_iter()
             .map(|focus_node| {
                 let mut local_report = ValidationReportBuilder::with_capacity(8);
@@ -509,6 +515,23 @@ impl PropertyShape {
         };
 
         let mut value_node_map: HashMap<Term, Vec<Term>> = HashMap::new();
+        let constraints = context.order_constraints(self.constraints());
+        let value_node_var = Variable::new("valueNode")
+            .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
+        let focus_var = Variable::new("focus")
+            .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
+        let sparql_path = self.sparql_path();
+        let fallback_query_str = format!(
+            "SELECT DISTINCT ?focus ?valueNode WHERE {{ ?focus {} ?valueNode . }}",
+            sparql_path
+        );
+        let fallback_prepared = context.prepare_query(&fallback_query_str).map_err(|e| {
+            format!(
+                "Failed to prepare query template for PropertyShape {}: {}",
+                self.identifier(),
+                e
+            )
+        })?;
 
         let describe_component = |id: &crate::types::ComponentID| -> String {
             let descriptor = context
@@ -634,25 +657,18 @@ impl PropertyShape {
             let raw_values = if let Some(values) = value_node_map.remove(&focus_node) {
                 values
             } else {
-                let sparql_path = self.sparql_path();
-                let query_str = format!(
-                    "SELECT DISTINCT ?valueNode WHERE {{ {} {} ?valueNode . }}",
-                    focus_node, sparql_path
-                );
-
-                let prepared = context.prepare_query(&query_str).map_err(|e| {
-                    format!(
-                        "Failed to prepare query for PropertyShape {}: {}",
-                        self.identifier(),
-                        e
-                    )
-                })?;
+                let substitutions = [(focus_var.clone(), focus_node.clone())];
 
                 let results = context
-                    .execute_prepared(&query_str, &prepared, &[], false)
+                    .execute_prepared(
+                        &fallback_query_str,
+                        &fallback_prepared,
+                        &substitutions,
+                        false,
+                    )
                     .map_err(|e| {
                         format!(
-                            "Failed to execute query for PropertyShape {}: {}",
+                            "Failed to execute parameterized query for PropertyShape {}: {}",
                             self.identifier(),
                             e
                         )
@@ -660,10 +676,6 @@ impl PropertyShape {
 
                 match results {
                     QueryResults::Solutions(solutions) => {
-                        let value_node_var = Variable::new("valueNode").map_err(|e| {
-                            format!("Internal error creating SPARQL variable: {}", e)
-                        })?;
-
                         let mut nodes = Vec::new();
                         for solution_res in solutions {
                             let solution = solution_res.map_err(|e| e.to_string())?;
@@ -693,8 +705,7 @@ impl PropertyShape {
                 }
             };
 
-            let value_nodes_vec =
-                canonicalize_value_nodes(context, self, &focus_node, raw_values.clone());
+            let value_nodes_vec = canonicalize_value_nodes(context, self, &focus_node, raw_values);
             context.record_shape_phase_duration(
                 SourceShape::PropertyShape(*self.identifier()),
                 ShapeTimingPhase::PropertyValue,
@@ -715,13 +726,12 @@ impl PropertyShape {
                 focus_context.trace_index(),
             );
 
-            let constraints = context.order_constraints(self.constraints());
             debug!(
                 "Property shape {} has {} constraints",
                 shape_label,
                 constraints.len()
             );
-            for constraint_id in constraints {
+            for &constraint_id in &constraints {
                 debug!(
                     "Evaluating constraint {} ({}) for property shape {}",
                     constraint_id,

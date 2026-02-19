@@ -297,8 +297,7 @@ def resolve_compiled_binary(out_dir: Path, bin_name: str) -> Path:
             return candidate
     candidate_list = ", ".join(str(candidate) for candidate in candidates)
     raise FileNotFoundError(
-        "Compiled shacl-compiler executable not found. "
-        f"Looked in: {candidate_list}"
+        f"Compiled shacl-compiler executable not found. Looked in: {candidate_list}"
     )
 
 
@@ -391,13 +390,13 @@ def benchmark_platforms(
             str(data),
             str(shapes_file),
         ],
-        #"bmotif-topquadrant": lambda data: [
+        # "bmotif-topquadrant": lambda data: [
         #    uv_exe,
         #    "run",
         #    "scripts/bmotif-topquadrant.py",
         #    str(data),
         #    str(shapes_file),
-        #],
+        # ],
     }
 
     measurements: List[Measurement] = []
@@ -490,9 +489,7 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
         if platform not in preferred_order
     )
     for platform in preferred_order + remaining_platforms:
-        platform_df = stats_df[stats_df["platform"] == platform].sort_values(
-            "triples"
-        )
+        platform_df = stats_df[stats_df["platform"] == platform].sort_values("triples")
         if platform_df.empty:
             continue
         plt.errorbar(

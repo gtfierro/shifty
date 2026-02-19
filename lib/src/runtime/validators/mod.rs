@@ -1,4 +1,5 @@
 mod cardinality;
+mod comparison;
 mod logical;
 mod other;
 mod property_pair;
@@ -10,6 +11,7 @@ mod value_range;
 mod value_type;
 
 pub(crate) use cardinality::*;
+pub(crate) use comparison::*;
 pub(crate) use logical::*;
 pub(crate) use other::*;
 pub(crate) use property_pair::*;

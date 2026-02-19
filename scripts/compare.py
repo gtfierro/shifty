@@ -13,13 +13,13 @@ print(g1, g2)
 
 both, first, second = graph_diff(g1, g2)
 
-print('both')
+print("both")
 print(both.serialize())
 both.serialize("both.ttl", format="turtle")
-print('first')
+print("first")
 print(first.serialize())
 first.serialize("first.ttl", format="turtle")
-print('second')
+print("second")
 print(second.serialize())
 second.serialize("second.ttl", format="turtle")
 

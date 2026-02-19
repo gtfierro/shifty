@@ -25,7 +25,9 @@ from typing import Iterable, Optional
 import re
 
 
-BASE_COMMENT_RE = re.compile(r"^\s*#\s*baseURI:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
+BASE_COMMENT_RE = re.compile(
+    r"^\s*#\s*baseURI:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE
+)
 BASE_DIRECTIVE_RE = re.compile(r"@base\s*<([^>]+)>", re.IGNORECASE)
 DOCUMENT_IRI_RE = re.compile(r"<>")
 
@@ -82,7 +84,9 @@ def process_file(path: Path, dry_run: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Expand relative IRIs in Turtle fixtures.")
+    parser = argparse.ArgumentParser(
+        description="Expand relative IRIs in Turtle fixtures."
+    )
     parser.add_argument(
         "--root",
         type=Path,

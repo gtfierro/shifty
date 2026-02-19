@@ -695,16 +695,17 @@ fn canonicalize_values_for_predicate(
     if raw_objects.is_empty() && !has_original_index {
         return nodes;
     }
-    let mut exact_matches: HashSet<Term> = raw_objects.iter().cloned().collect();
+    let mut exact_matches: HashSet<Term> = HashSet::with_capacity(raw_objects.len());
     let mut literals_by_signature: HashMap<
         (String, Option<String>, String),
         VecDeque<Term>,
     > = HashMap::new();
-    for term in &raw_objects {
-        if let Term::Literal(lit) = term {
+    for term in raw_objects {
+        if let Term::Literal(lit) = &term {
             let key = literal_signature(lit);
             literals_by_signature.entry(key).or_default().push_back(term.clone());
         }
+        exact_matches.insert(term);
     }
     let predicate = NamedNode::new_unchecked(predicate_iri);
     for node in &mut nodes {
@@ -839,24 +840,30 @@ fn is_literal_with_datatype(term: &Term, datatype_iri: &str) -> bool {
 }
 fn advanced_select_query(store: &Store, selector: &Term) -> Option<String> {
     let select_pred = NamedNodeRef::new(SHACL_SELECT).unwrap();
-    if let Some(subject) = subject_ref(selector) {
-        for quad in store.quads_for_pattern(Some(subject), Some(select_pred), None, None)
-        {
-            if let Ok(quad) = quad {
-                if let Term::Literal(lit) = quad.object {
-                    return Some(lit.value().to_string());
+    let selector_subject = subject_ref(selector).map(|subject| match subject {
+        NamedOrBlankNodeRef::NamedNode(node) => NamedOrBlankNode::NamedNode(node.into_owned()),
+        NamedOrBlankNodeRef::BlankNode(node) => NamedOrBlankNode::BlankNode(node.into_owned()),
+    });
+    let mut selector_select: Option<String> = None;
+    let mut fallback_select: Option<String> = None;
+    for quad in store.quads_for_pattern(None, Some(select_pred), None, None) {
+        if let Ok(quad) = quad {
+            if let Term::Literal(lit) = quad.object {
+                if selector_select.is_none() {
+                    if let Some(subject) = &selector_subject {
+                        if &quad.subject == subject {
+                            selector_select = Some(lit.value().to_string());
+                            break;
+                        }
+                    }
+                }
+                if fallback_select.is_none() {
+                    fallback_select = Some(lit.value().to_string());
                 }
             }
         }
     }
-    for quad in store.quads_for_pattern(None, Some(select_pred), None, None) {
-        if let Ok(quad) = quad {
-            if let Term::Literal(lit) = quad.object {
-                return Some(lit.value().to_string());
-            }
-        }
-    }
-    None
+    selector_select.or(fallback_select)
 }
 fn prefixes_for_selector(store: &Store, selector: &Term) -> String {
     if let Some(cached) = sparql_prefix_cache().get(selector) {

@@ -28,7 +28,7 @@ for i in range(5):
         shacl_graph=ont_with_dependencies,
         ont_graph=ont_with_dependencies,
         advanced=True,
-        inplace=True, # this will add inferred triples to 'model_graph'
+        inplace=True,  # this will add inferred triples to 'model_graph'
         js=True,
         allow_warnings=True,
     )
@@ -38,7 +38,7 @@ valid, report_graph, report_human = pyshacl.validate(
     shacl_graph=ont_with_dependencies,
     ont_graph=ont_with_dependencies,
     advanced=True,
-    inplace=True, # this will add inferred triples to 'model_graph'
+    inplace=True,  # this will add inferred triples to 'model_graph'
     js=True,
     allow_warnings=True,
 )

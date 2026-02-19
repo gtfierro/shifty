@@ -1,11 +1,13 @@
 #![allow(deprecated)]
 use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::runtime::validators::compare_terms_fast;
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use oxigraph::sparql::QueryResults;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 // property pair constraints
@@ -304,13 +306,19 @@ impl ValidateComponent for LessThanConstraintComponent {
 
         for value_node in &value_nodes {
             for other_value in &other_values {
-                let query_str = format!("ASK {{ FILTER({} < {}) }}", value_node, other_value);
-                let prepared = context.prepare_query(&query_str)?;
-                let is_less_than = match context.execute_prepared(&query_str, &prepared, &[], false)
+                let is_less_than = if let Some(ordering) =
+                    compare_terms_fast(value_node, other_value)
                 {
-                    Ok(QueryResults::Boolean(b)) => b,
-                    Ok(_) => false,  // Should not happen for ASK
-                    Err(_) => false, // Incomparable values
+                    ordering == Ordering::Less
+                } else {
+                    let query_str = format!("ASK {{ FILTER({} < {}) }}", value_node, other_value);
+                    let prepared = context.prepare_query(&query_str)?;
+                    let query_result = context.execute_prepared(&query_str, &prepared, &[], false);
+                    match query_result {
+                        Ok(QueryResults::Boolean(b)) => b,
+                        Ok(_) => false,  // Should not happen for ASK
+                        Err(_) => false, // Incomparable values
+                    }
                 };
 
                 if !is_less_than {
@@ -415,14 +423,20 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
 
         for value_node in &value_nodes {
             for other_value in &other_values {
-                let query_str = format!("ASK {{ FILTER({} <= {}) }}", value_node, other_value);
-                let prepared = context.prepare_query(&query_str)?;
-                let is_less_than_or_equal =
-                    match context.execute_prepared(&query_str, &prepared, &[], false) {
+                let is_less_than_or_equal = if let Some(ordering) =
+                    compare_terms_fast(value_node, other_value)
+                {
+                    ordering == Ordering::Less || ordering == Ordering::Equal
+                } else {
+                    let query_str = format!("ASK {{ FILTER({} <= {}) }}", value_node, other_value);
+                    let prepared = context.prepare_query(&query_str)?;
+                    let query_result = context.execute_prepared(&query_str, &prepared, &[], false);
+                    match query_result {
                         Ok(QueryResults::Boolean(b)) => b,
                         Ok(_) => false,  // Should not happen for ASK
                         Err(_) => false, // Incomparable values
-                    };
+                    }
+                };
 
                 if !is_less_than_or_equal {
                     let mut fail_context = c.clone();

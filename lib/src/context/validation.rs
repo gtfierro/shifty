@@ -4,7 +4,9 @@ use crate::backend::{Binding, GraphBackend, OxigraphBackend};
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
 use crate::runtime::engine::build_custom_constraint_component;
-use crate::runtime::{build_component_from_descriptor, Component, CustomConstraintComponent};
+use crate::runtime::{
+    build_component_from_descriptor, Component, ConformanceReport, CustomConstraintComponent,
+};
 use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
@@ -69,6 +71,13 @@ struct ClosedWorldBatchCacheKey {
     source_shape: SourceShape,
     query_hash: u64,
     mode: ClosedWorldConstraintMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct NodeConformanceCacheKey {
+    shape_id: ID,
+    focus_node: Term,
+    parent_node_shape: ID,
 }
 
 #[derive(Debug, Clone)]
@@ -199,9 +208,9 @@ pub struct ValidationContext {
     pub(crate) skip_sparql_blank_targets: bool,
     pub(crate) execution_traces: Mutex<Vec<Vec<TraceItem>>>,
     pub(crate) components: Arc<HashMap<ComponentID, Component>>,
-    pub(crate) advanced_target_cache: RwLock<HashMap<Term, Vec<Term>>>,
-    pub(crate) node_target_cache: RwLock<HashMap<ID, Vec<Term>>>,
-    pub(crate) prop_target_cache: RwLock<HashMap<PropShapeID, Vec<Term>>>,
+    pub(crate) advanced_target_cache: RwLock<HashMap<Term, Arc<[Term]>>>,
+    pub(crate) node_target_cache: RwLock<HashMap<ID, Arc<[Term]>>>,
+    pub(crate) prop_target_cache: RwLock<HashMap<PropShapeID, Arc<[Term]>>>,
     pub(crate) backend: Arc<OxigraphBackend>,
     pub(crate) trace_sink: Arc<dyn TraceSink>,
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
@@ -213,6 +222,7 @@ pub struct ValidationContext {
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
+    node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
 }
 
 impl ValidationContext {
@@ -277,6 +287,7 @@ impl ValidationContext {
             shape_timing_stats: Mutex::new(HashMap::new()),
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
+            node_conformance_cache: RwLock::new(HashMap::new()),
         }
     }
 
@@ -404,7 +415,11 @@ impl ValidationContext {
     }
 
     pub(crate) fn insert_quads(&self, quads: &[Quad]) -> Result<(), String> {
-        self.backend.insert_quads(quads)
+        self.backend.insert_quads(quads)?;
+        if !quads.is_empty() {
+            self.node_conformance_cache.write().unwrap().clear();
+        }
+        Ok(())
     }
 
     pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
@@ -424,7 +439,7 @@ impl ValidationContext {
         &self.shape_ir
     }
 
-    pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Vec<Term>> {
+    pub(crate) fn cached_advanced_target(&self, selector: &Term) -> Option<Arc<[Term]>> {
         self.advanced_target_cache
             .read()
             .unwrap()
@@ -432,26 +447,26 @@ impl ValidationContext {
             .cloned()
     }
 
-    pub(crate) fn store_advanced_target(&self, selector: &Term, nodes: &[Term]) {
+    pub(crate) fn store_advanced_target(&self, selector: &Term, nodes: Arc<[Term]>) {
         self.advanced_target_cache
             .write()
             .unwrap()
-            .insert(selector.clone(), nodes.to_vec());
+            .insert(selector.clone(), nodes);
     }
 
-    pub(crate) fn cached_node_targets(&self, id: &ID) -> Option<Vec<Term>> {
+    pub(crate) fn cached_node_targets(&self, id: &ID) -> Option<Arc<[Term]>> {
         self.node_target_cache.read().unwrap().get(id).cloned()
     }
 
-    pub(crate) fn store_node_targets(&self, id: ID, nodes: Vec<Term>) {
+    pub(crate) fn store_node_targets(&self, id: ID, nodes: Arc<[Term]>) {
         self.node_target_cache.write().unwrap().insert(id, nodes);
     }
 
-    pub(crate) fn cached_prop_targets(&self, id: &PropShapeID) -> Option<Vec<Term>> {
+    pub(crate) fn cached_prop_targets(&self, id: &PropShapeID) -> Option<Arc<[Term]>> {
         self.prop_target_cache.read().unwrap().get(id).cloned()
     }
 
-    pub(crate) fn store_prop_targets(&self, id: PropShapeID, nodes: Vec<Term>) {
+    pub(crate) fn store_prop_targets(&self, id: PropShapeID, nodes: Arc<[Term]>) {
         self.prop_target_cache.write().unwrap().insert(id, nodes);
     }
 
@@ -480,6 +495,41 @@ impl ValidationContext {
         self.shape_timing_stats.lock().unwrap().clear();
         self.class_constraint_memo.write().unwrap().clear();
         *self.class_constraint_index.write().unwrap() = None;
+        self.node_conformance_cache.write().unwrap().clear();
+    }
+
+    pub(crate) fn cached_node_conformance(
+        &self,
+        shape_id: ID,
+        focus_node: &Term,
+        parent_node_shape: ID,
+    ) -> Option<ConformanceReport> {
+        self.node_conformance_cache
+            .read()
+            .unwrap()
+            .get(&NodeConformanceCacheKey {
+                shape_id,
+                focus_node: focus_node.clone(),
+                parent_node_shape,
+            })
+            .cloned()
+    }
+
+    pub(crate) fn store_node_conformance(
+        &self,
+        shape_id: ID,
+        focus_node: &Term,
+        parent_node_shape: ID,
+        report: ConformanceReport,
+    ) {
+        self.node_conformance_cache.write().unwrap().insert(
+            NodeConformanceCacheKey {
+                shape_id,
+                focus_node: focus_node.clone(),
+                parent_node_shape,
+            },
+            report,
+        );
     }
 
     pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
@@ -1096,6 +1146,22 @@ impl Context {
 
     pub(crate) fn value(&self) -> Option<&Term> {
         self.value.as_ref()
+    }
+
+    /// Builds a lightweight per-value context for parallel value-node checks.
+    ///
+    /// This intentionally narrows `value_nodes` to a single node to avoid
+    /// cloning large value-node vectors for each parallel worker.
+    pub(crate) fn clone_for_parallel_value_check(&self, value_node: &Term) -> Self {
+        Self {
+            focus_node: self.focus_node.clone(),
+            result_path: self.result_path.clone(),
+            value_nodes: Some(vec![value_node.clone()]),
+            value: None,
+            source_shape: self.source_shape.clone(),
+            trace_index: self.trace_index,
+            source_constraint: self.source_constraint.clone(),
+        }
     }
 
     pub(crate) fn source_shape(&self) -> SourceShape {

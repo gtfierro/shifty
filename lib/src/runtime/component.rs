@@ -397,7 +397,25 @@ pub(crate) fn check_conformance_for_node(
         return Ok(ConformanceReport::Conforms);
     }
 
-    trace.push(TraceItem::NodeShape(*shape_to_check_against.identifier()));
+    let shape_id = *shape_to_check_against.identifier();
+    let focus_node = node_as_context.focus_node().clone();
+    trace.push(TraceItem::NodeShape(shape_id));
+
+    // Qualified value shape disjoint checks derive sibling context from the first
+    // NodeShape in the trace, so include that anchor in the conformance cache key.
+    let parent_node_shape = trace
+        .iter()
+        .find_map(|item| match item {
+            TraceItem::NodeShape(id) => Some(*id),
+            _ => None,
+        })
+        .unwrap_or(shape_id);
+
+    if let Some(cached) =
+        main_validation_context.cached_node_conformance(shape_id, &focus_node, parent_node_shape)
+    {
+        return Ok(cached);
+    }
 
     for constraint_id in shape_to_check_against.constraints() {
         let component = main_validation_context
@@ -415,7 +433,14 @@ pub(crate) fn check_conformance_for_node(
                     .into_iter()
                     .find(|r| matches!(r, ComponentValidationResult::Fail(_, _)))
                 {
-                    return Ok(ConformanceReport::NonConforms(failure));
+                    let report = ConformanceReport::NonConforms(failure);
+                    main_validation_context.store_node_conformance(
+                        shape_id,
+                        &focus_node,
+                        parent_node_shape,
+                        report.clone(),
+                    );
+                    return Ok(report);
                 }
             }
             Err(e) => {
@@ -423,5 +448,12 @@ pub(crate) fn check_conformance_for_node(
             }
         }
     }
-    Ok(ConformanceReport::Conforms)
+    let report = ConformanceReport::Conforms;
+    main_validation_context.store_node_conformance(
+        shape_id,
+        &focus_node,
+        parent_node_shape,
+        report.clone(),
+    );
+    Ok(report)
 }
