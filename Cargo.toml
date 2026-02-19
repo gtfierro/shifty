@@ -8,7 +8,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2021"
@@ -21,7 +21,7 @@ documentation = "https://github.com/gtfierro/shifty#readme"
 [workspace.dependencies]
 oxigraph = { version = "0.5" }
 petgraph = "0.6"
-shifty = { version = "0.0.8", path = "lib", package = "shifty-shacl" }
+shifty = { version = "0.0.9", path = "lib", package = "shifty-shacl" }
 clap = { version = "4.5.39", features = ["derive"] }
 graphviz-rust = "0.9.5"
 regex = "1"
