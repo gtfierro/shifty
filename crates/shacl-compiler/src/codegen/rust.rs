@@ -4510,4 +4510,10 @@ mod tests {
         assert!(root.contains("include!(\"helpers.rs\");"));
         assert!(root.contains("include!(\"run.rs\");"));
     }
+
+    #[test]
+    fn helpers_template_keeps_lenient_query_helper() {
+        let helpers = helpers_template_content();
+        assert!(helpers.contains("fn sparql_any_solution_lenient("));
+    }
 }
