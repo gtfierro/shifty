@@ -75,6 +75,114 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             violations
         }
 
+        pub fn render_violations_to_turtle(violations: &[Violation]) -> Result<String, String> {
+            let mut graph = oxigraph::model::Graph::new();
+            let report_node: oxigraph::model::NamedOrBlankNode =
+                oxigraph::model::BlankNode::default().into();
+
+            graph.insert(&oxigraph::model::Triple::new(
+                report_node.clone(),
+                oxigraph::model::vocab::rdf::TYPE,
+                oxigraph::model::Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#ValidationReport",
+                )),
+            ));
+
+            graph.insert(&oxigraph::model::Triple::new(
+                report_node.clone(),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#conforms"),
+                oxigraph::model::Term::Literal(oxigraph::model::Literal::from(violations.is_empty())),
+            ));
+
+            for violation in violations {
+                let result_node: oxigraph::model::NamedOrBlankNode =
+                    oxigraph::model::BlankNode::default().into();
+                graph.insert(&oxigraph::model::Triple::new(
+                    report_node.clone(),
+                    oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#result"),
+                    oxigraph::model::Term::from(result_node.clone()),
+                ));
+                graph.insert(&oxigraph::model::Triple::new(
+                    result_node.clone(),
+                    oxigraph::model::vocab::rdf::TYPE,
+                    oxigraph::model::Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "http://www.w3.org/ns/shacl#ValidationResult",
+                    )),
+                ));
+                graph.insert(&oxigraph::model::Triple::new(
+                    result_node.clone(),
+                    oxigraph::model::NamedNode::new_unchecked(
+                        "http://www.w3.org/ns/shacl#resultSeverity",
+                    ),
+                    oxigraph::model::Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "http://www.w3.org/ns/shacl#Violation",
+                    )),
+                ));
+                graph.insert(&oxigraph::model::Triple::new(
+                    result_node.clone(),
+                    oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#focusNode"),
+                    violation.focus.clone(),
+                ));
+
+                if let Some(value) = &violation.value {
+                    graph.insert(&oxigraph::model::Triple::new(
+                        result_node.clone(),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#value"),
+                        value.clone(),
+                    ));
+                }
+
+                if let Some(path) = &violation.path {
+                    if let ResultPath::Term(path_term) = path {
+                        graph.insert(&oxigraph::model::Triple::new(
+                            result_node.clone(),
+                            oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#resultPath"),
+                            path_term.clone(),
+                        ));
+                    }
+                }
+
+                let source_shape = shape_iri(violation.shape_id);
+                if !source_shape.is_empty() {
+                    if let Ok(shape_node) = oxigraph::model::NamedNode::new(source_shape) {
+                        graph.insert(&oxigraph::model::Triple::new(
+                            result_node.clone(),
+                            oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#sourceShape"),
+                            oxigraph::model::Term::NamedNode(shape_node),
+                        ));
+                    }
+                }
+
+                let source_component = component_iri(violation.component_id);
+                if let Ok(component_node) = oxigraph::model::NamedNode::new(source_component) {
+                    graph.insert(&oxigraph::model::Triple::new(
+                        result_node,
+                        oxigraph::model::NamedNode::new_unchecked(
+                            "http://www.w3.org/ns/shacl#sourceConstraintComponent",
+                        ),
+                        oxigraph::model::Term::NamedNode(component_node),
+                    ));
+                }
+            }
+
+            let mut writer = Vec::new();
+            let mut serializer = oxigraph::io::RdfSerializer::from_format(oxigraph::io::RdfFormat::Turtle)
+                .with_prefix("sh", "http://www.w3.org/ns/shacl#")
+                .map_err(|err| format!("failed to set sh prefix: {err}"))?
+                .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+                .map_err(|err| format!("failed to set rdf prefix: {err}"))?
+                .for_writer(&mut writer);
+            for triple in graph.iter() {
+                serializer
+                    .serialize_triple(triple)
+                    .map_err(|err| format!("failed to serialize report triple: {err}"))?;
+            }
+            serializer
+                .finish()
+                .map_err(|err| format!("failed to finish report serialization: {err}"))?;
+            String::from_utf8(writer).map_err(|err| format!("report is not valid utf8: {err}"))
+        }
+
         pub fn render_report(
             report: &Report,
             _store: &oxigraph::store::Store,

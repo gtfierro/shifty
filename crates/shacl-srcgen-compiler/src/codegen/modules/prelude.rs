@@ -13,26 +13,33 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
     let backend_mode = LitStr::new(backend.as_str(), proc_macro2::Span::call_site());
     let fallback_reason = LitStr::new(FALLBACK_REASON_TEMPLATE, proc_macro2::Span::call_site());
     let fallback_count = ir.fallback_annotations.len();
+    let specialization_ready = ir.meta.specialization_ready;
 
-    let shape_arms: Vec<TokenStream> = ir
-        .shapes
+    let mut shape_rows: Vec<(u64, &str)> = Vec::new();
+    for shape in &ir.node_shapes {
+        shape_rows.push((shape.id, shape.iri.as_str()));
+    }
+    for shape in &ir.property_shapes {
+        shape_rows.push((shape.id, shape.iri.as_str()));
+    }
+    shape_rows.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let shape_arms: Vec<TokenStream> = shape_rows
         .iter()
-        .map(|shape| {
-            let id = shape.id;
-            let iri = LitStr::new(&shape.iri, proc_macro2::Span::call_site());
+        .map(|(id, iri)| {
+            let iri = LitStr::new(iri, proc_macro2::Span::call_site());
             quote! { #id => #iri, }
         })
         .collect();
 
-    let shape_reverse_arms: Vec<TokenStream> = ir
-        .shapes
-        .iter()
-        .map(|shape| {
-            let id = shape.id;
-            let iri = LitStr::new(&shape.iri, proc_macro2::Span::call_site());
-            quote! { #iri => Some(#id), }
-        })
-        .collect();
+    let mut shape_reverse_arms = Vec::new();
+    let mut seen_shape_iris = std::collections::BTreeSet::new();
+    for (id, iri) in &shape_rows {
+        if seen_shape_iris.insert((*iri).to_string()) {
+            let iri = LitStr::new(iri, proc_macro2::Span::call_site());
+            shape_reverse_arms.push(quote! { #iri => Some(#id), });
+        }
+    }
 
     let component_arms: Vec<TokenStream> = ir
         .components
@@ -44,8 +51,6 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
         })
         .collect();
 
-    // `component_id_for_iri` uses first-match semantics so duplicate component IRIs
-    // remain deterministic across rebuilds.
     let mut component_reverse_arms = Vec::new();
     let mut seen_component_iris = std::collections::BTreeSet::new();
     for component in &ir.components {
@@ -64,6 +69,7 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
         pub const COMPILER_TRACK: &str = "srcgen";
         pub const BACKEND_MODE: &str = #backend_mode;
         pub const COMPILER_VERSION: &str = #compiler_version;
+        pub const SPECIALIZATION_READY: bool = #specialization_ready;
         pub const SRCGEN_FALLBACK_COMPONENTS: usize = #fallback_count;
         pub const SRCGEN_FALLBACK_REASON: &str = #fallback_reason;
 

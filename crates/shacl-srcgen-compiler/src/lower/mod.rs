@@ -1,70 +1,199 @@
 use crate::ir::{
-    FallbackAnnotation, ShapeKind, SrcGenComponent, SrcGenIR, SrcGenMeta, SrcGenShape,
+    FallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR, SrcGenMeta,
+    SrcGenNodeShape, SrcGenPropertyShape,
 };
 use oxigraph::model::Term;
-use shifty::shacl_ir::{ComponentDescriptor, ShapeIR};
-
-const FALLBACK_REASON: &str =
-    "phase-0 srcgen compiler delegates validation to shared runtime fallback";
+use shifty::shacl_ir::{ComponentDescriptor, Path, PropShapeID, Severity, ShapeIR, Target, ID};
+use std::collections::HashMap;
 
 pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
-    let mut shape_rows: Vec<(String, ShapeKind)> = Vec::new();
+    let mut component_ids: Vec<u64> = shape_ir.components.keys().map(|id| id.0).collect();
+    component_ids.sort_unstable();
 
-    for term in shape_ir.node_shape_terms.values() {
-        if let Term::NamedNode(node) = term {
-            shape_rows.push((node.as_str().to_string(), ShapeKind::Node));
-        }
-    }
-    for term in shape_ir.property_shape_terms.values() {
-        if let Term::NamedNode(node) = term {
-            shape_rows.push((node.as_str().to_string(), ShapeKind::Property));
-        }
-    }
+    let mut components = Vec::with_capacity(component_ids.len());
+    let mut component_kinds: HashMap<u64, SrcGenComponentKind> =
+        HashMap::with_capacity(component_ids.len());
+    let mut fallback_annotations = Vec::new();
 
-    shape_rows.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| shape_kind_key(a.1).cmp(&shape_kind_key(b.1)))
-    });
-    shape_rows.dedup_by(|a, b| a.0 == b.0 && shape_kind_key(a.1) == shape_kind_key(b.1));
+    for component_id in component_ids {
+        let descriptor = shape_ir
+            .components
+            .get(&shifty::shacl_ir::ComponentID(component_id))
+            .ok_or_else(|| format!("missing component {component_id} in ShapeIR"))?;
 
-    let shapes = shape_rows
-        .into_iter()
-        .enumerate()
-        .map(|(idx, (iri, kind))| SrcGenShape {
-            id: (idx + 1) as u64,
+        let (kind, fallback_reason) = component_kind(descriptor);
+        let fallback_only = fallback_reason.is_some();
+        let iri = component_constraint_component_iri(descriptor).to_string();
+        component_kinds.insert(component_id, kind.clone());
+        components.push(SrcGenComponent {
+            id: component_id,
             iri,
             kind,
-        })
-        .collect();
+            fallback_only,
+        });
 
-    let mut component_rows: Vec<(u64, String)> = shape_ir
-        .components
+        if let Some(reason) = fallback_reason {
+            fallback_annotations.push(FallbackAnnotation {
+                component_id,
+                reason,
+            });
+        }
+    }
+
+    let mut pending_property_shapes: Vec<PendingPropertyShape> = shape_ir
+        .property_shapes
         .iter()
-        .map(|(id, component)| {
-            (
-                id.0,
-                component_constraint_component_iri(component).to_string(),
-            )
+        .map(|shape| {
+            let iri = shape_ir
+                .property_shape_terms
+                .get(&shape.id)
+                .map(term_to_stable_string)
+                .unwrap_or_else(|| format!("_:property-shape-{}", shape.id.0));
+            let path_predicate = simple_named_path_predicate(&shape.path);
+            let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
+            constraints.sort_unstable();
+
+            let constraints_supported = constraints.iter().all(|component_id| {
+                component_kinds
+                    .get(component_id)
+                    .map(property_constraint_supported)
+                    .unwrap_or(false)
+            });
+
+            let supported = !shape.deactivated
+                && matches!(shape.severity, Severity::Violation)
+                && shape.targets.is_empty()
+                && path_predicate.is_some()
+                && constraints_supported;
+
+            PendingPropertyShape {
+                original_id: shape.id,
+                iri,
+                path_predicate,
+                constraints,
+                supported,
+            }
         })
         .collect();
-    component_rows.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let components = component_rows
+    pending_property_shapes.sort_by(|a, b| {
+        a.iri
+            .cmp(&b.iri)
+            .then_with(|| a.original_id.0.cmp(&b.original_id.0))
+    });
+
+    let mut pending_node_shapes: Vec<PendingNodeShape> = shape_ir
+        .node_shapes
         .iter()
-        .map(|(id, iri)| SrcGenComponent {
-            id: *id,
-            iri: iri.clone(),
-            fallback_only: true,
+        .map(|shape| {
+            let iri = shape_ir
+                .node_shape_terms
+                .get(&shape.id)
+                .map(term_to_stable_string)
+                .unwrap_or_else(|| format!("_:node-shape-{}", shape.id.0));
+            let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
+            constraints.sort_unstable();
+            let mut property_shapes = shape.property_shapes.clone();
+            property_shapes.sort_by_key(|id| id.0);
+
+            let target_classes = class_targets_only(&shape.targets).unwrap_or_default();
+            let constraints_supported = constraints.iter().all(|component_id| {
+                component_kinds
+                    .get(component_id)
+                    .map(node_constraint_supported)
+                    .unwrap_or(false)
+            });
+            let targets_supported = !target_classes.is_empty();
+            let supported = !shape.deactivated
+                && matches!(shape.severity, Severity::Violation)
+                && targets_supported
+                && constraints_supported;
+
+            PendingNodeShape {
+                original_id: shape.id,
+                iri,
+                target_classes,
+                constraints,
+                property_shapes,
+                supported,
+            }
         })
         .collect();
 
-    let fallback_annotations = component_rows
+    pending_node_shapes.sort_by(|a, b| {
+        a.iri
+            .cmp(&b.iri)
+            .then_with(|| a.original_id.0.cmp(&b.original_id.0))
+    });
+
+    let mut node_id_by_original: HashMap<ID, u64> =
+        HashMap::with_capacity(pending_node_shapes.len());
+    let mut property_id_by_original: HashMap<PropShapeID, u64> =
+        HashMap::with_capacity(pending_property_shapes.len());
+
+    for (index, node) in pending_node_shapes.iter().enumerate() {
+        node_id_by_original.insert(node.original_id, (index + 1) as u64);
+    }
+    let property_offset = pending_node_shapes.len() as u64;
+    for (index, property) in pending_property_shapes.iter().enumerate() {
+        property_id_by_original.insert(property.original_id, property_offset + (index as u64) + 1);
+    }
+
+    let property_shapes: Vec<SrcGenPropertyShape> = pending_property_shapes
         .into_iter()
-        .map(|(component_id, _)| FallbackAnnotation {
-            component_id,
-            reason: FALLBACK_REASON.to_string(),
+        .filter_map(|shape| {
+            property_id_by_original
+                .get(&shape.original_id)
+                .copied()
+                .map(|id| SrcGenPropertyShape {
+                    id,
+                    iri: shape.iri,
+                    path_predicate: shape.path_predicate,
+                    constraints: shape.constraints,
+                    supported: shape.supported,
+                })
         })
         .collect();
+
+    let property_support_by_id: HashMap<u64, bool> = property_shapes
+        .iter()
+        .map(|shape| (shape.id, shape.supported))
+        .collect();
+
+    let node_shapes: Vec<SrcGenNodeShape> = pending_node_shapes
+        .into_iter()
+        .filter_map(|shape| {
+            let id = node_id_by_original.get(&shape.original_id).copied()?;
+            let mut property_shapes: Vec<u64> = shape
+                .property_shapes
+                .iter()
+                .filter_map(|prop_id| property_id_by_original.get(prop_id).copied())
+                .collect();
+            property_shapes.sort_unstable();
+
+            let all_linked_properties_supported = property_shapes.iter().all(|prop_id| {
+                property_support_by_id
+                    .get(prop_id)
+                    .copied()
+                    .unwrap_or(false)
+            });
+
+            Some(SrcGenNodeShape {
+                id,
+                iri: shape.iri,
+                target_classes: shape.target_classes,
+                constraints: shape.constraints,
+                property_shapes,
+                supported: shape.supported && all_linked_properties_supported,
+            })
+        })
+        .collect();
+
+    let specialization_ready = shape_ir.rules.is_empty()
+        && components.iter().all(|component| !component.fallback_only)
+        && !node_shapes.is_empty()
+        && node_shapes.iter().all(|shape| shape.supported)
+        && property_shapes.iter().all(|shape| shape.supported);
 
     let data_graph_iri = shape_ir
         .data_graph
@@ -78,17 +207,165 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             schema_version: 1,
             shape_graph_iri: shape_ir.shape_graph.as_str().to_string(),
             data_graph_iri,
+            specialization_ready,
         },
-        shapes,
+        node_shapes,
+        property_shapes,
         components,
         fallback_annotations,
     })
 }
 
-fn shape_kind_key(kind: ShapeKind) -> u8 {
-    match kind {
-        ShapeKind::Node => 0,
-        ShapeKind::Property => 1,
+#[derive(Debug)]
+struct PendingNodeShape {
+    original_id: ID,
+    iri: String,
+    target_classes: Vec<String>,
+    constraints: Vec<u64>,
+    property_shapes: Vec<PropShapeID>,
+    supported: bool,
+}
+
+#[derive(Debug)]
+struct PendingPropertyShape {
+    original_id: PropShapeID,
+    iri: String,
+    path_predicate: Option<String>,
+    constraints: Vec<u64>,
+    supported: bool,
+}
+
+fn class_targets_only(targets: &[Target]) -> Option<Vec<String>> {
+    let mut classes = Vec::new();
+    for target in targets {
+        match target {
+            Target::Class(Term::NamedNode(class)) => classes.push(class.as_str().to_string()),
+            _ => return None,
+        }
+    }
+    classes.sort();
+    classes.dedup();
+    Some(classes)
+}
+
+fn simple_named_path_predicate(path: &Path) -> Option<String> {
+    match path {
+        Path::Simple(Term::NamedNode(predicate)) => Some(predicate.as_str().to_string()),
+        _ => None,
+    }
+}
+
+fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
+    matches!(
+        kind,
+        SrcGenComponentKind::Class { .. } | SrcGenComponentKind::PropertyLink
+    )
+}
+
+fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
+    matches!(
+        kind,
+        SrcGenComponentKind::Class { .. }
+            | SrcGenComponentKind::Datatype { .. }
+            | SrcGenComponentKind::MinCount { .. }
+            | SrcGenComponentKind::MaxCount { .. }
+    )
+}
+
+fn term_to_stable_string(term: &Term) -> String {
+    match term {
+        Term::NamedNode(node) => node.as_str().to_string(),
+        _ => term.to_string(),
+    }
+}
+
+fn component_kind(descriptor: &ComponentDescriptor) -> (SrcGenComponentKind, Option<String>) {
+    match descriptor {
+        ComponentDescriptor::Property { .. } => (SrcGenComponentKind::PropertyLink, None),
+        ComponentDescriptor::Class {
+            class: Term::NamedNode(class),
+        } => (
+            SrcGenComponentKind::Class {
+                class_iri: class.as_str().to_string(),
+            },
+            None,
+        ),
+        ComponentDescriptor::Datatype {
+            datatype: Term::NamedNode(datatype),
+        } => (
+            SrcGenComponentKind::Datatype {
+                datatype_iri: datatype.as_str().to_string(),
+            },
+            None,
+        ),
+        ComponentDescriptor::MinCount { min_count } => (
+            SrcGenComponentKind::MinCount {
+                min_count: *min_count,
+            },
+            None,
+        ),
+        ComponentDescriptor::MaxCount { max_count } => (
+            SrcGenComponentKind::MaxCount {
+                max_count: *max_count,
+            },
+            None,
+        ),
+        ComponentDescriptor::Class { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "Class(non-iri)".to_string(),
+            },
+            Some("Class constraint uses a non-IRI class term".to_string()),
+        ),
+        ComponentDescriptor::Datatype { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "Datatype(non-iri)".to_string(),
+            },
+            Some("Datatype constraint uses a non-IRI datatype term".to_string()),
+        ),
+        other => (
+            SrcGenComponentKind::Unsupported {
+                kind: component_kind_name(other).to_string(),
+            },
+            Some(format!(
+                "component kind {} is not specialized in phase-1",
+                component_kind_name(other)
+            )),
+        ),
+    }
+}
+
+fn component_kind_name(component: &ComponentDescriptor) -> &'static str {
+    match component {
+        ComponentDescriptor::Node { .. } => "Node",
+        ComponentDescriptor::Property { .. } => "Property",
+        ComponentDescriptor::QualifiedValueShape { .. } => "QualifiedValueShape",
+        ComponentDescriptor::Class { .. } => "Class",
+        ComponentDescriptor::Datatype { .. } => "Datatype",
+        ComponentDescriptor::NodeKind { .. } => "NodeKind",
+        ComponentDescriptor::MinCount { .. } => "MinCount",
+        ComponentDescriptor::MaxCount { .. } => "MaxCount",
+        ComponentDescriptor::MinExclusive { .. } => "MinExclusive",
+        ComponentDescriptor::MinInclusive { .. } => "MinInclusive",
+        ComponentDescriptor::MaxExclusive { .. } => "MaxExclusive",
+        ComponentDescriptor::MaxInclusive { .. } => "MaxInclusive",
+        ComponentDescriptor::MinLength { .. } => "MinLength",
+        ComponentDescriptor::MaxLength { .. } => "MaxLength",
+        ComponentDescriptor::Pattern { .. } => "Pattern",
+        ComponentDescriptor::LanguageIn { .. } => "LanguageIn",
+        ComponentDescriptor::UniqueLang { .. } => "UniqueLang",
+        ComponentDescriptor::Equals { .. } => "Equals",
+        ComponentDescriptor::Disjoint { .. } => "Disjoint",
+        ComponentDescriptor::LessThan { .. } => "LessThan",
+        ComponentDescriptor::LessThanOrEquals { .. } => "LessThanOrEquals",
+        ComponentDescriptor::Not { .. } => "Not",
+        ComponentDescriptor::And { .. } => "And",
+        ComponentDescriptor::Or { .. } => "Or",
+        ComponentDescriptor::Xone { .. } => "Xone",
+        ComponentDescriptor::Closed { .. } => "Closed",
+        ComponentDescriptor::HasValue { .. } => "HasValue",
+        ComponentDescriptor::In { .. } => "In",
+        ComponentDescriptor::Sparql { .. } => "Sparql",
+        ComponentDescriptor::Custom { .. } => "Custom",
     }
 }
 
@@ -177,8 +454,8 @@ fn component_constraint_component_iri(component: &ComponentDescriptor) -> &str {
 mod tests {
     use super::*;
     use shifty::shacl_ir::{
-        ComponentDescriptor, FeatureToggles, NodeShapeIR, PropShapeID, PropertyShapeIR, Severity,
-        ShapeIR, ID,
+        ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, PropShapeID,
+        PropertyShapeIR, Severity, ShapeIR, Target, ID,
     };
     use std::collections::HashMap;
 
@@ -230,9 +507,9 @@ mod tests {
             property_shapes: vec![PropertyShapeIR {
                 id: PropShapeID(1),
                 targets: Vec::new(),
-                path: shifty::shacl_ir::Path::Simple(Term::NamedNode(
-                    oxigraph::model::NamedNode::new_unchecked("urn:p"),
-                )),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:p",
+                ))),
                 path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:p")),
                 constraints: Vec::new(),
                 severity: Severity::Violation,
@@ -258,7 +535,160 @@ mod tests {
             first.to_json_pretty().unwrap(),
             second.to_json_pretty().unwrap()
         );
-        assert_eq!(first.shapes[0].iri, "urn:shape:a-node");
+        assert_eq!(first.node_shapes[0].iri, "urn:shape:a-node");
         assert_eq!(first.components[0].id, 3);
+        assert!(!first.meta.specialization_ready);
+    }
+
+    #[test]
+    fn specialization_ready_for_phase1_supported_subset() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::Datatype {
+                datatype: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/2001/XMLSchema#integer",
+                )),
+            },
+        );
+        components.insert(
+            ComponentID(4),
+            ComponentDescriptor::MinCount { min_count: 1 },
+        );
+        components.insert(
+            ComponentID(5),
+            ComponentDescriptor::MaxCount { max_count: 1 },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person-age",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2)],
+                property_shapes: vec![PropShapeID(7)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:age",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:age")),
+                constraints: vec![ComponentID(3), ComponentID(4), ComponentID(5)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(lowered
+            .components
+            .iter()
+            .all(|component| !component.fallback_only));
+        assert_eq!(lowered.node_shapes.len(), 1);
+        assert_eq!(lowered.property_shapes.len(), 1);
+        assert!(lowered.node_shapes[0].supported);
+        assert!(lowered.property_shapes[0].supported);
+    }
+
+    #[test]
+    fn unsupported_component_disables_specialization_and_sets_fallback_annotation() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::NodeKind {
+                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#IRI",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(!lowered.meta.specialization_ready);
+        assert_eq!(lowered.fallback_annotations.len(), 1);
+        assert_eq!(lowered.fallback_annotations[0].component_id, 1);
+        assert!(lowered.components[0].fallback_only);
+        assert!(!lowered.node_shapes[0].supported);
     }
 }

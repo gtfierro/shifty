@@ -3,7 +3,7 @@ use crate::ir::SrcGenIR;
 use quote::quote;
 
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
-    let target_shape_count = ir.shapes.len();
+    let target_shape_count = ir.node_shapes.len() + ir.property_shapes.len();
     let tokens = quote! {
         pub const GENERATED_TARGET_SHAPES: usize = #target_shape_count;
 

@@ -93,6 +93,23 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 };
             }
 
+            if SPECIALIZATION_READY {
+                match run_specialized_node_validation(store, &data_graph)
+                    .and_then(|violations| render_violations_to_turtle(&violations).map(|ttl| (violations, ttl)))
+                {
+                    Ok((violations, report_turtle)) => {
+                        return Report {
+                            violations,
+                            report_turtle: report_turtle.clone(),
+                            report_turtle_follow_bnodes: report_turtle,
+                        };
+                    }
+                    Err(err) => {
+                        eprintln!("srcgen specialized validation fallback: {err}");
+                    }
+                }
+            }
+
             let report = validator.validate();
             let report_graph = report.to_graph_with_options(shifty::ValidationReportOptions {
                 follow_bnodes: false,
