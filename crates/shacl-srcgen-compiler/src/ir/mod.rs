@@ -55,11 +55,34 @@ pub struct SrcGenComponent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SrcGenComponentKind {
     PropertyLink,
-    Class { class_iri: String },
-    Datatype { datatype_iri: String },
-    MinCount { min_count: u64 },
-    MaxCount { max_count: u64 },
-    Unsupported { kind: String },
+    Class {
+        class_iri: String,
+    },
+    Datatype {
+        datatype_iri: String,
+    },
+    NodeKind {
+        node_kind_iri: String,
+    },
+    MinCount {
+        min_count: u64,
+    },
+    MaxCount {
+        max_count: u64,
+    },
+    MinLength {
+        min_length: u64,
+    },
+    MaxLength {
+        max_length: u64,
+    },
+    Pattern {
+        pattern: String,
+        flags: Option<String>,
+    },
+    Unsupported {
+        kind: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

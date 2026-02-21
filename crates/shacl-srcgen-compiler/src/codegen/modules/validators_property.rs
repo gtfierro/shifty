@@ -82,11 +82,92 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::NodeKind { node_kind_iri } => {
+                    let node_kind_lit = LitStr::new(node_kind_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = shacl_node_kind_matches(value, #node_kind_lit);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
                 SrcGenComponentKind::Class { class_iri } => {
                     let class_lit = LitStr::new(class_iri, Span::call_site());
                     constraint_checks.push(quote! {
                         for value in &values {
                             let valid = term_has_rdf_type(store, data_graph, value, #class_lit)?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MinLength { min_length } => {
+                    let min_length = *min_length as usize;
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = term_string_for_text_constraints(value)
+                                .map(|text| text.chars().count() >= #min_length)
+                                .unwrap_or(false);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxLength { max_length } => {
+                    let max_length = *max_length as usize;
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = term_string_for_text_constraints(value)
+                                .map(|text| text.chars().count() <= #max_length)
+                                .unwrap_or(false);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Pattern { pattern, flags } => {
+                    let pattern_lit = LitStr::new(pattern, Span::call_site());
+                    let flags_token = if let Some(flags) = flags {
+                        let flags_lit = LitStr::new(flags, Span::call_site());
+                        quote! { Some(#flags_lit) }
+                    } else {
+                        quote! { None }
+                    };
+                    constraint_checks.push(quote! {
+                        let regex = build_pattern_regex(#pattern_lit, #flags_token)?;
+                        for value in &values {
+                            let valid = term_string_for_text_constraints(value)
+                                .map(|text| regex.is_match(&text))
+                                .unwrap_or(false);
                             if !valid {
                                 violations.push(Violation {
                                     shape_id: #shape_id,
@@ -182,6 +263,44 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
             }
             Ok(false)
+        }
+
+        pub fn shacl_node_kind_matches(term: &oxigraph::model::Term, node_kind_iri: &str) -> bool {
+            let is_iri = matches!(term, oxigraph::model::Term::NamedNode(_));
+            let is_blank = matches!(term, oxigraph::model::Term::BlankNode(_));
+            let is_literal = matches!(term, oxigraph::model::Term::Literal(_));
+            match node_kind_iri {
+                "http://www.w3.org/ns/shacl#IRI" => is_iri,
+                "http://www.w3.org/ns/shacl#BlankNode" => is_blank,
+                "http://www.w3.org/ns/shacl#Literal" => is_literal,
+                "http://www.w3.org/ns/shacl#BlankNodeOrIRI" => is_blank || is_iri,
+                "http://www.w3.org/ns/shacl#BlankNodeOrLiteral" => is_blank || is_literal,
+                "http://www.w3.org/ns/shacl#IRIOrLiteral" => is_iri || is_literal,
+                _ => false,
+            }
+        }
+
+        pub fn term_string_for_text_constraints(term: &oxigraph::model::Term) -> Option<String> {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => Some(node.as_str().to_string()),
+                oxigraph::model::Term::Literal(literal) => Some(literal.value().to_string()),
+                oxigraph::model::Term::BlankNode(_) => None,
+            }
+        }
+
+        pub fn build_pattern_regex(
+            pattern: &str,
+            flags: Option<&str>,
+        ) -> Result<regex::Regex, String> {
+            let mut pattern_builder = regex::RegexBuilder::new(pattern);
+            if let Some(flags) = flags {
+                if flags.contains('i') {
+                    pattern_builder.case_insensitive(true);
+                }
+            }
+            pattern_builder
+                .build()
+                .map_err(|err| format!("invalid regex pattern {pattern:?}: {err}"))
         }
 
         pub fn validate_supported_property_shape(

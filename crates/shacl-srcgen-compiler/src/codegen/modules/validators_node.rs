@@ -38,20 +38,100 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let Some(kind) = component_by_id.get(component_id) else {
                 continue;
             };
-            if let SrcGenComponentKind::Class { class_iri } = kind {
-                let class_lit = LitStr::new(class_iri, Span::call_site());
-                node_constraint_checks.push(quote! {
-                    let valid = term_has_rdf_type(store, data_graph, focus, #class_lit)?;
-                    if !valid {
-                        violations.push(Violation {
-                            shape_id: #shape_id,
-                            component_id: #component_id_value,
-                            focus: focus.clone(),
-                            value: None,
-                            path: None,
-                        });
-                    }
-                });
+            match kind {
+                SrcGenComponentKind::Class { class_iri } => {
+                    let class_lit = LitStr::new(class_iri, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let valid = term_has_rdf_type(store, data_graph, focus, #class_lit)?;
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::NodeKind { node_kind_iri } => {
+                    let node_kind_lit = LitStr::new(node_kind_iri, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let valid = shacl_node_kind_matches(focus, #node_kind_lit);
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::MinLength { min_length } => {
+                    let min_length = *min_length as usize;
+                    node_constraint_checks.push(quote! {
+                        let valid = term_string_for_text_constraints(focus)
+                            .map(|text| text.chars().count() >= #min_length)
+                            .unwrap_or(false);
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxLength { max_length } => {
+                    let max_length = *max_length as usize;
+                    node_constraint_checks.push(quote! {
+                        let valid = term_string_for_text_constraints(focus)
+                            .map(|text| text.chars().count() <= #max_length)
+                            .unwrap_or(false);
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::Pattern { pattern, flags } => {
+                    let pattern_lit = LitStr::new(pattern, Span::call_site());
+                    let flags_token = if let Some(flags) = flags {
+                        let flags_lit = LitStr::new(flags, Span::call_site());
+                        quote! { Some(#flags_lit) }
+                    } else {
+                        quote! { None }
+                    };
+                    node_constraint_checks.push(quote! {
+                        let regex = build_pattern_regex(#pattern_lit, #flags_token)?;
+                        let valid = term_string_for_text_constraints(focus)
+                            .map(|text| regex.is_match(&text))
+                            .unwrap_or(false);
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::PropertyLink => {}
+                SrcGenComponentKind::Datatype { .. } => {}
+                SrcGenComponentKind::MinCount { .. } => {}
+                SrcGenComponentKind::MaxCount { .. } => {}
+                SrcGenComponentKind::Unsupported { .. } => {}
             }
         }
 

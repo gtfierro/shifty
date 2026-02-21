@@ -258,7 +258,12 @@ fn simple_named_path_predicate(path: &Path) -> Option<String> {
 fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
     matches!(
         kind,
-        SrcGenComponentKind::Class { .. } | SrcGenComponentKind::PropertyLink
+        SrcGenComponentKind::Class { .. }
+            | SrcGenComponentKind::PropertyLink
+            | SrcGenComponentKind::NodeKind { .. }
+            | SrcGenComponentKind::MinLength { .. }
+            | SrcGenComponentKind::MaxLength { .. }
+            | SrcGenComponentKind::Pattern { .. }
     )
 }
 
@@ -267,8 +272,12 @@ fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
         kind,
         SrcGenComponentKind::Class { .. }
             | SrcGenComponentKind::Datatype { .. }
+            | SrcGenComponentKind::NodeKind { .. }
             | SrcGenComponentKind::MinCount { .. }
             | SrcGenComponentKind::MaxCount { .. }
+            | SrcGenComponentKind::MinLength { .. }
+            | SrcGenComponentKind::MaxLength { .. }
+            | SrcGenComponentKind::Pattern { .. }
     )
 }
 
@@ -298,6 +307,14 @@ fn component_kind(descriptor: &ComponentDescriptor) -> (SrcGenComponentKind, Opt
             },
             None,
         ),
+        ComponentDescriptor::NodeKind {
+            node_kind: Term::NamedNode(node_kind),
+        } => (
+            SrcGenComponentKind::NodeKind {
+                node_kind_iri: node_kind.as_str().to_string(),
+            },
+            None,
+        ),
         ComponentDescriptor::MinCount { min_count } => (
             SrcGenComponentKind::MinCount {
                 min_count: *min_count,
@@ -307,6 +324,25 @@ fn component_kind(descriptor: &ComponentDescriptor) -> (SrcGenComponentKind, Opt
         ComponentDescriptor::MaxCount { max_count } => (
             SrcGenComponentKind::MaxCount {
                 max_count: *max_count,
+            },
+            None,
+        ),
+        ComponentDescriptor::MinLength { length } => (
+            SrcGenComponentKind::MinLength {
+                min_length: *length,
+            },
+            None,
+        ),
+        ComponentDescriptor::MaxLength { length } => (
+            SrcGenComponentKind::MaxLength {
+                max_length: *length,
+            },
+            None,
+        ),
+        ComponentDescriptor::Pattern { pattern, flags } => (
+            SrcGenComponentKind::Pattern {
+                pattern: pattern.clone(),
+                flags: flags.clone(),
             },
             None,
         ),
@@ -322,12 +358,18 @@ fn component_kind(descriptor: &ComponentDescriptor) -> (SrcGenComponentKind, Opt
             },
             Some("Datatype constraint uses a non-IRI datatype term".to_string()),
         ),
+        ComponentDescriptor::NodeKind { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "NodeKind(non-iri)".to_string(),
+            },
+            Some("NodeKind constraint uses a non-IRI node kind term".to_string()),
+        ),
         other => (
             SrcGenComponentKind::Unsupported {
                 kind: component_kind_name(other).to_string(),
             },
             Some(format!(
-                "component kind {} is not specialized in phase-1",
+                "component kind {} is not specialized in phase-2",
                 component_kind_name(other)
             )),
         ),
@@ -642,10 +684,8 @@ mod tests {
         let mut components = HashMap::new();
         components.insert(
             ComponentID(1),
-            ComponentDescriptor::NodeKind {
-                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
-                    "http://www.w3.org/ns/shacl#IRI",
-                )),
+            ComponentDescriptor::LanguageIn {
+                languages: vec!["en".to_string()],
             },
         );
 
@@ -690,5 +730,109 @@ mod tests {
         assert_eq!(lowered.fallback_annotations[0].component_id, 1);
         assert!(lowered.components[0].fallback_only);
         assert!(!lowered.node_shapes[0].supported);
+    }
+
+    #[test]
+    fn specialization_ready_for_phase2_nodekind_and_text_constraints() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::NodeKind {
+                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#Literal",
+                )),
+            },
+        );
+        components.insert(ComponentID(4), ComponentDescriptor::MinLength { length: 3 });
+        components.insert(
+            ComponentID(5),
+            ComponentDescriptor::MaxLength { length: 16 },
+        );
+        components.insert(
+            ComponentID(6),
+            ComponentDescriptor::Pattern {
+                pattern: "^[A-Za-z]+$".to_string(),
+                flags: Some("i".to_string()),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person-name",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2)],
+                property_shapes: vec![PropShapeID(7)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:name",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:name")),
+                constraints: vec![
+                    ComponentID(3),
+                    ComponentID(4),
+                    ComponentID(5),
+                    ComponentID(6),
+                ],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(lowered
+            .components
+            .iter()
+            .all(|component| !component.fallback_only));
+        assert!(lowered.node_shapes[0].supported);
+        assert!(lowered.property_shapes[0].supported);
     }
 }
