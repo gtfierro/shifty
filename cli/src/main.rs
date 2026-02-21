@@ -230,8 +230,8 @@ struct CompileArgs {
     #[arg(long, value_name = "FILE")]
     plan_out: Option<PathBuf>,
 
-    /// Compiler track (`legacy` uses crates/shacl-compiler, `srcgen` uses crates/shacl-srcgen-compiler)
-    #[arg(long, value_enum, default_value_t = CompileCompilerArg::Legacy)]
+    /// Compiler track (`srcgen` default, `legacy` remains opt-in for compatibility)
+    #[arg(long, value_enum, default_value_t = CompileCompilerArg::Srcgen)]
     compiler: CompileCompilerArg,
 
     /// Backend mode (defaults depend on `--compiler`):
@@ -1303,4 +1303,39 @@ fn write_shape_graph_ttl(
     serializer.finish()?;
     fs::write(path, &writer)?;
     Ok(())
+}
+
+#[cfg(all(test, feature = "shacl-compiler"))]
+mod tests {
+    use super::*;
+
+    fn parse_compile_args(extra: &[&str]) -> CompileArgs {
+        let mut argv = vec!["shifty", "compile", "--shapes-file", "shapes.ttl"];
+        argv.extend_from_slice(extra);
+        let cli = Cli::try_parse_from(argv).expect("compile args should parse");
+        match cli.command {
+            Commands::Compile(args) => args,
+            _ => panic!("expected compile command"),
+        }
+    }
+
+    #[test]
+    fn compile_defaults_to_srcgen_specialized_backend() {
+        let args = parse_compile_args(&[]);
+        assert!(matches!(args.compiler, CompileCompilerArg::Srcgen));
+        assert!(matches!(
+            args.resolve_backend().expect("backend should resolve"),
+            ResolvedCompileBackend::Srcgen(SrcGenBackend::Specialized)
+        ));
+    }
+
+    #[test]
+    fn compile_legacy_opt_in_still_defaults_to_aot_backend() {
+        let args = parse_compile_args(&["--compiler", "legacy"]);
+        assert!(matches!(args.compiler, CompileCompilerArg::Legacy));
+        assert!(matches!(
+            args.resolve_backend().expect("backend should resolve"),
+            ResolvedCompileBackend::Legacy(LegacyCompileBackend::Aot)
+        ));
+    }
 }
