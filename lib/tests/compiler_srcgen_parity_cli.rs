@@ -302,6 +302,86 @@ ex:Alice a ex:Person .
 }
 
 #[test]
+fn legacy_srcgen_and_runtime_reports_are_isomorphic_with_shape_data_union(
+) -> Result<(), Box<dyn Error>> {
+    let _guard = compiled_test_lock();
+    let tmp = unique_temp_dir()?;
+    let shapes = tmp.join("shapes.ttl");
+    let data = tmp.join("data.ttl");
+    let legacy_out = tmp.join("legacy-compiled");
+    let srcgen_out = tmp.join("srcgen-compiled");
+    let legacy_report = tmp.join("legacy-report.ttl");
+    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let runtime_report = tmp.join("runtime-report.ttl");
+
+    // ex:refValue only has rdf:type in the shapes graph. Correct validation requires
+    // querying the union of shapes+data graphs for sh:class checks.
+    let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:refValue a ex:ApprovedThing .
+
+ex:PersonShape
+  a sh:NodeShape ;
+  sh:targetClass ex:Person ;
+  sh:property [
+    sh:path ex:linked ;
+    sh:minCount 1 ;
+    sh:class ex:ApprovedThing ;
+  ] .
+"#;
+
+    let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Person ;
+  ex:linked ex:refValue .
+"#;
+
+    write_file(&shapes, shapes_ttl)?;
+    write_file(&data, data_ttl)?;
+
+    compile_with_track(&shapes, &legacy_out, "legacy-bin-union", "legacy", "aot")?;
+    compile_with_track(
+        &shapes,
+        &srcgen_out,
+        "srcgen-bin-union",
+        "srcgen",
+        "specialized",
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir().join("debug").join("legacy-bin-union"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &legacy_report,
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir().join("debug").join("srcgen-bin-union"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &srcgen_report,
+    )?;
+
+    run_cli_to_file(
+        &[
+            "validate",
+            "--shapes-file",
+            shapes.to_str().unwrap(),
+            "--data-file",
+            data.to_str().unwrap(),
+            "--format",
+            "turtle",
+        ],
+        &runtime_report,
+    )?;
+
+    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
+    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
+    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+
+    Ok(())
+}
+
+#[test]
 #[ignore = "perf gate: run manually with --ignored"]
 fn srcgen_compiled_perf_smoke_gate_against_runtime_validate() -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();

@@ -138,3 +138,29 @@ fn prelude_snapshot_contains_expected_constants() {
     assert!(prelude.contains("Some(1"));
     assert!(prelude.contains("Some(2"));
 }
+
+#[test]
+fn validators_use_shape_data_union_queries() {
+    let ir = sample_shape_ir();
+    let generated = generate_modules_from_shape_ir_with_backend(&ir, SrcGenBackend::Specialized)
+        .expect("specialized codegen should succeed");
+
+    let validators_property = generated
+        .files
+        .iter()
+        .find(|(name, _)| name == "validators_property.rs")
+        .map(|(_, content)| content.as_str())
+        .expect("validators_property module must exist");
+    assert!(validators_property.contains("fn validation_graphs("));
+    assert!(validators_property.contains("NamedNode::new(SHAPE_GRAPH)"));
+    assert!(validators_property.contains("for graph in validation_graphs(data_graph)?"));
+    assert!(validators_property.contains("values.dedup();"));
+
+    let validators_node = generated
+        .files
+        .iter()
+        .find(|(name, _)| name == "validators_node.rs")
+        .map(|(_, content)| content.as_str())
+        .expect("validators_node module must exist");
+    assert!(validators_node.contains("for graph in validation_graphs(data_graph)?"));
+}
