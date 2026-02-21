@@ -1,0 +1,16 @@
+[package]
+name = "shacl-srcgen-compiler"
+version = "0.0.1"
+edition = "2021"
+description = "Source-generation-first SHACL compiler track"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+oxigraph = { workspace = true }
+prettyplease = "0.2"
+proc-macro2 = "1"
+quote = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+shifty = { workspace = true }
+syn = { version = "2", features = ["full", "parsing"] }

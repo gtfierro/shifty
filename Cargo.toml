@@ -3,7 +3,8 @@ members = [
     "lib",
     "cli",
     "python",
-    "crates/shacl-compiler"
+    "crates/shacl-compiler",
+    "crates/shacl-srcgen-compiler"
 ]
 resolver = "2"
 
