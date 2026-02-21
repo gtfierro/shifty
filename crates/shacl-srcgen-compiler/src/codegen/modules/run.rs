@@ -42,11 +42,36 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 .map_err(|err| format!("failed to initialize runtime validator: {err}"))
         }
 
+        fn run_hybrid_validation(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Option<Report> {
+            if generated_backend_is_tables() || !SPECIALIZATION_READY {
+                record_fallback_dispatch();
+                return None;
+            }
+
+            match run_specialized_node_validation(store, data_graph)
+                .and_then(build_report_from_specialized_violations)
+            {
+                Ok(report) => {
+                    record_fast_path_hit();
+                    Some(report)
+                }
+                Err(err) => {
+                    eprintln!("srcgen specialized validation fallback: {err}");
+                    record_fallback_dispatch();
+                    None
+                }
+            }
+        }
+
         pub fn run_with_options(
             store: &oxigraph::store::Store,
             data_graph: Option<&oxigraph::model::NamedNode>,
             enable_inference: bool,
         ) -> Report {
+            reset_runtime_metrics();
             let data_graph = if let Some(graph) = data_graph {
                 graph.clone()
             } else {
@@ -66,15 +91,8 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 }
             }
 
-            if SPECIALIZATION_READY {
-                match run_specialized_node_validation(store, &data_graph).and_then(
-                    build_report_from_specialized_violations,
-                ) {
-                    Ok(report) => return report,
-                    Err(err) => {
-                        eprintln!("srcgen specialized validation fallback: {err}");
-                    }
-                }
+            if let Some(report) = run_hybrid_validation(store, &data_graph) {
+                return report;
             }
 
             let validator = match build_runtime_validator(store, &data_graph) {

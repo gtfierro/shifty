@@ -63,6 +63,8 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
 
     let tokens = quote! {
         use oxigraph::model::Term;
+        use std::collections::BTreeMap;
+        use std::sync::{Mutex, OnceLock};
 
         pub const SHAPE_GRAPH: &str = #shape_graph;
         pub const DATA_GRAPH: &str = #data_graph;
@@ -98,6 +100,65 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
         impl Report {
             pub fn to_turtle(&self, _store: &oxigraph::store::Store) -> String {
                 self.report_turtle.clone()
+            }
+        }
+
+        #[derive(Debug, Clone, Default)]
+        pub struct RuntimeMetricsSnapshot {
+            pub fast_path_hits: u64,
+            pub fallback_dispatches: u64,
+            pub per_component_violations: BTreeMap<u64, u64>,
+        }
+
+        #[derive(Debug, Default)]
+        struct RuntimeMetrics {
+            fast_path_hits: u64,
+            fallback_dispatches: u64,
+            per_component_violations: BTreeMap<u64, u64>,
+        }
+
+        fn runtime_metrics() -> &'static Mutex<RuntimeMetrics> {
+            static METRICS: OnceLock<Mutex<RuntimeMetrics>> = OnceLock::new();
+            METRICS.get_or_init(|| Mutex::new(RuntimeMetrics::default()))
+        }
+
+        pub fn reset_runtime_metrics() {
+            if let Ok(mut metrics) = runtime_metrics().lock() {
+                *metrics = RuntimeMetrics::default();
+            }
+        }
+
+        pub fn record_fast_path_hit() {
+            if let Ok(mut metrics) = runtime_metrics().lock() {
+                metrics.fast_path_hits = metrics.fast_path_hits.saturating_add(1);
+            }
+        }
+
+        pub fn record_fallback_dispatch() {
+            if let Ok(mut metrics) = runtime_metrics().lock() {
+                metrics.fallback_dispatches = metrics.fallback_dispatches.saturating_add(1);
+            }
+        }
+
+        pub fn record_component_violation(component_id: u64) {
+            if let Ok(mut metrics) = runtime_metrics().lock() {
+                let counter = metrics
+                    .per_component_violations
+                    .entry(component_id)
+                    .or_insert(0);
+                *counter = counter.saturating_add(1);
+            }
+        }
+
+        pub fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
+            if let Ok(metrics) = runtime_metrics().lock() {
+                RuntimeMetricsSnapshot {
+                    fast_path_hits: metrics.fast_path_hits,
+                    fallback_dispatches: metrics.fallback_dispatches,
+                    per_component_violations: metrics.per_component_violations.clone(),
+                }
+            } else {
+                RuntimeMetricsSnapshot::default()
             }
         }
 

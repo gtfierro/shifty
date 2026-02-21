@@ -186,6 +186,7 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
         pub fn build_report_from_specialized_violations(
             violations: Vec<Violation>,
         ) -> Result<Report, String> {
+            record_violation_metrics(&violations);
             let report_turtle = render_violations_to_turtle(&violations)?;
             Ok(Report {
                 violations,
@@ -201,6 +202,7 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 follow_bnodes: false,
             });
             let violations = build_violations(&report_graph);
+            record_violation_metrics(&violations);
 
             let report_turtle = report
                 .to_turtle_with_options(shifty::ValidationReportOptions {
@@ -220,6 +222,12 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 violations,
                 report_turtle,
                 report_turtle_follow_bnodes,
+            }
+        }
+
+        fn record_violation_metrics(violations: &[Violation]) {
+            for violation in violations {
+                record_component_violation(violation.component_id);
             }
         }
 
