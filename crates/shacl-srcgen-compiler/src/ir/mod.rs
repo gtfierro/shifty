@@ -22,6 +22,7 @@ pub struct SrcGenMeta {
     pub schema_version: u32,
     pub shape_graph_iri: String,
     pub data_graph_iri: String,
+    pub rule_count: usize,
     pub specialization_ready: bool,
 }
 

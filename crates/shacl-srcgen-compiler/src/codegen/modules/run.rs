@@ -42,18 +42,6 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 .map_err(|err| format!("failed to initialize runtime validator: {err}"))
         }
 
-        fn empty_conforming_report() -> Report {
-            Report {
-                violations: Vec::new(),
-                report_turtle: String::from(
-                    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms true .\n",
-                ),
-                report_turtle_follow_bnodes: String::from(
-                    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms true .\n",
-                ),
-            }
-        }
-
         pub fn run_with_options(
             store: &oxigraph::store::Store,
             data_graph: Option<&oxigraph::model::NamedNode>,
@@ -71,70 +59,33 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 }
             };
 
-            let mut validator = match build_runtime_validator(store, &data_graph) {
-                Ok(validator) => validator,
-                Err(err) => {
-                    eprintln!("srcgen runtime error: {err}");
-                    return empty_conforming_report();
-                }
-            };
-
             if enable_inference {
-                if let Err(err) = apply_runtime_inference(&validator, store, &data_graph) {
+                if let Err(err) = run_generated_inference(store, &data_graph) {
                     eprintln!("srcgen runtime inference error: {err}");
                     return empty_conforming_report();
                 }
-                validator = match build_runtime_validator(store, &data_graph) {
-                    Ok(validator) => validator,
-                    Err(err) => {
-                        eprintln!("srcgen runtime error: {err}");
-                        return empty_conforming_report();
-                    }
-                };
             }
 
             if SPECIALIZATION_READY {
-                match run_specialized_node_validation(store, &data_graph)
-                    .and_then(|violations| render_violations_to_turtle(&violations).map(|ttl| (violations, ttl)))
-                {
-                    Ok((violations, report_turtle)) => {
-                        return Report {
-                            violations,
-                            report_turtle: report_turtle.clone(),
-                            report_turtle_follow_bnodes: report_turtle,
-                        };
-                    }
+                match run_specialized_node_validation(store, &data_graph).and_then(
+                    build_report_from_specialized_violations,
+                ) {
+                    Ok(report) => return report,
                     Err(err) => {
                         eprintln!("srcgen specialized validation fallback: {err}");
                     }
                 }
             }
 
+            let validator = match build_runtime_validator(store, &data_graph) {
+                Ok(validator) => validator,
+                Err(err) => {
+                    eprintln!("srcgen runtime error: {err}");
+                    return empty_conforming_report();
+                }
+            };
             let report = validator.validate();
-            let report_graph = report.to_graph_with_options(shifty::ValidationReportOptions {
-                follow_bnodes: false,
-            });
-            let violations = build_violations(&report_graph);
-
-            let report_turtle = report
-                .to_turtle_with_options(shifty::ValidationReportOptions {
-                    follow_bnodes: false,
-                })
-                .unwrap_or_else(|err| {
-                    eprintln!("srcgen runtime error: failed to serialize report: {err}");
-                    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms true .\n".to_string()
-                });
-            let report_turtle_follow_bnodes = report
-                .to_turtle_with_options(shifty::ValidationReportOptions {
-                    follow_bnodes: true,
-                })
-                .unwrap_or_else(|_| report_turtle.clone());
-
-            Report {
-                violations,
-                report_turtle,
-                report_turtle_follow_bnodes,
-            }
+            build_report_from_runtime_validation_report(&report)
         }
 
         pub fn run(

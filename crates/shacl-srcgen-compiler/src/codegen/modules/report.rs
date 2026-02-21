@@ -183,6 +183,58 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             String::from_utf8(writer).map_err(|err| format!("report is not valid utf8: {err}"))
         }
 
+        pub fn build_report_from_specialized_violations(
+            violations: Vec<Violation>,
+        ) -> Result<Report, String> {
+            let report_turtle = render_violations_to_turtle(&violations)?;
+            Ok(Report {
+                violations,
+                report_turtle: report_turtle.clone(),
+                report_turtle_follow_bnodes: report_turtle,
+            })
+        }
+
+        pub fn build_report_from_runtime_validation_report(
+            report: &shifty::ValidationReport,
+        ) -> Report {
+            let report_graph = report.to_graph_with_options(shifty::ValidationReportOptions {
+                follow_bnodes: false,
+            });
+            let violations = build_violations(&report_graph);
+
+            let report_turtle = report
+                .to_turtle_with_options(shifty::ValidationReportOptions {
+                    follow_bnodes: false,
+                })
+                .unwrap_or_else(|err| {
+                    eprintln!("srcgen runtime error: failed to serialize report: {err}");
+                    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms true .\n".to_string()
+                });
+            let report_turtle_follow_bnodes = report
+                .to_turtle_with_options(shifty::ValidationReportOptions {
+                    follow_bnodes: true,
+                })
+                .unwrap_or_else(|_| report_turtle.clone());
+
+            Report {
+                violations,
+                report_turtle,
+                report_turtle_follow_bnodes,
+            }
+        }
+
+        pub fn empty_conforming_report() -> Report {
+            Report {
+                violations: Vec::new(),
+                report_turtle: String::from(
+                    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms true .\n",
+                ),
+                report_turtle_follow_bnodes: String::from(
+                    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms true .\n",
+                ),
+            }
+        }
+
         pub fn render_report(
             report: &Report,
             _store: &oxigraph::store::Store,

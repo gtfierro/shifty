@@ -207,6 +207,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             schema_version: 1,
             shape_graph_iri: shape_ir.shape_graph.as_str().to_string(),
             data_graph_iri,
+            rule_count: shape_ir.rules.len(),
             specialization_ready,
         },
         node_shapes,
