@@ -652,12 +652,6 @@ fn get_validator_shapes_only(
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
-    if args.no_imports {
-        info!(
-            "Ignoring --no-imports for compile; compiled binaries always embed the full shapes imports closure"
-        );
-    }
-
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &args.shapes.shapes_file {
         if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
@@ -676,7 +670,7 @@ fn get_validator_shapes_only_for_compile(
         .with_skip_invalid_rules(args.skip_invalid_rules)
         .with_warnings_are_errors(args.warnings_are_errors)
         .with_strict_custom_constraints(args.strict_custom_constraints)
-        .with_do_imports(true)
+        .with_do_imports(!args.no_imports)
         .with_force_refresh(args.force_refresh)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
