@@ -114,24 +114,25 @@ fn compile_with_track(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(format!("compile-{compiler}.stdout"));
-    run_cli_to_file(
-        &[
-            "compile",
-            "--shapes-file",
-            shapes.to_str().unwrap(),
-            "--compiler",
-            compiler,
-            "--backend",
-            backend,
-            "--out-dir",
-            out_dir.to_str().unwrap(),
-            "--bin-name",
-            bin_name,
-            "--shifty-path",
-            shifty_path.to_str().unwrap(),
-        ],
-        &compile_stdout,
-    )
+    let mut args = vec![
+        "compile",
+        "--shapes-file",
+        shapes.to_str().unwrap(),
+        "--compiler",
+        compiler,
+        "--backend",
+        backend,
+        "--out-dir",
+        out_dir.to_str().unwrap(),
+        "--bin-name",
+        bin_name,
+        "--shifty-path",
+        shifty_path.to_str().unwrap(),
+    ];
+    if compiler == "legacy" {
+        args.push("--allow-legacy-compiler");
+    }
+    run_cli_to_file(&args, &compile_stdout)
 }
 
 #[test]

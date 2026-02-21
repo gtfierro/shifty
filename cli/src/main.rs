@@ -234,6 +234,10 @@ struct CompileArgs {
     #[arg(long, value_enum, default_value_t = CompileCompilerArg::Srcgen)]
     compiler: CompileCompilerArg,
 
+    /// Required to opt into the legacy compiler track during migration
+    #[arg(long)]
+    allow_legacy_compiler: bool,
+
     /// Backend mode (defaults depend on `--compiler`):
     /// - legacy compiler: `aot` (or `legacy`)
     /// - srcgen compiler: `specialized` (or `tables`)
@@ -283,18 +287,26 @@ enum ResolvedCompileBackend {
 impl CompileArgs {
     fn resolve_backend(&self) -> Result<ResolvedCompileBackend, String> {
         match self.compiler {
-            CompileCompilerArg::Legacy => match self.backend.unwrap_or(CompileBackendArg::Aot) {
-                CompileBackendArg::Legacy => {
-                    Ok(ResolvedCompileBackend::Legacy(LegacyCompileBackend::Legacy))
+            CompileCompilerArg::Legacy => {
+                if !self.allow_legacy_compiler {
+                    return Err(
+                        "legacy compiler is compatibility-only; rerun with --allow-legacy-compiler"
+                            .to_string(),
+                    );
                 }
-                CompileBackendArg::Aot => {
-                    Ok(ResolvedCompileBackend::Legacy(LegacyCompileBackend::Aot))
+                match self.backend.unwrap_or(CompileBackendArg::Aot) {
+                    CompileBackendArg::Legacy => {
+                        Ok(ResolvedCompileBackend::Legacy(LegacyCompileBackend::Legacy))
+                    }
+                    CompileBackendArg::Aot => {
+                        Ok(ResolvedCompileBackend::Legacy(LegacyCompileBackend::Aot))
+                    }
+                    CompileBackendArg::Specialized | CompileBackendArg::Tables => Err(
+                        "backend mismatch: --compiler legacy only supports --backend legacy|aot"
+                            .to_string(),
+                    ),
                 }
-                CompileBackendArg::Specialized | CompileBackendArg::Tables => Err(
-                    "backend mismatch: --compiler legacy only supports --backend legacy|aot"
-                        .to_string(),
-                ),
-            },
+            }
             CompileCompilerArg::Srcgen => {
                 match self.backend.unwrap_or(CompileBackendArg::Specialized) {
                     CompileBackendArg::Specialized => {
@@ -1331,11 +1343,21 @@ mod tests {
 
     #[test]
     fn compile_legacy_opt_in_still_defaults_to_aot_backend() {
-        let args = parse_compile_args(&["--compiler", "legacy"]);
+        let args = parse_compile_args(&["--compiler", "legacy", "--allow-legacy-compiler"]);
         assert!(matches!(args.compiler, CompileCompilerArg::Legacy));
         assert!(matches!(
             args.resolve_backend().expect("backend should resolve"),
             ResolvedCompileBackend::Legacy(LegacyCompileBackend::Aot)
         ));
+    }
+
+    #[test]
+    fn compile_legacy_requires_explicit_compat_flag() {
+        let args = parse_compile_args(&["--compiler", "legacy"]);
+        let err = match args.resolve_backend() {
+            Ok(_) => panic!("legacy should require explicit opt-in"),
+            Err(err) => err,
+        };
+        assert!(err.contains("--allow-legacy-compiler"));
     }
 }
