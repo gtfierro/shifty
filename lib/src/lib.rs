@@ -3,6 +3,7 @@
 
 // Publicly visible items
 pub mod backend;
+pub mod compiled_runtime;
 pub mod inference;
 pub mod ir;
 pub mod ir_cache;
