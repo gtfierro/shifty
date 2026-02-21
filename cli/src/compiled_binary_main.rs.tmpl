@@ -1,6 +1,6 @@
 mod generated;
 
-use generated::{component_iri, render_report, shape_iri, ResultPath, DATA_GRAPH};
+use generated::{component_iri, render_report, shape_iri, ResultPath, DATA_GRAPH, SHAPE_GRAPH};
 use log::info;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad, TripleRef};
@@ -1241,6 +1241,29 @@ fn load_data_graph_from_bytes(
     Ok(triple_count)
 }
 
+fn load_embedded_shape_graph(store: &Store) -> Result<usize, String> {
+    let shape_graph = NamedNode::new(SHAPE_GRAPH)
+        .map_err(|e| format!("invalid shape graph IRI in generated module: {}", e))?;
+    let parser = RdfParser::from_format(RdfFormat::Turtle).for_slice(include_bytes!("../shape_graph.ttl"));
+    let graph_name = GraphName::NamedNode(shape_graph);
+    let mut triple_count = 0usize;
+
+    for triple in parser {
+        let triple = triple.map_err(|e| format!("failed parsing embedded shape graph: {}", e))?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            graph_name.clone(),
+        );
+        store
+            .insert(&quad)
+            .map_err(|e| format!("store insert failed: {}", e))?;
+        triple_count = triple_count.saturating_add(1);
+    }
+    Ok(triple_count)
+}
+
 fn serialize_graph_to_turtle(store: &Store, graph: &NamedNode) -> Result<String, String> {
     let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle).for_writer(Vec::new());
     let graph_ref = GraphNameRef::NamedNode(graph.as_ref());
@@ -1321,6 +1344,12 @@ fn format_human_report(report: &generated::Report, run_inference: bool) -> Strin
 fn load_store_for_path(path: &Path) -> Result<(Store, NamedNode), String> {
     let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
     let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
+    stage_mark("shape graph init start");
+    let shape_triple_count = load_embedded_shape_graph(&store)?;
+    stage_mark(&format!(
+        "shape graph init finish triples={}",
+        shape_triple_count
+    ));
     stage_mark(&format!("data graph load start path={}", path.display()));
     let triple_count = load_data_graph_from_file(&store, &data_graph, path)?;
     info!(
@@ -1521,6 +1550,7 @@ fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
 
     let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
     let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
+    let _ = load_embedded_shape_graph(&store)?;
     let _ = load_data_graph_from_bytes(&store, &data_graph, graph.as_bytes(), format)?;
     store
         .optimize()
@@ -1552,6 +1582,7 @@ fn handle_infer_api(body: &[u8]) -> Result<Value, String> {
 
     let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
     let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
+    let _ = load_embedded_shape_graph(&store)?;
     let _ = load_data_graph_from_bytes(&store, &data_graph, graph.as_bytes(), format)?;
     store
         .optimize()
