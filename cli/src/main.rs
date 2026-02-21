@@ -8,7 +8,14 @@ use oxigraph::model::{Graph, Triple};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "shacl-compiler")]
-use shacl_compiler::{generate_modules_from_plan_with_backend, CompileBackend, PlanIR};
+use shacl_compiler::{
+    generate_modules_from_plan_with_backend, CompileBackend as LegacyCompileBackend, PlanIR,
+};
+#[cfg(feature = "shacl-compiler")]
+use shacl_srcgen_compiler::{
+    generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
+};
 use shifty::ir_cache;
 #[cfg(feature = "shacl-compiler")]
 use shifty::shacl_ir::ShapeIR;
@@ -219,13 +226,19 @@ struct CompileArgs {
     #[arg(long, value_name = "NAME", default_value = "shacl-compiled")]
     bin_name: String,
 
-    /// Optional output path for PlanIR JSON
+    /// Optional output path for compiler IR JSON (PlanIR for legacy, SrcGenIR for srcgen)
     #[arg(long, value_name = "FILE")]
     plan_out: Option<PathBuf>,
 
-    /// Compile backend (`aot` = tables + shared kernel, `legacy` = generated validators)
-    #[arg(long, value_enum, default_value_t = CompileBackendArg::Aot)]
-    backend: CompileBackendArg,
+    /// Compiler track (`legacy` uses crates/shacl-compiler, `srcgen` uses crates/shacl-srcgen-compiler)
+    #[arg(long, value_enum, default_value_t = CompileCompilerArg::Legacy)]
+    compiler: CompileCompilerArg,
+
+    /// Backend mode (defaults depend on `--compiler`):
+    /// - legacy compiler: `aot` (or `legacy`)
+    /// - srcgen compiler: `specialized` (or `tables`)
+    #[arg(long, value_enum)]
+    backend: Option<CompileBackendArg>,
 
     /// Build in release mode
     #[arg(long)]
@@ -245,18 +258,57 @@ struct CompileArgs {
 }
 
 #[cfg(feature = "shacl-compiler")]
-#[derive(ValueEnum, Clone, Debug)]
-enum CompileBackendArg {
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum CompileCompilerArg {
     Legacy,
-    Aot,
+    Srcgen,
 }
 
 #[cfg(feature = "shacl-compiler")]
-impl CompileBackendArg {
-    fn to_backend(&self) -> CompileBackend {
-        match self {
-            Self::Legacy => CompileBackend::Legacy,
-            Self::Aot => CompileBackend::Aot,
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum CompileBackendArg {
+    Legacy,
+    Aot,
+    Specialized,
+    Tables,
+}
+
+#[cfg(feature = "shacl-compiler")]
+enum ResolvedCompileBackend {
+    Legacy(LegacyCompileBackend),
+    Srcgen(SrcGenBackend),
+}
+
+#[cfg(feature = "shacl-compiler")]
+impl CompileArgs {
+    fn resolve_backend(&self) -> Result<ResolvedCompileBackend, String> {
+        match self.compiler {
+            CompileCompilerArg::Legacy => match self.backend.unwrap_or(CompileBackendArg::Aot) {
+                CompileBackendArg::Legacy => {
+                    Ok(ResolvedCompileBackend::Legacy(LegacyCompileBackend::Legacy))
+                }
+                CompileBackendArg::Aot => {
+                    Ok(ResolvedCompileBackend::Legacy(LegacyCompileBackend::Aot))
+                }
+                CompileBackendArg::Specialized | CompileBackendArg::Tables => Err(
+                    "backend mismatch: --compiler legacy only supports --backend legacy|aot"
+                        .to_string(),
+                ),
+            },
+            CompileCompilerArg::Srcgen => {
+                match self.backend.unwrap_or(CompileBackendArg::Specialized) {
+                    CompileBackendArg::Specialized => {
+                        Ok(ResolvedCompileBackend::Srcgen(SrcGenBackend::Specialized))
+                    }
+                    CompileBackendArg::Tables => {
+                        Ok(ResolvedCompileBackend::Srcgen(SrcGenBackend::Tables))
+                    }
+                    CompileBackendArg::Legacy | CompileBackendArg::Aot => Err(
+                        "backend mismatch: --compiler srcgen only supports --backend specialized|tables"
+                            .to_string(),
+                    ),
+                }
+            }
         }
     }
 }
@@ -1012,20 +1064,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .shape_ir_with_imports(args.import_depth)
                     .map_err(|e| e.to_string())?
             };
-            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| e.to_string())?;
-            let plan_json = plan
-                .to_json_pretty()
-                .map_err(|e| format!("plan serialization error: {}", e))?;
-            let generated =
-                generate_modules_from_plan_with_backend(&plan, args.backend.to_backend())?;
-            let generated_root = generated.root;
-            let generated_files = generated.files;
-
-            if let Some(plan_out) = &args.plan_out {
-                fs::write(plan_out, &plan_json)?;
-            }
-
-            info!("Using compile backend: {:?}", args.backend);
+            let (generated_root, generated_files) = match args.resolve_backend()? {
+                ResolvedCompileBackend::Legacy(backend) => {
+                    let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| e.to_string())?;
+                    if let Some(plan_out) = &args.plan_out {
+                        let plan_json = plan
+                            .to_json_pretty()
+                            .map_err(|e| format!("plan serialization error: {}", e))?;
+                        fs::write(plan_out, &plan_json)?;
+                    }
+                    info!(
+                        "Using compiler track=legacy backend={}",
+                        match backend {
+                            LegacyCompileBackend::Legacy => "legacy",
+                            LegacyCompileBackend::Aot => "aot",
+                        }
+                    );
+                    let generated = generate_modules_from_plan_with_backend(&plan, backend)?;
+                    (generated.root, generated.files)
+                }
+                ResolvedCompileBackend::Srcgen(backend) => {
+                    let srcgen_ir =
+                        lower_shape_ir_to_srcgen_ir(&shape_ir).map_err(|e| e.to_string())?;
+                    if let Some(plan_out) = &args.plan_out {
+                        fs::write(plan_out, srcgen_ir.to_json_pretty()?)?;
+                    }
+                    info!(
+                        "Using compiler track=srcgen backend={}",
+                        match backend {
+                            SrcGenBackend::Specialized => "specialized",
+                            SrcGenBackend::Tables => "tables",
+                        }
+                    );
+                    let generated =
+                        generate_srcgen_modules_from_ir_with_backend(&srcgen_ir, backend)?;
+                    (generated.root, generated.files)
+                }
+            };
 
             let out_dir = &args.out_dir;
             let src_dir = out_dir.join("src");

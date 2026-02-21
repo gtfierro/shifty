@@ -15,6 +15,7 @@ clap.workspace = true
 graphviz-rust.workspace = true
 shifty.workspace = true
 shacl-compiler = { path = "../crates/shacl-compiler", optional = true }
+shacl-srcgen-compiler = { path = "../crates/shacl-srcgen-compiler", optional = true }
 oxigraph.workspace = true
 log = { workspace = true }
 env_logger = { workspace = true }
@@ -22,4 +23,4 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-shacl-compiler = ["dep:shacl-compiler"]
+shacl-compiler = ["dep:shacl-compiler", "dep:shacl-srcgen-compiler"]
