@@ -100,13 +100,21 @@ ex:PersonShape
     sh:datatype xsd:integer ;
     sh:minCount 1 ;
     sh:maxCount 1 ;
+  ] ;
+  sh:property [
+    sh:path ex:nickname ;
+    sh:nodeKind sh:Literal ;
+    sh:minLength 3 ;
+    sh:maxLength 8 ;
+    sh:pattern "^[A-Z]+$" ;
   ] .
 "#;
 
     let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
 
 ex:Alice a ex:Person ;
-  ex:age "not-an-integer" .
+  ex:age "not-an-integer" ;
+  ex:nickname "ab" .
 "#;
 
     write_file(&shapes, shapes_ttl)?;
