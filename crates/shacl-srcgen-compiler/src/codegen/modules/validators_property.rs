@@ -199,6 +199,18 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let tokens = quote! {
         pub const GENERATED_PROPERTY_VALIDATORS: usize = #supported_shapes;
 
+        fn validation_graphs(
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<Vec<oxigraph::model::NamedNode>, String> {
+            let mut graphs = vec![data_graph.clone()];
+            let shape_graph = oxigraph::model::NamedNode::new(SHAPE_GRAPH)
+                .map_err(|err| format!("invalid SHAPE_GRAPH IRI: {err}"))?;
+            if shape_graph.as_str() != data_graph.as_str() {
+                graphs.push(shape_graph);
+            }
+            Ok(graphs)
+        }
+
         fn subject_ref_from_term<'a>(
             term: &'a oxigraph::model::Term,
         ) -> Option<oxigraph::model::NamedOrBlankNodeRef<'a>> {
@@ -224,18 +236,21 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             };
             let predicate = oxigraph::model::NamedNode::new(predicate_iri)
                 .map_err(|err| format!("invalid path predicate IRI {predicate_iri}: {err}"))?;
-            let graph_ref = oxigraph::model::GraphNameRef::NamedNode(data_graph.as_ref());
             let mut values = Vec::new();
-            for quad in store.quads_for_pattern(
-                Some(subject_ref),
-                Some(predicate.as_ref()),
-                None,
-                Some(graph_ref),
-            ) {
-                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
-                values.push(quad.object);
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    Some(subject_ref),
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    values.push(quad.object);
+                }
             }
             values.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            values.dedup();
             Ok(values)
         }
 
@@ -248,17 +263,19 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let Some(subject_ref) = subject_ref_from_term(term) else {
                 return Ok(false);
             };
-            let graph_ref = oxigraph::model::GraphNameRef::NamedNode(data_graph.as_ref());
-            for quad in store.quads_for_pattern(
-                Some(subject_ref),
-                Some(oxigraph::model::vocab::rdf::TYPE),
-                None,
-                Some(graph_ref),
-            ) {
-                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
-                if let oxigraph::model::Term::NamedNode(node) = quad.object {
-                    if node.as_str() == class_iri {
-                        return Ok(true);
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    Some(subject_ref),
+                    Some(oxigraph::model::vocab::rdf::TYPE),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    if let oxigraph::model::Term::NamedNode(node) = quad.object {
+                        if node.as_str() == class_iri {
+                            return Ok(true);
+                        }
                     }
                 }
             }

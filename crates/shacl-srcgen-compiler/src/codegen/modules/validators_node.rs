@@ -172,16 +172,18 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         ) -> Result<Vec<oxigraph::model::Term>, String> {
             let class_node = oxigraph::model::NamedNode::new(class_iri)
                 .map_err(|err| format!("invalid class target IRI {class_iri}: {err}"))?;
-            let graph_ref = oxigraph::model::GraphNameRef::NamedNode(data_graph.as_ref());
             let mut nodes = Vec::new();
-            for quad in store.quads_for_pattern(
-                None,
-                Some(oxigraph::model::vocab::rdf::TYPE),
-                Some(class_node.as_ref().into()),
-                Some(graph_ref),
-            ) {
-                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
-                nodes.push(oxigraph::model::Term::from(quad.subject));
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(oxigraph::model::vocab::rdf::TYPE),
+                    Some(class_node.as_ref().into()),
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    nodes.push(oxigraph::model::Term::from(quad.subject));
+                }
             }
             nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
             nodes.dedup();
