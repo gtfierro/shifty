@@ -128,6 +128,11 @@ fn prelude_snapshot_contains_expected_constants() {
     assert!(prelude.contains("pub const COMPILER_TRACK: &str = \"srcgen\";"));
     assert!(prelude.contains("pub const BACKEND_MODE: &str = \"tables\";"));
     assert!(prelude.contains("pub fn shape_id_for_iri(iri: &str) -> Option<u64>"));
+    assert!(prelude.contains("pub struct RuntimeMetricsSnapshot"));
+    assert!(prelude.contains("pub fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot"));
+    assert!(prelude.contains("pub fn record_fast_path_hit()"));
+    assert!(prelude.contains("pub fn record_fallback_dispatch()"));
+    assert!(prelude.contains("pub fn record_component_violation(component_id: u64)"));
     assert!(prelude.contains("\"urn:shape:NodeShapeA\""));
     assert!(prelude.contains("\"urn:shape:PropertyShapeA\""));
     assert!(prelude.contains("Some(1"));
