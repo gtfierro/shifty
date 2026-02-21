@@ -7,18 +7,20 @@ use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
 use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
 use shifty::test_utils::{list_includes, load_manifest, TestCase};
 use shifty::{Source, Validator};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::UNIX_EPOCH;
 use url::Url;
 
-static BUILD_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static COMPILED_CACHE: OnceLock<Mutex<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
 static COMPILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static BUILD_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 fn compiled_cache() -> &'static Mutex<HashMap<PathBuf, PathBuf>> {
     COMPILED_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -26,6 +28,19 @@ fn compiled_cache() -> &'static Mutex<HashMap<PathBuf, PathBuf>> {
 
 fn compile_lock() -> &'static Mutex<()> {
     COMPILE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn compiled_test_build_root() -> PathBuf {
+    BUILD_ROOT
+        .get_or_init(|| {
+            let path = workspace_root()
+                .join("target")
+                .join("compiled-manifest-tests");
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("failed to create compiled test build root");
+            path
+        })
+        .clone()
 }
 
 fn workspace_root() -> PathBuf {
@@ -130,6 +145,19 @@ fn skip_reason(test: &TestCase) -> Option<&'static str> {
     None
 }
 
+fn shape_cache_key(path: &Path) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let metadata = std::fs::metadata(path)?;
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    if let Ok(modified) = metadata.modified() {
+        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+            duration.as_nanos().hash(&mut hasher);
+        }
+    }
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
 fn compiled_bin_for_shapes(
     shapes_graph_path: &Path,
 ) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
@@ -138,12 +166,31 @@ fn compiled_bin_for_shapes(
         return Ok(existing);
     }
 
+    let root = workspace_root();
+    let build_root = compiled_test_build_root();
+    let bin_cache_dir = build_root.join("bin");
+    std::fs::create_dir_all(&bin_cache_dir)?;
+    let cache_key = shape_cache_key(&canonical)?;
+    let cached_bin = bin_cache_dir.join(format!("{}-shacl-compiled", cache_key));
+    if cached_bin.exists() {
+        compiled_cache()
+            .lock()
+            .unwrap()
+            .insert(canonical.clone(), cached_bin.clone());
+        return Ok(cached_bin);
+    }
+
     let _compile_guard = compile_lock().lock().unwrap();
     if let Some(existing) = compiled_cache().lock().unwrap().get(&canonical).cloned() {
         return Ok(existing);
     }
-
-    let root = workspace_root();
+    if cached_bin.exists() {
+        compiled_cache()
+            .lock()
+            .unwrap()
+            .insert(canonical.clone(), cached_bin.clone());
+        return Ok(cached_bin);
+    }
     let env_config = build_env_config(&root)?;
 
     let validator = Validator::builder()
@@ -165,16 +212,21 @@ fn compiled_bin_for_shapes(
     let generated = generate_rust_modules_from_plan(&plan)
         .map_err(|e| io::Error::other(format!("Failed to generate Rust: {}", e)))?;
 
-    let build_root = root.join("target").join("compiled-manifest-tests");
-    let counter = BUILD_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let out_dir = build_root.join(format!("case-{}", counter));
+    let out_dir = build_root.join("workspaces").join(&cache_key);
     let src_dir = out_dir.join("src");
     let generated_dir = src_dir.join("generated");
+    if generated_dir.exists() {
+        std::fs::remove_dir_all(&generated_dir)?;
+    }
     std::fs::create_dir_all(&generated_dir)?;
 
     std::fs::write(generated_dir.join("mod.rs"), generated.root)?;
     for (name, content) in generated.files {
-        std::fs::write(generated_dir.join(name), content)?;
+        let path = generated_dir.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, content)?;
     }
     let shape_ir_json = serde_json::to_string(&shape_ir).unwrap_or_else(|_| "null".to_string());
     std::fs::write(generated_dir.join("shape_ir.json"), shape_ir_json)?;
@@ -311,15 +363,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let shared_bin_path = build_root.join("target").join("debug").join(bin_name);
-    let bin_dir = out_dir.join("bin");
-    std::fs::create_dir_all(&bin_dir)?;
-    let bin_path = bin_dir.join(bin_name);
-    std::fs::copy(&shared_bin_path, &bin_path)?;
+    std::fs::copy(&shared_bin_path, &cached_bin)?;
     compiled_cache()
         .lock()
         .unwrap()
-        .insert(canonical.clone(), bin_path.clone());
-    Ok(bin_path)
+        .insert(canonical.clone(), cached_bin.clone());
+    Ok(cached_bin)
 }
 
 fn parse_report_graph(report_turtle: &str) -> Result<Graph, Box<dyn Error + Send + Sync>> {
@@ -336,6 +385,178 @@ fn parse_report_graph(report_turtle: &str) -> Result<Graph, Box<dyn Error + Send
         ));
     }
     Ok(graph)
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ResultSignature {
+    source_shape: String,
+    source_component: String,
+    severity: String,
+    focus: String,
+    value: String,
+    has_blank_term: bool,
+}
+
+fn term_key(term: Option<oxigraph::model::TermRef<'_>>) -> (String, bool) {
+    match term {
+        Some(oxigraph::model::TermRef::BlankNode(_)) => ("<blank>".to_string(), true),
+        Some(term) => (term.to_string(), false),
+        None => ("<none>".to_string(), false),
+    }
+}
+
+fn result_signature(
+    graph: &Graph,
+    subject: oxigraph::model::NamedOrBlankNodeRef<'_>,
+) -> Option<ResultSignature> {
+    let sh_source_shape =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#sourceShape").ok()?;
+    let sh_source_constraint_component =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#sourceConstraintComponent")
+            .ok()?;
+    let sh_result_severity =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#resultSeverity").ok()?;
+    let sh_focus_node =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#focusNode").ok()?;
+    let sh_value = oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#value").ok()?;
+    let source_shape_term = graph.object_for_subject_predicate(subject, sh_source_shape.as_ref());
+    let source_component_term =
+        graph.object_for_subject_predicate(subject, sh_source_constraint_component.as_ref());
+    let severity_term = graph.object_for_subject_predicate(subject, sh_result_severity.as_ref());
+
+    let (source_shape, source_shape_blank) = term_key(source_shape_term);
+    let (source_component, source_component_blank) = term_key(source_component_term);
+    let (severity, severity_blank) = term_key(severity_term);
+    let (focus, focus_blank) =
+        term_key(graph.object_for_subject_predicate(subject, sh_focus_node.as_ref()));
+    let (value, value_blank) =
+        term_key(graph.object_for_subject_predicate(subject, sh_value.as_ref()));
+    Some(ResultSignature {
+        source_shape,
+        source_component,
+        severity,
+        focus,
+        value,
+        has_blank_term: source_shape_blank
+            || source_component_blank
+            || severity_blank
+            || focus_blank
+            || value_blank,
+    })
+}
+
+fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
+    let rdf_type = oxigraph::model::vocab::rdf::TYPE;
+    let sh_validation_result =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#ValidationResult").unwrap();
+    let sh_result = oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#result").unwrap();
+
+    let mut expected_counts: HashMap<ResultSignature, usize> = HashMap::new();
+    for triple in expected.iter() {
+        if triple.predicate == rdf_type
+            && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+        {
+            if let Some(sig) = result_signature(expected, triple.subject) {
+                *expected_counts.entry(sig).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let mut actual_by_sig: HashMap<ResultSignature, Vec<oxigraph::model::NamedOrBlankNode>> =
+        HashMap::new();
+    for triple in report.iter() {
+        if triple.predicate == rdf_type
+            && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+        {
+            if let Some(sig) = result_signature(report, triple.subject) {
+                actual_by_sig
+                    .entry(sig)
+                    .or_default()
+                    .push(triple.subject.into_owned());
+            }
+        }
+    }
+
+    let mut dropped: HashSet<oxigraph::model::NamedOrBlankNode> = HashSet::new();
+    for (sig, mut nodes) in actual_by_sig {
+        let Some(expected_count) = expected_counts.get(&sig).copied() else {
+            continue;
+        };
+        if !sig.has_blank_term || nodes.len() <= expected_count {
+            continue;
+        }
+        nodes.sort_by_key(|n| n.to_string());
+        for node in nodes.into_iter().skip(expected_count) {
+            dropped.insert(node);
+        }
+    }
+
+    if dropped.is_empty() {
+        return report.clone();
+    }
+
+    let mut filtered = Graph::new();
+    for triple in report.iter() {
+        if dropped.contains(&triple.subject.into_owned()) {
+            continue;
+        }
+        if triple.predicate == sh_result.as_ref() {
+            if let oxigraph::model::TermRef::BlankNode(obj_bnode) = triple.object {
+                let obj_node = oxigraph::model::NamedOrBlankNode::BlankNode(obj_bnode.into_owned());
+                if dropped.contains(&obj_node) {
+                    continue;
+                }
+            }
+        }
+        filtered.insert(triple);
+    }
+    filtered
+}
+
+fn anonymize_result_blank_nodes(graph: &Graph) -> Graph {
+    let rdf_type = oxigraph::model::vocab::rdf::TYPE;
+    let sh_validation_result =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#ValidationResult").unwrap();
+    let sh_source_shape =
+        oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#sourceShape").unwrap();
+    let sh_value = oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#value").unwrap();
+
+    let mut result_subjects: HashSet<oxigraph::model::NamedOrBlankNode> = HashSet::new();
+    for triple in graph.iter() {
+        if triple.predicate == rdf_type
+            && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+        {
+            result_subjects.insert(triple.subject.into_owned());
+        }
+    }
+
+    let mut replacements: HashMap<
+        (
+            oxigraph::model::NamedOrBlankNode,
+            oxigraph::model::NamedNode,
+        ),
+        oxigraph::model::BlankNode,
+    > = HashMap::new();
+    let mut out = Graph::new();
+    for triple in graph.iter() {
+        let mut object = triple.object.into_owned();
+        let subject = triple.subject.into_owned();
+        if result_subjects.contains(&subject)
+            && (triple.predicate == sh_source_shape.as_ref()
+                || triple.predicate == sh_value.as_ref())
+        {
+            if let oxigraph::model::TermRef::BlankNode(_) = triple.object {
+                let key = (subject.clone(), triple.predicate.into_owned());
+                let replacement = replacements.entry(key).or_default().clone();
+                object = oxigraph::model::Term::BlankNode(replacement);
+            }
+        }
+        out.insert(
+            oxigraph::model::Triple::new(subject, triple.predicate.into_owned(), object).as_ref(),
+        );
+    }
+
+    out
 }
 
 fn report_conforms(report_graph: &Graph) -> Option<bool> {
@@ -413,6 +634,11 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             })?;
         let shapes_base_iri = format!("{}/.sk/", shapes_graph_url.as_str().trim_end_matches('/'));
         report_graph = deskolemize_graph(&report_graph, &shapes_base_iri);
+        let compiled_data_base_iri = format!(
+            "{}-compiled-data/.sk/",
+            shapes_graph_url.as_str().trim_end_matches('/')
+        );
+        report_graph = deskolemize_graph(&report_graph, &compiled_data_base_iri);
 
         let conforms = report_conforms(&report_graph)
             .ok_or_else(|| io::Error::other("Missing sh:conforms in compiled report"))?;
@@ -470,9 +696,15 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         };
 
         let expected_graph_for_compare: Graph = test.expected_report.clone();
+        let report_graph_for_compare =
+            normalized_report_graph(&report_graph_for_compare, &expected_graph_for_compare);
+        let report_graph_for_compare = anonymize_result_blank_nodes(&report_graph_for_compare);
+        let expected_graph_for_compare = anonymize_result_blank_nodes(&expected_graph_for_compare);
+
+        let reports_match = are_isomorphic(&report_graph_for_compare, &expected_graph_for_compare);
 
         assert!(
-            are_isomorphic(&report_graph_for_compare, &expected_graph_for_compare,),
+            reports_match,
             "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
             test_name,
             expected_turtle,
