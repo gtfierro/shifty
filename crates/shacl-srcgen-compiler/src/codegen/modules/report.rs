@@ -15,7 +15,7 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             let mut result_nodes: Vec<oxigraph::model::Term> = Vec::new();
             for triple in report_graph.iter() {
                 if triple.predicate.as_str() == SH_RESULT {
-                    result_nodes.push(triple.object.clone());
+                    result_nodes.push(triple.object.into());
                 }
             }
 
@@ -35,23 +35,23 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
 
                     match triple.predicate.as_str() {
                         SH_FOCUS_NODE => {
-                            focus = Some(triple.object.clone());
+                            focus = Some(triple.object.into());
                         }
                         SH_VALUE => {
-                            value = Some(triple.object.clone());
+                            value = Some(triple.object.into());
                         }
                         SH_RESULT_PATH => {
-                            path = Some(ResultPath::Term(triple.object.clone()));
+                            path = Some(ResultPath::Term(triple.object.into()));
                         }
                         SH_SOURCE_SHAPE => {
-                            if let oxigraph::model::Term::NamedNode(node) = &triple.object {
+                            if let oxigraph::model::TermRef::NamedNode(node) = triple.object {
                                 if let Some(id) = shape_id_for_iri(node.as_str()) {
                                     shape_id = id;
                                 }
                             }
                         }
                         SH_SOURCE_COMPONENT => {
-                            if let oxigraph::model::Term::NamedNode(node) = &triple.object {
+                            if let oxigraph::model::TermRef::NamedNode(node) = triple.object {
                                 if let Some(id) = component_id_for_iri(node.as_str()) {
                                     component_id = id;
                                 }
