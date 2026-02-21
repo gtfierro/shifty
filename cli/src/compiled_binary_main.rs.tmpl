@@ -1,11 +1,12 @@
 mod generated;
 
-use generated::{component_iri, render_report, shape_iri, ResultPath, DATA_GRAPH};
+use generated::{component_iri, render_report, shape_iri, ResultPath, DATA_GRAPH, SHAPE_GRAPH};
 use log::info;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad, TripleRef};
 use oxigraph::store::Store;
 use serde_json::{json, Value};
+use shifty::{InferenceConfig, Source, ValidatorBuilder};
 use std::env;
 use std::error::Error;
 use std::fs::File;
@@ -1341,14 +1342,74 @@ fn load_store_for_path(path: &Path) -> Result<(Store, NamedNode), String> {
     Ok((store, data_graph))
 }
 
+fn run_runtime_inference_into_store(
+    path: &Path,
+    store: &Store,
+    data_graph: &NamedNode,
+) -> Result<(), String> {
+    stage_mark("runtime inference fallback start");
+    let shape_graph = NamedNode::new(SHAPE_GRAPH)
+        .map_err(|e| format!("invalid shape graph IRI in generated module: {}", e))?;
+    let parser = RdfParser::from_format(RdfFormat::Turtle).for_slice(include_bytes!("../shape_graph.ttl"));
+    let graph_name = GraphName::NamedNode(shape_graph.clone());
+    let mut shape_quads = Vec::new();
+    for triple in parser {
+        let triple = triple.map_err(|e| format!("failed parsing embedded shape graph: {}", e))?;
+        shape_quads.push(Quad::new(
+            triple.subject,
+            triple.predicate,
+            triple.object,
+            graph_name.clone(),
+        ));
+    }
+
+    let validator = ValidatorBuilder::new()
+        .with_shapes_source(Source::Quads {
+            graph: SHAPE_GRAPH.to_string(),
+            quads: shape_quads,
+        })
+        .with_data_source(Source::File(path.to_path_buf()))
+        .with_shapes_data_union(true)
+        .with_store_optimization(true)
+        .with_do_imports(false)
+        .build()
+        .map_err(|e| format!("failed to initialize runtime inference validator: {}", e))?;
+
+    let config = InferenceConfig::default();
+    let outcome = validator
+        .run_inference_with_config(config)
+        .map_err(|e| format!("runtime inference failed: {}", e))?;
+    stage_mark(&format!(
+        "runtime inference fallback finish added={}",
+        outcome.triples_added
+    ));
+
+    let graph_name = GraphName::NamedNode(data_graph.clone());
+    for quad in outcome.inferred_quads {
+        let inferred = Quad::new(
+            quad.subject.clone(),
+            quad.predicate.clone(),
+            quad.object.clone(),
+            graph_name.clone(),
+        );
+        store
+            .insert(inferred.as_ref())
+            .map_err(|e| format!("failed to insert inferred quad: {}", e))?;
+    }
+    Ok(())
+}
+
 fn run_validate_command(
     path: &Path,
     follow_bnodes: bool,
     run_inference: bool,
 ) -> Result<String, String> {
     let (store, data_graph) = load_store_for_path(path)?;
+    if run_inference {
+        run_runtime_inference_into_store(path, &store, &data_graph)?;
+    }
     stage_mark("compiled validation start");
-    let report = generated::run_with_options(&store, Some(&data_graph), run_inference);
+    let report = generated::run_with_options(&store, Some(&data_graph), false);
     stage_mark(&format!(
         "compiled validation finish violations={}",
         report.violations.len()
