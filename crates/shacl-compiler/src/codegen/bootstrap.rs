@@ -41,10 +41,22 @@ pub fn generate_modules(program: &CompiledProgram) -> Result<GeneratedRust, Stri
          use shifty::compiled_runtime::program::CompiledProgram;\n\
          use shifty::compiled_runtime::report::CompactResultPath;\n\
          use shifty::compiled_runtime::{{self, KernelOptions}};\n\
+         use std::collections::BTreeMap;\n\
          use std::sync::OnceLock;\n\
          \n\
          pub const SHAPE_GRAPH: &str = {shape_graph};\n\
          pub const DATA_GRAPH: &str = {data_graph};\n\
+         \n\
+         #[derive(Debug, Clone, Default)]\n\
+         pub struct RuntimeMetricsSnapshot {{\n\
+             pub fast_path_hits: u64,\n\
+             pub fallback_dispatches: u64,\n\
+             pub per_component_violations: BTreeMap<u64, u64>,\n\
+         }}\n\
+         \n\
+         pub fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {{\n\
+             RuntimeMetricsSnapshot::default()\n\
+         }}\n\
          \n\
          #[derive(Debug, Default)]\n\
          pub struct Report {{\n\

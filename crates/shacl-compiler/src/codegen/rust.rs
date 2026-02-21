@@ -2908,7 +2908,7 @@ fn generate_prelude_module(plan: &PlanView) -> Result<String, String> {
         use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
         use oxigraph::store::Store;
         use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator, Variable};
-        use std::collections::{HashMap, HashSet, VecDeque};
+        use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
         use std::sync::{Arc, OnceLock};
         use std::time::{Instant, SystemTime, UNIX_EPOCH};
         use fixedbitset::FixedBitSet;
@@ -2941,6 +2941,17 @@ fn generate_prelude_module(plan: &PlanView) -> Result<String, String> {
                 .as_millis();
             let elapsed = start.elapsed().as_millis();
             eprintln!("[compiled-stage ts_ms={} elapsed_ms={}] {}", now, elapsed, stage);
+        }
+
+        #[derive(Debug, Clone, Default)]
+        pub struct RuntimeMetricsSnapshot {
+            pub fast_path_hits: u64,
+            pub fallback_dispatches: u64,
+            pub per_component_violations: BTreeMap<u64, u64>,
+        }
+
+        pub fn runtime_metrics_snapshot() -> RuntimeMetricsSnapshot {
+            RuntimeMetricsSnapshot::default()
         }
 
         #[derive(Debug, Default)]
