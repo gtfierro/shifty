@@ -11,7 +11,10 @@ pub fn term_as_named_node(program: &CompiledProgram, term_id: u64) -> Result<Nam
     }
 }
 
-pub fn term_as_subject(program: &CompiledProgram, term_id: u64) -> Result<NamedOrBlankNode, String> {
+pub fn term_as_subject(
+    program: &CompiledProgram,
+    term_id: u64,
+) -> Result<NamedOrBlankNode, String> {
     let term = program
         .term(term_id)
         .ok_or_else(|| format!("missing term id {}", term_id))?;

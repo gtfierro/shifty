@@ -1,6 +1,7 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use shacl_compiler::{
-    generate_rust_from_plan, generate_rust_modules_from_plan, GeneratedRust, PlanIR,
+    generate_modules_from_plan_with_backend, generate_rust_from_plan, CompileBackend,
+    GeneratedRust, PlanIR,
 };
 use shifty::{Source, Validator};
 use std::fs;
@@ -26,6 +27,24 @@ struct Args {
     /// Optional output path for PlanIR JSON
     #[arg(long)]
     plan_out: Option<PathBuf>,
+    /// Compiler backend (`aot` emits compact tables + shared kernel bootstrap)
+    #[arg(long, value_enum, default_value_t = BackendArg::Aot)]
+    backend: BackendArg,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum BackendArg {
+    Legacy,
+    Aot,
+}
+
+impl BackendArg {
+    fn to_backend(&self) -> CompileBackend {
+        match self {
+            BackendArg::Legacy => CompileBackend::Legacy,
+            BackendArg::Aot => CompileBackend::Aot,
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,10 +79,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if let Some(out) = args.out {
-        let modules =
-            generate_rust_modules_from_plan(&plan).map_err(|e| format!("compile error: {}", e))?;
+        let modules = generate_modules_from_plan_with_backend(&plan, args.backend.to_backend())
+            .map_err(|e| format!("compile error: {}", e))?;
         write_generated_modules(&out, modules)?;
     } else {
+        if matches!(args.backend, BackendArg::Aot) {
+            return Err("AOT backend requires --out to write bootstrap files".into());
+        }
         let generated =
             generate_rust_from_plan(&plan).map_err(|e| format!("compile error: {}", e))?;
         print!("{}", generated);

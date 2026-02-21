@@ -49,7 +49,8 @@ pub fn run(
 
     let mut stage_timings_ms = BTreeMap::new();
 
-    let shape_graph_iri = path::term_as_named_node(program, program.static_hints.shape_graph_iri_term)?;
+    let shape_graph_iri =
+        path::term_as_named_node(program, program.static_hints.shape_graph_iri_term)?;
     let data_graph_iri = resolve_data_graph_iri(program, data_graph)?;
     let data_graph_ref = GraphNameRef::NamedNode(data_graph_iri.as_ref());
 
@@ -178,7 +179,10 @@ fn resolve_data_graph_iri(
     }
 }
 
-fn build_shape_quads(program: &CompiledProgram, shape_graph_iri: &NamedNode) -> Result<Vec<Quad>, String> {
+fn build_shape_quads(
+    program: &CompiledProgram,
+    shape_graph_iri: &NamedNode,
+) -> Result<Vec<Quad>, String> {
     let mut quads = Vec::with_capacity(program.shape_graph_triples.len());
     for triple in &program.shape_graph_triples {
         let subject = path::term_as_subject(program, triple.subject)?;
@@ -210,4 +214,58 @@ fn collect_data_quads(
         ));
     }
     Ok(quads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compiled_runtime::program::{
+        ComponentRow, ProgramHeader, ShapeRow, StaticHints, TripleRow, KERNEL_VERSION,
+        PROGRAM_SCHEMA_VERSION,
+    };
+    use oxigraph::model::{NamedNode, Term};
+
+    fn minimal_program() -> CompiledProgram {
+        CompiledProgram {
+            header: ProgramHeader {
+                schema_version: PROGRAM_SCHEMA_VERSION,
+                min_kernel_version: KERNEL_VERSION,
+                program_hash: [0u8; 32],
+                feature_bits: 0,
+            },
+            terms: vec![Term::NamedNode(
+                NamedNode::new("http://example.com/shapes").expect("valid iri"),
+            )],
+            shapes: Vec::<ShapeRow>::new(),
+            components: Vec::<ComponentRow>::new(),
+            paths: Vec::new(),
+            targets: Vec::new(),
+            rules: Vec::new(),
+            shape_graph_triples: Vec::<TripleRow>::new(),
+            static_hints: StaticHints {
+                shape_graph_iri_term: 0,
+                default_data_graph_iri_term: Some(0),
+                shape_id_to_term: Vec::new(),
+                component_id_to_iri_term: Vec::new(),
+                path_id_to_term: Vec::new(),
+            },
+            ext: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn rejects_schema_mismatch() {
+        let mut program = minimal_program();
+        program.header.schema_version = PROGRAM_SCHEMA_VERSION + 1;
+        let err = ensure_compatible(&program).expect_err("schema mismatch should fail");
+        assert!(err.contains("schema"));
+    }
+
+    #[test]
+    fn rejects_kernel_version_mismatch() {
+        let mut program = minimal_program();
+        program.header.min_kernel_version = KERNEL_VERSION + 1;
+        let err = ensure_compatible(&program).expect_err("kernel mismatch should fail");
+        assert!(err.contains("kernel version"));
+    }
 }

@@ -14,3 +14,4 @@ quote = "1"
 proc-macro2 = "1"
 syn = { version = "2", features = ["full", "parsing"] }
 prettyplease = "0.2"
+sha2 = { workspace = true }

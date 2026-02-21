@@ -45,11 +45,7 @@ impl PlanRewriterRegistry {
         self.rewriters.push(Box::new(rewriter));
     }
 
-    pub fn rewrite(
-        &self,
-        plan: &mut ExecutionPlan,
-        state: &AnalysisState,
-    ) -> Result<(), String> {
+    pub fn rewrite(&self, plan: &mut ExecutionPlan, state: &AnalysisState) -> Result<(), String> {
         for rewriter in &self.rewriters {
             rewriter.rewrite(plan, state)?;
         }

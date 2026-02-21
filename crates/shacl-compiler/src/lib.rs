@@ -1,6 +1,8 @@
 mod codegen;
+mod emit;
 mod plan;
 
+use shifty::compiled_runtime::program::CompiledProgram;
 use shifty::shacl_ir::ShapeIR;
 
 pub use plan::PlanIR;
@@ -8,6 +10,12 @@ pub use plan::PlanIR;
 pub struct GeneratedRust {
     pub root: String,
     pub files: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileBackend {
+    Legacy,
+    Aot,
 }
 
 impl GeneratedRust {
@@ -41,4 +49,27 @@ pub fn generate_rust_from_plan(plan: &PlanIR) -> Result<String, String> {
 
 pub fn generate_rust_modules_from_plan(plan: &PlanIR) -> Result<GeneratedRust, String> {
     codegen::rust::generate_modules(plan)
+}
+
+pub fn emit_compiled_program_from_plan(plan: &PlanIR) -> Result<CompiledProgram, String> {
+    emit::program::emit_compiled_program(plan)
+}
+
+pub fn generate_bootstrap_modules_from_program(
+    program: &CompiledProgram,
+) -> Result<GeneratedRust, String> {
+    codegen::bootstrap::generate_modules(program)
+}
+
+pub fn generate_modules_from_plan_with_backend(
+    plan: &PlanIR,
+    backend: CompileBackend,
+) -> Result<GeneratedRust, String> {
+    match backend {
+        CompileBackend::Legacy => generate_rust_modules_from_plan(plan),
+        CompileBackend::Aot => {
+            let program = emit_compiled_program_from_plan(plan)?;
+            generate_bootstrap_modules_from_program(&program)
+        }
+    }
 }

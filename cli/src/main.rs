@@ -8,7 +8,7 @@ use oxigraph::model::{Graph, Triple};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "shacl-compiler")]
-use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+use shacl_compiler::{generate_modules_from_plan_with_backend, CompileBackend, PlanIR};
 use shifty::ir_cache;
 #[cfg(feature = "shacl-compiler")]
 use shifty::shacl_ir::ShapeIR;
@@ -223,6 +223,10 @@ struct CompileArgs {
     #[arg(long, value_name = "FILE")]
     plan_out: Option<PathBuf>,
 
+    /// Compile backend (`aot` = tables + shared kernel, `legacy` = generated validators)
+    #[arg(long, value_enum, default_value_t = CompileBackendArg::Aot)]
+    backend: CompileBackendArg,
+
     /// Build in release mode
     #[arg(long)]
     release: bool,
@@ -238,6 +242,23 @@ struct CompileArgs {
     /// Git revision/tag/branch for the shifty dependency (optional)
     #[arg(long, value_name = "REF")]
     shifty_git_ref: Option<String>,
+}
+
+#[cfg(feature = "shacl-compiler")]
+#[derive(ValueEnum, Clone, Debug)]
+enum CompileBackendArg {
+    Legacy,
+    Aot,
+}
+
+#[cfg(feature = "shacl-compiler")]
+impl CompileBackendArg {
+    fn to_backend(&self) -> CompileBackend {
+        match self {
+            Self::Legacy => CompileBackend::Legacy,
+            Self::Aot => CompileBackend::Aot,
+        }
+    }
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -995,7 +1016,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let plan_json = plan
                 .to_json_pretty()
                 .map_err(|e| format!("plan serialization error: {}", e))?;
-            let generated = generate_rust_modules_from_plan(&plan)?;
+            let generated =
+                generate_modules_from_plan_with_backend(&plan, args.backend.to_backend())?;
             let generated_root = generated.root;
             let generated_files = generated.files;
 
@@ -1003,7 +1025,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fs::write(plan_out, &plan_json)?;
             }
 
-            info!("Using compile backend: shacl-compiler");
+            info!("Using compile backend: {:?}", args.backend);
 
             let out_dir = &args.out_dir;
             let src_dir = out_dir.join("src");
