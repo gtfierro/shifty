@@ -103,7 +103,11 @@ fn write_modules_dir(
     fs::create_dir_all(dir)?;
     fs::write(dir.join("mod.rs"), &modules.root)?;
     for (name, content) in &modules.files {
-        fs::write(dir.join(name), content)?;
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, content)?;
     }
     Ok(())
 }

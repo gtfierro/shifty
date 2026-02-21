@@ -7,12 +7,23 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use syn::{parse2, parse_file, File, Item, LitStr};
 
+const MODULE_ITEM_CHUNK_SIZE: usize = 256;
+const MODULE_CHUNK_TRIGGER_ITEMS: usize = MODULE_ITEM_CHUNK_SIZE * 2;
+const SHAPE_GRAPH_NT_CHUNK_BYTES: usize = 1_000_000;
+
 pub fn generate(plan: &PlanIR) -> Result<String, String> {
-    let modules = generate_modules(plan)?;
+    let modules = generate_modules_impl(plan, false)?;
     Ok(modules.to_single_file())
 }
 
 pub fn generate_modules(plan: &PlanIR) -> Result<GeneratedRust, String> {
+    generate_modules_impl(plan, true)
+}
+
+fn generate_modules_impl(
+    plan: &PlanIR,
+    chunk_large_modules: bool,
+) -> Result<GeneratedRust, String> {
     let plan_view = deserialize_plan_view(plan)?;
     let ported = build_ported_validators(&plan_view)?;
     ensure_ported_validator_coverage(&plan_view, &ported)?;
@@ -27,48 +38,180 @@ pub fn generate_modules(plan: &PlanIR) -> Result<GeneratedRust, String> {
         &remove_const_names,
     )?;
 
-    let files: Vec<(String, String)> = vec![
-        (
-            "prelude.rs".to_string(),
-            generate_prelude_module(&plan_view)?,
-        ),
-        ("helpers.rs".to_string(), helpers),
-        ("paths.rs".to_string(), generate_paths_module(&plan_view)?),
-        (
-            "shape_triples.rs".to_string(),
-            generate_shape_triples_module(&plan_view)?,
-        ),
-        (
-            "targets.rs".to_string(),
-            generate_targets_module(&plan_view)?,
-        ),
-        (
-            "allowed_predicates.rs".to_string(),
-            generate_allowed_predicates_module(&plan_view)?,
-        ),
-        (
-            "validators_property.rs".to_string(),
-            render_items_module("validators_property.rs", ported.property_items)?,
-        ),
-        (
-            "validators_node.rs".to_string(),
-            render_items_module("validators_node.rs", ported.node_items)?,
-        ),
-        (
-            "inference.rs".to_string(),
-            generate_inference_module(&plan_view)?,
-        ),
-        ("run.rs".to_string(), generate_run_module(&plan_view)?),
-        ("shape_graph.nt".to_string(), generate_shape_graph_nt(plan)?),
-    ];
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut root_modules: Vec<String> = Vec::new();
 
-    let module_files: Vec<String> = files
+    push_root_module(
+        &mut files,
+        &mut root_modules,
+        "prelude.rs",
+        generate_prelude_module(&plan_view)?,
+    );
+    push_root_module(&mut files, &mut root_modules, "helpers.rs", helpers);
+    push_root_module(
+        &mut files,
+        &mut root_modules,
+        "paths.rs",
+        generate_paths_module(&plan_view)?,
+    );
+
+    let shape_graph_files = generate_shape_graph_nt_files(plan, chunk_large_modules)?;
+    let shape_graph_names: Vec<String> = shape_graph_files
         .iter()
-        .filter(|(name, _)| name.ends_with(".rs"))
         .map(|(name, _)| name.clone())
         .collect();
-    let root = build_root_module(&module_files)?;
+    push_root_module(
+        &mut files,
+        &mut root_modules,
+        "shape_triples.rs",
+        generate_shape_triples_module(&plan_view, &shape_graph_names)?,
+    );
+    files.extend(shape_graph_files);
+
+    append_items_module(
+        &mut files,
+        &mut root_modules,
+        "targets.rs",
+        generate_targets_items(&plan_view)?,
+        chunk_large_modules,
+    )?;
+    append_items_module(
+        &mut files,
+        &mut root_modules,
+        "allowed_predicates.rs",
+        generate_allowed_predicates_items(&plan_view)?,
+        chunk_large_modules,
+    )?;
+    append_items_module(
+        &mut files,
+        &mut root_modules,
+        "validators_property.rs",
+        ported.property_items,
+        chunk_large_modules,
+    )?;
+    append_items_module(
+        &mut files,
+        &mut root_modules,
+        "validators_node.rs",
+        ported.node_items,
+        chunk_large_modules,
+    )?;
+    append_items_module(
+        &mut files,
+        &mut root_modules,
+        "inference.rs",
+        generate_inference_items(&plan_view)?,
+        chunk_large_modules,
+    )?;
+
+    push_root_module(
+        &mut files,
+        &mut root_modules,
+        "run.rs",
+        generate_run_module(&plan_view)?,
+    );
+
+    let root = build_root_module(&root_modules)?;
     Ok(GeneratedRust { root, files })
+}
+
+fn push_root_module(
+    files: &mut Vec<(String, String)>,
+    root_modules: &mut Vec<String>,
+    name: &str,
+    content: String,
+) {
+    root_modules.push(name.to_string());
+    files.push((name.to_string(), content));
+}
+
+fn append_items_module(
+    files: &mut Vec<(String, String)>,
+    root_modules: &mut Vec<String>,
+    module_name: &str,
+    items: Vec<Item>,
+    chunk_large_modules: bool,
+) -> Result<(), String> {
+    let module_files = if chunk_large_modules {
+        render_items_module_chunked(
+            module_name,
+            items,
+            MODULE_CHUNK_TRIGGER_ITEMS,
+            MODULE_ITEM_CHUNK_SIZE,
+        )?
+    } else {
+        vec![(
+            module_name.to_string(),
+            render_items_module(module_name, items)?,
+        )]
+    };
+    root_modules.push(module_name.to_string());
+    files.extend(module_files);
+    Ok(())
+}
+
+fn generate_shape_graph_nt_files(
+    plan: &PlanIR,
+    chunk_large_modules: bool,
+) -> Result<Vec<(String, String)>, String> {
+    let nt = generate_shape_graph_nt(plan)?;
+    if !chunk_large_modules {
+        return Ok(vec![("shape_graph.nt".to_string(), nt)]);
+    }
+
+    let chunks = split_by_line_boundaries(&nt, SHAPE_GRAPH_NT_CHUNK_BYTES);
+    if chunks.len() <= 1 {
+        return Ok(vec![("shape_graph.nt".to_string(), nt)]);
+    }
+
+    let files = chunks
+        .into_iter()
+        .enumerate()
+        .map(|(idx, chunk)| (format!("shape_graph/chunk_{idx:04}.nt"), chunk))
+        .collect();
+    Ok(files)
+}
+
+fn split_by_line_boundaries(input: &str, max_chunk_bytes: usize) -> Vec<String> {
+    if input.is_empty() {
+        return vec![String::new()];
+    }
+    if input.len() <= max_chunk_bytes {
+        return vec![input.to_string()];
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in input.split_inclusive('\n') {
+        if current.is_empty() {
+            if line.len() > max_chunk_bytes {
+                out.push(line.to_string());
+            } else {
+                current.push_str(line);
+            }
+            continue;
+        }
+
+        if current.len() + line.len() > max_chunk_bytes {
+            out.push(current);
+            current = String::new();
+            if line.len() > max_chunk_bytes {
+                out.push(line.to_string());
+            } else {
+                current.push_str(line);
+            }
+        } else {
+            current.push_str(line);
+        }
+    }
+
+    if !current.is_empty() {
+        out.push(current);
+    }
+    if out.is_empty() {
+        out.push(String::new());
+    }
+    out
 }
 
 #[derive(Debug, Deserialize)]
@@ -2781,7 +2924,7 @@ fn generate_prelude_module(plan: &PlanView) -> Result<String, String> {
 
         const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
         const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
-        const SHAPE_GRAPH: &str = #shape_graph_lit;
+        pub const SHAPE_GRAPH: &str = #shape_graph_lit;
         pub const DATA_GRAPH: &str = #data_graph_lit;
         const SHACL_SELECT: &str = "http://www.w3.org/ns/shacl#select";
         const SHACL_PREFIXES: &str = "http://www.w3.org/ns/shacl#prefixes";
@@ -3223,7 +3366,7 @@ fn generate_path_term_body(plan: &PlanView, path_id: u64) -> Result<TokenStream,
     }
 }
 
-fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
+fn generate_inference_items(plan: &PlanView) -> Result<Vec<Item>, String> {
     let mut property_shape_targets: HashSet<u64> = HashSet::new();
     for shape in plan.shapes.iter().filter(|shape| shape.kind == "Property") {
         if !shape.targets.is_empty() {
@@ -3312,6 +3455,7 @@ fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
                 seen_new: &mut HashSet<(Term, NamedNode, Term)>,
             ) -> Result<usize, String> {
                 let mut added: usize = 0;
+                let mut graph_changed = false;
                 let mut node_target_cache: HashMap<u64, Vec<Term>> = HashMap::new();
                 let mut prop_target_cache: HashMap<u64, Vec<Term>> = HashMap::new();
                 for rule_id in INFERENCE_RULE_IDS {
@@ -3346,10 +3490,11 @@ fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
                     }
                     added += delta;
                     if delta > 0 {
-                        node_target_cache.clear();
-                        prop_target_cache.clear();
-                        clear_target_class_caches();
+                        graph_changed = true;
                     }
+                }
+                if graph_changed {
+                    clear_target_class_caches();
                 }
                 Ok(added)
             }
@@ -3562,12 +3707,7 @@ fn generate_inference_module(plan: &PlanView) -> Result<String, String> {
         .map_err(|err| format!("failed to generate named_or_blank_to_term: {err}"))?,
     );
 
-    let file = File {
-        shebang: None,
-        attrs: vec![],
-        items,
-    };
-    Ok(prettyplease::unparse(&file))
+    Ok(items)
 }
 
 fn rule_term_values_expr(plan: &PlanView, value: &Value) -> Result<TokenStream, String> {
@@ -4107,23 +4247,48 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
 
     Ok(prettyplease::unparse(&file))
 }
-fn generate_shape_triples_module(plan: &PlanView) -> Result<String, String> {
+fn generate_shape_triples_module(
+    plan: &PlanView,
+    shape_graph_files: &[String],
+) -> Result<String, String> {
     let shape_graph_iri = term_iri(plan, plan.shape_graph)?;
     let shape_graph_lit = LitStr::new(&shape_graph_iri, Span::call_site());
+    let include_files: Vec<String> = if shape_graph_files.is_empty() {
+        vec!["shape_graph.nt".to_string()]
+    } else {
+        shape_graph_files.to_vec()
+    };
+
+    let chunk_const_defs: Vec<TokenStream> = include_files
+        .iter()
+        .enumerate()
+        .map(|(idx, file)| {
+            let ident = format_ident!("SHAPE_GRAPH_NT_CHUNK_{idx:04}");
+            let lit = LitStr::new(file, Span::call_site());
+            quote! { const #ident: &str = include_str!(#lit); }
+        })
+        .collect();
+    let chunk_const_idents: Vec<_> = (0..include_files.len())
+        .map(|idx| format_ident!("SHAPE_GRAPH_NT_CHUNK_{idx:04}"))
+        .collect();
+    let chunk_count = chunk_const_idents.len();
 
     let file = parse2::<File>(quote! {
-        const SHAPE_GRAPH_NT: &str = include_str!("shape_graph.nt");
+        #(#chunk_const_defs)*
+        const SHAPE_GRAPH_NT_CHUNKS: [&str; #chunk_count] = [#(#chunk_const_idents),*];
 
         fn insert_shape_triples(store: &Store) {
             let shape_graph = GraphName::NamedNode(NamedNode::new(#shape_graph_lit).unwrap());
-            let parser = RdfParser::from_format(RdfFormat::NTriples).for_slice(SHAPE_GRAPH_NT.as_bytes());
-            for triple in parser {
-                let triple = match triple {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-                let quad = Quad::new(triple.subject, triple.predicate, triple.object, shape_graph.clone());
-                let _ = store.insert(quad.as_ref());
+            for nt_chunk in SHAPE_GRAPH_NT_CHUNKS {
+                let parser = RdfParser::from_format(RdfFormat::NTriples).for_slice(nt_chunk.as_bytes());
+                for triple in parser {
+                    let triple = match triple {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+                    let quad = Quad::new(triple.subject, triple.predicate, triple.object, shape_graph.clone());
+                    let _ = store.insert(quad.as_ref());
+                }
             }
         }
     })
@@ -4216,7 +4381,7 @@ fn escape_nt_iri(value: &str) -> String {
     out
 }
 
-fn generate_targets_module(plan: &PlanView) -> Result<String, String> {
+fn generate_targets_items(plan: &PlanView) -> Result<Vec<Item>, String> {
     let mut items: Vec<Item> = Vec::new();
 
     for shape in plan.shapes.iter().filter(|shape| !shape.deactivated) {
@@ -4340,15 +4505,10 @@ fn generate_targets_module(plan: &PlanView) -> Result<String, String> {
         items.push(item);
     }
 
-    let file = File {
-        shebang: None,
-        attrs: vec![],
-        items,
-    };
-    Ok(prettyplease::unparse(&file))
+    Ok(items)
 }
 
-fn generate_allowed_predicates_module(plan: &PlanView) -> Result<String, String> {
+fn generate_allowed_predicates_items(plan: &PlanView) -> Result<Vec<Item>, String> {
     let component_lookup: HashMap<u64, &PlanComponentView> =
         plan.components.iter().map(|c| (c.id, c)).collect();
     let property_shape_lookup: HashMap<u64, &PlanShapeView> = plan
@@ -4413,12 +4573,7 @@ fn generate_allowed_predicates_module(plan: &PlanView) -> Result<String, String>
         items.push(item);
     }
 
-    let file = File {
-        shebang: None,
-        attrs: vec![],
-        items,
-    };
-    Ok(prettyplease::unparse(&file))
+    Ok(items)
 }
 
 fn render_items_module(module_name: &str, items: Vec<Item>) -> Result<String, String> {
@@ -4433,6 +4588,59 @@ fn render_items_module(module_name: &str, items: Vec<Item>) -> Result<String, St
             module_name, err
         )
     })?;
+    Ok(prettyplease::unparse(&file))
+}
+
+fn render_items_module_chunked(
+    module_name: &str,
+    items: Vec<Item>,
+    chunk_trigger_items: usize,
+    chunk_size: usize,
+) -> Result<Vec<(String, String)>, String> {
+    if items.len() <= chunk_trigger_items {
+        return Ok(vec![(
+            module_name.to_string(),
+            render_items_module(module_name, items)?,
+        )]);
+    }
+
+    let module_stem = module_name
+        .strip_suffix(".rs")
+        .ok_or_else(|| format!("module {module_name} missing .rs suffix"))?;
+    let mut chunk_files: Vec<(String, String)> = Vec::new();
+    let mut chunk_names: Vec<String> = Vec::new();
+    for (idx, chunk_items) in items.chunks(chunk_size).enumerate() {
+        let chunk_name = format!("{module_stem}/chunk_{idx:04}.rs");
+        let chunk_content = render_items_module(&chunk_name, chunk_items.to_vec())?;
+        chunk_names.push(chunk_name.clone());
+        chunk_files.push((chunk_name, chunk_content));
+    }
+
+    let wrapper = render_chunk_wrapper_module(module_name, &chunk_names)?;
+    let mut files = vec![(module_name.to_string(), wrapper)];
+    files.extend(chunk_files);
+    Ok(files)
+}
+
+fn render_chunk_wrapper_module(
+    module_name: &str,
+    chunk_names: &[String],
+) -> Result<String, String> {
+    let include_items: Vec<Item> = chunk_names
+        .iter()
+        .map(|name| {
+            let lit = LitStr::new(name, Span::call_site());
+            parse2::<Item>(quote! { include!(#lit); }).map_err(|err| {
+                format!("failed to build chunk include for {module_name}::{name}: {err}")
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let file = File {
+        shebang: None,
+        attrs: vec![],
+        items: include_items,
+    };
     Ok(prettyplease::unparse(&file))
 }
 
@@ -4515,5 +4723,37 @@ mod tests {
     fn helpers_template_keeps_lenient_query_helper() {
         let helpers = helpers_template_content();
         assert!(helpers.contains("fn sparql_any_solution_lenient("));
+    }
+
+    #[test]
+    fn render_items_module_chunked_emits_wrapper_and_chunks() {
+        let items: Vec<Item> = (0..5usize)
+            .map(|idx| {
+                let fn_ident = format_ident!("f_{idx}");
+                parse2::<Item>(quote! { fn #fn_ident() {} }).expect("test item should parse")
+            })
+            .collect();
+
+        let files = render_items_module_chunked("inference.rs", items, 2, 2)
+            .expect("chunked render should succeed");
+        assert_eq!(files[0].0, "inference.rs");
+        assert!(files[0]
+            .1
+            .contains("include!(\"inference/chunk_0000.rs\");"));
+        assert!(files[0]
+            .1
+            .contains("include!(\"inference/chunk_0001.rs\");"));
+        assert!(files[0]
+            .1
+            .contains("include!(\"inference/chunk_0002.rs\");"));
+        assert_eq!(files.len(), 4);
+    }
+
+    #[test]
+    fn split_by_line_boundaries_preserves_lines() {
+        let input = "a\nbb\nccc\ndddd\n";
+        let chunks = split_by_line_boundaries(input, 5);
+        assert_eq!(chunks.join(""), input);
+        assert!(chunks.iter().all(|chunk| !chunk.is_empty()));
     }
 }
