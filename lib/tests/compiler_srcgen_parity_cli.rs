@@ -534,6 +534,90 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
 }
 
 #[test]
+fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_node_datatype_and_membership_constraints(
+) -> Result<(), Box<dyn Error>> {
+    let _guard = compiled_test_lock();
+    let tmp = unique_temp_dir()?;
+    let shapes = tmp.join("shapes.ttl");
+    let data = tmp.join("data.ttl");
+    let legacy_out = tmp.join("legacy-compiled");
+    let srcgen_out = tmp.join("srcgen-compiled");
+    let legacy_report = tmp.join("legacy-report.ttl");
+    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let runtime_report = tmp.join("runtime-report.ttl");
+
+    let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:ItemShape
+  a sh:NodeShape ;
+  sh:targetClass ex:Item ;
+  sh:datatype xsd:string ;
+  sh:hasValue ex:requiredItem ;
+  sh:in (ex:requiredItem ex:alternateItem) .
+"#;
+
+    let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item1 a ex:Item .
+"#;
+
+    write_file(&shapes, shapes_ttl)?;
+    write_file(&data, data_ttl)?;
+
+    compile_with_track(
+        &shapes,
+        &legacy_out,
+        "legacy-bin-node-membership",
+        "legacy",
+        "aot",
+    )?;
+    compile_with_track(
+        &shapes,
+        &srcgen_out,
+        "srcgen-bin-node-membership",
+        "srcgen",
+        "specialized",
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("legacy-bin-node-membership"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &legacy_report,
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("srcgen-bin-node-membership"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &srcgen_report,
+    )?;
+
+    run_cli_to_file(
+        &[
+            "validate",
+            "--shapes-file",
+            shapes.to_str().unwrap(),
+            "--data-file",
+            data.to_str().unwrap(),
+            "--format",
+            "turtle",
+        ],
+        &runtime_report,
+    )?;
+
+    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
+    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
+    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+
+    Ok(())
+}
+
+#[test]
 fn legacy_srcgen_and_runtime_reports_are_isomorphic_with_inference() -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;

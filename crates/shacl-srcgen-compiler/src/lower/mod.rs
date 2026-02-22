@@ -262,6 +262,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
         SrcGenComponentKind::Class { .. }
             | SrcGenComponentKind::PropertyLink
             | SrcGenComponentKind::Closed { .. }
+            | SrcGenComponentKind::Datatype { .. }
             | SrcGenComponentKind::Node { .. }
             | SrcGenComponentKind::Not { .. }
             | SrcGenComponentKind::And { .. }
@@ -271,6 +272,8 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::MinLength { .. }
             | SrcGenComponentKind::MaxLength { .. }
             | SrcGenComponentKind::Pattern { .. }
+            | SrcGenComponentKind::HasValue { .. }
+            | SrcGenComponentKind::In { .. }
             | SrcGenComponentKind::LanguageIn { .. }
     )
 }
@@ -1643,5 +1646,75 @@ mod tests {
             .all(|component| !component.fallback_only));
         assert!(lowered.node_shapes[0].supported);
         assert!(lowered.property_shapes[0].supported);
+    }
+
+    #[test]
+    fn specialization_ready_for_phase2_node_datatype_and_membership_constraints() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Datatype {
+                datatype: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/2001/XMLSchema#string",
+                )),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::HasValue {
+                value: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:required")),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::In {
+                values: vec![
+                    Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:required")),
+                    Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:alternate")),
+                ],
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:shape:item")),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Item"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2), ComponentID(3)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(lowered
+            .components
+            .iter()
+            .all(|component| !component.fallback_only));
+        assert!(lowered.node_shapes[0].supported);
     }
 }

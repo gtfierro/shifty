@@ -64,6 +64,26 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::Datatype { datatype_iri } => {
+                    let datatype_lit = LitStr::new(datatype_iri, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let valid = match focus {
+                            oxigraph::model::Term::Literal(literal) => {
+                                literal.datatype().as_str() == #datatype_lit
+                            }
+                            _ => false,
+                        };
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
                 SrcGenComponentKind::NodeKind { node_kind_iri } => {
                     let node_kind_lit = LitStr::new(node_kind_iri, Span::call_site());
                     node_constraint_checks.push(quote! {
@@ -151,6 +171,49 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 component_id: #component_id_value,
                                 focus: focus.clone(),
                                 value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::HasValue { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let required_value = #value_lit;
+                        let valid = term_to_sparql(focus) == required_value;
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::In { values_sparql } => {
+                    let value_literals: Vec<LitStr> = values_sparql
+                        .iter()
+                        .map(|value| LitStr::new(value, Span::call_site()))
+                        .collect();
+                    node_constraint_checks.push(quote! {
+                        let allowed_values: std::collections::HashSet<&str> =
+                            [#(#value_literals),*].into_iter().collect();
+                        if allowed_values.is_empty() {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        } else if !allowed_values.contains(term_to_sparql(focus).as_str()) {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
                                 path: None,
                             });
                         }
@@ -311,15 +374,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
                 SrcGenComponentKind::PropertyLink => {}
                 SrcGenComponentKind::QualifiedValueShape { .. } => {}
-                SrcGenComponentKind::Datatype { .. } => {}
                 SrcGenComponentKind::MinCount { .. } => {}
                 SrcGenComponentKind::MaxCount { .. } => {}
                 SrcGenComponentKind::MinExclusive { .. } => {}
                 SrcGenComponentKind::MinInclusive { .. } => {}
                 SrcGenComponentKind::MaxExclusive { .. } => {}
                 SrcGenComponentKind::MaxInclusive { .. } => {}
-                SrcGenComponentKind::HasValue { .. } => {}
-                SrcGenComponentKind::In { .. } => {}
                 SrcGenComponentKind::UniqueLang { .. } => {}
                 SrcGenComponentKind::Equals { .. } => {}
                 SrcGenComponentKind::Disjoint { .. } => {}
