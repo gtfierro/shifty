@@ -27,8 +27,8 @@ sha2 = { workspace = true }
 rayon = "1.10.0"
 spargebra = "0.4"
 ntest = "0.9.3"
-ontoenv = "0.5.0-a8"
-#ontoenv = { path = "../../ontoenv-rs/lib" }
+#ontoenv = "0.5.0-a8"
+ontoenv = { path = "../../ontoenv-rs/lib" }
 serde_json.workspace = true
 serde = { workspace = true }
 fixedbitset = "0.5.7"

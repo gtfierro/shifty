@@ -2027,7 +2027,38 @@ dependencies = [
  "oxigraph",
  "petgraph",
  "pretty-bytes",
- "rdf5d",
+ "rdf5d 0.5.0-a8",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_regex",
+ "serde_with",
+ "tempdir",
+ "tempfile",
+ "url",
+ "walkdir",
+]
+
+[[package]]
+name = "ontoenv"
+version = "0.5.0-a9"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "clap",
+ "derive_builder",
+ "env_logger",
+ "fs2",
+ "globset",
+ "json-ld",
+ "lazy_static",
+ "log",
+ "oxigraph",
+ "petgraph",
+ "pretty-bytes",
+ "rdf5d 0.5.0-a9",
  "regex",
  "reqwest",
  "serde",
@@ -2500,7 +2531,7 @@ name = "python"
 version = "0.0.9"
 dependencies = [
  "env_logger",
- "ontoenv",
+ "ontoenv 0.5.0-a8",
  "oxigraph",
  "pyo3",
  "serde_json",
@@ -2714,6 +2745,15 @@ name = "rdf5d"
 version = "0.5.0-a8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31cc8939af5e4adfc4ac9d9f0200116272f489048131bca2d7708b5bf0be1069"
+dependencies = [
+ "clap",
+ "oxigraph",
+ "zstd",
+]
+
+[[package]]
+name = "rdf5d"
+version = "0.5.0-a9"
 dependencies = [
  "clap",
  "oxigraph",
@@ -3145,7 +3185,7 @@ dependencies = [
  "fixedbitset",
  "log",
  "ntest",
- "ontoenv",
+ "ontoenv 0.5.0-a9",
  "oxigraph",
  "oxrdf",
  "oxrdfio",
