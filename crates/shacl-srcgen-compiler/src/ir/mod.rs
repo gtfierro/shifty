@@ -99,6 +99,21 @@ pub enum SrcGenComponentKind {
     In {
         values_sparql: Vec<String>,
     },
+    Node {
+        shape_iri: String,
+    },
+    Not {
+        shape_iri: String,
+    },
+    And {
+        shape_iris: Vec<String>,
+    },
+    Or {
+        shape_iris: Vec<String>,
+    },
+    Xone {
+        shape_iris: Vec<String>,
+    },
     LanguageIn {
         languages: Vec<String>,
     },

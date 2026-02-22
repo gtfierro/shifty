@@ -323,6 +323,132 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::Node { shape_iri } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = runtime_shape_conforms(store, data_graph, #shape_lit, value)?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Not { shape_iri } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let conforms = runtime_shape_conforms(store, data_graph, #shape_lit, value)?;
+                            if conforms {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::And { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let conjunct_shapes: &[&str] = &[#(#shape_literals),*];
+                        for value in &values {
+                            let mut all_conform = true;
+                            for conjunct in conjunct_shapes {
+                                if !runtime_shape_conforms(store, data_graph, conjunct, value)? {
+                                    all_conform = false;
+                                    break;
+                                }
+                            }
+                            if !all_conform {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Or { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let disjunct_shapes: &[&str] = &[#(#shape_literals),*];
+                        if disjunct_shapes.is_empty() {
+                            if !values.is_empty() {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: values.first().cloned(),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        } else {
+                            for value in &values {
+                                let mut any_conforms = false;
+                                for disjunct in disjunct_shapes {
+                                    if runtime_shape_conforms(store, data_graph, disjunct, value)? {
+                                        any_conforms = true;
+                                        break;
+                                    }
+                                }
+                                if !any_conforms {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Xone { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let xone_shapes: &[&str] = &[#(#shape_literals),*];
+                        for value in &values {
+                            let mut conforms_count = 0usize;
+                            for disjunct in xone_shapes {
+                                if runtime_shape_conforms(store, data_graph, disjunct, value)? {
+                                    conforms_count += 1;
+                                }
+                            }
+                            if conforms_count != 1 {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
                 SrcGenComponentKind::LanguageIn { languages } => {
                     let language_literals: Vec<LitStr> = languages
                         .iter()
@@ -791,6 +917,85 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 Ok(_) => Ok(false),
                 Err(_) => Ok(incomparable_is_valid),
             }
+        }
+
+        fn shape_nonconformance_cache(
+        ) -> &'static std::sync::Mutex<Option<std::sync::Arc<std::collections::HashSet<(String, String)>>>> {
+            static CACHE: std::sync::OnceLock<
+                std::sync::Mutex<Option<std::sync::Arc<std::collections::HashSet<(String, String)>>>>,
+            > = std::sync::OnceLock::new();
+            CACHE.get_or_init(|| std::sync::Mutex::new(None))
+        }
+
+        pub fn reset_runtime_shape_conformance_cache() {
+            if let Ok(mut cache_guard) = shape_nonconformance_cache().lock() {
+                *cache_guard = None;
+            }
+        }
+
+        fn runtime_nonconformance_set(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<std::sync::Arc<std::collections::HashSet<(String, String)>>, String> {
+            let mut cache_guard = shape_nonconformance_cache()
+                .lock()
+                .map_err(|_| "shape conformance cache mutex poisoned".to_string())?;
+            if let Some(existing) = cache_guard.as_ref() {
+                return Ok(existing.clone());
+            }
+
+            let validator = build_runtime_validator(store, data_graph)?;
+            let report = validator.validate();
+            let report_graph = report.to_graph_with_options(shifty::ValidationReportOptions {
+                follow_bnodes: false,
+            });
+
+            let rdf_type = oxigraph::model::vocab::rdf::TYPE;
+            let sh_validation_result =
+                oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#ValidationResult")
+                    .map_err(|err| format!("invalid sh:ValidationResult IRI: {err}"))?;
+            let sh_source_shape =
+                oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#sourceShape")
+                    .map_err(|err| format!("invalid sh:sourceShape IRI: {err}"))?;
+            let sh_focus_node =
+                oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#focusNode")
+                    .map_err(|err| format!("invalid sh:focusNode IRI: {err}"))?;
+
+            let mut result_nodes: Vec<oxigraph::model::NamedOrBlankNode> = Vec::new();
+            for triple in report_graph.iter() {
+                if triple.predicate == rdf_type
+                    && triple.object
+                        == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+                {
+                    result_nodes.push(triple.subject.into_owned());
+                }
+            }
+
+            let mut nonconformance_set: std::collections::HashSet<(String, String)> =
+                std::collections::HashSet::new();
+            for result_node in result_nodes {
+                let source_shape =
+                    report_graph.object_for_subject_predicate(result_node.as_ref(), sh_source_shape.as_ref());
+                let focus_node =
+                    report_graph.object_for_subject_predicate(result_node.as_ref(), sh_focus_node.as_ref());
+                if let (Some(source_shape), Some(focus_node)) = (source_shape, focus_node) {
+                    nonconformance_set.insert((source_shape.to_string(), focus_node.to_string()));
+                }
+            }
+
+            let cached = std::sync::Arc::new(nonconformance_set);
+            *cache_guard = Some(cached.clone());
+            Ok(cached)
+        }
+
+        pub fn runtime_shape_conforms(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            shape_iri: &str,
+            focus: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            let nonconformance_set = runtime_nonconformance_set(store, data_graph)?;
+            Ok(!nonconformance_set.contains(&(shape_iri.to_string(), focus.to_string())))
         }
 
         pub fn validate_supported_property_shape(

@@ -146,6 +146,110 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::Node { shape_iri } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let valid = runtime_shape_conforms(store, data_graph, #shape_lit, focus)?;
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::Not { shape_iri } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let conforms = runtime_shape_conforms(store, data_graph, #shape_lit, focus)?;
+                        if conforms {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::And { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    node_constraint_checks.push(quote! {
+                        let conjunct_shapes: &[&str] = &[#(#shape_literals),*];
+                        let mut all_conform = true;
+                        for conjunct in conjunct_shapes {
+                            if !runtime_shape_conforms(store, data_graph, conjunct, focus)? {
+                                all_conform = false;
+                                break;
+                            }
+                        }
+                        if !all_conform {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::Or { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    node_constraint_checks.push(quote! {
+                        let disjunct_shapes: &[&str] = &[#(#shape_literals),*];
+                        let mut any_conforms = false;
+                        for disjunct in disjunct_shapes {
+                            if runtime_shape_conforms(store, data_graph, disjunct, focus)? {
+                                any_conforms = true;
+                                break;
+                            }
+                        }
+                        if !any_conforms {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::Xone { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    node_constraint_checks.push(quote! {
+                        let xone_shapes: &[&str] = &[#(#shape_literals),*];
+                        let mut conforms_count = 0usize;
+                        for disjunct in xone_shapes {
+                            if runtime_shape_conforms(store, data_graph, disjunct, focus)? {
+                                conforms_count += 1;
+                            }
+                        }
+                        if conforms_count != 1 {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
                 SrcGenComponentKind::PropertyLink => {}
                 SrcGenComponentKind::Datatype { .. } => {}
                 SrcGenComponentKind::MinCount { .. } => {}

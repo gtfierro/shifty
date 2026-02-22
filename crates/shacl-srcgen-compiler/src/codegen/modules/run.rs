@@ -72,6 +72,7 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             enable_inference: bool,
         ) -> Report {
             reset_runtime_metrics();
+            reset_runtime_shape_conformance_cache();
             let data_graph = if let Some(graph) = data_graph {
                 graph.clone()
             } else {
