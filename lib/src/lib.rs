@@ -468,16 +468,14 @@ impl ValidatorBuilder {
                     in_env: false,
                     graph_id: None,
                 },
-                _ => {
-                    Self::add_source(
-                        &mut env,
-                        &data_source,
-                        "data",
-                        include_imports_on_add,
-                        refresh_strategy,
-                        import_depth,
-                    )?
-                }
+                _ => Self::add_source(
+                    &mut env,
+                    &data_source,
+                    "data",
+                    include_imports_on_add,
+                    refresh_strategy,
+                    import_depth,
+                )?,
             };
             let data_graph_iri = data_source_info.graph_iri.clone();
             let data_in_env = data_source_info.in_env;
@@ -730,14 +728,14 @@ impl ValidatorBuilder {
                 optimize_shapes,
                 optimize_shapes_data_dependent,
             };
-                let model = Self::build_shapes_model(
-                    Arc::clone(&env_handle),
-                    store,
-                    shapes_graph_iri.clone(),
-                    shapes_graph_id.clone(),
-                    data_graph_iri.clone(),
-                    model_config,
-                )?;
+            let model = Self::build_shapes_model(
+                Arc::clone(&env_handle),
+                store,
+                shapes_graph_iri.clone(),
+                shapes_graph_id.clone(),
+                data_graph_iri.clone(),
+                model_config,
+            )?;
             let shape_ir = crate::ir::build_shape_ir(
                 &model,
                 Some(data_graph_iri.clone()),
@@ -1143,21 +1141,6 @@ impl ValidatorBuilder {
                 }
             };
             let imported_graph_iri = graph_id.name().into_owned();
-
-            let graph_id = match env.resolve(ResolveTarget::Graph(imported_graph_iri.clone())) {
-                Some(id) => id,
-                None => {
-                    let message = format!(
-                        "Failed to resolve imported {} graph {} after loading",
-                        label, imported_graph_iri
-                    );
-                    if strict {
-                        return Err(std::io::Error::other(message).into());
-                    }
-                    warn!("{}", message);
-                    continue;
-                }
-            };
 
             let closure = match env.get_closure(&graph_id, closure_depth) {
                 Ok(ids) => ids,
@@ -2241,6 +2224,64 @@ mod tests {
         assert!(
             store_has_graph(&quads_validator.context.model.store, &imported_graph),
             "quads source should load imports when do_imports=true"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn shape_ir_with_imports_uses_added_graph_id_when_ontology_iri_collides(
+    ) -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_shape_ir_collision")?;
+
+        let old_shapes_path = temp_dir.join("a_old.ttl");
+        let new_shapes_path = temp_dir.join("z_new.ttl");
+        let ontology_iri = "http://example.com/colliding-ontology";
+
+        let old_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology .\n\
+ex:OldShape a sh:NodeShape ; sh:targetNode ex:Alice .\n"
+        );
+        let new_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology .\n\
+ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
+        );
+
+        fs::write(&old_shapes_path, old_shapes)?;
+        fs::write(&new_shapes_path, new_shapes)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(new_shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let shape_ir = validator.shape_ir_with_imports(-1)?;
+        let has_new_shape = shape_ir
+            .shape_quads
+            .iter()
+            .any(|quad| quad.subject.to_string().contains("NewShape"));
+        let has_old_shape = shape_ir
+            .shape_quads
+            .iter()
+            .any(|quad| quad.subject.to_string().contains("OldShape"));
+
+        assert!(
+            has_new_shape,
+            "shape_ir_with_imports should include the explicitly added shapes file content"
+        );
+        assert!(
+            !has_old_shape,
+            "shape_ir_with_imports should not switch to another graph identifier that only matches by ontology IRI"
         );
 
         fs::remove_dir_all(&temp_dir)?;
