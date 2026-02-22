@@ -993,6 +993,7 @@ enum CommandSpec {
         data_path: PathBuf,
         follow_bnodes: bool,
         run_inference: bool,
+        fail_on_violations: bool,
     },
     Infer {
         data_path: PathBuf,
@@ -1012,7 +1013,7 @@ struct HttpRequest {
 
 fn print_usage(program: &str) {
     eprintln!(
-        "usage:\n  {} [--follow-bnodes] [--run-inference=true|false] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference=true|false] <data.rdf>\n  {} infer <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
+        "usage:\n  {} [--follow-bnodes] [--run-inference=true|false] [--fail-on-violations] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference=true|false] [--fail-on-violations] <data.rdf>\n  {} infer <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
         program, program, program, program
     );
 }
@@ -1028,6 +1029,7 @@ fn parse_bool_arg(value: &str) -> Result<bool, String> {
 fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
     let mut follow_bnodes = false;
     let mut run_inference = true;
+    let mut fail_on_violations = false;
     let mut data_path: Option<PathBuf> = None;
 
     for arg in args {
@@ -1039,6 +1041,8 @@ fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, St
             run_inference = true;
         } else if let Some(value) = arg.strip_prefix("--run-inference=") {
             run_inference = parse_bool_arg(value)?;
+        } else if arg == "--fail-on-violations" {
+            fail_on_violations = true;
         } else if arg.starts_with("--") {
             print_usage(program);
             return Err(format!("unknown option: {}", arg));
@@ -1055,6 +1059,7 @@ fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, St
             data_path: path,
             follow_bnodes,
             run_inference,
+            fail_on_violations,
         }),
         None => {
             print_usage(program);
@@ -1374,7 +1379,7 @@ fn run_validate_command(
     path: &Path,
     follow_bnodes: bool,
     run_inference: bool,
-) -> Result<String, String> {
+) -> Result<(String, bool), String> {
     let (store, data_graph) = load_store_for_path(path)?;
     stage_mark("compiled validation start");
     let report = generated::run_with_options(&store, Some(&data_graph), run_inference);
@@ -1385,7 +1390,8 @@ fn run_validate_command(
         metrics.fast_path_hits,
         metrics.fallback_dispatches
     ));
-    render_report_output(&store, &report, follow_bnodes)
+    let output = render_report_output(&store, &report, follow_bnodes)?;
+    Ok((output, report.violations.is_empty()))
 }
 
 fn render_report_output(
@@ -1701,10 +1707,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             data_path,
             follow_bnodes,
             run_inference,
+            fail_on_violations,
         } => {
-            let output = run_validate_command(&data_path, follow_bnodes, run_inference)
+            let (output, conforms) = run_validate_command(&data_path, follow_bnodes, run_inference)
                 .map_err(Box::<dyn Error>::from)?;
             println!("{}", output);
+            if fail_on_violations && !conforms {
+                std::process::exit(2);
+            }
             Ok(())
         }
         CommandSpec::Infer { data_path } => {
