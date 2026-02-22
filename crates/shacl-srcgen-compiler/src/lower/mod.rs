@@ -261,6 +261,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
         kind,
         SrcGenComponentKind::Class { .. }
             | SrcGenComponentKind::PropertyLink
+            | SrcGenComponentKind::Closed { .. }
             | SrcGenComponentKind::Node { .. }
             | SrcGenComponentKind::Not { .. }
             | SrcGenComponentKind::And { .. }
@@ -279,6 +280,7 @@ fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
         kind,
         SrcGenComponentKind::Class { .. }
             | SrcGenComponentKind::Datatype { .. }
+            | SrcGenComponentKind::QualifiedValueShape { .. }
             | SrcGenComponentKind::Node { .. }
             | SrcGenComponentKind::Not { .. }
             | SrcGenComponentKind::And { .. }
@@ -365,6 +367,53 @@ fn component_kind(
 ) -> (SrcGenComponentKind, Option<String>) {
     match descriptor {
         ComponentDescriptor::Property { .. } => (SrcGenComponentKind::PropertyLink, None),
+        ComponentDescriptor::QualifiedValueShape {
+            shape,
+            min_count,
+            max_count,
+            disjoint,
+        } => {
+            if let Some(shape_iri) = resolve_shape_iri(shape_ir, *shape) {
+                (
+                    SrcGenComponentKind::QualifiedValueShape {
+                        shape_iri,
+                        min_count: *min_count,
+                        max_count: *max_count,
+                        disjoint: disjoint.unwrap_or(false),
+                    },
+                    None,
+                )
+            } else {
+                (
+                    SrcGenComponentKind::Unsupported {
+                        kind: "QualifiedValueShape(missing-shape)".to_string(),
+                    },
+                    Some(format!(
+                        "QualifiedValueShape constraint references unknown shape id {}",
+                        shape.0
+                    )),
+                )
+            }
+        }
+        ComponentDescriptor::Closed {
+            closed,
+            ignored_properties,
+        } => {
+            let ignored_property_iris = ignored_properties
+                .iter()
+                .filter_map(|term| match term {
+                    Term::NamedNode(node) => Some(node.as_str().to_string()),
+                    _ => None,
+                })
+                .collect();
+            (
+                SrcGenComponentKind::Closed {
+                    closed: *closed,
+                    ignored_property_iris,
+                },
+                None,
+            )
+        }
         ComponentDescriptor::Node { shape } => {
             if let Some(shape_iri) = resolve_shape_iri(shape_ir, *shape) {
                 (SrcGenComponentKind::Node { shape_iri }, None)
@@ -943,9 +992,10 @@ mod tests {
         let mut components = HashMap::new();
         components.insert(
             ComponentID(1),
-            ComponentDescriptor::Closed {
-                closed: true,
-                ignored_properties: Vec::new(),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:sparql:constraint",
+                )),
             },
         );
 
@@ -1225,6 +1275,145 @@ mod tests {
             .iter()
             .all(|component| !component.fallback_only));
         assert!(lowered.node_shapes[0].supported);
+        assert!(lowered.property_shapes[0].supported);
+    }
+
+    #[test]
+    fn specialization_ready_for_phase2_closed_and_qualified_value_shape_constraints() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::Closed {
+                closed: true,
+                ignored_properties: vec![
+                    Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:ignored")),
+                    Term::BlankNode(oxigraph::model::BlankNode::new_unchecked("ignored-bnode")),
+                ],
+            },
+        );
+        components.insert(
+            ComponentID(4),
+            ComponentDescriptor::QualifiedValueShape {
+                shape: ID(2),
+                min_count: Some(1),
+                max_count: Some(2),
+                disjoint: Some(true),
+            },
+        );
+        components.insert(
+            ComponentID(5),
+            ComponentDescriptor::QualifiedValueShape {
+                shape: ID(3),
+                min_count: None,
+                max_count: Some(1),
+                disjoint: Some(true),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+        node_shape_terms.insert(
+            ID(2),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:shape:child")),
+        );
+        node_shape_terms.insert(
+            ID(3),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:alt-child",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person-child",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![
+                NodeShapeIR {
+                    id: ID(1),
+                    targets: vec![Target::Class(Term::NamedNode(
+                        oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                    ))],
+                    constraints: vec![ComponentID(1), ComponentID(2), ComponentID(3)],
+                    property_shapes: vec![PropShapeID(7)],
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+                NodeShapeIR {
+                    id: ID(2),
+                    targets: vec![Target::Class(Term::NamedNode(
+                        oxigraph::model::NamedNode::new_unchecked("urn:Child"),
+                    ))],
+                    constraints: Vec::new(),
+                    property_shapes: Vec::new(),
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+                NodeShapeIR {
+                    id: ID(3),
+                    targets: vec![Target::Class(Term::NamedNode(
+                        oxigraph::model::NamedNode::new_unchecked("urn:AltChild"),
+                    ))],
+                    constraints: Vec::new(),
+                    property_shapes: Vec::new(),
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+            ],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:child",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:child")),
+                constraints: vec![ComponentID(4), ComponentID(5)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(lowered
+            .components
+            .iter()
+            .all(|component| !component.fallback_only));
+        assert!(lowered.node_shapes.iter().all(|shape| shape.supported));
         assert!(lowered.property_shapes[0].supported);
     }
 

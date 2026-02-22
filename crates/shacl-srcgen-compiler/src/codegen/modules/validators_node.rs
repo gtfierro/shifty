@@ -11,6 +11,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .iter()
         .map(|component| (component.id, &component.kind))
         .collect();
+    let property_path_by_id: HashMap<u64, String> = ir
+        .property_shapes
+        .iter()
+        .filter_map(|shape| {
+            shape
+                .path_predicate
+                .as_ref()
+                .map(|predicate| (shape.id, predicate.clone()))
+        })
+        .collect();
 
     let mut node_arms: Vec<TokenStream> = Vec::new();
     let mut supported_shapes = 0usize;
@@ -250,7 +260,57 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::Closed {
+                    closed,
+                    ignored_property_iris,
+                } => {
+                    if *closed {
+                        let mut allowed_properties: Vec<String> = ignored_property_iris.clone();
+                        for property_shape_id in &shape.property_shapes {
+                            if let Some(path_predicate) = property_path_by_id.get(property_shape_id)
+                            {
+                                allowed_properties.push(path_predicate.clone());
+                            }
+                        }
+                        allowed_properties.sort();
+                        allowed_properties.dedup();
+                        let allowed_property_literals: Vec<LitStr> = allowed_properties
+                            .iter()
+                            .map(|property| LitStr::new(property, Span::call_site()))
+                            .collect();
+                        node_constraint_checks.push(quote! {
+                            if let Some(subject_ref) = subject_ref_from_term(focus) {
+                                let allowed_predicates: std::collections::HashSet<&str> =
+                                    [#(#allowed_property_literals),*].into_iter().collect();
+                                let graph_ref =
+                                    oxigraph::model::GraphNameRef::NamedNode(data_graph.as_ref());
+                                for quad in store.quads_for_pattern(
+                                    Some(subject_ref),
+                                    None,
+                                    None,
+                                    Some(graph_ref),
+                                ) {
+                                    let quad = quad
+                                        .map_err(|err| format!("store query failed: {err}"))?;
+                                    let predicate = quad.predicate;
+                                    if !allowed_predicates.contains(predicate.as_str()) {
+                                        violations.push(Violation {
+                                            shape_id: #shape_id,
+                                            component_id: #component_id_value,
+                                            focus: focus.clone(),
+                                            value: Some(quad.object),
+                                            path: Some(ResultPath::Term(
+                                                oxigraph::model::Term::NamedNode(predicate),
+                                            )),
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
                 SrcGenComponentKind::PropertyLink => {}
+                SrcGenComponentKind::QualifiedValueShape { .. } => {}
                 SrcGenComponentKind::Datatype { .. } => {}
                 SrcGenComponentKind::MinCount { .. } => {}
                 SrcGenComponentKind::MaxCount { .. } => {}
@@ -274,7 +334,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .iter()
             .map(|property_shape_id| {
                 quote! {
-                    validate_supported_property_shape(#property_shape_id, store, data_graph, focus, &mut violations)?;
+                    validate_supported_property_shape(
+                        #property_shape_id,
+                        #shape_id,
+                        store,
+                        data_graph,
+                        focus,
+                        &mut violations,
+                    )?;
                 }
             })
             .collect();

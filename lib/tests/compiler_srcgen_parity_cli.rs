@@ -427,6 +427,113 @@ ex:c2 a ex:Child, ex:AltChild ;
 }
 
 #[test]
+fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_closed_and_qualified_constraints(
+) -> Result<(), Box<dyn Error>> {
+    let _guard = compiled_test_lock();
+    let tmp = unique_temp_dir()?;
+    let shapes = tmp.join("shapes.ttl");
+    let data = tmp.join("data.ttl");
+    let legacy_out = tmp.join("legacy-compiled");
+    let srcgen_out = tmp.join("srcgen-compiled");
+    let legacy_report = tmp.join("legacy-report.ttl");
+    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let runtime_report = tmp.join("runtime-report.ttl");
+
+    let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+ex:FingerShape
+  a sh:NodeShape ;
+  sh:class ex:Finger .
+
+ex:ThumbShape
+  a sh:NodeShape ;
+  sh:class ex:Thumb .
+
+ex:HandShape
+  a sh:NodeShape ;
+  sh:targetClass ex:Hand ;
+  sh:closed true ;
+  sh:ignoredProperties (rdf:type) ;
+  sh:property [
+    sh:path ex:digit ;
+    sh:qualifiedMinCount 1 ;
+    sh:qualifiedValueShape ex:ThumbShape ;
+    sh:qualifiedValueShapesDisjoint true ;
+  ] ;
+  sh:property [
+    sh:path ex:digit ;
+    sh:qualifiedMaxCount 4 ;
+    sh:qualifiedValueShape ex:FingerShape ;
+    sh:qualifiedValueShapesDisjoint true ;
+  ] .
+"#;
+
+    let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:badHand a ex:Hand ;
+  ex:digit ex:fingerThumb ;
+  ex:illegal ex:oops .
+
+ex:fingerThumb a ex:Finger, ex:Thumb .
+"#;
+
+    write_file(&shapes, shapes_ttl)?;
+    write_file(&data, data_ttl)?;
+
+    compile_with_track(
+        &shapes,
+        &legacy_out,
+        "legacy-bin-closed-qualified",
+        "legacy",
+        "aot",
+    )?;
+    compile_with_track(
+        &shapes,
+        &srcgen_out,
+        "srcgen-bin-closed-qualified",
+        "srcgen",
+        "specialized",
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("legacy-bin-closed-qualified"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &legacy_report,
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("srcgen-bin-closed-qualified"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &srcgen_report,
+    )?;
+
+    run_cli_to_file(
+        &[
+            "validate",
+            "--shapes-file",
+            shapes.to_str().unwrap(),
+            "--data-file",
+            data.to_str().unwrap(),
+            "--format",
+            "turtle",
+        ],
+        &runtime_report,
+    )?;
+
+    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
+    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
+    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+
+    Ok(())
+}
+
+#[test]
 fn legacy_srcgen_and_runtime_reports_are_isomorphic_with_inference() -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;

@@ -114,6 +114,16 @@ pub enum SrcGenComponentKind {
     Xone {
         shape_iris: Vec<String>,
     },
+    QualifiedValueShape {
+        shape_iri: String,
+        min_count: Option<u64>,
+        max_count: Option<u64>,
+        disjoint: bool,
+    },
+    Closed {
+        closed: bool,
+        ignored_property_iris: Vec<String>,
+    },
     LanguageIn {
         languages: Vec<String>,
     },

@@ -2,7 +2,7 @@ use crate::codegen::render_tokens_as_module;
 use crate::ir::{SrcGenComponentKind, SrcGenIR};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use syn::LitStr;
 
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
@@ -10,6 +10,52 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .components
         .iter()
         .map(|component| (component.id, &component.kind))
+        .collect();
+    let property_shape_by_id: HashMap<u64, _> = ir
+        .property_shapes
+        .iter()
+        .map(|shape| (shape.id, shape))
+        .collect();
+
+    let mut qvs_sibling_map: BTreeMap<(u64, u64), Vec<String>> = BTreeMap::new();
+    for node_shape in &ir.node_shapes {
+        let mut qvs_components: Vec<(u64, String)> = Vec::new();
+        for property_shape_id in &node_shape.property_shapes {
+            let Some(property_shape) = property_shape_by_id.get(property_shape_id) else {
+                continue;
+            };
+            for component_id in &property_shape.constraints {
+                if let Some(SrcGenComponentKind::QualifiedValueShape { shape_iri, .. }) =
+                    component_by_id.get(component_id)
+                {
+                    qvs_components.push((*component_id, shape_iri.clone()));
+                }
+            }
+        }
+        for (component_id, _) in &qvs_components {
+            let mut sibling_shapes: Vec<String> = qvs_components
+                .iter()
+                .filter(|(other_component_id, _)| other_component_id != component_id)
+                .map(|(_, shape_iri)| shape_iri.clone())
+                .collect();
+            sibling_shapes.sort();
+            sibling_shapes.dedup();
+            if !sibling_shapes.is_empty() {
+                qvs_sibling_map.insert((node_shape.id, *component_id), sibling_shapes);
+            }
+        }
+    }
+    let qvs_sibling_arms: Vec<TokenStream> = qvs_sibling_map
+        .iter()
+        .map(|((parent_shape_id, component_id), sibling_shapes)| {
+            let sibling_literals: Vec<LitStr> = sibling_shapes
+                .iter()
+                .map(|shape| LitStr::new(shape, Span::call_site()))
+                .collect();
+            quote! {
+                (#parent_shape_id, #component_id) => &[#(#sibling_literals),*],
+            }
+        })
         .collect();
 
     let mut match_arms: Vec<TokenStream> = Vec::new();
@@ -449,6 +495,79 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::QualifiedValueShape {
+                    shape_iri,
+                    min_count,
+                    max_count,
+                    disjoint,
+                } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    let disjoint_value = *disjoint;
+                    let min_count_check = if let Some(min_count) = min_count {
+                        let min_count = *min_count as usize;
+                        quote! {
+                            if qualified_nodes_count < #min_count {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    } else {
+                        quote! {}
+                    };
+                    let max_count_check = if let Some(max_count) = max_count {
+                        let max_count = *max_count as usize;
+                        quote! {
+                            if qualified_nodes_count > #max_count {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    } else {
+                        quote! {}
+                    };
+                    constraint_checks.push(quote! {
+                        let sibling_shapes: &[&str] = if #disjoint_value {
+                            qualified_sibling_shapes(parent_node_shape_id, #component_id_value)
+                        } else {
+                            &[]
+                        };
+                        let mut qualified_nodes_count: usize = 0;
+                        for value in &values {
+                            if !runtime_shape_conforms(store, data_graph, #shape_lit, value)? {
+                                continue;
+                            }
+                            let mut conforms_to_sibling = false;
+                            if #disjoint_value && !sibling_shapes.is_empty() {
+                                for sibling_shape in sibling_shapes {
+                                    if runtime_shape_conforms(
+                                        store,
+                                        data_graph,
+                                        sibling_shape,
+                                        value,
+                                    )? {
+                                        conforms_to_sibling = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !conforms_to_sibling {
+                                qualified_nodes_count += 1;
+                            }
+                        }
+                        #min_count_check
+                        #max_count_check
+                    });
+                }
                 SrcGenComponentKind::LanguageIn { languages } => {
                     let language_literals: Vec<LitStr> = languages
                         .iter()
@@ -607,6 +726,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     });
                 }
                 SrcGenComponentKind::PropertyLink => {}
+                SrcGenComponentKind::Closed { .. } => {}
                 SrcGenComponentKind::Unsupported { .. } => {}
             }
         }
@@ -624,6 +744,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
     let tokens = quote! {
         pub const GENERATED_PROPERTY_VALIDATORS: usize = #supported_shapes;
+
+        fn qualified_sibling_shapes(
+            parent_node_shape_id: u64,
+            component_id: u64,
+        ) -> &'static [&'static str] {
+            match (parent_node_shape_id, component_id) {
+                #(#qvs_sibling_arms)*
+                _ => &[],
+            }
+        }
 
         fn validation_graphs(
             data_graph: &oxigraph::model::NamedNode,
@@ -1000,6 +1130,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
         pub fn validate_supported_property_shape(
             shape_id: u64,
+            parent_node_shape_id: u64,
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
             focus: &oxigraph::model::Term,
