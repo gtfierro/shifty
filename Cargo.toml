@@ -20,7 +20,7 @@ homepage = "https://github.com/gtfierro/shifty"
 documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
-oxigraph = { version = "0.5" }
+oxigraph = { version = "0.5.5" }
 petgraph = "0.6"
 shifty = { version = "0.0.9", path = "lib", package = "shifty-shacl" }
 clap = { version = "4.5.39", features = ["derive"] }
@@ -33,7 +33,7 @@ sha2 = "0.10.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3"
-oxrdf = { version = "=0.3.1", features = ["serde", "oxsdatatypes"] }
+oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 
 [profile.release]
 debug = true

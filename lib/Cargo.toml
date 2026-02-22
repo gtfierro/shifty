@@ -25,9 +25,9 @@ paste = "1.0.15"
 petgraph = { version = "0.8.2", features = ["rayon"] }
 sha2 = { workspace = true }
 rayon = "1.10.0"
-spargebra = "0.4"
+spargebra = "0.4.5"
 ntest = "0.9.3"
-ontoenv = "0.5.0-a8"
+ontoenv = "0.5.0-a9"
 #ontoenv = { path = "../../ontoenv-rs/lib" }
 serde_json.workspace = true
 serde = { workspace = true }
@@ -38,7 +38,7 @@ compiled-tests = []
 
 [build-dependencies]
 oxrdf = { workspace = true }
-oxrdfio = "0.2.1"
+oxrdfio = "0.2.3"
 url = { version = "2" }
 
 [dev-dependencies]
