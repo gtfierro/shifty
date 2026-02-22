@@ -77,9 +77,27 @@ pub enum SrcGenComponentKind {
     MaxLength {
         max_length: u64,
     },
+    MinExclusive {
+        value_sparql: String,
+    },
+    MinInclusive {
+        value_sparql: String,
+    },
+    MaxExclusive {
+        value_sparql: String,
+    },
+    MaxInclusive {
+        value_sparql: String,
+    },
     Pattern {
         pattern: String,
         flags: Option<String>,
+    },
+    HasValue {
+        value_sparql: String,
+    },
+    In {
+        values_sparql: Vec<String>,
     },
     LanguageIn {
         languages: Vec<String>,

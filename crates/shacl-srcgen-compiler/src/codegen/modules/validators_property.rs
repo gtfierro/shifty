@@ -154,6 +154,98 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::MinExclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                "<",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MinInclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                "<=",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxExclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                ">",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxInclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                ">=",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
                 SrcGenComponentKind::Pattern { pattern, flags } => {
                     let pattern_lit = LitStr::new(pattern, Span::call_site());
                     let flags_token = if let Some(flags) = flags {
@@ -176,6 +268,57 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     value: Some(value.clone()),
                                     path: Some(ResultPath::Term(predicate_term.clone())),
                                 });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::HasValue { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let required_value = #value_lit;
+                        let has_required_value = values
+                            .iter()
+                            .any(|value| term_to_sparql(value) == required_value);
+                        if !has_required_value {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: Some(ResultPath::Term(predicate_term.clone())),
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::In { values_sparql } => {
+                    let value_literals: Vec<LitStr> = values_sparql
+                        .iter()
+                        .map(|value| LitStr::new(value, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let allowed_values: std::collections::HashSet<&str> =
+                            [#(#value_literals),*].into_iter().collect();
+                        if allowed_values.is_empty() {
+                            if !values.is_empty() {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        } else {
+                            for value in &values {
+                                if !allowed_values.contains(term_to_sparql(value).as_str()) {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
                             }
                         }
                     });
@@ -619,6 +762,28 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 term_to_sparql(right),
             );
 
+            #[allow(deprecated)]
+            let result = store.query(query.as_str());
+            match result {
+                Ok(oxigraph::sparql::QueryResults::Boolean(valid)) => Ok(valid),
+                Ok(_) => Ok(false),
+                Err(_) => Ok(incomparable_is_valid),
+            }
+        }
+
+        fn compare_serialized_term_with_operator(
+            store: &oxigraph::store::Store,
+            left_serialized_term: &str,
+            right_term: &oxigraph::model::Term,
+            operator: &str,
+            incomparable_is_valid: bool,
+        ) -> Result<bool, String> {
+            let query = format!(
+                "ASK {{ FILTER({} {} {}) }}",
+                left_serialized_term,
+                operator,
+                term_to_sparql(right_term),
+            );
             #[allow(deprecated)]
             let result = store.query(query.as_str());
             match result {

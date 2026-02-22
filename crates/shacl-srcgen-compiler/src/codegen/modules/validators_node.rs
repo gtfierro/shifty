@@ -150,6 +150,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 SrcGenComponentKind::Datatype { .. } => {}
                 SrcGenComponentKind::MinCount { .. } => {}
                 SrcGenComponentKind::MaxCount { .. } => {}
+                SrcGenComponentKind::MinExclusive { .. } => {}
+                SrcGenComponentKind::MinInclusive { .. } => {}
+                SrcGenComponentKind::MaxExclusive { .. } => {}
+                SrcGenComponentKind::MaxInclusive { .. } => {}
+                SrcGenComponentKind::HasValue { .. } => {}
+                SrcGenComponentKind::In { .. } => {}
                 SrcGenComponentKind::UniqueLang { .. } => {}
                 SrcGenComponentKind::Equals { .. } => {}
                 SrcGenComponentKind::Disjoint { .. } => {}

@@ -222,6 +222,106 @@ ex:Alice a ex:Person ;
 }
 
 #[test]
+fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_phase2_expanded_constraints(
+) -> Result<(), Box<dyn Error>> {
+    let _guard = compiled_test_lock();
+    let tmp = unique_temp_dir()?;
+    let shapes = tmp.join("shapes.ttl");
+    let data = tmp.join("data.ttl");
+    let legacy_out = tmp.join("legacy-compiled");
+    let srcgen_out = tmp.join("srcgen-compiled");
+    let legacy_report = tmp.join("legacy-report.ttl");
+    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let runtime_report = tmp.join("runtime-report.ttl");
+
+    let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:DeviceShape
+  a sh:NodeShape ;
+  sh:targetClass ex:Device ;
+  sh:property [
+    sh:path ex:reading ;
+    sh:minInclusive 10 ;
+    sh:maxExclusive 20 ;
+    sh:hasValue 15 ;
+    sh:in (15 16) ;
+  ] ;
+  sh:property [
+    sh:path ex:label ;
+    sh:languageIn ("en" "fr") ;
+    sh:uniqueLang true ;
+  ] ;
+  sh:property [
+    sh:path ex:code ;
+    sh:equals ex:mirrorCode ;
+    sh:disjoint ex:bannedCode ;
+    sh:lessThan ex:maxCode ;
+    sh:lessThanOrEquals ex:maxCodeInclusive ;
+  ] .
+"#;
+
+    let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:d1 a ex:Device ;
+  ex:reading 9, 21 ;
+  ex:label "hello"@en, "bonjour"@EN ;
+  ex:code 5, 8 ;
+  ex:mirrorCode 8 ;
+  ex:bannedCode 8 ;
+  ex:maxCode 7 ;
+  ex:maxCodeInclusive 8 .
+"#;
+
+    write_file(&shapes, shapes_ttl)?;
+    write_file(&data, data_ttl)?;
+
+    compile_with_track(&shapes, &legacy_out, "legacy-bin-expanded", "legacy", "aot")?;
+    compile_with_track(
+        &shapes,
+        &srcgen_out,
+        "srcgen-bin-expanded",
+        "srcgen",
+        "specialized",
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("legacy-bin-expanded"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &legacy_report,
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("srcgen-bin-expanded"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &srcgen_report,
+    )?;
+
+    run_cli_to_file(
+        &[
+            "validate",
+            "--shapes-file",
+            shapes.to_str().unwrap(),
+            "--data-file",
+            data.to_str().unwrap(),
+            "--format",
+            "turtle",
+        ],
+        &runtime_report,
+    )?;
+
+    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
+    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
+    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+
+    Ok(())
+}
+
+#[test]
 fn legacy_srcgen_and_runtime_reports_are_isomorphic_with_inference() -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;

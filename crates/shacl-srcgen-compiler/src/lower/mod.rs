@@ -279,7 +279,13 @@ fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::MaxCount { .. }
             | SrcGenComponentKind::MinLength { .. }
             | SrcGenComponentKind::MaxLength { .. }
+            | SrcGenComponentKind::MinExclusive { .. }
+            | SrcGenComponentKind::MinInclusive { .. }
+            | SrcGenComponentKind::MaxExclusive { .. }
+            | SrcGenComponentKind::MaxInclusive { .. }
             | SrcGenComponentKind::Pattern { .. }
+            | SrcGenComponentKind::HasValue { .. }
+            | SrcGenComponentKind::In { .. }
             | SrcGenComponentKind::LanguageIn { .. }
             | SrcGenComponentKind::UniqueLang { .. }
             | SrcGenComponentKind::Equals { .. }
@@ -293,6 +299,39 @@ fn term_to_stable_string(term: &Term) -> String {
     match term {
         Term::NamedNode(node) => node.as_str().to_string(),
         _ => term.to_string(),
+    }
+}
+
+fn escape_sparql_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn term_to_sparql(term: &Term) -> String {
+    match term {
+        Term::NamedNode(node) => format!("<{}>", node.as_str()),
+        Term::BlankNode(node) => format!("_:{}", node.as_str()),
+        Term::Literal(literal) => {
+            if let Some(language) = literal.language() {
+                format!("\"{}\"@{}", escape_sparql_string(literal.value()), language)
+            } else {
+                format!(
+                    "\"{}\"^^<{}>",
+                    escape_sparql_string(literal.value()),
+                    literal.datatype().as_str(),
+                )
+            }
+        }
     }
 }
 
@@ -347,10 +386,46 @@ fn component_kind(descriptor: &ComponentDescriptor) -> (SrcGenComponentKind, Opt
             },
             None,
         ),
+        ComponentDescriptor::MinExclusive { value } => (
+            SrcGenComponentKind::MinExclusive {
+                value_sparql: term_to_sparql(value),
+            },
+            None,
+        ),
+        ComponentDescriptor::MinInclusive { value } => (
+            SrcGenComponentKind::MinInclusive {
+                value_sparql: term_to_sparql(value),
+            },
+            None,
+        ),
+        ComponentDescriptor::MaxExclusive { value } => (
+            SrcGenComponentKind::MaxExclusive {
+                value_sparql: term_to_sparql(value),
+            },
+            None,
+        ),
+        ComponentDescriptor::MaxInclusive { value } => (
+            SrcGenComponentKind::MaxInclusive {
+                value_sparql: term_to_sparql(value),
+            },
+            None,
+        ),
         ComponentDescriptor::Pattern { pattern, flags } => (
             SrcGenComponentKind::Pattern {
                 pattern: pattern.clone(),
                 flags: flags.clone(),
+            },
+            None,
+        ),
+        ComponentDescriptor::HasValue { value } => (
+            SrcGenComponentKind::HasValue {
+                value_sparql: term_to_sparql(value),
+            },
+            None,
+        ),
+        ComponentDescriptor::In { values } => (
+            SrcGenComponentKind::In {
+                values_sparql: values.iter().map(term_to_sparql).collect(),
             },
             None,
         ),
@@ -902,6 +977,118 @@ mod tests {
                     ComponentID(6),
                     ComponentID(7),
                     ComponentID(8),
+                ],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(lowered
+            .components
+            .iter()
+            .all(|component| !component.fallback_only));
+        assert!(lowered.node_shapes[0].supported);
+        assert!(lowered.property_shapes[0].supported);
+    }
+
+    #[test]
+    fn specialization_ready_for_phase2_value_range_and_membership_constraints() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::MinInclusive {
+                value: Term::Literal(oxigraph::model::Literal::from(10)),
+            },
+        );
+        components.insert(
+            ComponentID(4),
+            ComponentDescriptor::MaxExclusive {
+                value: Term::Literal(oxigraph::model::Literal::from(20)),
+            },
+        );
+        components.insert(
+            ComponentID(5),
+            ComponentDescriptor::HasValue {
+                value: Term::Literal(oxigraph::model::Literal::from(15)),
+            },
+        );
+        components.insert(
+            ComponentID(6),
+            ComponentDescriptor::In {
+                values: vec![
+                    Term::Literal(oxigraph::model::Literal::from(14)),
+                    Term::Literal(oxigraph::model::Literal::from(15)),
+                    Term::Literal(oxigraph::model::Literal::from(16)),
+                ],
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person-age",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2)],
+                property_shapes: vec![PropShapeID(7)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:age",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:age")),
+                constraints: vec![
+                    ComponentID(3),
+                    ComponentID(4),
+                    ComponentID(5),
+                    ComponentID(6),
                 ],
                 severity: Severity::Violation,
                 deactivated: false,
