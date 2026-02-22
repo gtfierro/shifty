@@ -71,6 +71,13 @@ pub enum Source {
     Empty,
 }
 
+#[derive(Debug, Clone)]
+struct LoadedSource {
+    graph_iri: NamedNode,
+    in_env: bool,
+    graph_id: Option<GraphIdentifier>,
+}
+
 /// Aggregated graph-call counters for a specific constraint component execution context.
 #[derive(Debug, Clone)]
 pub struct ComponentGraphCallStat {
@@ -423,6 +430,7 @@ impl ValidatorBuilder {
 
         let (
             shapes_graph_iri,
+            shapes_graph_id,
             data_graph_iri,
             mut shape_graphs_for_union,
             _merged_closure_ids,
@@ -430,8 +438,12 @@ impl ValidatorBuilder {
         ) = {
             let mut env = env_handle.write().unwrap();
             let include_imports_on_add = do_imports && import_depth != 0;
-            let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
-                (ir.shape_graph.clone(), false)
+            let shapes_source_info = if let Some(ir) = shape_ir.as_ref() {
+                LoadedSource {
+                    graph_iri: ir.shape_graph.clone(),
+                    in_env: false,
+                    graph_id: None,
+                }
             } else {
                 let source = shapes_source
                     .as_ref()
@@ -445,24 +457,31 @@ impl ValidatorBuilder {
                     import_depth,
                 )?
             };
-            let (data_graph_iri, data_in_env) = match &data_source {
-                Source::Empty => (
-                    NamedNode::new("urn:shifty:null-data")
+            let shapes_graph_iri = shapes_source_info.graph_iri.clone();
+            let shapes_in_env = shapes_source_info.in_env;
+            let shapes_graph_id = shapes_source_info.graph_id.clone();
+
+            let data_source_info = match &data_source {
+                Source::Empty => LoadedSource {
+                    graph_iri: NamedNode::new("urn:shifty:null-data")
                         .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
-                    false,
-                ),
+                    in_env: false,
+                    graph_id: None,
+                },
                 _ => {
-                    let (iri, in_env) = Self::add_source(
+                    Self::add_source(
                         &mut env,
                         &data_source,
                         "data",
                         include_imports_on_add,
                         refresh_strategy,
                         import_depth,
-                    )?;
-                    (iri, in_env)
+                    )?
                 }
             };
+            let data_graph_iri = data_source_info.graph_iri.clone();
+            let data_in_env = data_source_info.in_env;
+            let data_graph_id = data_source_info.graph_id.clone();
 
             let shapes_quads_import_graphs = if do_imports && !shapes_in_env {
                 if let Some(Source::Quads { quads, .. }) = shapes_source.as_ref() {
@@ -482,6 +501,7 @@ impl ValidatorBuilder {
             let data_closure_ids = if do_imports && data_in_env {
                 Some(Self::resolve_closure_ids_for_graph(
                     &mut env,
+                    data_graph_id.as_ref(),
                     &data_graph_iri,
                     import_depth,
                     "data",
@@ -513,6 +533,7 @@ impl ValidatorBuilder {
                 } else {
                     Some(Self::resolve_closure_ids_for_graph(
                         &mut env,
+                        shapes_graph_id.as_ref(),
                         &shapes_graph_iri,
                         import_depth,
                         "shapes",
@@ -633,6 +654,7 @@ impl ValidatorBuilder {
 
             (
                 shapes_graph_iri,
+                shapes_graph_id,
                 data_graph_iri,
                 shape_graphs_for_union,
                 merged_closure_ids,
@@ -708,13 +730,14 @@ impl ValidatorBuilder {
                 optimize_shapes,
                 optimize_shapes_data_dependent,
             };
-            let model = Self::build_shapes_model(
-                Arc::clone(&env_handle),
-                store,
-                shapes_graph_iri.clone(),
-                data_graph_iri.clone(),
-                model_config,
-            )?;
+                let model = Self::build_shapes_model(
+                    Arc::clone(&env_handle),
+                    store,
+                    shapes_graph_iri.clone(),
+                    shapes_graph_id.clone(),
+                    data_graph_iri.clone(),
+                    model_config,
+                )?;
             let shape_ir = crate::ir::build_shape_ir(
                 &model,
                 Some(data_graph_iri.clone()),
@@ -820,7 +843,7 @@ impl ValidatorBuilder {
         include_imports: bool,
         refresh_strategy: RefreshStrategy,
         import_depth: i32,
-    ) -> Result<(NamedNode, bool), Box<dyn Error>> {
+    ) -> Result<LoadedSource, Box<dyn Error>> {
         let file_path = match source {
             Source::File(path) => {
                 let abs = if path.is_absolute() {
@@ -881,7 +904,11 @@ impl ValidatorBuilder {
                 quads.len()
             );
             info!("Added {} graph from in-memory quads: {}", label, graph_iri);
-            return Ok((graph_iri, false));
+            return Ok(LoadedSource {
+                graph_iri,
+                in_env: false,
+                graph_id: None,
+            });
         }
 
         // Try OntoEnv first.
@@ -936,7 +963,11 @@ impl ValidatorBuilder {
                     label, graph_iri, location
                 );
                 info!("Added {} graph: {}", label, graph_iri);
-                return Ok((graph_iri, true));
+                return Ok(LoadedSource {
+                    graph_iri,
+                    in_env: true,
+                    graph_id: Some(graph_id),
+                });
             }
         }
 
@@ -1034,7 +1065,11 @@ impl ValidatorBuilder {
             label, graph_iri, fallback_location
         );
 
-        Ok((graph_iri, false))
+        Ok(LoadedSource {
+            graph_iri,
+            in_env: false,
+            graph_id: None,
+        })
     }
 
     fn extract_import_iris_from_quads(quads: &[Quad]) -> Vec<String> {
@@ -1187,18 +1222,22 @@ impl ValidatorBuilder {
 
     fn resolve_closure_ids_for_graph(
         env: &mut OntoEnv,
+        graph_id: Option<&GraphIdentifier>,
         graph_iri: &NamedNode,
         import_depth: i32,
         label: &str,
     ) -> Result<Vec<GraphIdentifier>, Box<dyn Error>> {
-        let graph_id = env
-            .resolve(ResolveTarget::Graph(graph_iri.clone()))
-            .ok_or_else(|| {
-                Box::new(std::io::Error::other(format!(
-                    "Ontology not found for {} graph {}",
-                    label, graph_iri
-                ))) as Box<dyn Error>
-            })?;
+        let graph_id = match graph_id {
+            Some(id) => id.clone(),
+            None => env
+                .resolve(ResolveTarget::Graph(graph_iri.clone()))
+                .ok_or_else(|| {
+                    Box::new(std::io::Error::other(format!(
+                        "Ontology not found for {} graph {}",
+                        label, graph_iri
+                    ))) as Box<dyn Error>
+                })?,
+        };
         let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
             Box::new(std::io::Error::other(format!(
                 "Failed to build imports closure for {} graph {}: {}",
@@ -1352,6 +1391,7 @@ impl ValidatorBuilder {
         env: SharedEnvHandle,
         store: Store,
         shape_graph_iri: NamedNode,
+        shape_graph_id: Option<GraphIdentifier>,
         data_graph_iri: NamedNode,
         config: BuildShapesModelConfig,
     ) -> Result<ShapesModel, Box<dyn Error>> {
@@ -1391,6 +1431,7 @@ impl ValidatorBuilder {
             rule_id_lookup: final_ctx.rule_id_lookup,
             store: final_ctx.store,
             shape_graph_iri: final_ctx.shape_graph_iri,
+            shape_graph_id,
             node_shapes: final_ctx.node_shapes,
             prop_shapes: final_ctx.prop_shapes,
             component_descriptors: final_ctx.component_descriptors,
@@ -1641,7 +1682,9 @@ impl Validator {
     pub fn shape_ir_with_imports(&self, import_depth: i32) -> Result<ShapeIR, String> {
         let mut shape_ir = self.context.shape_ir().clone();
         let shapes_graph = shape_ir.shape_graph.clone();
-        let graph_id = {
+        let graph_id = if let Some(id) = self.context.model.shape_graph_id.as_ref() {
+            id.clone()
+        } else {
             let env = self.context.model.env.read().unwrap();
             env.resolve(ResolveTarget::Graph(shapes_graph.clone()))
                 .ok_or_else(|| format!("Ontology not found for shapes graph {}", shapes_graph))?

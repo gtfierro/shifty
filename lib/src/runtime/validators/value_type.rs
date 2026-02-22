@@ -500,6 +500,7 @@ mod tests {
             rule_id_lookup: RwLock::new(IDLookupTable::new()),
             store,
             shape_graph_iri: shape_graph_iri.clone(),
+            shape_graph_id: None,
             node_shapes: HashMap::new(),
             prop_shapes: HashMap::new(),
             component_descriptors: HashMap::<ComponentID, ComponentDescriptor>::new(),
