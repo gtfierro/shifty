@@ -81,6 +81,24 @@ pub enum SrcGenComponentKind {
         pattern: String,
         flags: Option<String>,
     },
+    LanguageIn {
+        languages: Vec<String>,
+    },
+    UniqueLang {
+        enabled: bool,
+    },
+    Equals {
+        property_iri: String,
+    },
+    Disjoint {
+        property_iri: String,
+    },
+    LessThan {
+        property_iri: String,
+    },
+    LessThanOrEquals {
+        property_iri: String,
+    },
     Unsupported {
         kind: String,
     },

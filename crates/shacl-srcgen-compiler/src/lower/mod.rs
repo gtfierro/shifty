@@ -265,6 +265,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::MinLength { .. }
             | SrcGenComponentKind::MaxLength { .. }
             | SrcGenComponentKind::Pattern { .. }
+            | SrcGenComponentKind::LanguageIn { .. }
     )
 }
 
@@ -279,6 +280,12 @@ fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::MinLength { .. }
             | SrcGenComponentKind::MaxLength { .. }
             | SrcGenComponentKind::Pattern { .. }
+            | SrcGenComponentKind::LanguageIn { .. }
+            | SrcGenComponentKind::UniqueLang { .. }
+            | SrcGenComponentKind::Equals { .. }
+            | SrcGenComponentKind::Disjoint { .. }
+            | SrcGenComponentKind::LessThan { .. }
+            | SrcGenComponentKind::LessThanOrEquals { .. }
     )
 }
 
@@ -346,6 +353,71 @@ fn component_kind(descriptor: &ComponentDescriptor) -> (SrcGenComponentKind, Opt
                 flags: flags.clone(),
             },
             None,
+        ),
+        ComponentDescriptor::LanguageIn { languages } => (
+            SrcGenComponentKind::LanguageIn {
+                languages: languages.clone(),
+            },
+            None,
+        ),
+        ComponentDescriptor::UniqueLang { enabled } => {
+            (SrcGenComponentKind::UniqueLang { enabled: *enabled }, None)
+        }
+        ComponentDescriptor::Equals {
+            property: Term::NamedNode(property),
+        } => (
+            SrcGenComponentKind::Equals {
+                property_iri: property.as_str().to_string(),
+            },
+            None,
+        ),
+        ComponentDescriptor::Disjoint {
+            property: Term::NamedNode(property),
+        } => (
+            SrcGenComponentKind::Disjoint {
+                property_iri: property.as_str().to_string(),
+            },
+            None,
+        ),
+        ComponentDescriptor::LessThan {
+            property: Term::NamedNode(property),
+        } => (
+            SrcGenComponentKind::LessThan {
+                property_iri: property.as_str().to_string(),
+            },
+            None,
+        ),
+        ComponentDescriptor::LessThanOrEquals {
+            property: Term::NamedNode(property),
+        } => (
+            SrcGenComponentKind::LessThanOrEquals {
+                property_iri: property.as_str().to_string(),
+            },
+            None,
+        ),
+        ComponentDescriptor::Equals { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "Equals(non-iri)".to_string(),
+            },
+            Some("Equals constraint uses a non-IRI property term".to_string()),
+        ),
+        ComponentDescriptor::Disjoint { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "Disjoint(non-iri)".to_string(),
+            },
+            Some("Disjoint constraint uses a non-IRI property term".to_string()),
+        ),
+        ComponentDescriptor::LessThan { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "LessThan(non-iri)".to_string(),
+            },
+            Some("LessThan constraint uses a non-IRI property term".to_string()),
+        ),
+        ComponentDescriptor::LessThanOrEquals { .. } => (
+            SrcGenComponentKind::Unsupported {
+                kind: "LessThanOrEquals(non-iri)".to_string(),
+            },
+            Some("LessThanOrEquals constraint uses a non-IRI property term".to_string()),
         ),
         ComponentDescriptor::Class { .. } => (
             SrcGenComponentKind::Unsupported {
@@ -685,8 +757,9 @@ mod tests {
         let mut components = HashMap::new();
         components.insert(
             ComponentID(1),
-            ComponentDescriptor::LanguageIn {
-                languages: vec!["en".to_string()],
+            ComponentDescriptor::Closed {
+                closed: true,
+                ignored_properties: Vec::new(),
             },
         );
 
@@ -731,6 +804,130 @@ mod tests {
         assert_eq!(lowered.fallback_annotations[0].component_id, 1);
         assert!(lowered.components[0].fallback_only);
         assert!(!lowered.node_shapes[0].supported);
+    }
+
+    #[test]
+    fn specialization_ready_for_phase2_language_and_property_pair_constraints() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::LanguageIn {
+                languages: vec!["en".to_string(), "fr".to_string()],
+            },
+        );
+        components.insert(
+            ComponentID(4),
+            ComponentDescriptor::UniqueLang { enabled: true },
+        );
+        components.insert(
+            ComponentID(5),
+            ComponentDescriptor::Equals {
+                property: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:altName")),
+            },
+        );
+        components.insert(
+            ComponentID(6),
+            ComponentDescriptor::Disjoint {
+                property: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:banned")),
+            },
+        );
+        components.insert(
+            ComponentID(7),
+            ComponentDescriptor::LessThan {
+                property: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:maxValue",
+                )),
+            },
+        );
+        components.insert(
+            ComponentID(8),
+            ComponentDescriptor::LessThanOrEquals {
+                property: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:maxInclusive",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person-name",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2)],
+                property_shapes: vec![PropShapeID(7)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:name",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:name")),
+                constraints: vec![
+                    ComponentID(3),
+                    ComponentID(4),
+                    ComponentID(5),
+                    ComponentID(6),
+                    ComponentID(7),
+                    ComponentID(8),
+                ],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(lowered
+            .components
+            .iter()
+            .all(|component| !component.fallback_only));
+        assert!(lowered.node_shapes[0].supported);
+        assert!(lowered.property_shapes[0].supported);
     }
 
     #[test]

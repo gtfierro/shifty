@@ -127,10 +127,34 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::LanguageIn { languages } => {
+                    let language_literals: Vec<LitStr> = languages
+                        .iter()
+                        .map(|language| LitStr::new(language, Span::call_site()))
+                        .collect();
+                    node_constraint_checks.push(quote! {
+                        let allowed_languages: &[&str] = &[#(#language_literals),*];
+                        let valid = term_matches_language_in(focus, allowed_languages);
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: None,
+                            });
+                        }
+                    });
+                }
                 SrcGenComponentKind::PropertyLink => {}
                 SrcGenComponentKind::Datatype { .. } => {}
                 SrcGenComponentKind::MinCount { .. } => {}
                 SrcGenComponentKind::MaxCount { .. } => {}
+                SrcGenComponentKind::UniqueLang { .. } => {}
+                SrcGenComponentKind::Equals { .. } => {}
+                SrcGenComponentKind::Disjoint { .. } => {}
+                SrcGenComponentKind::LessThan { .. } => {}
+                SrcGenComponentKind::LessThanOrEquals { .. } => {}
                 SrcGenComponentKind::Unsupported { .. } => {}
             }
         }
