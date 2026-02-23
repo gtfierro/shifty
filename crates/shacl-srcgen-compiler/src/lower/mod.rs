@@ -1527,9 +1527,85 @@ mod tests {
             lowered.components[0].kind,
             SrcGenComponentKind::Sparql { .. }
         ));
+        assert!(matches!(
+            lowered.components[0].kind,
+            SrcGenComponentKind::Sparql { ref constraint_term, .. }
+                if constraint_term.contains("urn:sparql:constraint")
+        ));
         assert!(lowered.node_shapes[0].supported);
         assert_eq!(lowered.node_shapes[0].supported_constraints, vec![1]);
         assert!(lowered.node_shapes[0].fallback_constraints.is_empty());
+    }
+
+    #[test]
+    fn sparql_relation_projection_pattern_is_guarded_for_fallback() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:closed-world:sparql",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:closed-world",
+            )),
+        );
+
+        let shape_graph = oxigraph::model::NamedNode::new_unchecked("urn:shape-graph");
+        let shape_ir = ShapeIR {
+            shape_graph: shape_graph.clone(),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:closed-world:sparql"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_typed_literal(
+                    "SELECT $this WHERE { $this ?p ?o . ?p a/rdfs:subClassOf* s223:Relation . }",
+                    oxigraph::model::vocab::xsd::STRING,
+                ),
+                oxigraph::model::GraphName::NamedNode(shape_graph),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(!lowered.meta.specialization_ready);
+        assert_eq!(lowered.fallback_annotations.len(), 1);
+        assert_eq!(
+            lowered.fallback_annotations[0].reason,
+            "SPARQL relation-projection query pattern is not yet specialized (guarded component fallback)"
+        );
+        assert!(matches!(
+            lowered.components[0].kind,
+            SrcGenComponentKind::Unsupported { ref kind }
+                if kind == "Sparql(relation-projection)"
+        ));
+        assert_eq!(lowered.node_shapes[0].fallback_constraints, vec![1]);
     }
 
     #[test]

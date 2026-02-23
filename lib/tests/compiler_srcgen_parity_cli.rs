@@ -41,6 +41,17 @@ fn write_file(path: &Path, contents: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn assert_report_contains(path: &Path, needle: &str) -> Result<(), Box<dyn Error>> {
+    let contents = fs::read_to_string(path)?;
+    assert!(
+        contents.contains(needle),
+        "report {} does not contain expected text: {}",
+        path.display(),
+        needle
+    );
+    Ok(())
+}
+
 fn run_command(cmd: &mut Command) -> Result<String, Box<dyn Error>> {
     let output = cmd.output()?;
     if !output.status.success() {
@@ -773,6 +784,118 @@ ex:Alice a ex:Person ;
     assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
     assert_reports_isomorphic(&legacy_report, &runtime_report)?;
     assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+
+    Ok(())
+}
+
+#[test]
+fn legacy_srcgen_and_runtime_detect_domain_sparql_property_violation() -> Result<(), Box<dyn Error>>
+{
+    let _guard = compiled_test_lock();
+    let tmp = unique_temp_dir()?;
+    let shapes = tmp.join("shapes.ttl");
+    let data = tmp.join("data.ttl");
+    let legacy_out = tmp.join("legacy-compiled");
+    let srcgen_out = tmp.join("srcgen-compiled");
+    let legacy_report = tmp.join("legacy-report.ttl");
+    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let runtime_report = tmp.join("runtime-report.ttl");
+
+    let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/hvac#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:Prefixes
+  sh:declare [
+    sh:prefix "ex" ;
+    sh:namespace "http://example.com/hvac#"^^xsd:anyURI ;
+  ] .
+
+ex:HvacZoneShape
+  a sh:NodeShape ;
+  sh:targetClass ex:HvacZone ;
+  sh:property [
+    sh:path ex:airFlowRate ;
+    sh:sparql [
+      sh:prefixes ex:Prefixes ;
+      sh:select """
+        SELECT $this ?value ?path
+        WHERE {
+          $this $PATH ?value .
+          FILTER(?value < 0)
+          BIND($PATH AS ?path)
+        }
+      """ ;
+    ] ;
+  ] .
+"#;
+
+    let data_ttl = r#"@prefix ex: <http://example.com/hvac#> .
+
+ex:zoneOk a ex:HvacZone ;
+  ex:airFlowRate 5 .
+
+ex:zoneBad a ex:HvacZone ;
+  ex:airFlowRate -1 .
+"#;
+
+    write_file(&shapes, shapes_ttl)?;
+    write_file(&data, data_ttl)?;
+
+    compile_with_track(
+        &shapes,
+        &legacy_out,
+        "legacy-bin-domain-sparql",
+        "legacy",
+        "aot",
+    )?;
+    compile_with_track(
+        &shapes,
+        &srcgen_out,
+        "srcgen-bin-domain-sparql",
+        "srcgen",
+        "specialized",
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("legacy-bin-domain-sparql"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &legacy_report,
+    )?;
+
+    run_binary_to_file(
+        &shared_target_dir()
+            .join("debug")
+            .join("srcgen-bin-domain-sparql"),
+        &["--run-inference=false", data.to_str().unwrap()],
+        &srcgen_report,
+    )?;
+
+    run_cli_to_file(
+        &[
+            "validate",
+            "--shapes-file",
+            shapes.to_str().unwrap(),
+            "--data-file",
+            data.to_str().unwrap(),
+            "--format",
+            "turtle",
+        ],
+        &runtime_report,
+    )?;
+
+    for report in [&legacy_report, &srcgen_report, &runtime_report] {
+        assert_report_contains(report, "sh:conforms false")?;
+        assert_report_contains(report, "<http://example.com/hvac#zoneBad>")?;
+        assert_report_contains(report, "<http://example.com/hvac#airFlowRate>")?;
+        assert_report_contains(
+            report,
+            "sh:sourceConstraintComponent sh:SPARQLConstraintComponent",
+        )?;
+        assert_report_contains(report, "sh:value -1")?;
+    }
 
     Ok(())
 }
