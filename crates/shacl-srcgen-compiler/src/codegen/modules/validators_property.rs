@@ -374,6 +374,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     query,
                     prefixes,
                     requires_path: _,
+                    ..
                 } => {
                     let query_lit = LitStr::new(query, Span::call_site());
                     let prefixes_lit = LitStr::new(prefixes, Span::call_site());
@@ -404,7 +405,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             &bindings,
                         )?;
                         let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
-                        let mut seen: std::collections::HashSet<(Option<oxigraph::model::Term>, Option<oxigraph::model::Term>)> =
+                        let mut seen: std::collections::HashSet<Option<oxigraph::model::Term>> =
                             std::collections::HashSet::new();
                         for row in solutions {
                             if let Some(failure_term) = row.get("failure") {
@@ -416,13 +417,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 }
                             }
                             let value = row.get("value").cloned();
-                            let path_term = row.get("path").cloned();
-                            let key = (value.clone(), path_term.clone());
-                            if !seen.insert(key) {
+                            if !seen.insert(value.clone()) {
                                 continue;
                             }
-                            let path = if let Some(path_term) = path_term {
-                                Some(ResultPath::Term(path_term))
+                            let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
                             } else {
                                 default_path.clone()
                             };
@@ -1055,6 +1054,15 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        fn term_to_sparql_ground(term: &oxigraph::model::Term) -> Option<String> {
+            match term {
+                oxigraph::model::Term::NamedNode(_) | oxigraph::model::Term::Literal(_) => {
+                    Some(term_to_sparql(term))
+                }
+                oxigraph::model::Term::BlankNode(_) => None,
+            }
+        }
+
         fn shape_term_for_id(shape_id: u64) -> Option<oxigraph::model::Term> {
             let iri = shape_iri(shape_id);
             if iri.is_empty() {
@@ -1098,6 +1106,30 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             contains_variable_token(query, '?', var) || contains_variable_token(query, '$', var)
         }
 
+        fn inject_bindings_everywhere(query: &str, bindings_clause: &str) -> String {
+            let mut out = String::with_capacity(
+                query.len() + bindings_clause.len().saturating_mul(4),
+            );
+            let mut chars = query.chars().peekable();
+            while let Some(ch) = chars.next() {
+                out.push(ch);
+                if ch == '{' {
+                    out.push('\n');
+                    out.push_str(bindings_clause);
+                    out.push('\n');
+                    while let Some(next) = chars.peek() {
+                        if next.is_whitespace() {
+                            out.push(*next);
+                            let _ = chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            out
+        }
+
         fn term_is_true_boolean(term: &oxigraph::model::Term) -> bool {
             match term {
                 oxigraph::model::Term::Literal(literal) => {
@@ -1115,7 +1147,23 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             data_graph: &oxigraph::model::NamedNode,
             bindings: &[(&str, oxigraph::model::Term)],
         ) -> Result<Vec<std::collections::HashMap<String, oxigraph::model::Term>>, String> {
-            let normalized_query = query.replace('$', "?");
+            let mut normalized_query = query.replace('$', "?");
+            let mut bind_lines: Vec<String> = Vec::new();
+            let mut remaining: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+            for (name, term) in bindings {
+                if !query_mentions_var(query, name) {
+                    continue;
+                }
+                if let Some(ground) = term_to_sparql_ground(term) {
+                    bind_lines.push(format!("BIND({ground} AS ?{name})"));
+                } else {
+                    remaining.push((*name, term.clone()));
+                }
+            }
+            if !bind_lines.is_empty() {
+                normalized_query =
+                    inject_bindings_everywhere(&normalized_query, &bind_lines.join("\n"));
+            }
             let query_str = if prefixes.trim().is_empty() {
                 normalized_query
             } else {
@@ -1133,11 +1181,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             prepared.dataset_mut().set_default_graph(default_graphs);
 
             let mut bound = prepared.on_store(store);
-            for (name, term) in bindings {
-                if query_mentions_var(query, name) {
-                    bound = bound
-                        .substitute_variable(oxigraph::sparql::Variable::new_unchecked(*name), term.clone());
-                }
+            for (name, term) in remaining {
+                bound = bound.substitute_variable(
+                    oxigraph::sparql::Variable::new_unchecked(name),
+                    term,
+                );
             }
 
             let mut rows = Vec::new();

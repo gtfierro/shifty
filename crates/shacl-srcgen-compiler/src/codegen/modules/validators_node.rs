@@ -223,6 +223,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     query,
                     prefixes,
                     requires_path: _,
+                    ..
                 } => {
                     let query_lit = LitStr::new(query, Span::call_site());
                     let prefixes_lit = LitStr::new(prefixes, Span::call_site());
@@ -249,7 +250,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             &bindings,
                         )?;
 
-                        let mut seen: std::collections::HashSet<(Option<oxigraph::model::Term>, Option<oxigraph::model::Term>)> =
+                        let mut seen: std::collections::HashSet<oxigraph::model::Term> =
                             std::collections::HashSet::new();
                         for row in solutions {
                             if let Some(failure_term) = row.get("failure") {
@@ -264,12 +265,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 .get("value")
                                 .cloned()
                                 .unwrap_or_else(|| focus.clone());
-                            let path_term = row.get("path").cloned();
-                            let key = (Some(value.clone()), path_term.clone());
-                            if !seen.insert(key) {
+                            if !seen.insert(value.clone()) {
                                 continue;
                             }
-                            let path = path_term.map(ResultPath::Term);
+                            let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
+                            } else {
+                                None
+                            };
                             violations.push(Violation {
                                 shape_id: #shape_id,
                                 component_id: #component_id_value,

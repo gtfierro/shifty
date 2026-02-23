@@ -156,7 +156,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         fn merge_specialized_with_runtime(
             specialized_violations: Vec<Violation>,
             runtime_violations: Vec<Violation>,
-        ) -> (Vec<Violation>, usize, usize) {
+        ) -> (Vec<Violation>, usize, usize, Vec<String>) {
             let mut specialized_counts: std::collections::BTreeMap<
                 (u64, u64, String, String, String),
                 usize,
@@ -223,6 +223,26 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
             let fallback_len = fallback_violations.len();
             let parity_guard_len = parity_guard_violations.len();
+            let parity_guard_samples: Vec<String> = parity_guard_violations
+                .iter()
+                .take(3)
+                .map(|violation| {
+                    let path = violation_path_key(&violation.path);
+                    let value = violation
+                        .value
+                        .as_ref()
+                        .map(|term| term.to_string())
+                        .unwrap_or_default();
+                    format!(
+                        "shape={} component={} focus={} value={} path={}",
+                        violation.shape_id,
+                        violation.component_id,
+                        violation.focus,
+                        value,
+                        path
+                    )
+                })
+                .collect();
             let mut merged = Vec::with_capacity(
                 specialized_filtered.len() + fallback_violations.len() + parity_guard_violations.len(),
             );
@@ -231,7 +251,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             merged.extend(parity_guard_violations);
             sort_violations(&mut merged);
 
-            (merged, fallback_len, parity_guard_len)
+            (merged, fallback_len, parity_guard_len, parity_guard_samples)
         }
 
         fn run_hybrid_validation(
@@ -281,7 +301,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 follow_bnodes: false,
             });
             let runtime_violations = build_violations(&runtime_graph);
-            let (merged_violations, fallback_count, parity_guard_count) =
+            let (merged_violations, fallback_count, parity_guard_count, parity_guard_samples) =
                 merge_specialized_with_runtime(specialized_violations, runtime_violations);
             record_fallback_dispatch();
 
@@ -289,6 +309,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 eprintln!(
                     "srcgen hybrid parity safeguard retained {parity_guard_count} runtime violation(s) outside planned fallback dispatch",
                 );
+                if std::env::var("SHFTY_SRCGEN_DEBUG_PARITY").is_ok() {
+                    for sample in parity_guard_samples {
+                        eprintln!("srcgen hybrid parity sample: {sample}");
+                    }
+                }
             }
             if fallback_count == 0 && SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
                 eprintln!("srcgen hybrid runtime dispatch executed with zero fallback violations");

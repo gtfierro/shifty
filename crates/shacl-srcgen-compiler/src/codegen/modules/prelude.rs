@@ -1,9 +1,10 @@
 use crate::codegen::render_tokens_as_module;
 use crate::codegen::templates::FALLBACK_REASON_TEMPLATE;
-use crate::ir::SrcGenIR;
+use crate::ir::{SrcGenComponentKind, SrcGenIR};
 use crate::SrcGenBackend;
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::collections::HashMap;
 use syn::LitStr;
 
 pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String> {
@@ -50,6 +51,11 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             quote! { #id => #iri, }
         })
         .collect();
+    let component_iri_by_id: HashMap<u64, String> = ir
+        .components
+        .iter()
+        .map(|component| (component.id, component.iri.clone()))
+        .collect();
 
     let mut component_reverse_arms = Vec::new();
     let mut seen_component_iris = std::collections::BTreeSet::new();
@@ -58,6 +64,55 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             let id = component.id;
             let iri = LitStr::new(&component.iri, proc_macro2::Span::call_site());
             component_reverse_arms.push(quote! { #iri => Some(#id), });
+        }
+    }
+
+    let sparql_constraint_reverse_arms: Vec<TokenStream> = ir
+        .components
+        .iter()
+        .filter_map(|component| match &component.kind {
+            SrcGenComponentKind::Sparql {
+                constraint_term, ..
+            } => {
+                let id = component.id;
+                let term_lit = LitStr::new(constraint_term, proc_macro2::Span::call_site());
+                Some(quote! { #term_lit => Some(#id), })
+            }
+            _ => None,
+        })
+        .collect();
+
+    let mut shape_component_arms: Vec<TokenStream> = Vec::new();
+    for shape in &ir.node_shapes {
+        let mut by_iri: HashMap<&str, Vec<u64>> = HashMap::new();
+        for component_id in &shape.constraints {
+            if let Some(iri) = component_iri_by_id.get(component_id) {
+                by_iri.entry(iri.as_str()).or_default().push(*component_id);
+            }
+        }
+        for (iri, ids) in by_iri {
+            if ids.len() == 1 {
+                let iri_lit = LitStr::new(iri, proc_macro2::Span::call_site());
+                let id = ids[0];
+                let shape_id = shape.id;
+                shape_component_arms.push(quote! { (#shape_id, #iri_lit) => Some(#id), });
+            }
+        }
+    }
+    for shape in &ir.property_shapes {
+        let mut by_iri: HashMap<&str, Vec<u64>> = HashMap::new();
+        for component_id in &shape.constraints {
+            if let Some(iri) = component_iri_by_id.get(component_id) {
+                by_iri.entry(iri.as_str()).or_default().push(*component_id);
+            }
+        }
+        for (iri, ids) in by_iri {
+            if ids.len() == 1 {
+                let iri_lit = LitStr::new(iri, proc_macro2::Span::call_site());
+                let id = ids[0];
+                let shape_id = shape.id;
+                shape_component_arms.push(quote! { (#shape_id, #iri_lit) => Some(#id), });
+            }
         }
     }
 
@@ -186,6 +241,21 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
         pub fn component_id_for_iri(iri: &str) -> Option<u64> {
             match iri {
                 #(#component_reverse_arms)*
+                _ => None,
+            }
+        }
+
+        pub fn component_id_for_source_constraint(term: &oxigraph::model::Term) -> Option<u64> {
+            let key = term.to_string();
+            match key.as_str() {
+                #(#sparql_constraint_reverse_arms)*
+                _ => None,
+            }
+        }
+
+        pub fn component_id_for_shape_and_iri(shape_id: u64, component_iri: &str) -> Option<u64> {
+            match (shape_id, component_iri) {
+                #(#shape_component_arms)*
                 _ => None,
             }
         }

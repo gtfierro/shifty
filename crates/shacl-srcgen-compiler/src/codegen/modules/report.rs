@@ -8,6 +8,7 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
         const SH_FOCUS_NODE: &str = "http://www.w3.org/ns/shacl#focusNode";
         const SH_SOURCE_SHAPE: &str = "http://www.w3.org/ns/shacl#sourceShape";
         const SH_SOURCE_COMPONENT: &str = "http://www.w3.org/ns/shacl#sourceConstraintComponent";
+        const SH_SOURCE_CONSTRAINT: &str = "http://www.w3.org/ns/shacl#sourceConstraint";
         const SH_VALUE: &str = "http://www.w3.org/ns/shacl#value";
         const SH_RESULT_PATH: &str = "http://www.w3.org/ns/shacl#resultPath";
 
@@ -26,6 +27,8 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                 let mut path: Option<ResultPath> = None;
                 let mut shape_id = 0_u64;
                 let mut component_id = 0_u64;
+                let mut source_component_iri: Option<String> = None;
+                let mut source_constraint_term: Option<oxigraph::model::Term> = None;
 
                 for triple in report_graph.iter() {
                     let subject_term = oxigraph::model::Term::from(triple.subject.clone());
@@ -52,12 +55,27 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                         }
                         SH_SOURCE_COMPONENT => {
                             if let oxigraph::model::TermRef::NamedNode(node) = triple.object {
+                                source_component_iri = Some(node.as_str().to_string());
                                 if let Some(id) = component_id_for_iri(node.as_str()) {
                                     component_id = id;
                                 }
                             }
                         }
+                        SH_SOURCE_CONSTRAINT => {
+                            source_constraint_term = Some(triple.object.into());
+                        }
                         _ => {}
+                    }
+                }
+
+                if let Some(source_constraint) = source_constraint_term.as_ref() {
+                    if let Some(id) = component_id_for_source_constraint(source_constraint) {
+                        component_id = id;
+                    }
+                }
+                if let Some(source_component_iri) = source_component_iri.as_ref() {
+                    if let Some(id) = component_id_for_shape_and_iri(shape_id, source_component_iri) {
+                        component_id = id;
                     }
                 }
 

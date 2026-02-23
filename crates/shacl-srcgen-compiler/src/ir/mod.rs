@@ -111,6 +111,7 @@ pub enum SrcGenComponentKind {
         query: String,
         prefixes: String,
         requires_path: bool,
+        constraint_term: String,
     },
     Node {
         shape_iri: String,

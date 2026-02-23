@@ -593,6 +593,11 @@ fn sparql_query_is_select(query: &str) -> bool {
     false
 }
 
+fn sparql_query_uses_relation_projection_pattern(query: &str) -> bool {
+    (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
+        && query.contains("?p a/rdfs:subClassOf* s223:Relation")
+}
+
 fn resolve_shape_iri(shape_ir: &ShapeIR, shape_id: ID) -> Option<String> {
     shape_ir
         .node_shape_terms
@@ -868,6 +873,14 @@ fn component_kind(
                     ),
                 );
             }
+            if sparql_query_uses_relation_projection_pattern(&query) {
+                return (
+                    SrcGenComponentKind::Unsupported {
+                        kind: "Sparql(relation-projection)".to_string(),
+                    },
+                    Some("SPARQL relation-projection query pattern is not yet specialized (guarded component fallback)".to_string()),
+                );
+            }
             let prefixes = match sparql_prefixes_for(shape_ir, constraint_node) {
                 Ok(prefixes) => prefixes,
                 Err(err) => {
@@ -888,6 +901,7 @@ fn component_kind(
                     query,
                     prefixes,
                     requires_path,
+                    constraint_term: constraint_node.to_string(),
                 },
                 None,
             )
