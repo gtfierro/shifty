@@ -69,6 +69,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
         let shape_id = shape.id;
         let predicate_lit = LitStr::new(predicate, Span::call_site());
+        let path_sparql_lit = LitStr::new(&format!("<{predicate}>"), Span::call_site());
 
         let mut constraint_checks: Vec<TokenStream> = Vec::new();
         for component_id in &shape.supported_constraints {
@@ -366,6 +367,72 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     });
                                 }
                             }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Sparql {
+                    query,
+                    prefixes,
+                    requires_path: _,
+                } => {
+                    let query_lit = LitStr::new(query, Span::call_site());
+                    let prefixes_lit = LitStr::new(prefixes, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let mut query = String::from(#query_lit);
+                        if query.contains("$PATH") {
+                            query = query.replace("$PATH", #path_sparql_lit);
+                        }
+
+                        let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                        bindings.push(("this", focus.clone()));
+                        if query_mentions_var(&query, "currentShape") {
+                            if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                bindings.push(("currentShape", current_shape_term));
+                            }
+                        }
+                        if query_mentions_var(&query, "shapesGraph") {
+                            if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                            }
+                        }
+
+                        let solutions = sparql_select_solutions_with_bindings(
+                            &query,
+                            #prefixes_lit,
+                            store,
+                            data_graph,
+                            &bindings,
+                        )?;
+                        let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
+                        let mut seen: std::collections::HashSet<(Option<oxigraph::model::Term>, Option<oxigraph::model::Term>)> =
+                            std::collections::HashSet::new();
+                        for row in solutions {
+                            if let Some(failure_term) = row.get("failure") {
+                                if term_is_true_boolean(failure_term) {
+                                    return Err(format!(
+                                        "SPARQL constraint query reported failure for shape {} component {}",
+                                        #shape_id, #component_id_value
+                                    ));
+                                }
+                            }
+                            let value = row.get("value").cloned();
+                            let path_term = row.get("path").cloned();
+                            let key = (value.clone(), path_term.clone());
+                            if !seen.insert(key) {
+                                continue;
+                            }
+                            let path = if let Some(path_term) = path_term {
+                                Some(ResultPath::Term(path_term))
+                            } else {
+                                default_path.clone()
+                            };
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value,
+                                path,
+                            });
                         }
                     });
                 }
@@ -985,6 +1052,112 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         )
                     }
                 }
+            }
+        }
+
+        fn shape_term_for_id(shape_id: u64) -> Option<oxigraph::model::Term> {
+            let iri = shape_iri(shape_id);
+            if iri.is_empty() {
+                return None;
+            }
+            if let Some(blank_id) = iri.strip_prefix("_:") {
+                return oxigraph::model::BlankNode::new(blank_id)
+                    .ok()
+                    .map(oxigraph::model::Term::BlankNode);
+            }
+            oxigraph::model::NamedNode::new(iri)
+                .ok()
+                .map(oxigraph::model::Term::NamedNode)
+        }
+
+        fn contains_variable_token(query: &str, sigil: char, var: &str) -> bool {
+            let pattern = format!("{sigil}{var}");
+            let query_bytes = query.as_bytes();
+            let pattern_len = pattern.len();
+            for (idx, _) in query.match_indices(&pattern) {
+                let boundary_before = if idx == 0 {
+                    true
+                } else {
+                    let prev = query_bytes[idx - 1];
+                    !(prev.is_ascii_alphanumeric() || prev == b'_')
+                };
+                let boundary_after = if idx + pattern_len >= query_bytes.len() {
+                    true
+                } else {
+                    let next = query_bytes[idx + pattern_len];
+                    !(next.is_ascii_alphanumeric() || next == b'_')
+                };
+                if boundary_before && boundary_after {
+                    return true;
+                }
+            }
+            false
+        }
+
+        fn query_mentions_var(query: &str, var: &str) -> bool {
+            contains_variable_token(query, '?', var) || contains_variable_token(query, '$', var)
+        }
+
+        fn term_is_true_boolean(term: &oxigraph::model::Term) -> bool {
+            match term {
+                oxigraph::model::Term::Literal(literal) => {
+                    literal.datatype() == oxigraph::model::vocab::xsd::BOOLEAN
+                        && literal.value() == "true"
+                }
+                _ => false,
+            }
+        }
+
+        fn sparql_select_solutions_with_bindings(
+            query: &str,
+            prefixes: &str,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            bindings: &[(&str, oxigraph::model::Term)],
+        ) -> Result<Vec<std::collections::HashMap<String, oxigraph::model::Term>>, String> {
+            let normalized_query = query.replace('$', "?");
+            let query_str = if prefixes.trim().is_empty() {
+                normalized_query
+            } else {
+                format!("{prefixes}\n{normalized_query}")
+            };
+
+            let mut prepared = oxigraph::sparql::SparqlEvaluator::new()
+                .parse_query(&query_str)
+                .map_err(|err| format!("failed to parse SPARQL query: {err}"))?;
+
+            let default_graphs: Vec<oxigraph::model::GraphName> = validation_graphs(data_graph)?
+                .into_iter()
+                .map(oxigraph::model::GraphName::NamedNode)
+                .collect();
+            prepared.dataset_mut().set_default_graph(default_graphs);
+
+            let mut bound = prepared.on_store(store);
+            for (name, term) in bindings {
+                if query_mentions_var(query, name) {
+                    bound = bound
+                        .substitute_variable(oxigraph::sparql::Variable::new_unchecked(*name), term.clone());
+                }
+            }
+
+            let mut rows = Vec::new();
+            match bound.execute() {
+                Ok(oxigraph::sparql::QueryResults::Solutions(solutions)) => {
+                    for solution in solutions {
+                        let solution =
+                            solution.map_err(|err| format!("SPARQL solution error: {err}"))?;
+                        let mut row = std::collections::HashMap::new();
+                        for variable in solution.variables() {
+                            if let Some(term) = solution.get(variable) {
+                                row.insert(variable.as_str().to_string(), term.clone());
+                            }
+                        }
+                        rows.push(row);
+                    }
+                    Ok(rows)
+                }
+                Ok(_) => Ok(Vec::new()),
+                Err(err) => Err(format!("failed to execute SPARQL query: {err}")),
             }
         }
 

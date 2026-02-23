@@ -4,7 +4,7 @@ use crate::ir::{
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{ComponentDescriptor, Path, PropShapeID, Severity, ShapeIR, Target, ID};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
     let mut component_ids: Vec<u64> = shape_ir.components.keys().map(|id| id.0).collect();
@@ -130,6 +130,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 let kind_supported = node_constraint_supported(kind);
                 let context_supported = match kind {
                     SrcGenComponentKind::Closed { .. } => linked_property_paths_supported,
+                    SrcGenComponentKind::Sparql { requires_path, .. } => !requires_path,
                     _ => true,
                 };
                 if base_supported && kind_supported && context_supported {
@@ -332,6 +333,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::HasValue { .. }
             | SrcGenComponentKind::In { .. }
             | SrcGenComponentKind::LanguageIn { .. }
+            | SrcGenComponentKind::Sparql { .. }
     )
 }
 
@@ -364,6 +366,7 @@ fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::Disjoint { .. }
             | SrcGenComponentKind::LessThan { .. }
             | SrcGenComponentKind::LessThanOrEquals { .. }
+            | SrcGenComponentKind::Sparql { .. }
     )
 }
 
@@ -405,6 +408,189 @@ fn term_to_sparql(term: &Term) -> String {
             }
         }
     }
+}
+
+fn sparql_query_for(shape_ir: &ShapeIR, constraint_node: &Term) -> Result<String, String> {
+    let select_predicate = "http://www.w3.org/ns/shacl#select";
+    for quad in &shape_ir.shape_quads {
+        if quad.predicate.as_str() != select_predicate {
+            continue;
+        }
+        let subject = Term::from(quad.subject.clone());
+        if &subject != constraint_node {
+            continue;
+        }
+        return match &quad.object {
+            Term::Literal(literal) => Ok(literal.value().to_string()),
+            _ => Err("sh:select value must be a literal string".to_string()),
+        };
+    }
+    Err("SPARQL constraint is missing sh:select".to_string())
+}
+
+fn sparql_prefixes_for(shape_ir: &ShapeIR, constraint_node: &Term) -> Result<String, String> {
+    let sh_prefixes = "http://www.w3.org/ns/shacl#prefixes";
+    let sh_declare = "http://www.w3.org/ns/shacl#declare";
+    let sh_prefix = "http://www.w3.org/ns/shacl#prefix";
+    let sh_namespace = "http://www.w3.org/ns/shacl#namespace";
+
+    let mut prefix_subjects: Vec<Term> = shape_ir
+        .shape_quads
+        .iter()
+        .filter_map(|quad| {
+            if quad.predicate.as_str() != sh_prefixes {
+                return None;
+            }
+            let subject = Term::from(quad.subject.clone());
+            if &subject == constraint_node {
+                Some(quad.object.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut global_declare_subjects: HashSet<Term> = shape_ir
+        .shape_quads
+        .iter()
+        .filter_map(|quad| {
+            if quad.predicate.as_str() == sh_declare {
+                Some(Term::from(quad.subject.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+    prefix_subjects.extend(global_declare_subjects.drain());
+    prefix_subjects.sort_by_key(|term| term.to_string());
+    prefix_subjects.dedup();
+
+    let mut collected: BTreeMap<String, String> = BTreeMap::new();
+    for prefixes_subject in prefix_subjects {
+        let declarations: Vec<Term> = shape_ir
+            .shape_quads
+            .iter()
+            .filter_map(|quad| {
+                if quad.predicate.as_str() != sh_declare {
+                    return None;
+                }
+                let subject = Term::from(quad.subject.clone());
+                if subject == prefixes_subject {
+                    Some(quad.object.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for declaration in declarations {
+            let prefix_val = shape_ir.shape_quads.iter().find_map(|quad| {
+                if quad.predicate.as_str() != sh_prefix {
+                    return None;
+                }
+                let subject = Term::from(quad.subject.clone());
+                if subject == declaration {
+                    Some(quad.object.clone())
+                } else {
+                    None
+                }
+            });
+            let namespace_val = shape_ir.shape_quads.iter().find_map(|quad| {
+                if quad.predicate.as_str() != sh_namespace {
+                    return None;
+                }
+                let subject = Term::from(quad.subject.clone());
+                if subject == declaration {
+                    Some(quad.object.clone())
+                } else {
+                    None
+                }
+            });
+
+            let (Some(Term::Literal(prefix_lit)), Some(Term::Literal(namespace_lit))) =
+                (prefix_val, namespace_val)
+            else {
+                return Err(format!(
+                    "Ill-formed prefix declaration for {}: missing sh:prefix or sh:namespace literal",
+                    declaration
+                ));
+            };
+
+            let prefix = prefix_lit.value().to_string();
+            let namespace = namespace_lit.value().to_string();
+            if let Some(existing_namespace) = collected.get(&prefix) {
+                if existing_namespace != &namespace {
+                    return Err(format!(
+                        "Duplicate prefix '{}' with different namespaces: '{}' and '{}'",
+                        prefix, existing_namespace, namespace
+                    ));
+                }
+            } else {
+                collected.insert(prefix, namespace);
+            }
+        }
+    }
+
+    if collected.is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut prefixes = String::new();
+    for (prefix, namespace) in collected {
+        prefixes.push_str("PREFIX ");
+        prefixes.push_str(prefix.as_str());
+        prefixes.push_str(": <");
+        prefixes.push_str(namespace.as_str());
+        prefixes.push_str(">\n");
+    }
+    Ok(prefixes.trim_end().to_string())
+}
+
+fn contains_variable_token(query: &str, sigil: char, var: &str) -> bool {
+    let pattern = format!("{sigil}{var}");
+    let query_bytes = query.as_bytes();
+    let pattern_len = pattern.len();
+    for (idx, _) in query.match_indices(pattern.as_str()) {
+        let boundary_before = if idx == 0 {
+            true
+        } else {
+            let prev = query_bytes[idx - 1];
+            !(prev.is_ascii_alphanumeric() || prev == b'_')
+        };
+        let boundary_after = if idx + pattern_len >= query_bytes.len() {
+            true
+        } else {
+            let next = query_bytes[idx + pattern_len];
+            !(next.is_ascii_alphanumeric() || next == b'_')
+        };
+        if boundary_before && boundary_after {
+            return true;
+        }
+    }
+    false
+}
+
+fn sparql_query_mentions_var(query: &str, var: &str) -> bool {
+    contains_variable_token(query, '?', var) || contains_variable_token(query, '$', var)
+}
+
+fn sparql_query_requires_path(query: &str) -> bool {
+    query.contains("$PATH")
+}
+
+fn sparql_query_is_select(query: &str) -> bool {
+    for line in query.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let upper = trimmed.to_ascii_uppercase();
+        if upper.starts_with("PREFIX ") || upper.starts_with("BASE ") {
+            continue;
+        }
+        return upper.starts_with("SELECT");
+    }
+    false
 }
 
 fn resolve_shape_iri(shape_ir: &ShapeIR, shape_id: ID) -> Option<String> {
@@ -649,6 +835,63 @@ fn component_kind(
             },
             None,
         ),
+        ComponentDescriptor::Sparql { constraint_node } => {
+            let query = match sparql_query_for(shape_ir, constraint_node) {
+                Ok(query) => query,
+                Err(err) => {
+                    return (
+                        SrcGenComponentKind::Unsupported {
+                            kind: "Sparql(missing-select)".to_string(),
+                        },
+                        Some(err),
+                    );
+                }
+            };
+            if !sparql_query_is_select(&query) {
+                return (
+                    SrcGenComponentKind::Unsupported {
+                        kind: "Sparql(non-select)".to_string(),
+                    },
+                    Some(
+                        "SPARQL constraint specialization currently supports SELECT queries only"
+                            .to_string(),
+                    ),
+                );
+            }
+            if !sparql_query_mentions_var(&query, "this") {
+                return (
+                    SrcGenComponentKind::Unsupported {
+                        kind: "Sparql(missing-this)".to_string(),
+                    },
+                    Some(
+                        "SPARQL constraint does not reference pre-bound variable ?this".to_string(),
+                    ),
+                );
+            }
+            let prefixes = match sparql_prefixes_for(shape_ir, constraint_node) {
+                Ok(prefixes) => prefixes,
+                Err(err) => {
+                    return (
+                        SrcGenComponentKind::Unsupported {
+                            kind: "Sparql(prefixes)".to_string(),
+                        },
+                        Some(format!(
+                            "SPARQL constraint prefix resolution failed for {}: {}",
+                            constraint_node, err
+                        )),
+                    );
+                }
+            };
+            let requires_path = sparql_query_requires_path(&query);
+            (
+                SrcGenComponentKind::Sparql {
+                    query,
+                    prefixes,
+                    requires_path,
+                },
+                None,
+            )
+        }
         ComponentDescriptor::LanguageIn { languages } => (
             SrcGenComponentKind::LanguageIn {
                 languages: languages.clone(),
@@ -1205,6 +1448,74 @@ mod tests {
         assert!(property_shape.supported);
         assert_eq!(property_shape.supported_constraints, vec![3]);
         assert_eq!(property_shape.fallback_constraints, vec![4]);
+    }
+
+    #[test]
+    fn sparql_component_is_specialized_when_select_query_is_available() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:sparql:constraint",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+
+        let shape_graph = oxigraph::model::NamedNode::new_unchecked("urn:shape-graph");
+        let shape_ir = ShapeIR {
+            shape_graph: shape_graph.clone(),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:sparql:constraint"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_typed_literal(
+                    "SELECT $this WHERE { FILTER(false) }",
+                    oxigraph::model::vocab::xsd::STRING,
+                ),
+                oxigraph::model::GraphName::NamedNode(shape_graph),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.meta.specialization_ready);
+        assert!(lowered.fallback_annotations.is_empty());
+        assert!(matches!(
+            lowered.components[0].kind,
+            SrcGenComponentKind::Sparql { .. }
+        ));
+        assert!(lowered.node_shapes[0].supported);
+        assert_eq!(lowered.node_shapes[0].supported_constraints, vec![1]);
+        assert!(lowered.node_shapes[0].fallback_constraints.is_empty());
     }
 
     #[test]

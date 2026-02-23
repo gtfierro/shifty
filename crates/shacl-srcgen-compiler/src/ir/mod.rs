@@ -107,6 +107,11 @@ pub enum SrcGenComponentKind {
     In {
         values_sparql: Vec<String>,
     },
+    Sparql {
+        query: String,
+        prefixes: String,
+        requires_path: bool,
+    },
     Node {
         shape_iri: String,
     },

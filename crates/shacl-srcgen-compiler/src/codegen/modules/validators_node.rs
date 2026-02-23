@@ -219,6 +219,67 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::Sparql {
+                    query,
+                    prefixes,
+                    requires_path: _,
+                } => {
+                    let query_lit = LitStr::new(query, Span::call_site());
+                    let prefixes_lit = LitStr::new(prefixes, Span::call_site());
+                    node_constraint_checks.push(quote! {
+                        let query = String::from(#query_lit);
+                        let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                        bindings.push(("this", focus.clone()));
+                        if query_mentions_var(&query, "currentShape") {
+                            if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                bindings.push(("currentShape", current_shape_term));
+                            }
+                        }
+                        if query_mentions_var(&query, "shapesGraph") {
+                            if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                            }
+                        }
+
+                        let solutions = sparql_select_solutions_with_bindings(
+                            &query,
+                            #prefixes_lit,
+                            store,
+                            data_graph,
+                            &bindings,
+                        )?;
+
+                        let mut seen: std::collections::HashSet<(Option<oxigraph::model::Term>, Option<oxigraph::model::Term>)> =
+                            std::collections::HashSet::new();
+                        for row in solutions {
+                            if let Some(failure_term) = row.get("failure") {
+                                if term_is_true_boolean(failure_term) {
+                                    return Err(format!(
+                                        "SPARQL constraint query reported failure for shape {} component {}",
+                                        #shape_id, #component_id_value
+                                    ));
+                                }
+                            }
+                            let value = row
+                                .get("value")
+                                .cloned()
+                                .unwrap_or_else(|| focus.clone());
+                            let path_term = row.get("path").cloned();
+                            let key = (Some(value.clone()), path_term.clone());
+                            if !seen.insert(key) {
+                                continue;
+                            }
+                            let path = path_term.map(ResultPath::Term);
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(value),
+                                path,
+                            });
+                        }
+                    });
+                }
                 SrcGenComponentKind::Node { shape_iri } => {
                     let shape_lit = LitStr::new(shape_iri, Span::call_site());
                     node_constraint_checks.push(quote! {
