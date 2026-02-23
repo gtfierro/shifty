@@ -71,7 +71,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         let predicate_lit = LitStr::new(predicate, Span::call_site());
 
         let mut constraint_checks: Vec<TokenStream> = Vec::new();
-        for component_id in &shape.constraints {
+        for component_id in &shape.supported_constraints {
             let component_id_value = *component_id;
             let Some(kind) = component_by_id.get(component_id) else {
                 continue;

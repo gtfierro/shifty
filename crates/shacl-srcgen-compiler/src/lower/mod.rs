@@ -53,25 +53,32 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
             constraints.sort_unstable();
 
-            let constraints_supported = constraints.iter().all(|component_id| {
-                component_kinds
-                    .get(component_id)
-                    .map(property_constraint_supported)
-                    .unwrap_or(false)
-            });
-
-            let supported = !shape.deactivated
+            let base_supported = !shape.deactivated
                 && matches!(shape.severity, Severity::Violation)
                 && shape.targets.is_empty()
-                && path_predicate.is_some()
-                && constraints_supported;
+                && path_predicate.is_some();
+            let mut supported_constraints = Vec::new();
+            let mut fallback_constraints = Vec::new();
+            for component_id in &constraints {
+                let supported_component = component_kinds
+                    .get(component_id)
+                    .map(property_constraint_supported)
+                    .unwrap_or(false);
+                if base_supported && supported_component {
+                    supported_constraints.push(*component_id);
+                } else {
+                    fallback_constraints.push(*component_id);
+                }
+            }
 
             PendingPropertyShape {
                 original_id: shape.id,
                 iri,
                 path_predicate,
                 constraints,
-                supported,
+                supported_constraints,
+                fallback_constraints,
+                supported: base_supported,
             }
         })
         .collect();
@@ -81,6 +88,11 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             .cmp(&b.iri)
             .then_with(|| a.original_id.0.cmp(&b.original_id.0))
     });
+
+    let property_path_by_original: HashMap<PropShapeID, Option<String>> = pending_property_shapes
+        .iter()
+        .map(|shape| (shape.original_id, shape.path_predicate.clone()))
+        .collect();
 
     let mut pending_node_shapes: Vec<PendingNodeShape> = shape_ir
         .node_shapes
@@ -97,25 +109,45 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             property_shapes.sort_by_key(|id| id.0);
 
             let target_classes = class_targets_only(&shape.targets).unwrap_or_default();
-            let constraints_supported = constraints.iter().all(|component_id| {
-                component_kinds
-                    .get(component_id)
-                    .map(node_constraint_supported)
-                    .unwrap_or(false)
-            });
             let targets_supported = !target_classes.is_empty();
-            let supported = !shape.deactivated
+            let base_supported = !shape.deactivated
                 && matches!(shape.severity, Severity::Violation)
-                && targets_supported
-                && constraints_supported;
+                && targets_supported;
+            let linked_property_paths_supported = property_shapes.iter().all(|property_id| {
+                property_path_by_original
+                    .get(property_id)
+                    .and_then(|path| path.as_ref())
+                    .is_some()
+            });
+
+            let mut supported_constraints = Vec::new();
+            let mut fallback_constraints = Vec::new();
+            for component_id in &constraints {
+                let Some(kind) = component_kinds.get(component_id) else {
+                    fallback_constraints.push(*component_id);
+                    continue;
+                };
+                let kind_supported = node_constraint_supported(kind);
+                let context_supported = match kind {
+                    SrcGenComponentKind::Closed { .. } => linked_property_paths_supported,
+                    _ => true,
+                };
+                if base_supported && kind_supported && context_supported {
+                    supported_constraints.push(*component_id);
+                } else {
+                    fallback_constraints.push(*component_id);
+                }
+            }
 
             PendingNodeShape {
                 original_id: shape.id,
                 iri,
                 target_classes,
                 constraints,
+                supported_constraints,
+                fallback_constraints,
                 property_shapes,
-                supported,
+                supported: base_supported,
             }
         })
         .collect();
@@ -150,6 +182,8 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                     iri: shape.iri,
                     path_predicate: shape.path_predicate,
                     constraints: shape.constraints,
+                    supported_constraints: shape.supported_constraints,
+                    fallback_constraints: shape.fallback_constraints,
                     supported: shape.supported,
                 })
         })
@@ -171,20 +205,28 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 .collect();
             property_shapes.sort_unstable();
 
-            let all_linked_properties_supported = property_shapes.iter().all(|prop_id| {
+            let any_linked_properties_supported = property_shapes.iter().any(|prop_id| {
                 property_support_by_id
                     .get(prop_id)
                     .copied()
                     .unwrap_or(false)
             });
+            let is_noop_shape = shape.constraints.is_empty() && property_shapes.is_empty();
+
+            let supported = shape.supported
+                && (is_noop_shape
+                    || !shape.supported_constraints.is_empty()
+                    || any_linked_properties_supported);
 
             Some(SrcGenNodeShape {
                 id,
                 iri: shape.iri,
                 target_classes: shape.target_classes,
                 constraints: shape.constraints,
+                supported_constraints: shape.supported_constraints,
+                fallback_constraints: shape.fallback_constraints,
                 property_shapes,
-                supported: shape.supported && all_linked_properties_supported,
+                supported,
             })
         })
         .collect();
@@ -192,8 +234,19 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
     let specialization_ready = shape_ir.rules.is_empty()
         && components.iter().all(|component| !component.fallback_only)
         && !node_shapes.is_empty()
-        && node_shapes.iter().all(|shape| shape.supported)
-        && property_shapes.iter().all(|shape| shape.supported);
+        && node_shapes.iter().all(|shape| {
+            shape.supported
+                && shape.fallback_constraints.is_empty()
+                && shape.property_shapes.iter().all(|property_id| {
+                    property_support_by_id
+                        .get(property_id)
+                        .copied()
+                        .unwrap_or(false)
+                })
+        })
+        && property_shapes
+            .iter()
+            .all(|shape| shape.supported && shape.fallback_constraints.is_empty());
 
     let data_graph_iri = shape_ir
         .data_graph
@@ -223,6 +276,8 @@ struct PendingNodeShape {
     iri: String,
     target_classes: Vec<String>,
     constraints: Vec<u64>,
+    supported_constraints: Vec<u64>,
+    fallback_constraints: Vec<u64>,
     property_shapes: Vec<PropShapeID>,
     supported: bool,
 }
@@ -233,6 +288,8 @@ struct PendingPropertyShape {
     iri: String,
     path_predicate: Option<String>,
     constraints: Vec<u64>,
+    supported_constraints: Vec<u64>,
+    fallback_constraints: Vec<u64>,
     supported: bool,
 }
 
@@ -1043,6 +1100,111 @@ mod tests {
         assert_eq!(lowered.fallback_annotations[0].component_id, 1);
         assert!(lowered.components[0].fallback_only);
         assert!(!lowered.node_shapes[0].supported);
+    }
+
+    #[test]
+    fn lowering_tracks_supported_and_fallback_constraints_per_shape() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+        components.insert(
+            ComponentID(3),
+            ComponentDescriptor::MinCount { min_count: 1 },
+        );
+        components.insert(
+            ComponentID(4),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:sparql:constraint",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person-age",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2), ComponentID(4)],
+                property_shapes: vec![PropShapeID(7)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:age",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:age")),
+                constraints: vec![ComponentID(3), ComponentID(4)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(!lowered.meta.specialization_ready);
+
+        assert_eq!(lowered.fallback_annotations.len(), 1);
+        assert_eq!(lowered.fallback_annotations[0].component_id, 4);
+
+        let node_shape = lowered
+            .node_shapes
+            .iter()
+            .find(|shape| shape.iri == "urn:shape:person")
+            .expect("node shape must be present");
+        assert!(node_shape.supported);
+        assert_eq!(node_shape.supported_constraints, vec![1, 2]);
+        assert_eq!(node_shape.fallback_constraints, vec![4]);
+
+        let property_shape = lowered
+            .property_shapes
+            .iter()
+            .find(|shape| shape.iri == "urn:shape:person-age")
+            .expect("property shape must be present");
+        assert!(property_shape.supported);
+        assert_eq!(property_shape.supported_constraints, vec![3]);
+        assert_eq!(property_shape.fallback_constraints, vec![4]);
     }
 
     #[test]

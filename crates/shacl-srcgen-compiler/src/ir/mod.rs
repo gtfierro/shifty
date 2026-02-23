@@ -32,6 +32,10 @@ pub struct SrcGenNodeShape {
     pub iri: String,
     pub target_classes: Vec<String>,
     pub constraints: Vec<u64>,
+    #[serde(default)]
+    pub supported_constraints: Vec<u64>,
+    #[serde(default)]
+    pub fallback_constraints: Vec<u64>,
     pub property_shapes: Vec<u64>,
     pub supported: bool,
 }
@@ -42,6 +46,10 @@ pub struct SrcGenPropertyShape {
     pub iri: String,
     pub path_predicate: Option<String>,
     pub constraints: Vec<u64>,
+    #[serde(default)]
+    pub supported_constraints: Vec<u64>,
+    #[serde(default)]
+    pub fallback_constraints: Vec<u64>,
     pub supported: bool,
 }
 

@@ -2,7 +2,7 @@ use oxigraph::model::Term;
 use shacl_srcgen_compiler::{generate_modules_from_shape_ir_with_backend, SrcGenBackend};
 use shifty::shacl_ir::{
     ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, Path, PropShapeID,
-    PropertyShapeIR, Severity, ShapeIR, ID,
+    PropertyShapeIR, Severity, ShapeIR, Target, ID,
 };
 use std::collections::HashMap;
 
@@ -54,6 +54,87 @@ fn sample_shape_ir() -> ShapeIR {
             ))),
             path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:hasValue")),
             constraints: vec![ComponentID(2)],
+            severity: Severity::Violation,
+            deactivated: false,
+        }],
+        components,
+        component_templates: HashMap::new(),
+        shape_templates: HashMap::new(),
+        shape_template_cache: HashMap::new(),
+        node_shape_terms,
+        property_shape_terms,
+        shape_quads: Vec::new(),
+        rules: HashMap::new(),
+        node_shape_rules: HashMap::new(),
+        prop_shape_rules: HashMap::new(),
+        features: FeatureToggles::default(),
+    }
+}
+
+fn mixed_support_shape_ir() -> ShapeIR {
+    let mut components = HashMap::new();
+    components.insert(
+        ComponentID(1),
+        ComponentDescriptor::Class {
+            class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Class")),
+        },
+    );
+    components.insert(
+        ComponentID(2),
+        ComponentDescriptor::Property {
+            shape: PropShapeID(1),
+        },
+    );
+    components.insert(
+        ComponentID(3),
+        ComponentDescriptor::MinCount { min_count: 1 },
+    );
+    components.insert(
+        ComponentID(4),
+        ComponentDescriptor::Sparql {
+            constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:sparql:constraint",
+            )),
+        },
+    );
+
+    let mut node_shape_terms = HashMap::new();
+    node_shape_terms.insert(
+        ID(1),
+        Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+            "urn:shape:NodeShapeA",
+        )),
+    );
+
+    let mut property_shape_terms = HashMap::new();
+    property_shape_terms.insert(
+        PropShapeID(1),
+        Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+            "urn:shape:PropertyShapeA",
+        )),
+    );
+
+    ShapeIR {
+        shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:graph:shapes"),
+        data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:graph:data")),
+        node_shapes: vec![NodeShapeIR {
+            id: ID(1),
+            targets: vec![Target::Class(Term::NamedNode(
+                oxigraph::model::NamedNode::new_unchecked("urn:Class"),
+            ))],
+            constraints: vec![ComponentID(1), ComponentID(2), ComponentID(4)],
+            property_shapes: vec![PropShapeID(1)],
+            severity: Severity::Violation,
+            deactivated: false,
+        }],
+        property_shapes: vec![PropertyShapeIR {
+            id: PropShapeID(1),
+            targets: Vec::new(),
+            path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:hasValue",
+            ))),
+            path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:hasValue")),
+            constraints: vec![ComponentID(3), ComponentID(4)],
             severity: Severity::Violation,
             deactivated: false,
         }],
@@ -163,4 +244,25 @@ fn validators_use_shape_data_union_queries() {
         .map(|(_, content)| content.as_str())
         .expect("validators_node module must exist");
     assert!(validators_node.contains("for graph in validation_graphs(data_graph)?"));
+}
+
+#[test]
+fn run_module_uses_hybrid_dispatch_planning() {
+    let ir = mixed_support_shape_ir();
+    let generated = generate_modules_from_shape_ir_with_backend(&ir, SrcGenBackend::Specialized)
+        .expect("specialized codegen should succeed");
+
+    let run = generated
+        .files
+        .iter()
+        .find(|(name, _)| name == "run.rs")
+        .map(|(_, content)| content.as_str())
+        .expect("run module must exist");
+
+    assert!(run.contains("const SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK: bool = true;"));
+    assert!(run.contains("fn is_full_fallback_shape(shape_id: u64) -> bool"));
+    assert!(run
+        .contains("fn is_fallback_component_for_shape(shape_id: u64, component_id: u64) -> bool"));
+    assert!(run.contains("fn merge_specialized_with_runtime("));
+    assert!(!run.contains("generated_backend_is_tables() || !SPECIALIZATION_READY"));
 }
