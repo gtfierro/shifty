@@ -221,7 +221,7 @@ fn prelude_snapshot_contains_expected_constants() {
 }
 
 #[test]
-fn validators_use_shape_data_union_queries() {
+fn validators_use_expected_graph_scope() {
     let ir = sample_shape_ir();
     let generated = generate_modules_from_shape_ir_with_backend(&ir, SrcGenBackend::Specialized)
         .expect("specialized codegen should succeed");
@@ -243,7 +243,9 @@ fn validators_use_shape_data_union_queries() {
         .find(|(name, _)| name == "validators_node.rs")
         .map(|(_, content)| content.as_str())
         .expect("validators_node module must exist");
-    assert!(validators_node.contains("for graph in validation_graphs(data_graph)?"));
+    assert!(validators_node.contains("fn build_target_class_index("));
+    assert!(validators_node.contains("http://www.w3.org/2000/01/rdf-schema#subClassOf"));
+    assert!(validators_node.contains("Some(data_graph_ref)"));
 }
 
 #[test]

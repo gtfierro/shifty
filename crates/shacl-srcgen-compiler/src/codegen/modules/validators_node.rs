@@ -26,7 +26,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let mut supported_shapes = 0usize;
     let mut supported_node_ids: Vec<u64> = Vec::new();
 
-    for shape in ir.node_shapes.iter().filter(|shape| shape.supported) {
+    for shape in ir.node_shapes.iter().filter(|shape| {
+        shape.supported
+            && (!shape.supported_constraints.is_empty() || !shape.property_shapes.is_empty())
+    }) {
         supported_shapes += 1;
         supported_node_ids.push(shape.id);
         let shape_id = shape.id;
@@ -37,7 +40,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .map(|class_iri| {
                 let class_lit = LitStr::new(class_iri, Span::call_site());
                 quote! {
-                    focus_nodes.extend(focus_nodes_for_target_class(store, data_graph, #class_lit)?);
+                    focus_nodes.extend(focus_nodes_for_target_class_cached(
+                        &mut target_class_index,
+                        store,
+                        data_graph,
+                        #class_lit,
+                    )?);
                 }
             })
             .collect();
@@ -490,26 +498,141 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let tokens = quote! {
         pub const GENERATED_NODE_VALIDATORS: usize = #supported_shapes;
 
-        fn focus_nodes_for_target_class(
+        struct TargetClassIndex {
+            subclasses_by_super:
+                std::collections::HashMap<oxigraph::model::Term, Vec<oxigraph::model::Term>>,
+            subjects_by_direct_type:
+                std::collections::HashMap<oxigraph::model::Term, Vec<oxigraph::model::Term>>,
+            descendant_cache: std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashSet<oxigraph::model::Term>,
+            >,
+        }
+
+        fn descendants_for_class(
+            index: &mut TargetClassIndex,
+            target_class: &oxigraph::model::Term,
+        ) -> std::collections::HashSet<oxigraph::model::Term> {
+            if let Some(cached) = index.descendant_cache.get(target_class) {
+                return cached.clone();
+            }
+            let mut descendants: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            let mut stack: Vec<oxigraph::model::Term> = vec![target_class.clone()];
+            while let Some(current) = stack.pop() {
+                if !descendants.insert(current.clone()) {
+                    continue;
+                }
+                if let Some(subclasses) = index.subclasses_by_super.get(&current) {
+                    for subclass in subclasses {
+                        stack.push(subclass.clone());
+                    }
+                }
+            }
+            index
+                .descendant_cache
+                .insert(target_class.clone(), descendants.clone());
+            descendants
+        }
+
+        fn build_target_class_index(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<TargetClassIndex, String> {
+            let mut subclasses_by_super: std::collections::HashMap<
+                oxigraph::model::Term,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            for quad in store.quads_for_pattern(
+                None,
+                Some(oxigraph::model::NamedNodeRef::new_unchecked(
+                    "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+                )),
+                None,
+                None,
+            ) {
+                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                let superclass = match quad.object {
+                    oxigraph::model::Term::NamedNode(node) => oxigraph::model::Term::NamedNode(node),
+                    _ => continue,
+                };
+                let subclass = match quad.subject {
+                    oxigraph::model::NamedOrBlankNode::NamedNode(node) => {
+                        oxigraph::model::Term::NamedNode(node)
+                    }
+                    oxigraph::model::NamedOrBlankNode::BlankNode(_) => continue,
+                };
+                subclasses_by_super
+                    .entry(superclass)
+                    .or_default()
+                    .push(subclass);
+            }
+
+            let mut subjects_by_direct_type: std::collections::HashMap<
+                oxigraph::model::Term,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            let data_graph_ref = oxigraph::model::GraphNameRef::NamedNode(data_graph.as_ref());
+            for quad in store.quads_for_pattern(
+                None,
+                Some(oxigraph::model::vocab::rdf::TYPE),
+                None,
+                Some(data_graph_ref),
+            ) {
+                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                let class_term = match quad.object {
+                    oxigraph::model::Term::NamedNode(node) => oxigraph::model::Term::NamedNode(node),
+                    _ => continue,
+                };
+                subjects_by_direct_type
+                    .entry(class_term)
+                    .or_default()
+                    .push(oxigraph::model::Term::from(quad.subject));
+            }
+
+            for subclasses in subclasses_by_super.values_mut() {
+                subclasses.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                subclasses.dedup();
+            }
+            for subjects in subjects_by_direct_type.values_mut() {
+                subjects.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                subjects.dedup();
+            }
+
+            Ok(TargetClassIndex {
+                subclasses_by_super,
+                subjects_by_direct_type,
+                descendant_cache: std::collections::HashMap::new(),
+            })
+        }
+
+        fn focus_nodes_for_target_class_cached(
+            index: &mut Option<TargetClassIndex>,
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
             class_iri: &str,
         ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if index.is_none() {
+                *index = Some(build_target_class_index(store, data_graph)?);
+            }
+            let index = index
+                .as_mut()
+                .ok_or_else(|| "target class index not initialized".to_string())?;
+
             let class_node = oxigraph::model::NamedNode::new(class_iri)
                 .map_err(|err| format!("invalid class target IRI {class_iri}: {err}"))?;
-            let mut nodes = Vec::new();
-            for graph in validation_graphs(data_graph)? {
-                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
-                for quad in store.quads_for_pattern(
-                    None,
-                    Some(oxigraph::model::vocab::rdf::TYPE),
-                    Some(class_node.as_ref().into()),
-                    Some(graph_ref),
-                ) {
-                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
-                    nodes.push(oxigraph::model::Term::from(quad.subject));
-                }
-            }
+            let class_term = oxigraph::model::Term::NamedNode(class_node);
+            let descendants = descendants_for_class(index, &class_term);
+            let mut nodes: Vec<oxigraph::model::Term> = descendants
+                .into_iter()
+                .flat_map(|descendant| {
+                    index
+                        .subjects_by_direct_type
+                        .get(&descendant)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .collect();
             nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
             nodes.dedup();
             Ok(nodes)
@@ -521,6 +644,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         ) -> Result<Vec<Violation>, String> {
             let mut violations: Vec<Violation> = Vec::new();
             let node_shape_ids: &[u64] = &[#(#supported_node_ids),*];
+            let mut target_class_index: Option<TargetClassIndex> = None;
 
             for shape_id in node_shape_ids {
                 match shape_id {

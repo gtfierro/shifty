@@ -1140,6 +1140,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        thread_local! {
+            static SPARQL_PREPARED_CACHE: std::cell::RefCell<
+                std::collections::HashMap<String, oxigraph::sparql::PreparedSparqlQuery>
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+
         fn sparql_select_solutions_with_bindings(
             query: &str,
             prefixes: &str,
@@ -1170,9 +1176,19 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 format!("{prefixes}\n{normalized_query}")
             };
 
-            let mut prepared = oxigraph::sparql::SparqlEvaluator::new()
-                .parse_query(&query_str)
-                .map_err(|err| format!("failed to parse SPARQL query: {err}"))?;
+            let mut prepared = SPARQL_PREPARED_CACHE.with(
+                |cache| -> Result<oxigraph::sparql::PreparedSparqlQuery, String> {
+                    let mut cache = cache.borrow_mut();
+                    if let Some(cached) = cache.get(&query_str) {
+                        return Ok(cached.clone());
+                    }
+                    let parsed = oxigraph::sparql::SparqlEvaluator::new()
+                        .parse_query(&query_str)
+                        .map_err(|err| format!("failed to parse SPARQL query: {err}"))?;
+                    cache.insert(query_str.clone(), parsed.clone());
+                    Ok(parsed)
+                }
+            )?;
 
             let default_graphs: Vec<oxigraph::model::GraphName> = validation_graphs(data_graph)?
                 .into_iter()
