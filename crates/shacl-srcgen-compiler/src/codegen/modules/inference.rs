@@ -191,99 +191,181 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 query,
                 condition_shape_iris,
             } => {
-                let query_lit = LitStr::new(query, Span::call_site());
+                let normalized_query = query.replace('$', "?");
+                let query_lit = LitStr::new(&normalized_query, Span::call_site());
                 let condition_shape_lits: Vec<LitStr> = condition_shape_iris
                     .iter()
                     .map(|iri| LitStr::new(iri, Span::call_site()))
                     .collect();
-                specialized_rule_blocks.push(quote! {
-                    {
-                        let mut condition_cache: std::collections::HashMap<(String, String), bool> =
-                            std::collections::HashMap::new();
-                        let mut condition_validator: Option<shifty::Validator> = None;
-                        let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
-                        #(
-                            focus_nodes.extend(focus_nodes_for_target_class_cached(
-                                &mut target_class_index,
-                                store,
-                                data_graph,
-                                #target_class_lits,
-                            )?);
-                        )*
-                        focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-                        focus_nodes.dedup();
-
-                        for focus in focus_nodes {
-                            let mut conditions_met = true;
+                if condition_shape_lits.is_empty() {
+                    specialized_rule_blocks.push(quote! {
+                        {
+                            let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
                             #(
-                                let condition_key = (#condition_shape_lits.to_string(), focus.to_string());
-                                let condition_conforms = if let Some(cached) = condition_cache.get(&condition_key) {
-                                    *cached
-                                } else {
-                                    if condition_validator.is_none() {
-                                        condition_validator = Some(build_runtime_validator(store, data_graph)?);
-                                    }
-                                    let validator = condition_validator
-                                        .as_ref()
-                                        .ok_or_else(|| "condition validator was not initialized".to_string())?;
-                                    let conforms = validator
-                                        .node_conforms_to_shape_id(&focus, #condition_shape_lits)?;
-                                    condition_cache.insert(condition_key, conforms);
-                                    conforms
-                                };
-                                if !condition_conforms {
-                                    conditions_met = false;
-                                }
+                                focus_nodes.extend(focus_nodes_for_target_class_cached_cloned(
+                                    &mut target_class_focus_cache,
+                                    &mut target_class_index,
+                                    store,
+                                    data_graph,
+                                    #target_class_lits,
+                                )?);
                             )*
-                            if !conditions_met {
-                                continue;
-                            }
+                            focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                            focus_nodes.dedup();
 
-                            let sparql_bindings = [("this", focus.clone())];
-                            let constructed = sparql_construct_triples_with_bindings(
-                                #query_lit,
-                                store,
-                                data_graph,
-                                &sparql_bindings,
-                            ).map_err(|err| {
-                                format!("SPARQLRule {} execution failed: {err}", #rule_id)
-                            })?;
-                            let mut inserted_any = false;
-                            for (subject_term, predicate, object_term) in constructed {
-                                let Some(subject) = subject_ref_from_term(&subject_term) else {
-                                    continue;
-                                };
-                                let inferred = oxigraph::model::Quad::new(
-                                    subject.into_owned(),
-                                    predicate,
-                                    object_term,
-                                    graph_name.clone(),
-                                );
-                                if store
-                                    .contains(inferred.as_ref())
-                                    .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
-                                {
-                                    continue;
+                            let candidate_batches = focus_nodes
+                                .par_iter()
+                                .map(|focus| -> Result<
+                                    Vec<(
+                                        oxigraph::model::Term,
+                                        oxigraph::model::NamedNode,
+                                        oxigraph::model::Term,
+                                    )>,
+                                    String,
+                                > {
+                                    let sparql_bindings = [("this", focus.clone())];
+                                    sparql_construct_triples_with_bindings(
+                                        #query_lit,
+                                        store,
+                                        data_graph,
+                                        &sparql_bindings,
+                                    )
+                                    .map_err(|err| {
+                                        format!("SPARQLRule {} execution failed: {err}", #rule_id)
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+
+                            let mut inferred_seen: std::collections::HashSet<(
+                                oxigraph::model::Term,
+                                oxigraph::model::NamedNode,
+                                oxigraph::model::Term,
+                            )> = std::collections::HashSet::new();
+                            for constructed in candidate_batches {
+                                for (subject_term, predicate, object_term) in constructed {
+                                    if !inferred_seen.insert((
+                                        subject_term.clone(),
+                                        predicate.clone(),
+                                        object_term.clone(),
+                                    )) {
+                                        continue;
+                                    }
+                                    let Some(subject) = subject_ref_from_term(&subject_term) else {
+                                        continue;
+                                    };
+                                    let inferred = oxigraph::model::Quad::new(
+                                        subject.into_owned(),
+                                        predicate,
+                                        object_term,
+                                        graph_name.clone(),
+                                    );
+                                    if store
+                                        .contains(inferred.as_ref())
+                                        .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
+                                    {
+                                        continue;
+                                    }
+                                    store
+                                        .insert(inferred.as_ref())
+                                        .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
+                                    inserted += 1;
                                 }
-                                store
-                                    .insert(inferred.as_ref())
-                                    .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
-                                inserted += 1;
-                                inserted_any = true;
-                            }
-                            if inserted_any {
-                                condition_cache.clear();
-                                let _ = condition_validator.take();
                             }
                         }
-                    }
-                });
+                    });
+                } else {
+                    specialized_rule_blocks.push(quote! {
+                        {
+                            let mut condition_cache: std::collections::HashMap<(String, String), bool> =
+                                std::collections::HashMap::new();
+                            let mut condition_validator: Option<shifty::Validator> = None;
+                            let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                            #(
+                                focus_nodes.extend(focus_nodes_for_target_class_cached_cloned(
+                                    &mut target_class_focus_cache,
+                                    &mut target_class_index,
+                                    store,
+                                    data_graph,
+                                    #target_class_lits,
+                                )?);
+                            )*
+                            focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                            focus_nodes.dedup();
+
+                            for focus in focus_nodes {
+                                let mut conditions_met = true;
+                                #(
+                                    let condition_key = (#condition_shape_lits.to_string(), focus.to_string());
+                                    let condition_conforms = if let Some(cached) = condition_cache.get(&condition_key) {
+                                        *cached
+                                    } else {
+                                        if condition_validator.is_none() {
+                                            condition_validator = Some(build_runtime_validator(store, data_graph)?);
+                                        }
+                                        let validator = condition_validator
+                                            .as_ref()
+                                            .ok_or_else(|| "condition validator was not initialized".to_string())?;
+                                        let conforms = validator
+                                            .node_conforms_to_shape_id(&focus, #condition_shape_lits)?;
+                                        condition_cache.insert(condition_key, conforms);
+                                        conforms
+                                    };
+                                    if !condition_conforms {
+                                        conditions_met = false;
+                                    }
+                                )*
+                                if !conditions_met {
+                                    continue;
+                                }
+
+                                let sparql_bindings = [("this", focus.clone())];
+                                let constructed = sparql_construct_triples_with_bindings(
+                                    #query_lit,
+                                    store,
+                                    data_graph,
+                                    &sparql_bindings,
+                                ).map_err(|err| {
+                                    format!("SPARQLRule {} execution failed: {err}", #rule_id)
+                                })?;
+                                let mut inserted_any = false;
+                                for (subject_term, predicate, object_term) in constructed {
+                                    let Some(subject) = subject_ref_from_term(&subject_term) else {
+                                        continue;
+                                    };
+                                    let inferred = oxigraph::model::Quad::new(
+                                        subject.into_owned(),
+                                        predicate,
+                                        object_term,
+                                        graph_name.clone(),
+                                    );
+                                    if store
+                                        .contains(inferred.as_ref())
+                                        .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
+                                    {
+                                        continue;
+                                    }
+                                    store
+                                        .insert(inferred.as_ref())
+                                        .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
+                                    inserted += 1;
+                                    inserted_any = true;
+                                }
+                                if inserted_any {
+                                    condition_cache.clear();
+                                    let _ = condition_validator.take();
+                                }
+                            }
+                        }
+                    });
+                }
             }
             SrcGenRuleKind::Unsupported { .. } => {}
         }
     }
 
     let tokens = quote! {
+        use rayon::prelude::*;
+
         pub const GENERATED_INFERENCE_RULES: usize = #generated_rule_count;
         pub const GENERATED_SPECIALIZED_INFERENCE_RULES: usize = #specialized_rule_count;
         pub const GENERATED_FALLBACK_INFERENCE_RULES: usize = #fallback_rule_count;
@@ -291,6 +373,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         thread_local! {
             static SPARQL_RULE_PREPARED_CACHE: std::cell::RefCell<
                 std::collections::HashMap<String, oxigraph::sparql::PreparedSparqlQuery>
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+            static SPARQL_RULE_USES_THIS_CACHE: std::cell::RefCell<
+                std::collections::HashMap<String, bool>
             > = std::cell::RefCell::new(std::collections::HashMap::new());
         }
 
@@ -300,17 +385,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             data_graph: &oxigraph::model::NamedNode,
             bindings: &[(&str, oxigraph::model::Term)],
         ) -> Result<Vec<(oxigraph::model::Term, oxigraph::model::NamedNode, oxigraph::model::Term)>, String> {
-            let normalized_query = query.replace('$', "?");
             let mut prepared = SPARQL_RULE_PREPARED_CACHE.with(
                 |cache| -> Result<oxigraph::sparql::PreparedSparqlQuery, String> {
                     let mut cache = cache.borrow_mut();
-                    if let Some(cached) = cache.get(&normalized_query) {
+                    if let Some(cached) = cache.get(query) {
                         return Ok(cached.clone());
                     }
                     let parsed = oxigraph::sparql::SparqlEvaluator::new()
-                        .parse_query(&normalized_query)
+                        .parse_query(query)
                         .map_err(|err| format!("failed to parse SPARQL query: {err}"))?;
-                    cache.insert(normalized_query.clone(), parsed.clone());
+                    cache.insert(query.to_string(), parsed.clone());
                     Ok(parsed)
                 }
             )?;
@@ -322,8 +406,18 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             prepared.dataset_mut().set_default_graph(default_graphs);
 
             let mut bound = prepared.on_store(store);
+            let query_uses_this = SPARQL_RULE_USES_THIS_CACHE.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                if let Some(cached) = cache.get(query) {
+                    *cached
+                } else {
+                    let mentions_this = query_mentions_var(query, "this");
+                    cache.insert(query.to_string(), mentions_this);
+                    mentions_this
+                }
+            });
             for (name, term) in bindings {
-                if !query_mentions_var(&normalized_query, name) {
+                if *name == "this" && !query_uses_this {
                     continue;
                 }
                 bound = bound.substitute_variable(
@@ -347,6 +441,22 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        fn focus_nodes_for_target_class_cached_cloned(
+            target_class_cache: &mut std::collections::HashMap<String, Vec<oxigraph::model::Term>>,
+            target_class_index: &mut Option<TargetClassIndex>,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            class_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if let Some(cached) = target_class_cache.get(class_iri) {
+                return Ok(cached.clone());
+            }
+            let nodes =
+                focus_nodes_for_target_class_cached(target_class_index, store, data_graph, class_iri)?;
+            target_class_cache.insert(class_iri.to_string(), nodes.clone());
+            Ok(nodes)
+        }
+
         pub fn run_generated_inference(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
@@ -358,6 +468,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let graph_name = oxigraph::model::GraphName::NamedNode(data_graph.clone());
             let mut inserted = 0usize;
             let mut target_class_index: Option<TargetClassIndex> = None;
+            let mut target_class_focus_cache: std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
             #(#specialized_rule_blocks)*
 
             if GENERATED_FALLBACK_INFERENCE_RULES == 0 {
