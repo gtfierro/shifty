@@ -437,40 +437,61 @@ fn rule_kind(
     rule: &Rule,
     target_classes: &[String],
 ) -> (SrcGenRuleKind, Option<String>) {
-    match rule {
-        Rule::Sparql(_) => (
+    if target_classes.is_empty() {
+        return (
             SrcGenRuleKind::Unsupported {
-                kind: "SPARQLRule".to_string(),
+                kind: format!("{}(no-target-classes)", rule_kind_name(rule)),
             },
-            Some("SPARQL rule specialization is not yet implemented".to_string()),
-        ),
-        Rule::Triple(rule) => {
-            if target_classes.is_empty() {
+            Some(format!(
+                "{} has no specialized target classes",
+                rule_kind_name(rule)
+            )),
+        );
+    }
+
+    match rule {
+        Rule::Sparql(rule) => {
+            let condition_shape_iris =
+                match collect_rule_condition_shape_iris(shape_ir, &rule.condition_shapes) {
+                    Ok(shape_iris) => shape_iris,
+                    Err(reason) => {
+                        return (
+                            SrcGenRuleKind::Unsupported {
+                                kind: "SPARQLRule(condition-shape)".to_string(),
+                            },
+                            Some(reason),
+                        );
+                    }
+                };
+            if rule.query.trim().is_empty() {
                 return (
                     SrcGenRuleKind::Unsupported {
-                        kind: "TripleRule(no-target-classes)".to_string(),
+                        kind: "SPARQLRule(empty-query)".to_string(),
                     },
-                    Some("TripleRule has no specialized target classes".to_string()),
+                    Some("SPARQLRule has an empty query string".to_string()),
                 );
             }
-            let mut condition_shape_iris: Vec<String> = Vec::new();
-            for condition in &rule.condition_shapes {
-                let RuleCondition::NodeShape(shape_id) = condition;
-                let Some(shape_iri) = resolve_shape_iri(shape_ir, *shape_id) else {
-                    return (
-                        SrcGenRuleKind::Unsupported {
-                            kind: "TripleRule(condition-shape)".to_string(),
-                        },
-                        Some(format!(
-                            "TripleRule condition references unknown shape id {}",
-                            shape_id.0
-                        )),
-                    );
+            (
+                SrcGenRuleKind::Sparql {
+                    query: rule.query.clone(),
+                    condition_shape_iris,
+                },
+                None,
+            )
+        }
+        Rule::Triple(rule) => {
+            let condition_shape_iris =
+                match collect_rule_condition_shape_iris(shape_ir, &rule.condition_shapes) {
+                    Ok(shape_iris) => shape_iris,
+                    Err(reason) => {
+                        return (
+                            SrcGenRuleKind::Unsupported {
+                                kind: "TripleRule(condition-shape)".to_string(),
+                            },
+                            Some(reason),
+                        );
+                    }
                 };
-                condition_shape_iris.push(shape_iri);
-            }
-            condition_shape_iris.sort();
-            condition_shape_iris.dedup();
             let subject = match &rule.subject {
                 TriplePatternTerm::This => SrcGenRuleSubject::This,
                 TriplePatternTerm::Constant(term) => {
@@ -526,6 +547,26 @@ fn rule_kind(
             )
         }
     }
+}
+
+fn collect_rule_condition_shape_iris(
+    shape_ir: &ShapeIR,
+    conditions: &[RuleCondition],
+) -> Result<Vec<String>, String> {
+    let mut condition_shape_iris: Vec<String> = Vec::new();
+    for condition in conditions {
+        let RuleCondition::NodeShape(shape_id) = condition;
+        let Some(shape_iri) = resolve_shape_iri(shape_ir, *shape_id) else {
+            return Err(format!(
+                "Rule condition references unknown shape id {}",
+                shape_id.0
+            ));
+        };
+        condition_shape_iris.push(shape_iri);
+    }
+    condition_shape_iris.sort();
+    condition_shape_iris.dedup();
+    Ok(condition_shape_iris)
 }
 
 fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
@@ -1323,8 +1364,8 @@ mod tests {
     use super::*;
     use shifty::shacl_ir::{
         ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, PropShapeID,
-        PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target, TriplePatternTerm,
-        TripleRule, ID,
+        PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, SparqlRule, Target,
+        TriplePatternTerm, TripleRule, ID,
     };
     use std::collections::HashMap;
 
@@ -3014,6 +3055,100 @@ mod tests {
                 ref condition_shape_iris,
                 ..
             } if condition_shape_iris == &vec!["urn:shape:condition".to_string()]
+        ));
+    }
+
+    #[test]
+    fn sparql_rule_with_class_targets_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Equipment")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:equipment",
+            )),
+        );
+        node_shape_terms.insert(
+            ID(2),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:condition",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(41),
+            Rule::Sparql(SparqlRule {
+                id: RuleID(41),
+                query: "CONSTRUCT { $this <urn:inferred:edge> <urn:target> . } WHERE { }"
+                    .to_string(),
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:sparql",
+                )),
+                condition_shapes: vec![RuleCondition::NodeShape(ID(2))],
+                deactivated: false,
+                order: None,
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(41)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![
+                NodeShapeIR {
+                    id: ID(1),
+                    targets: vec![Target::Class(Term::NamedNode(
+                        oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                    ))],
+                    constraints: vec![ComponentID(1)],
+                    property_shapes: Vec::new(),
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+                NodeShapeIR {
+                    id: ID(2),
+                    targets: Vec::new(),
+                    constraints: Vec::new(),
+                    property_shapes: Vec::new(),
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+            ],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(!lowered.rules[0].fallback_only);
+        assert_eq!(lowered.rules[0].target_classes, vec!["urn:Equipment"]);
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Sparql {
+                ref query,
+                ref condition_shape_iris,
+            } if query.contains("CONSTRUCT")
+                && condition_shape_iris == &vec!["urn:shape:condition".to_string()]
         ));
     }
 

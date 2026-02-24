@@ -190,6 +190,11 @@ pub enum SrcGenRuleKind {
         #[serde(default)]
         condition_shape_iris: Vec<String>,
     },
+    Sparql {
+        query: String,
+        #[serde(default)]
+        condition_shape_iris: Vec<String>,
+    },
     Unsupported {
         kind: String,
     },
