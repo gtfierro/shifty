@@ -598,6 +598,13 @@ fn sparql_query_uses_relation_projection_pattern(query: &str) -> bool {
         && query.contains("?p a/rdfs:subClassOf* s223:Relation")
 }
 
+fn sparql_query_uses_closed_world_projection_pattern(query: &str) -> bool {
+    (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
+        && query.contains("a/rdfs:subClassOf* ?class")
+        && query.contains("sh:property/sh:path ?p")
+        && query.contains("FILTER NOT EXISTS")
+}
+
 fn resolve_shape_iri(shape_ir: &ShapeIR, shape_id: ID) -> Option<String> {
     shape_ir
         .node_shape_terms
@@ -878,7 +885,21 @@ fn component_kind(
                     SrcGenComponentKind::Unsupported {
                         kind: "Sparql(relation-projection)".to_string(),
                     },
-                    Some("SPARQL relation-projection query pattern is not yet specialized (guarded component fallback)".to_string()),
+                    Some(
+                        "SPARQL relation-projection query pattern is not yet specialized for performant batched execution"
+                            .to_string(),
+                    ),
+                );
+            }
+            if sparql_query_uses_closed_world_projection_pattern(&query) {
+                return (
+                    SrcGenComponentKind::Unsupported {
+                        kind: "Sparql(closed-world-projection)".to_string(),
+                    },
+                    Some(
+                        "SPARQL closed-world projection query pattern is not yet specialized for performant batched execution"
+                            .to_string(),
+                    ),
                 );
             }
             let prefixes = match sparql_prefixes_for(shape_ir, constraint_node) {
@@ -1595,17 +1616,90 @@ mod tests {
 
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(!lowered.meta.specialization_ready);
-        assert_eq!(lowered.fallback_annotations.len(), 1);
-        assert_eq!(
-            lowered.fallback_annotations[0].reason,
-            "SPARQL relation-projection query pattern is not yet specialized (guarded component fallback)"
-        );
         assert!(matches!(
             lowered.components[0].kind,
             SrcGenComponentKind::Unsupported { ref kind }
                 if kind == "Sparql(relation-projection)"
         ));
+        assert_eq!(
+            lowered.node_shapes[0].supported_constraints,
+            Vec::<u64>::new()
+        );
         assert_eq!(lowered.node_shapes[0].fallback_constraints, vec![1]);
+        assert_eq!(lowered.fallback_annotations.len(), 1);
+        assert_eq!(
+            lowered.fallback_annotations[0].reason,
+            "SPARQL relation-projection query pattern is not yet specialized for performant batched execution"
+        );
+    }
+
+    #[test]
+    fn sparql_closed_world_projection_pattern_is_guarded_for_fallback() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:closed-world:projection",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:closed-world-projection",
+            )),
+        );
+
+        let shape_graph = oxigraph::model::NamedNode::new_unchecked("urn:shape-graph");
+        let shape_ir = ShapeIR {
+            shape_graph: shape_graph.clone(),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Concept"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:closed-world:projection"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_typed_literal(
+                    "SELECT $this ?p ?o WHERE { $this ?p ?o . FILTER NOT EXISTS { $this a/rdfs:subClassOf* ?class . ?class sh:property/sh:path ?p . } }",
+                    oxigraph::model::vocab::xsd::STRING,
+                ),
+                oxigraph::model::GraphName::NamedNode(shape_graph),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(!lowered.meta.specialization_ready);
+        assert!(matches!(
+            lowered.components[0].kind,
+            SrcGenComponentKind::Unsupported { ref kind }
+                if kind == "Sparql(closed-world-projection)"
+        ));
+        assert_eq!(
+            lowered.fallback_annotations[0].reason,
+            "SPARQL closed-world projection query pattern is not yet specialized for performant batched execution"
+        );
     }
 
     #[test]
