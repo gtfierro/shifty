@@ -1,5 +1,5 @@
 use crate::codegen::render_tokens_as_module;
-use crate::ir::{SrcGenIR, SrcGenRuleKind};
+use crate::ir::{SrcGenIR, SrcGenRuleKind, SrcGenRuleObject};
 use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -66,7 +66,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     rule.kind,
                     SrcGenRuleKind::Triple {
                         predicate_iri: _,
-                        object: _
+                        object: _,
                     }
                 )
         })
@@ -91,7 +91,18 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .iter()
             .map(|iri| LitStr::new(iri, Span::call_site()))
             .collect();
-        let object_expr = term_expr(object);
+        let object_setup_and_use = match object {
+            SrcGenRuleObject::Constant(term) => {
+                let expr = term_expr(term);
+                quote! {
+                    let object_template: oxigraph::model::Term = #expr;
+                    let object_term: oxigraph::model::Term = object_template.clone();
+                }
+            }
+            SrcGenRuleObject::This => quote! {
+                let object_term: oxigraph::model::Term = focus.clone();
+            },
+        };
         specialized_rule_blocks.push(quote! {
             {
                 let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
@@ -109,15 +120,15 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 let predicate = oxigraph::model::NamedNode::new(#predicate_lit).map_err(|err| {
                     format!("invalid TripleRule predicate IRI for rule {}: {err}", #rule_id)
                 })?;
-                let object_template: oxigraph::model::Term = #object_expr;
                 for focus in focus_nodes {
+                    #object_setup_and_use
                     let Some(subject) = subject_ref_from_term(&focus) else {
                         continue;
                     };
                     let inferred = oxigraph::model::Quad::new(
                         subject.into_owned(),
                         predicate.clone(),
-                        object_template.clone(),
+                        object_term,
                         graph_name.clone(),
                     );
                     if store

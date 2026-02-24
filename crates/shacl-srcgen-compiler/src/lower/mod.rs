@@ -1,6 +1,6 @@
 use crate::ir::{
     FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
-    SrcGenMeta, SrcGenNodeShape, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind,
+    SrcGenMeta, SrcGenNodeShape, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
@@ -471,18 +471,8 @@ fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<
                 );
             }
             let object = match &rule.object {
-                TriplePatternTerm::Constant(term) => term.clone(),
-                TriplePatternTerm::This => {
-                    return (
-                        SrcGenRuleKind::Unsupported {
-                            kind: "TripleRule(object-this)".to_string(),
-                        },
-                        Some(
-                            "TripleRule specialization currently requires a constant sh:object"
-                                .to_string(),
-                        ),
-                    );
-                }
+                TriplePatternTerm::Constant(term) => SrcGenRuleObject::Constant(term.clone()),
+                TriplePatternTerm::This => SrcGenRuleObject::This,
                 TriplePatternTerm::Path(_) => {
                     return (
                         SrcGenRuleKind::Unsupported {
@@ -2740,6 +2730,83 @@ mod tests {
         assert!(!lowered.rules[0].fallback_only);
         assert_eq!(lowered.rules[0].target_classes, vec!["urn:Equipment"]);
         assert!(lowered.rule_fallback_annotations.is_empty());
+    }
+
+    #[test]
+    fn triple_rule_with_this_object_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Equipment")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:equipment",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(31),
+            Rule::Triple(TripleRule {
+                id: RuleID(31),
+                subject: TriplePatternTerm::This,
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:relatedToSelf"),
+                object: TriplePatternTerm::This,
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:self",
+                )),
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(31)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(!lowered.rules[0].fallback_only);
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Triple {
+                object: SrcGenRuleObject::This,
+                ..
+            }
+        ));
     }
 
     #[test]

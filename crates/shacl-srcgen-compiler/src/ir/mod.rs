@@ -183,8 +183,19 @@ pub struct SrcGenRule {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SrcGenRuleKind {
-    Triple { predicate_iri: String, object: Term },
-    Unsupported { kind: String },
+    Triple {
+        predicate_iri: String,
+        object: SrcGenRuleObject,
+    },
+    Unsupported {
+        kind: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenRuleObject {
+    Constant(Term),
+    This,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
