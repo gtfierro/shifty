@@ -184,6 +184,7 @@ pub struct SrcGenRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SrcGenRuleKind {
     Triple {
+        subject: SrcGenRuleSubject,
         predicate_iri: String,
         object: SrcGenRuleObject,
     },
@@ -196,6 +197,12 @@ pub enum SrcGenRuleKind {
 pub enum SrcGenRuleObject {
     Constant(Term),
     This,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenRuleSubject {
+    This,
+    Constant(Term),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

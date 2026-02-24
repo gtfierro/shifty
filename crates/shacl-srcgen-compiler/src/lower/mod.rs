@@ -1,6 +1,7 @@
 use crate::ir::{
     FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
     SrcGenMeta, SrcGenNodeShape, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
+    SrcGenRuleSubject,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
@@ -459,17 +460,35 @@ fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<
                     ),
                 );
             }
-            if !matches!(rule.subject, TriplePatternTerm::This) {
-                return (
-                    SrcGenRuleKind::Unsupported {
-                        kind: "TripleRule(subject)".to_string(),
-                    },
-                    Some(
-                        "TripleRule specialization currently supports sh:subject sh:this only"
-                            .to_string(),
-                    ),
-                );
-            }
+            let subject = match &rule.subject {
+                TriplePatternTerm::This => SrcGenRuleSubject::This,
+                TriplePatternTerm::Constant(term) => {
+                    if matches!(term, Term::NamedNode(_) | Term::BlankNode(_)) {
+                        SrcGenRuleSubject::Constant(term.clone())
+                    } else {
+                        return (
+                            SrcGenRuleKind::Unsupported {
+                                kind: "TripleRule(subject-constant-literal)".to_string(),
+                            },
+                            Some(
+                                "TripleRule specialization requires constant sh:subject terms to be IRIs or blank nodes"
+                                    .to_string(),
+                            ),
+                        );
+                    }
+                }
+                TriplePatternTerm::Path(_) => {
+                    return (
+                        SrcGenRuleKind::Unsupported {
+                            kind: "TripleRule(subject-path)".to_string(),
+                        },
+                        Some(
+                            "TripleRule specialization currently does not support path-based sh:subject templates"
+                                .to_string(),
+                        ),
+                    );
+                }
+            };
             let object = match &rule.object {
                 TriplePatternTerm::Constant(term) => SrcGenRuleObject::Constant(term.clone()),
                 TriplePatternTerm::This => SrcGenRuleObject::This,
@@ -487,6 +506,7 @@ fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<
             };
             (
                 SrcGenRuleKind::Triple {
+                    subject,
                     predicate_iri: rule.predicate.as_str().to_string(),
                     object,
                 },
@@ -2804,6 +2824,87 @@ mod tests {
             lowered.rules[0].kind,
             SrcGenRuleKind::Triple {
                 object: SrcGenRuleObject::This,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn triple_rule_with_constant_subject_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Equipment")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:equipment",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(32),
+            Rule::Triple(TripleRule {
+                id: RuleID(32),
+                subject: TriplePatternTerm::Constant(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:constant:subject"),
+                )),
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:hasInferred"),
+                object: TriplePatternTerm::Constant(Term::Literal(
+                    oxigraph::model::Literal::new_simple_literal("x"),
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:constant-subject",
+                )),
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(32)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(!lowered.rules[0].fallback_only);
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Triple {
+                subject: SrcGenRuleSubject::Constant(_),
                 ..
             }
         ));

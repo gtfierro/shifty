@@ -1,5 +1,5 @@
 use crate::codegen::render_tokens_as_module;
-use crate::ir::{SrcGenIR, SrcGenRuleKind, SrcGenRuleObject};
+use crate::ir::{SrcGenIR, SrcGenRuleKind, SrcGenRuleObject, SrcGenRuleSubject};
 use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -65,6 +65,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 && matches!(
                     rule.kind,
                     SrcGenRuleKind::Triple {
+                        subject: _,
                         predicate_iri: _,
                         object: _,
                     }
@@ -79,6 +80,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
         let rule_id = rule.id;
         let SrcGenRuleKind::Triple {
+            subject,
             predicate_iri,
             object,
         } = &rule.kind
@@ -91,6 +93,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .iter()
             .map(|iri| LitStr::new(iri, Span::call_site()))
             .collect();
+        let subject_setup = match subject {
+            SrcGenRuleSubject::This => quote! {
+                let subject_term: oxigraph::model::Term = focus.clone();
+            },
+            SrcGenRuleSubject::Constant(term) => {
+                let expr = term_expr(term);
+                quote! {
+                    let subject_term: oxigraph::model::Term = #expr;
+                }
+            }
+        };
         let object_setup_and_use = match object {
             SrcGenRuleObject::Constant(term) => {
                 let expr = term_expr(term);
@@ -121,8 +134,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     format!("invalid TripleRule predicate IRI for rule {}: {err}", #rule_id)
                 })?;
                 for focus in focus_nodes {
+                    #subject_setup
                     #object_setup_and_use
-                    let Some(subject) = subject_ref_from_term(&focus) else {
+                    let Some(subject) = subject_ref_from_term(&subject_term) else {
                         continue;
                     };
                     let inferred = oxigraph::model::Quad::new(
