@@ -213,28 +213,78 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
                             focus_nodes.dedup();
 
-                            let candidate_batches = focus_nodes
-                                .par_iter()
-                                .map(|focus| -> Result<
-                                    Vec<(
-                                        oxigraph::model::Term,
-                                        oxigraph::model::NamedNode,
-                                        oxigraph::model::Term,
-                                    )>,
-                                    String,
-                                > {
-                                    let sparql_bindings = [("this", focus.clone())];
+                            let query_uses_this = sparql_query_uses_this(#query_lit);
+                            let mut candidate_batches: Vec<Vec<(
+                                oxigraph::model::Term,
+                                oxigraph::model::NamedNode,
+                                oxigraph::model::Term,
+                            )>> = Vec::new();
+                            if !query_uses_this {
+                                candidate_batches.push(
                                     sparql_construct_triples_with_bindings(
                                         #query_lit,
                                         store,
                                         data_graph,
-                                        &sparql_bindings,
+                                        &[],
                                     )
                                     .map_err(|err| {
                                         format!("SPARQLRule {} execution failed: {err}", #rule_id)
+                                    })?
+                                );
+                            } else {
+                                let mut ground_focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                                let mut fallback_focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                                for focus in focus_nodes {
+                                    if term_to_sparql_ground(&focus).is_some() {
+                                        ground_focus_nodes.push(focus);
+                                    } else {
+                                        fallback_focus_nodes.push(focus);
+                                    }
+                                }
+
+                                const THIS_VALUES_BATCH_SIZE: usize = 128;
+                                for chunk in ground_focus_nodes.chunks(THIS_VALUES_BATCH_SIZE) {
+                                    let Some(batched_query) = sparql_query_with_this_values(#query_lit, chunk)? else {
+                                        fallback_focus_nodes.extend_from_slice(chunk);
+                                        continue;
+                                    };
+                                    candidate_batches.push(
+                                        sparql_construct_triples_with_bindings(
+                                            batched_query.as_str(),
+                                            store,
+                                            data_graph,
+                                            &[],
+                                        )
+                                        .map_err(|err| {
+                                            format!("SPARQLRule {} execution failed: {err}", #rule_id)
+                                        })?
+                                    );
+                                }
+
+                                let fallback_batches = fallback_focus_nodes
+                                    .par_iter()
+                                    .map(|focus| -> Result<
+                                        Vec<(
+                                            oxigraph::model::Term,
+                                            oxigraph::model::NamedNode,
+                                            oxigraph::model::Term,
+                                        )>,
+                                        String,
+                                    > {
+                                        let sparql_bindings = [("this", focus.clone())];
+                                        sparql_construct_triples_with_bindings(
+                                            #query_lit,
+                                            store,
+                                            data_graph,
+                                            &sparql_bindings,
+                                        )
+                                        .map_err(|err| {
+                                            format!("SPARQLRule {} execution failed: {err}", #rule_id)
+                                        })
                                     })
-                                })
-                                .collect::<Result<Vec<_>, _>>()?;
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                candidate_batches.extend(fallback_batches);
+                            }
 
                             let mut inferred_seen: std::collections::HashSet<(
                                 oxigraph::model::Term,
@@ -379,6 +429,85 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             > = std::cell::RefCell::new(std::collections::HashMap::new());
         }
 
+        fn sparql_query_uses_this(query: &str) -> bool {
+            SPARQL_RULE_USES_THIS_CACHE.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                if let Some(cached) = cache.get(query) {
+                    *cached
+                } else {
+                    let mentions_this = query_mentions_var(query, "this");
+                    cache.insert(query.to_string(), mentions_this);
+                    mentions_this
+                }
+            })
+        }
+
+        fn inject_values_clause_into_where(
+            query: &str,
+            values_clause: &str,
+        ) -> Option<String> {
+            let query_bytes = query.as_bytes();
+            let lower = query.to_ascii_lowercase();
+            let lower_bytes = lower.as_bytes();
+            let mut where_idx: Option<usize> = None;
+            let mut idx = 0usize;
+            while idx + 5 <= lower_bytes.len() {
+                if &lower_bytes[idx..idx + 5] == b"where" {
+                    let boundary_before = idx == 0
+                        || !(lower_bytes[idx - 1].is_ascii_alphanumeric()
+                            || lower_bytes[idx - 1] == b'_');
+                    let boundary_after = idx + 5 == lower_bytes.len()
+                        || !(lower_bytes[idx + 5].is_ascii_alphanumeric()
+                            || lower_bytes[idx + 5] == b'_');
+                    if boundary_before && boundary_after {
+                        where_idx = Some(idx);
+                        break;
+                    }
+                }
+                idx += 1;
+            }
+            let where_idx = where_idx?;
+            let mut brace_idx: Option<usize> = None;
+            for (offset, ch) in query[where_idx + 5..].char_indices() {
+                if ch == '{' {
+                    brace_idx = Some(where_idx + 5 + offset);
+                    break;
+                }
+            }
+            let brace_idx = brace_idx?;
+
+            let mut out = String::with_capacity(query.len() + values_clause.len() + 4);
+            out.push_str(&query[..brace_idx + 1]);
+            out.push('\n');
+            out.push_str(values_clause);
+            out.push('\n');
+            out.push_str(&query[brace_idx + 1..]);
+            if out.as_bytes() == query_bytes {
+                None
+            } else {
+                Some(out)
+            }
+        }
+
+        fn sparql_query_with_this_values(
+            query: &str,
+            this_terms: &[oxigraph::model::Term],
+        ) -> Result<Option<String>, String> {
+            if this_terms.is_empty() || !sparql_query_uses_this(query) {
+                return Ok(None);
+            }
+            let mut values_clause = String::from("VALUES ?this {");
+            for term in this_terms {
+                let Some(ground) = term_to_sparql_ground(term) else {
+                    return Ok(None);
+                };
+                values_clause.push(' ');
+                values_clause.push_str(ground.as_str());
+            }
+            values_clause.push_str(" }");
+            Ok(inject_values_clause_into_where(query, values_clause.as_str()))
+        }
+
         fn sparql_construct_triples_with_bindings(
             query: &str,
             store: &oxigraph::store::Store,
@@ -406,16 +535,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             prepared.dataset_mut().set_default_graph(default_graphs);
 
             let mut bound = prepared.on_store(store);
-            let query_uses_this = SPARQL_RULE_USES_THIS_CACHE.with(|cache| {
-                let mut cache = cache.borrow_mut();
-                if let Some(cached) = cache.get(query) {
-                    *cached
-                } else {
-                    let mentions_this = query_mentions_var(query, "this");
-                    cache.insert(query.to_string(), mentions_this);
-                    mentions_this
-                }
-            });
+            let query_uses_this = sparql_query_uses_this(query);
             for (name, term) in bindings {
                 if *name == "this" && !query_uses_this {
                     continue;
