@@ -162,27 +162,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             }
                             #subject_setup
                             #object_setup_and_use
-                            let Some(subject) = subject_ref_from_term(&subject_term) else {
-                                continue;
-                            };
-                            let inferred = oxigraph::model::Quad::new(
-                                subject.into_owned(),
-                                predicate.clone(),
-                                object_term,
-                                graph_name.clone(),
-                            );
-                            if store
-                                .contains(inferred.as_ref())
-                                .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
-                            {
-                                continue;
+                            let added = insert_inferred_candidates(
+                                store,
+                                &graph_name,
+                                vec![(subject_term, predicate.clone(), object_term)],
+                            )?;
+                            if added > 0 {
+                                inserted += added;
+                                condition_cache.clear();
+                                let _ = condition_validator.take();
                             }
-                            store
-                                .insert(inferred.as_ref())
-                                .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
-                            inserted += 1;
-                            condition_cache.clear();
-                            let _ = condition_validator.take();
                         }
                     }
                 });
@@ -286,41 +275,19 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 candidate_batches.extend(fallback_batches);
                             }
 
-                            let mut inferred_seen: std::collections::HashSet<(
+                            let mut all_candidates: Vec<(
                                 oxigraph::model::Term,
                                 oxigraph::model::NamedNode,
                                 oxigraph::model::Term,
-                            )> = std::collections::HashSet::new();
+                            )> = Vec::new();
                             for constructed in candidate_batches {
-                                for (subject_term, predicate, object_term) in constructed {
-                                    if !inferred_seen.insert((
-                                        subject_term.clone(),
-                                        predicate.clone(),
-                                        object_term.clone(),
-                                    )) {
-                                        continue;
-                                    }
-                                    let Some(subject) = subject_ref_from_term(&subject_term) else {
-                                        continue;
-                                    };
-                                    let inferred = oxigraph::model::Quad::new(
-                                        subject.into_owned(),
-                                        predicate,
-                                        object_term,
-                                        graph_name.clone(),
-                                    );
-                                    if store
-                                        .contains(inferred.as_ref())
-                                        .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
-                                    {
-                                        continue;
-                                    }
-                                    store
-                                        .insert(inferred.as_ref())
-                                        .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
-                                    inserted += 1;
-                                }
+                                all_candidates.extend(constructed);
                             }
+                            inserted += insert_inferred_candidates(
+                                store,
+                                &graph_name,
+                                all_candidates,
+                            )?;
                         }
                     });
                 } else {
@@ -377,30 +344,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 ).map_err(|err| {
                                     format!("SPARQLRule {} execution failed: {err}", #rule_id)
                                 })?;
-                                let mut inserted_any = false;
-                                for (subject_term, predicate, object_term) in constructed {
-                                    let Some(subject) = subject_ref_from_term(&subject_term) else {
-                                        continue;
-                                    };
-                                    let inferred = oxigraph::model::Quad::new(
-                                        subject.into_owned(),
-                                        predicate,
-                                        object_term,
-                                        graph_name.clone(),
-                                    );
-                                    if store
-                                        .contains(inferred.as_ref())
-                                        .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
-                                    {
-                                        continue;
-                                    }
-                                    store
-                                        .insert(inferred.as_ref())
-                                        .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
-                                    inserted += 1;
-                                    inserted_any = true;
-                                }
-                                if inserted_any {
+                                let added = insert_inferred_candidates(
+                                    store,
+                                    &graph_name,
+                                    constructed,
+                                )?;
+                                if added > 0 {
+                                    inserted += added;
                                     condition_cache.clear();
                                     let _ = condition_validator.take();
                                 }
@@ -577,6 +527,58 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(nodes)
         }
 
+        fn insert_inferred_candidates(
+            store: &oxigraph::store::Store,
+            graph_name: &oxigraph::model::GraphName,
+            candidates: Vec<(
+                oxigraph::model::Term,
+                oxigraph::model::NamedNode,
+                oxigraph::model::Term,
+            )>,
+        ) -> Result<usize, String> {
+            if candidates.is_empty() {
+                return Ok(0);
+            }
+
+            let mut seen: std::collections::HashSet<(
+                oxigraph::model::Term,
+                oxigraph::model::NamedNode,
+                oxigraph::model::Term,
+            )> = std::collections::HashSet::new();
+            let mut inferred_quads: Vec<oxigraph::model::Quad> = Vec::new();
+            for (subject_term, predicate, object_term) in candidates {
+                if !seen.insert((subject_term.clone(), predicate.clone(), object_term.clone())) {
+                    continue;
+                }
+                let Some(subject) = subject_ref_from_term(&subject_term) else {
+                    continue;
+                };
+                let inferred = oxigraph::model::Quad::new(
+                    subject.into_owned(),
+                    predicate,
+                    object_term,
+                    graph_name.clone(),
+                );
+                if store
+                    .contains(inferred.as_ref())
+                    .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
+                {
+                    continue;
+                }
+                inferred_quads.push(inferred);
+            }
+
+            if inferred_quads.is_empty() {
+                return Ok(0);
+            }
+
+            let inserted = inferred_quads.len();
+            store
+                .extend(inferred_quads)
+                .map_err(|err| format!("failed to insert inferred quads: {err}"))?;
+            Ok(inserted)
+        }
+
         pub fn run_generated_inference(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
@@ -603,24 +605,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let outcome = validator
                 .run_inference_with_config(config)
                 .map_err(|err| format!("runtime inference failed: {err}"))?;
-            for quad in outcome.inferred_quads {
-                let inferred = oxigraph::model::Quad::new(
-                    quad.subject,
-                    quad.predicate,
-                    quad.object,
-                    graph_name.clone(),
-                );
-                if store
-                    .contains(inferred.as_ref())
-                    .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
-                {
-                    continue;
-                }
-                store
-                    .insert(inferred.as_ref())
-                    .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
-                inserted += 1;
-            }
+            let candidates = outcome
+                .inferred_quads
+                .into_iter()
+                .map(|quad| (oxigraph::model::Term::from(quad.subject), quad.predicate, quad.object))
+                .collect();
+            inserted += insert_inferred_candidates(store, &graph_name, candidates)?;
             Ok(inserted)
         }
     };
