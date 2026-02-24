@@ -593,18 +593,6 @@ fn sparql_query_is_select(query: &str) -> bool {
     false
 }
 
-fn sparql_query_uses_relation_projection_pattern(query: &str) -> bool {
-    (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
-        && query.contains("?p a/rdfs:subClassOf* s223:Relation")
-}
-
-fn sparql_query_uses_closed_world_projection_pattern(query: &str) -> bool {
-    (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
-        && query.contains("a/rdfs:subClassOf* ?class")
-        && query.contains("sh:property/sh:path ?p")
-        && query.contains("FILTER NOT EXISTS")
-}
-
 fn resolve_shape_iri(shape_ir: &ShapeIR, shape_id: ID) -> Option<String> {
     shape_ir
         .node_shape_terms
@@ -877,28 +865,6 @@ fn component_kind(
                     },
                     Some(
                         "SPARQL constraint does not reference pre-bound variable ?this".to_string(),
-                    ),
-                );
-            }
-            if sparql_query_uses_relation_projection_pattern(&query) {
-                return (
-                    SrcGenComponentKind::Unsupported {
-                        kind: "Sparql(relation-projection)".to_string(),
-                    },
-                    Some(
-                        "SPARQL relation-projection query pattern is not yet specialized for performant batched execution"
-                            .to_string(),
-                    ),
-                );
-            }
-            if sparql_query_uses_closed_world_projection_pattern(&query) {
-                return (
-                    SrcGenComponentKind::Unsupported {
-                        kind: "Sparql(closed-world-projection)".to_string(),
-                    },
-                    Some(
-                        "SPARQL closed-world projection query pattern is not yet specialized for performant batched execution"
-                            .to_string(),
                     ),
                 );
             }
@@ -1559,7 +1525,7 @@ mod tests {
     }
 
     #[test]
-    fn sparql_relation_projection_pattern_is_guarded_for_fallback() {
+    fn sparql_relation_projection_pattern_is_specialized() {
         let mut components = HashMap::new();
         components.insert(
             ComponentID(1),
@@ -1615,26 +1581,18 @@ mod tests {
         };
 
         let lowered = lower_shape_ir(&shape_ir).unwrap();
-        assert!(!lowered.meta.specialization_ready);
+        assert!(lowered.meta.specialization_ready);
         assert!(matches!(
             lowered.components[0].kind,
-            SrcGenComponentKind::Unsupported { ref kind }
-                if kind == "Sparql(relation-projection)"
+            SrcGenComponentKind::Sparql { .. }
         ));
-        assert_eq!(
-            lowered.node_shapes[0].supported_constraints,
-            Vec::<u64>::new()
-        );
-        assert_eq!(lowered.node_shapes[0].fallback_constraints, vec![1]);
-        assert_eq!(lowered.fallback_annotations.len(), 1);
-        assert_eq!(
-            lowered.fallback_annotations[0].reason,
-            "SPARQL relation-projection query pattern is not yet specialized for performant batched execution"
-        );
+        assert_eq!(lowered.node_shapes[0].supported_constraints, vec![1]);
+        assert!(lowered.node_shapes[0].fallback_constraints.is_empty());
+        assert!(lowered.fallback_annotations.is_empty());
     }
 
     #[test]
-    fn sparql_closed_world_projection_pattern_is_guarded_for_fallback() {
+    fn sparql_closed_world_projection_pattern_is_specialized() {
         let mut components = HashMap::new();
         components.insert(
             ComponentID(1),
@@ -1690,16 +1648,14 @@ mod tests {
         };
 
         let lowered = lower_shape_ir(&shape_ir).unwrap();
-        assert!(!lowered.meta.specialization_ready);
+        assert!(lowered.meta.specialization_ready);
         assert!(matches!(
             lowered.components[0].kind,
-            SrcGenComponentKind::Unsupported { ref kind }
-                if kind == "Sparql(closed-world-projection)"
+            SrcGenComponentKind::Sparql { .. }
         ));
-        assert_eq!(
-            lowered.fallback_annotations[0].reason,
-            "SPARQL closed-world projection query pattern is not yet specialized for performant batched execution"
-        );
+        assert_eq!(lowered.node_shapes[0].supported_constraints, vec![1]);
+        assert!(lowered.node_shapes[0].fallback_constraints.is_empty());
+        assert!(lowered.fallback_annotations.is_empty());
     }
 
     #[test]

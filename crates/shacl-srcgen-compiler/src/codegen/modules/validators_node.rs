@@ -5,6 +5,18 @@ use quote::quote;
 use std::collections::HashMap;
 use syn::LitStr;
 
+fn sparql_uses_relation_projection_pattern(query: &str) -> bool {
+    (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
+        && query.contains("?p a/rdfs:subClassOf* s223:Relation")
+}
+
+fn sparql_uses_closed_world_projection_pattern(query: &str) -> bool {
+    (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
+        && query.contains("a/rdfs:subClassOf* ?class")
+        && query.contains("sh:property/sh:path ?p")
+        && query.contains("FILTER NOT EXISTS")
+}
+
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let component_by_id: HashMap<u64, &SrcGenComponentKind> = ir
         .components
@@ -50,6 +62,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             })
             .collect();
 
+        let mut shape_batched_checks: Vec<TokenStream> = Vec::new();
         let mut node_constraint_checks: Vec<TokenStream> = Vec::new();
         for component_id in &shape.supported_constraints {
             let component_id_value = *component_id;
@@ -235,61 +248,88 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 } => {
                     let query_lit = LitStr::new(query, Span::call_site());
                     let prefixes_lit = LitStr::new(prefixes, Span::call_site());
-                    node_constraint_checks.push(quote! {
-                        let query = String::from(#query_lit);
-                        let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
-                        bindings.push(("this", focus.clone()));
-                        if query_mentions_var(&query, "currentShape") {
-                            if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
-                                bindings.push(("currentShape", current_shape_term));
+                    let use_batched_focus_query = sparql_uses_relation_projection_pattern(query)
+                        || sparql_uses_closed_world_projection_pattern(query);
+                    if use_batched_focus_query {
+                        let mode_token = if sparql_uses_relation_projection_pattern(query) {
+                            quote! { ClosedWorldConstraintMode::S223Relation }
+                        } else {
+                            quote! { ClosedWorldConstraintMode::QudtPredicate }
+                        };
+                        shape_batched_checks.push(quote! {
+                            let closed_world_violations = run_closed_world_batch_violations(
+                                store,
+                                data_graph,
+                                &focus_nodes,
+                                #mode_token,
+                            )?;
+                            for focus_term in closed_world_violations {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus_term.clone(),
+                                    value: Some(focus_term),
+                                    path: None,
+                                });
                             }
-                        }
-                        if query_mentions_var(&query, "shapesGraph") {
-                            if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
-                                bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
-                            }
-                        }
-
-                        let solutions = sparql_select_solutions_with_bindings(
-                            &query,
-                            #prefixes_lit,
-                            store,
-                            data_graph,
-                            &bindings,
-                        )?;
-
-                        let mut seen: std::collections::HashSet<oxigraph::model::Term> =
-                            std::collections::HashSet::new();
-                        for row in solutions {
-                            if let Some(failure_term) = row.get("failure") {
-                                if term_is_true_boolean(failure_term) {
-                                    return Err(format!(
-                                        "SPARQL constraint query reported failure for shape {} component {}",
-                                        #shape_id, #component_id_value
-                                    ));
+                        });
+                    } else {
+                        node_constraint_checks.push(quote! {
+                            let query = String::from(#query_lit);
+                            let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                            bindings.push(("this", focus.clone()));
+                            if query_mentions_var(&query, "currentShape") {
+                                if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                    bindings.push(("currentShape", current_shape_term));
                                 }
                             }
-                            let value = row
-                                .get("value")
-                                .cloned()
-                                .unwrap_or_else(|| focus.clone());
-                            if !seen.insert(value.clone()) {
-                                continue;
+                            if query_mentions_var(&query, "shapesGraph") {
+                                if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                    bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                                }
                             }
-                            let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
-                                Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
-                            } else {
-                                None
-                            };
-                            violations.push(Violation {
-                                shape_id: #shape_id,
-                                component_id: #component_id_value,
-                                focus: focus.clone(),
-                                value: Some(value),
-                                path,
-                            });
-                        }
-                    });
+
+                            let solutions = sparql_select_solutions_with_bindings(
+                                &query,
+                                #prefixes_lit,
+                                store,
+                                data_graph,
+                                &bindings,
+                            )?;
+
+                            let mut seen: std::collections::HashSet<oxigraph::model::Term> =
+                                std::collections::HashSet::new();
+                            for row in solutions {
+                                if let Some(failure_term) = row.get("failure") {
+                                    if term_is_true_boolean(failure_term) {
+                                        return Err(format!(
+                                            "SPARQL constraint query reported failure for shape {} component {}",
+                                            #shape_id, #component_id_value
+                                        ));
+                                    }
+                                }
+                                let value = row
+                                    .get("value")
+                                    .cloned()
+                                    .unwrap_or_else(|| focus.clone());
+                                if !seen.insert(value.clone()) {
+                                    continue;
+                                }
+                                let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                    Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
+                                } else {
+                                    None
+                                };
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value),
+                                    path,
+                                });
+                            }
+                        });
+                    }
                 }
                 SrcGenComponentKind::Node { shape_iri } => {
                     let shape_lit = LitStr::new(shape_iri, Span::call_site());
@@ -485,6 +525,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
                 focus_nodes.dedup();
 
+                #(#shape_batched_checks)*
+
                 for focus in &focus_nodes {
                     #(#node_constraint_checks)*
                     #(#property_calls)*
@@ -636,6 +678,264 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
             nodes.dedup();
             Ok(nodes)
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum ClosedWorldConstraintMode {
+            S223Relation,
+            QudtPredicate,
+        }
+
+        fn closed_world_focus_terms(
+            focus_nodes: &[oxigraph::model::Term],
+        ) -> Vec<oxigraph::model::Term> {
+            let mut seen: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            focus_nodes
+                .iter()
+                .filter(|term| {
+                    matches!(
+                        term,
+                        oxigraph::model::Term::NamedNode(_) | oxigraph::model::Term::BlankNode(_)
+                    )
+                })
+                .filter_map(|term| {
+                    if seen.insert(term.clone()) {
+                        Some(term.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+
+        fn closed_world_superclass_closure(
+            class_term: &oxigraph::model::Term,
+            direct_superclasses: &std::collections::HashMap<
+                oxigraph::model::Term,
+                Vec<oxigraph::model::Term>,
+            >,
+            memo: &mut std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashSet<oxigraph::model::Term>,
+            >,
+        ) -> std::collections::HashSet<oxigraph::model::Term> {
+            if let Some(cached) = memo.get(class_term) {
+                return cached.clone();
+            }
+            let mut closure: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            closure.insert(class_term.clone());
+            if let Some(parents) = direct_superclasses.get(class_term) {
+                for parent in parents {
+                    closure.extend(closed_world_superclass_closure(
+                        parent,
+                        direct_superclasses,
+                        memo,
+                    ));
+                }
+            }
+            memo.insert(class_term.clone(), closure.clone());
+            closure
+        }
+
+        fn run_closed_world_batch_violations(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus_nodes: &[oxigraph::model::Term],
+            mode: ClosedWorldConstraintMode,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let focus_terms = closed_world_focus_terms(focus_nodes);
+            if focus_terms.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let mut direct_superclasses: std::collections::HashMap<
+                oxigraph::model::Term,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            for quad in store.quads_for_pattern(
+                None,
+                Some(oxigraph::model::NamedNodeRef::new_unchecked(
+                    "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+                )),
+                None,
+                None,
+            ) {
+                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                let superclass = quad.object;
+                if !matches!(
+                    superclass,
+                    oxigraph::model::Term::NamedNode(_) | oxigraph::model::Term::BlankNode(_)
+                ) {
+                    continue;
+                }
+                let subclass = oxigraph::model::Term::from(quad.subject);
+                direct_superclasses
+                    .entry(subclass)
+                    .or_default()
+                    .push(superclass);
+            }
+            let mut superclass_memo: std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashSet<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+
+            let mut allowed_by_class: std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashSet<oxigraph::model::NamedNode>,
+            > = std::collections::HashMap::new();
+            let allowed_query = r#"
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT DISTINCT ?class ?p
+WHERE {
+  { ?class sh:property/sh:path ?p . }
+  UNION
+  { ?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p . }
+  UNION
+  { ?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p . }
+}
+"#;
+            let allowed_rows = sparql_select_solutions_with_bindings(
+                allowed_query,
+                "",
+                store,
+                data_graph,
+                &[],
+            )?;
+            for row in allowed_rows {
+                let Some(class_term) = row.get("class").cloned() else {
+                    continue;
+                };
+                let Some(oxigraph::model::Term::NamedNode(path_predicate)) = row.get("p").cloned()
+                else {
+                    continue;
+                };
+                allowed_by_class
+                    .entry(class_term)
+                    .or_default()
+                    .insert(path_predicate);
+            }
+
+            let relation_root = oxigraph::model::Term::NamedNode(
+                oxigraph::model::NamedNode::new_unchecked(
+                    "http://data.ashrae.org/standard223#Relation",
+                ),
+            );
+            let mut s223_relation_predicates: std::collections::HashSet<oxigraph::model::NamedNode> =
+                std::collections::HashSet::new();
+            if mode == ClosedWorldConstraintMode::S223Relation {
+                for type_quad in store.quads_for_pattern(
+                    None,
+                    Some(oxigraph::model::vocab::rdf::TYPE),
+                    None,
+                    None,
+                ) {
+                    let type_quad = type_quad.map_err(|err| format!("store query failed: {err}"))?;
+                    let predicate = match type_quad.subject {
+                        oxigraph::model::NamedOrBlankNode::NamedNode(nn) => nn,
+                        oxigraph::model::NamedOrBlankNode::BlankNode(_) => continue,
+                    };
+                    let predicate_class = type_quad.object;
+                    if !matches!(
+                        predicate_class,
+                        oxigraph::model::Term::NamedNode(_) | oxigraph::model::Term::BlankNode(_)
+                    ) {
+                        continue;
+                    }
+                    let supers = closed_world_superclass_closure(
+                        &predicate_class,
+                        &direct_superclasses,
+                        &mut superclass_memo,
+                    );
+                    if supers.contains(&relation_root) {
+                        s223_relation_predicates.insert(predicate);
+                    }
+                }
+            }
+
+            let mut violations = Vec::new();
+            for focus_term in focus_terms {
+                let Some(focus_subject) = subject_ref_from_term(&focus_term) else {
+                    continue;
+                };
+
+                let sh_node_shape = oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#NodeShape",
+                );
+                let mut is_node_shape = false;
+                for quad in store.quads_for_pattern(
+                    Some(focus_subject),
+                    Some(oxigraph::model::vocab::rdf::TYPE),
+                    Some(sh_node_shape.as_ref().into()),
+                    None,
+                ) {
+                    quad.map_err(|err| format!("store query failed: {err}"))?;
+                    is_node_shape = true;
+                    break;
+                }
+                if is_node_shape {
+                    continue;
+                }
+
+                let mut class_closure: std::collections::HashSet<oxigraph::model::Term> =
+                    std::collections::HashSet::new();
+                for class_quad in store.quads_for_pattern(
+                    Some(focus_subject),
+                    Some(oxigraph::model::vocab::rdf::TYPE),
+                    None,
+                    None,
+                ) {
+                    let class_quad = class_quad.map_err(|err| format!("store query failed: {err}"))?;
+                    let class_term = class_quad.object;
+                    if !matches!(
+                        class_term,
+                        oxigraph::model::Term::NamedNode(_) | oxigraph::model::Term::BlankNode(_)
+                    ) {
+                        continue;
+                    }
+                    class_closure.extend(closed_world_superclass_closure(
+                        &class_term,
+                        &direct_superclasses,
+                        &mut superclass_memo,
+                    ));
+                }
+
+                let mut has_violation = false;
+                for quad in store.quads_for_pattern(Some(focus_subject), None, None, None) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    let predicate = quad.predicate.clone();
+                    let predicate_allowed_scope = match mode {
+                        ClosedWorldConstraintMode::QudtPredicate => predicate
+                            .as_str()
+                            .starts_with("http://qudt.org/schema/qudt"),
+                        ClosedWorldConstraintMode::S223Relation => {
+                            s223_relation_predicates.contains(&predicate)
+                        }
+                    };
+                    if !predicate_allowed_scope {
+                        continue;
+                    }
+                    let is_allowed_for_any_class = class_closure.iter().any(|class_term| {
+                        allowed_by_class
+                            .get(class_term)
+                            .map(|predicates| predicates.contains(&predicate))
+                            .unwrap_or(false)
+                    });
+                    if is_allowed_for_any_class {
+                        continue;
+                    }
+
+                    has_violation = true;
+                    break;
+                }
+                if has_violation {
+                    violations.push(focus_term);
+                }
+            }
+
+            Ok(violations)
         }
 
         pub fn run_specialized_node_validation(
