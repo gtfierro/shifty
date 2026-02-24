@@ -187,6 +187,8 @@ pub enum SrcGenRuleKind {
         subject: SrcGenRuleSubject,
         predicate_iri: String,
         object: SrcGenRuleObject,
+        #[serde(default)]
+        condition_shape_iris: Vec<String>,
     },
     Unsupported {
         kind: String,

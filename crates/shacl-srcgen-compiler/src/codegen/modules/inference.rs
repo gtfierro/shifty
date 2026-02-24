@@ -68,6 +68,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         subject: _,
                         predicate_iri: _,
                         object: _,
+                        condition_shape_iris: _,
                     }
                 )
         })
@@ -83,6 +84,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             subject,
             predicate_iri,
             object,
+            condition_shape_iris,
         } = &rule.kind
         else {
             continue;
@@ -90,6 +92,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         let predicate_lit = LitStr::new(predicate_iri, Span::call_site());
         let target_class_lits: Vec<LitStr> = rule
             .target_classes
+            .iter()
+            .map(|iri| LitStr::new(iri, Span::call_site()))
+            .collect();
+        let condition_shape_lits: Vec<LitStr> = condition_shape_iris
             .iter()
             .map(|iri| LitStr::new(iri, Span::call_site()))
             .collect();
@@ -118,6 +124,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         };
         specialized_rule_blocks.push(quote! {
             {
+                let mut condition_cache: std::collections::HashMap<(String, String), bool> =
+                    std::collections::HashMap::new();
+                let mut condition_validator: Option<shifty::Validator> = None;
                 let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
                 #(
                     focus_nodes.extend(focus_nodes_for_target_class_cached(
@@ -134,6 +143,30 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     format!("invalid TripleRule predicate IRI for rule {}: {err}", #rule_id)
                 })?;
                 for focus in focus_nodes {
+                    let mut conditions_met = true;
+                    #(
+                        let condition_key = (#condition_shape_lits.to_string(), focus.to_string());
+                        let condition_conforms = if let Some(cached) = condition_cache.get(&condition_key) {
+                            *cached
+                        } else {
+                            if condition_validator.is_none() {
+                                condition_validator = Some(build_runtime_validator(store, data_graph)?);
+                            }
+                            let validator = condition_validator
+                                .as_ref()
+                                .ok_or_else(|| "condition validator was not initialized".to_string())?;
+                            let conforms = validator
+                                .node_conforms_to_shape_id(&focus, #condition_shape_lits)?;
+                            condition_cache.insert(condition_key, conforms);
+                            conforms
+                        };
+                        if !condition_conforms {
+                            conditions_met = false;
+                        }
+                    )*
+                    if !conditions_met {
+                        continue;
+                    }
                     #subject_setup
                     #object_setup_and_use
                     let Some(subject) = subject_ref_from_term(&subject_term) else {
@@ -155,6 +188,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         .insert(inferred.as_ref())
                         .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
                     inserted += 1;
+                    condition_cache.clear();
+                    let _ = condition_validator.take();
                 }
             }
         });

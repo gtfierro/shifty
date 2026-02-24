@@ -5,7 +5,7 @@ use crate::ir::{
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
-    ComponentDescriptor, Path, PropShapeID, Rule, RuleID, Severity, ShapeIR, Target,
+    ComponentDescriptor, Path, PropShapeID, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target,
     TriplePatternTerm, ID,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -274,7 +274,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
 
         let (kind, target_classes, fallback_reason) = match rule_target_classes(shape_ir, rule_id) {
             Ok(target_classes) => {
-                let (kind, reason) = rule_kind(rule, &target_classes);
+                let (kind, reason) = rule_kind(shape_ir, rule, &target_classes);
                 (kind, target_classes, reason)
             }
             Err(reason) => (
@@ -432,7 +432,11 @@ fn rule_kind_name(rule: &Rule) -> &'static str {
     }
 }
 
-fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<String>) {
+fn rule_kind(
+    shape_ir: &ShapeIR,
+    rule: &Rule,
+    target_classes: &[String],
+) -> (SrcGenRuleKind, Option<String>) {
     match rule {
         Rule::Sparql(_) => (
             SrcGenRuleKind::Unsupported {
@@ -449,17 +453,24 @@ fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<
                     Some("TripleRule has no specialized target classes".to_string()),
                 );
             }
-            if !rule.condition_shapes.is_empty() {
-                return (
-                    SrcGenRuleKind::Unsupported {
-                        kind: "TripleRule(conditions)".to_string(),
-                    },
-                    Some(
-                        "TripleRule specialization currently supports rules without sh:condition"
-                            .to_string(),
-                    ),
-                );
+            let mut condition_shape_iris: Vec<String> = Vec::new();
+            for condition in &rule.condition_shapes {
+                let RuleCondition::NodeShape(shape_id) = condition;
+                let Some(shape_iri) = resolve_shape_iri(shape_ir, *shape_id) else {
+                    return (
+                        SrcGenRuleKind::Unsupported {
+                            kind: "TripleRule(condition-shape)".to_string(),
+                        },
+                        Some(format!(
+                            "TripleRule condition references unknown shape id {}",
+                            shape_id.0
+                        )),
+                    );
+                };
+                condition_shape_iris.push(shape_iri);
             }
+            condition_shape_iris.sort();
+            condition_shape_iris.dedup();
             let subject = match &rule.subject {
                 TriplePatternTerm::This => SrcGenRuleSubject::This,
                 TriplePatternTerm::Constant(term) => {
@@ -509,6 +520,7 @@ fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<
                     subject,
                     predicate_iri: rule.predicate.as_str().to_string(),
                     object,
+                    condition_shape_iris,
                 },
                 None,
             )
@@ -1311,8 +1323,8 @@ mod tests {
     use super::*;
     use shifty::shacl_ir::{
         ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, PropShapeID,
-        PropertyShapeIR, Rule, RuleID, Severity, ShapeIR, Target, TriplePatternTerm, TripleRule,
-        ID,
+        PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target, TriplePatternTerm,
+        TripleRule, ID,
     };
     use std::collections::HashMap;
 
@@ -2907,6 +2919,101 @@ mod tests {
                 subject: SrcGenRuleSubject::Constant(_),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn triple_rule_with_condition_shape_is_specialized_when_shape_resolves() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Equipment")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:equipment",
+            )),
+        );
+        node_shape_terms.insert(
+            ID(2),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:condition",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(33),
+            Rule::Triple(TripleRule {
+                id: RuleID(33),
+                subject: TriplePatternTerm::This,
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:inferred:type"),
+                object: TriplePatternTerm::Constant(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:InferredType"),
+                )),
+                condition_shapes: vec![RuleCondition::NodeShape(ID(2))],
+                deactivated: false,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:conditional",
+                )),
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(33)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![
+                NodeShapeIR {
+                    id: ID(1),
+                    targets: vec![Target::Class(Term::NamedNode(
+                        oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                    ))],
+                    constraints: vec![ComponentID(1)],
+                    property_shapes: Vec::new(),
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+                NodeShapeIR {
+                    id: ID(2),
+                    targets: Vec::new(),
+                    constraints: Vec::new(),
+                    property_shapes: Vec::new(),
+                    severity: Severity::Violation,
+                    deactivated: false,
+                },
+            ],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(!lowered.rules[0].fallback_only);
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Triple {
+                ref condition_shape_iris,
+                ..
+            } if condition_shape_iris == &vec!["urn:shape:condition".to_string()]
         ));
     }
 

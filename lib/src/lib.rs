@@ -47,7 +47,7 @@ use ontoenv::ontology::{GraphIdentifier, OntologyLocation};
 use ontoenv::options::CacheMode;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad, Term};
+use oxigraph::model::{BlankNode, GraphName, GraphNameRef, NamedNode, Quad, Term};
 use oxigraph::store::Store;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -1659,6 +1659,63 @@ impl Validator {
     /// Returns the parsed SHACL-IR for the current validator.
     pub fn shape_ir(&self) -> &ShapeIR {
         self.context.shape_ir()
+    }
+
+    /// Evaluates whether a specific focus node conforms to the given node shape identifier.
+    ///
+    /// `shape_id` accepts either a node-shape IRI or a blank-node label in `_:label` form.
+    pub fn node_conforms_to_shape_id(
+        &self,
+        focus_node: &Term,
+        shape_id: &str,
+    ) -> Result<bool, String> {
+        let shape_term = if let Some(blank_id) = shape_id.strip_prefix("_:") {
+            let blank = BlankNode::new(blank_id)
+                .map_err(|err| format!("invalid node shape blank node id {shape_id}: {err}"))?;
+            Term::BlankNode(blank)
+        } else {
+            let named = NamedNode::new(shape_id)
+                .map_err(|err| format!("invalid node shape IRI {shape_id}: {err}"))?;
+            Term::NamedNode(named)
+        };
+
+        let shape_ir = self.context.shape_ir();
+        let Some(node_shape_id) = shape_ir.node_shape_terms.iter().find_map(|(id, term)| {
+            if term == &shape_term {
+                Some(*id)
+            } else {
+                None
+            }
+        }) else {
+            return Err(format!(
+                "node shape identifier {shape_id} was not found in the loaded shape graph"
+            ));
+        };
+        let Some(shape) = self.context.model.get_node_shape_by_id(&node_shape_id) else {
+            return Err(format!(
+                "node shape {:?} for identifier {shape_id} is missing from the runtime model",
+                node_shape_id
+            ));
+        };
+
+        let mut context = crate::context::Context::new(
+            focus_node.clone(),
+            None,
+            Some(vec![focus_node.clone()]),
+            crate::context::SourceShape::NodeShape(node_shape_id),
+            self.context.new_trace(),
+        );
+        let mut trace = Vec::new();
+        let report = crate::runtime::component::check_conformance_for_node(
+            &mut context,
+            shape,
+            &self.context,
+            &mut trace,
+        )?;
+        Ok(matches!(
+            report,
+            crate::runtime::component::ConformanceReport::Conforms
+        ))
     }
 
     /// Returns a SHACL-IR copy with owl:imports resolved into the shapes graph.
