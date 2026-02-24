@@ -254,13 +254,19 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
         .map(|iri| iri.as_str().to_string())
         .unwrap_or_default();
 
+    let active_rule_count = shape_ir
+        .rules
+        .values()
+        .filter(|rule| !rule.is_deactivated())
+        .count();
+
     Ok(SrcGenIR {
         meta: SrcGenMeta {
             compiler_track: "srcgen".to_string(),
             schema_version: 1,
             shape_graph_iri: shape_ir.shape_graph.as_str().to_string(),
             data_graph_iri,
-            rule_count: shape_ir.rules.len(),
+            rule_count: active_rule_count,
             specialization_ready,
         },
         node_shapes,
@@ -2400,5 +2406,74 @@ mod tests {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert_eq!(lowered.meta.rule_count, 1);
+    }
+
+    #[test]
+    fn deactivated_rules_do_not_increment_generated_rule_count() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Person")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:person",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(88),
+            Rule::Triple(TripleRule {
+                id: RuleID(88),
+                subject: TriplePatternTerm::This,
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:inferred"),
+                object: TriplePatternTerm::Constant(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:value"),
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: true,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:triple",
+                )),
+            }),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Person"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 0);
+        assert!(lowered.meta.specialization_ready);
     }
 }
