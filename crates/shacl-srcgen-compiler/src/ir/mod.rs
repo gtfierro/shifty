@@ -1,3 +1,4 @@
+use oxigraph::model::Term;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,7 +7,11 @@ pub struct SrcGenIR {
     pub node_shapes: Vec<SrcGenNodeShape>,
     pub property_shapes: Vec<SrcGenPropertyShape>,
     pub components: Vec<SrcGenComponent>,
+    #[serde(default)]
+    pub rules: Vec<SrcGenRule>,
     pub fallback_annotations: Vec<FallbackAnnotation>,
+    #[serde(default)]
+    pub rule_fallback_annotations: Vec<RuleFallbackAnnotation>,
 }
 
 impl SrcGenIR {
@@ -164,5 +169,26 @@ pub enum SrcGenComponentKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FallbackAnnotation {
     pub component_id: u64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SrcGenRule {
+    pub id: u64,
+    #[serde(default)]
+    pub target_classes: Vec<String>,
+    pub kind: SrcGenRuleKind,
+    pub fallback_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenRuleKind {
+    Triple { predicate_iri: String, object: Term },
+    Unsupported { kind: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleFallbackAnnotation {
+    pub rule_id: u64,
     pub reason: String,
 }

@@ -1,9 +1,12 @@
 use crate::ir::{
-    FallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR, SrcGenMeta,
-    SrcGenNodeShape, SrcGenPropertyShape,
+    FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
+    SrcGenMeta, SrcGenNodeShape, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind,
 };
 use oxigraph::model::Term;
-use shifty::shacl_ir::{ComponentDescriptor, Path, PropShapeID, Severity, ShapeIR, Target, ID};
+use shifty::shacl_ir::{
+    ComponentDescriptor, Path, PropShapeID, Rule, RuleID, Severity, ShapeIR, Target,
+    TriplePatternTerm, ID,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
@@ -254,11 +257,50 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
         .map(|iri| iri.as_str().to_string())
         .unwrap_or_default();
 
-    let active_rule_count = shape_ir
-        .rules
-        .values()
-        .filter(|rule| !rule.is_deactivated())
-        .count();
+    let mut rule_ids: Vec<u64> = shape_ir.rules.keys().map(|id| id.0).collect();
+    rule_ids.sort_unstable();
+
+    let mut rules: Vec<SrcGenRule> = Vec::new();
+    let mut rule_fallback_annotations: Vec<RuleFallbackAnnotation> = Vec::new();
+    for rule_id_value in rule_ids {
+        let rule_id = RuleID(rule_id_value);
+        let Some(rule) = shape_ir.rules.get(&rule_id) else {
+            continue;
+        };
+        if rule.is_deactivated() {
+            continue;
+        }
+
+        let (kind, target_classes, fallback_reason) = match rule_target_classes(shape_ir, rule_id) {
+            Ok(target_classes) => {
+                let (kind, reason) = rule_kind(rule, &target_classes);
+                (kind, target_classes, reason)
+            }
+            Err(reason) => (
+                SrcGenRuleKind::Unsupported {
+                    kind: format!("{}(targets)", rule_kind_name(rule)),
+                },
+                Vec::new(),
+                Some(reason),
+            ),
+        };
+
+        let fallback_only = fallback_reason.is_some();
+        rules.push(SrcGenRule {
+            id: rule_id_value,
+            target_classes,
+            kind,
+            fallback_only,
+        });
+        if let Some(reason) = fallback_reason {
+            rule_fallback_annotations.push(RuleFallbackAnnotation {
+                rule_id: rule_id_value,
+                reason,
+            });
+        }
+    }
+
+    let active_rule_count = rules.len();
 
     Ok(SrcGenIR {
         meta: SrcGenMeta {
@@ -272,7 +314,9 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
         node_shapes,
         property_shapes,
         components,
+        rules,
         fallback_annotations,
+        rule_fallback_annotations,
     })
 }
 
@@ -316,6 +360,149 @@ fn simple_named_path_predicate(path: &Path) -> Option<String> {
     match path {
         Path::Simple(Term::NamedNode(predicate)) => Some(predicate.as_str().to_string()),
         _ => None,
+    }
+}
+
+fn rule_target_classes(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<Vec<String>, String> {
+    if shape_ir
+        .prop_shape_rules
+        .values()
+        .any(|rule_ids| rule_ids.contains(&rule_id))
+    {
+        return Err(format!(
+            "Rule {} is attached to a property shape and property-shape rule specialization is not yet supported",
+            rule_id.0
+        ));
+    }
+
+    let mut target_classes: Vec<String> = Vec::new();
+    let mut matched = false;
+    for node_shape in &shape_ir.node_shapes {
+        let Some(rule_ids) = shape_ir.node_shape_rules.get(&node_shape.id) else {
+            continue;
+        };
+        if !rule_ids.contains(&rule_id) {
+            continue;
+        }
+        matched = true;
+        if node_shape.deactivated || !matches!(node_shape.severity, Severity::Violation) {
+            return Err(format!(
+                "Rule {} is attached to a deactivated or non-violation node shape",
+                rule_id.0
+            ));
+        }
+        let Some(classes) = class_targets_only(&node_shape.targets) else {
+            return Err(format!(
+                "Rule {} has non-class targets that are not yet specialized",
+                rule_id.0
+            ));
+        };
+        if classes.is_empty() {
+            return Err(format!(
+                "Rule {} has no class targets to drive focus-node inference",
+                rule_id.0
+            ));
+        }
+        target_classes.extend(classes);
+    }
+
+    if !matched {
+        return Err(format!(
+            "Rule {} is not attached to any specialized node-shape target",
+            rule_id.0
+        ));
+    }
+
+    target_classes.sort();
+    target_classes.dedup();
+    if target_classes.is_empty() {
+        return Err(format!(
+            "Rule {} has no specialized target classes",
+            rule_id.0
+        ));
+    }
+    Ok(target_classes)
+}
+
+fn rule_kind_name(rule: &Rule) -> &'static str {
+    match rule {
+        Rule::Triple(_) => "TripleRule",
+        Rule::Sparql(_) => "SPARQLRule",
+    }
+}
+
+fn rule_kind(rule: &Rule, target_classes: &[String]) -> (SrcGenRuleKind, Option<String>) {
+    match rule {
+        Rule::Sparql(_) => (
+            SrcGenRuleKind::Unsupported {
+                kind: "SPARQLRule".to_string(),
+            },
+            Some("SPARQL rule specialization is not yet implemented".to_string()),
+        ),
+        Rule::Triple(rule) => {
+            if target_classes.is_empty() {
+                return (
+                    SrcGenRuleKind::Unsupported {
+                        kind: "TripleRule(no-target-classes)".to_string(),
+                    },
+                    Some("TripleRule has no specialized target classes".to_string()),
+                );
+            }
+            if !rule.condition_shapes.is_empty() {
+                return (
+                    SrcGenRuleKind::Unsupported {
+                        kind: "TripleRule(conditions)".to_string(),
+                    },
+                    Some(
+                        "TripleRule specialization currently supports rules without sh:condition"
+                            .to_string(),
+                    ),
+                );
+            }
+            if !matches!(rule.subject, TriplePatternTerm::This) {
+                return (
+                    SrcGenRuleKind::Unsupported {
+                        kind: "TripleRule(subject)".to_string(),
+                    },
+                    Some(
+                        "TripleRule specialization currently supports sh:subject sh:this only"
+                            .to_string(),
+                    ),
+                );
+            }
+            let object = match &rule.object {
+                TriplePatternTerm::Constant(term) => term.clone(),
+                TriplePatternTerm::This => {
+                    return (
+                        SrcGenRuleKind::Unsupported {
+                            kind: "TripleRule(object-this)".to_string(),
+                        },
+                        Some(
+                            "TripleRule specialization currently requires a constant sh:object"
+                                .to_string(),
+                        ),
+                    );
+                }
+                TriplePatternTerm::Path(_) => {
+                    return (
+                        SrcGenRuleKind::Unsupported {
+                            kind: "TripleRule(object-path)".to_string(),
+                        },
+                        Some(
+                            "TripleRule specialization currently does not support path-based sh:object templates"
+                                .to_string(),
+                        ),
+                    );
+                }
+            };
+            (
+                SrcGenRuleKind::Triple {
+                    predicate_iri: rule.predicate.as_str().to_string(),
+                    object,
+                },
+                None,
+            )
+        }
     }
 }
 
@@ -2475,5 +2662,156 @@ mod tests {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert_eq!(lowered.meta.rule_count, 0);
         assert!(lowered.meta.specialization_ready);
+    }
+
+    #[test]
+    fn triple_rule_with_class_targets_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Equipment")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:equipment",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(11),
+            Rule::Triple(TripleRule {
+                id: RuleID(11),
+                subject: TriplePatternTerm::This,
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:inferred:type"),
+                object: TriplePatternTerm::Constant(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:InferredType"),
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:triple",
+                )),
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(11)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Triple { .. }
+        ));
+        assert!(!lowered.rules[0].fallback_only);
+        assert_eq!(lowered.rules[0].target_classes, vec!["urn:Equipment"]);
+        assert!(lowered.rule_fallback_annotations.is_empty());
+    }
+
+    #[test]
+    fn property_shape_rule_is_lowered_to_runtime_fallback() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::MinCount { min_count: 1 },
+        );
+
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:property",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(12),
+            Rule::Triple(TripleRule {
+                id: RuleID(12),
+                subject: TriplePatternTerm::This,
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:inferred:flag"),
+                object: TriplePatternTerm::Constant(Term::Literal(
+                    oxigraph::model::Literal::new_simple_literal("x"),
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:property",
+                )),
+            }),
+        );
+        let mut prop_shape_rules = HashMap::new();
+        prop_shape_rules.insert(PropShapeID(7), vec![RuleID(12)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: Vec::new(),
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:p",
+                ))),
+                path_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:p")),
+                constraints: vec![ComponentID(1)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms: HashMap::new(),
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules,
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(lowered.rules[0].fallback_only);
+        assert_eq!(lowered.rule_fallback_annotations.len(), 1);
+        assert_eq!(lowered.rule_fallback_annotations[0].rule_id, 12);
     }
 }

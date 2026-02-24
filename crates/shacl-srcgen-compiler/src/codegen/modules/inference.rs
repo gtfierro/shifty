@@ -1,11 +1,144 @@
 use crate::codegen::render_tokens_as_module;
-use crate::ir::SrcGenIR;
+use crate::ir::{SrcGenIR, SrcGenRuleKind};
+use oxigraph::model::Term;
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
+use syn::LitStr;
+
+fn term_expr(term: &Term) -> TokenStream {
+    match term {
+        Term::NamedNode(node) => {
+            let iri = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked(#iri),
+                )
+            }
+        }
+        Term::BlankNode(node) => {
+            let id = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::BlankNode(
+                    oxigraph::model::BlankNode::new_unchecked(#id),
+                )
+            }
+        }
+        Term::Literal(literal) => {
+            let value = LitStr::new(literal.value(), Span::call_site());
+            if let Some(language) = literal.language() {
+                let language_lit = LitStr::new(language, Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_language_tagged_literal(
+                            #value,
+                            #language_lit,
+                        ).expect("invalid language-tagged literal in srcgen rule"),
+                    )
+                }
+            } else if literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#string" {
+                quote! {
+                    oxigraph::model::Term::Literal(oxigraph::model::Literal::new_simple_literal(#value))
+                }
+            } else {
+                let datatype = LitStr::new(literal.datatype().as_str(), Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_typed_literal(
+                            #value,
+                            oxigraph::model::NamedNode::new_unchecked(#datatype),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
 
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let generated_rule_count = ir.meta.rule_count;
+    let fallback_rule_count = ir.rules.iter().filter(|rule| rule.fallback_only).count();
+    let specialized_rule_count = ir
+        .rules
+        .iter()
+        .filter(|rule| {
+            !rule.fallback_only
+                && matches!(
+                    rule.kind,
+                    SrcGenRuleKind::Triple {
+                        predicate_iri: _,
+                        object: _
+                    }
+                )
+        })
+        .count();
+
+    let mut specialized_rule_blocks: Vec<TokenStream> = Vec::new();
+    for rule in &ir.rules {
+        if rule.fallback_only {
+            continue;
+        }
+        let rule_id = rule.id;
+        let SrcGenRuleKind::Triple {
+            predicate_iri,
+            object,
+        } = &rule.kind
+        else {
+            continue;
+        };
+        let predicate_lit = LitStr::new(predicate_iri, Span::call_site());
+        let target_class_lits: Vec<LitStr> = rule
+            .target_classes
+            .iter()
+            .map(|iri| LitStr::new(iri, Span::call_site()))
+            .collect();
+        let object_expr = term_expr(object);
+        specialized_rule_blocks.push(quote! {
+            {
+                let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                #(
+                    focus_nodes.extend(focus_nodes_for_target_class_cached(
+                        &mut target_class_index,
+                        store,
+                        data_graph,
+                        #target_class_lits,
+                    )?);
+                )*
+                focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                focus_nodes.dedup();
+
+                let predicate = oxigraph::model::NamedNode::new(#predicate_lit).map_err(|err| {
+                    format!("invalid TripleRule predicate IRI for rule {}: {err}", #rule_id)
+                })?;
+                let object_template: oxigraph::model::Term = #object_expr;
+                for focus in focus_nodes {
+                    let Some(subject) = subject_ref_from_term(&focus) else {
+                        continue;
+                    };
+                    let inferred = oxigraph::model::Quad::new(
+                        subject.into_owned(),
+                        predicate.clone(),
+                        object_template.clone(),
+                        graph_name.clone(),
+                    );
+                    if store
+                        .contains(inferred.as_ref())
+                        .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
+                    {
+                        continue;
+                    }
+                    store
+                        .insert(inferred.as_ref())
+                        .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
+                    inserted += 1;
+                }
+            }
+        });
+    }
+
     let tokens = quote! {
         pub const GENERATED_INFERENCE_RULES: usize = #generated_rule_count;
+        pub const GENERATED_SPECIALIZED_INFERENCE_RULES: usize = #specialized_rule_count;
+        pub const GENERATED_FALLBACK_INFERENCE_RULES: usize = #fallback_rule_count;
 
         pub fn run_generated_inference(
             store: &oxigraph::store::Store,
@@ -15,13 +148,20 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 return Ok(0);
             }
 
+            let graph_name = oxigraph::model::GraphName::NamedNode(data_graph.clone());
+            let mut inserted = 0usize;
+            let mut target_class_index: Option<TargetClassIndex> = None;
+            #(#specialized_rule_blocks)*
+
+            if GENERATED_FALLBACK_INFERENCE_RULES == 0 {
+                return Ok(inserted);
+            }
+
             let validator = build_runtime_validator(store, data_graph)?;
             let config = shifty::InferenceConfig::default();
             let outcome = validator
                 .run_inference_with_config(config)
                 .map_err(|err| format!("runtime inference failed: {err}"))?;
-            let graph_name = oxigraph::model::GraphName::NamedNode(data_graph.clone());
-            let mut inserted = 0usize;
             for quad in outcome.inferred_quads {
                 let inferred = oxigraph::model::Quad::new(
                     quad.subject,
@@ -29,6 +169,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     quad.object,
                     graph_name.clone(),
                 );
+                if store
+                    .contains(inferred.as_ref())
+                    .map_err(|err| format!("failed to query inferred quad existence: {err}"))?
+                {
+                    continue;
+                }
                 store
                     .insert(inferred.as_ref())
                     .map_err(|err| format!("failed to insert inferred quad: {err}"))?;
