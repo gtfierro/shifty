@@ -68,10 +68,39 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 )
         })
         .count();
+    let specialized_triple_rule_count = ir
+        .rules
+        .iter()
+        .filter(|rule| !rule.fallback_only && matches!(rule.kind, SrcGenRuleKind::Triple { .. }))
+        .count();
+    let specialized_sparql_rule_count = ir
+        .rules
+        .iter()
+        .filter(|rule| !rule.fallback_only && matches!(rule.kind, SrcGenRuleKind::Sparql { .. }))
+        .count();
+    let runtime_prefers_sparql_rules = specialized_sparql_rule_count > 0;
+    let emitted_specialized_rule_count = if runtime_prefers_sparql_rules {
+        0
+    } else {
+        specialized_rule_count
+    };
+    let emitted_specialized_triple_rule_count = if runtime_prefers_sparql_rules {
+        0
+    } else {
+        specialized_triple_rule_count
+    };
+    let emitted_specialized_sparql_rule_count = if runtime_prefers_sparql_rules {
+        0
+    } else {
+        specialized_sparql_rule_count
+    };
 
     let mut specialized_rule_blocks: Vec<TokenStream> = Vec::new();
     for rule in &ir.rules {
         if rule.fallback_only {
+            continue;
+        }
+        if runtime_prefers_sparql_rules {
             continue;
         }
         let rule_id = rule.id;
@@ -231,14 +260,26 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     }
                                 }
 
-                                const THIS_VALUES_BATCH_SIZE: usize = 128;
-                                for chunk in ground_focus_nodes.chunks(THIS_VALUES_BATCH_SIZE) {
-                                    let Some(batched_query) = sparql_query_with_this_values(#query_lit, chunk)? else {
-                                        fallback_focus_nodes.extend_from_slice(chunk);
-                                        continue;
-                                    };
-                                    candidate_batches.push(
-                                        sparql_construct_triples_with_bindings(
+                                const THIS_VALUES_BATCH_SIZE: usize = 1024;
+                                let ground_batches = ground_focus_nodes
+                                    .par_chunks(THIS_VALUES_BATCH_SIZE)
+                                    .map(|chunk| -> Result<
+                                        (
+                                            Option<Vec<(
+                                                oxigraph::model::Term,
+                                                oxigraph::model::NamedNode,
+                                                oxigraph::model::Term,
+                                            )>>,
+                                            Vec<oxigraph::model::Term>,
+                                        ),
+                                        String,
+                                    > {
+                                        let Some(batched_query) =
+                                            sparql_query_with_this_values(#query_lit, chunk)?
+                                        else {
+                                            return Ok((None, chunk.to_vec()));
+                                        };
+                                        let constructed = sparql_construct_triples_with_bindings(
                                             batched_query.as_str(),
                                             store,
                                             data_graph,
@@ -246,8 +287,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                         )
                                         .map_err(|err| {
                                             format!("SPARQLRule {} execution failed: {err}", #rule_id)
-                                        })?
-                                    );
+                                        })?;
+                                        Ok((Some(constructed), Vec::new()))
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+
+                                for (constructed, fallback_chunk) in ground_batches {
+                                    if let Some(constructed) = constructed {
+                                        candidate_batches.push(constructed);
+                                    }
+                                    fallback_focus_nodes.extend(fallback_chunk);
                                 }
 
                                 let fallback_batches = fallback_focus_nodes
@@ -367,8 +416,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         use rayon::prelude::*;
 
         pub const GENERATED_INFERENCE_RULES: usize = #generated_rule_count;
-        pub const GENERATED_SPECIALIZED_INFERENCE_RULES: usize = #specialized_rule_count;
+        pub const GENERATED_SPECIALIZED_INFERENCE_RULES: usize = #emitted_specialized_rule_count;
+        pub const GENERATED_SPECIALIZED_TRIPLE_INFERENCE_RULES: usize = #emitted_specialized_triple_rule_count;
+        pub const GENERATED_SPECIALIZED_SPARQL_INFERENCE_RULES: usize = #emitted_specialized_sparql_rule_count;
         pub const GENERATED_FALLBACK_INFERENCE_RULES: usize = #fallback_rule_count;
+        pub const SRCGEN_PREFERS_RUNTIME_INFERENCE: bool = #runtime_prefers_sparql_rules;
 
         thread_local! {
             static SPARQL_RULE_PREPARED_CACHE: std::cell::RefCell<
@@ -579,6 +631,24 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(inserted)
         }
 
+        fn run_runtime_inference(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            graph_name: &oxigraph::model::GraphName,
+        ) -> Result<usize, String> {
+            let validator = build_runtime_validator(store, data_graph)?;
+            let config = shifty::InferenceConfig::default();
+            let outcome = validator
+                .run_inference_with_config(config)
+                .map_err(|err| format!("runtime inference failed: {err}"))?;
+            let candidates = outcome
+                .inferred_quads
+                .into_iter()
+                .map(|quad| (oxigraph::model::Term::from(quad.subject), quad.predicate, quad.object))
+                .collect();
+            insert_inferred_candidates(store, graph_name, candidates)
+        }
+
         pub fn run_generated_inference(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
@@ -589,6 +659,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
             let graph_name = oxigraph::model::GraphName::NamedNode(data_graph.clone());
             let mut inserted = 0usize;
+
+            // Runtime inference is currently faster and more stable on SPARQL-heavy rule sets.
+            if SRCGEN_PREFERS_RUNTIME_INFERENCE {
+                return run_runtime_inference(store, data_graph, &graph_name);
+            }
+
             let mut target_class_index: Option<TargetClassIndex> = None;
             let mut target_class_focus_cache: std::collections::HashMap<
                 String,
@@ -600,17 +676,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 return Ok(inserted);
             }
 
-            let validator = build_runtime_validator(store, data_graph)?;
-            let config = shifty::InferenceConfig::default();
-            let outcome = validator
-                .run_inference_with_config(config)
-                .map_err(|err| format!("runtime inference failed: {err}"))?;
-            let candidates = outcome
-                .inferred_quads
-                .into_iter()
-                .map(|quad| (oxigraph::model::Term::from(quad.subject), quad.predicate, quad.object))
-                .collect();
-            inserted += insert_inferred_candidates(store, &graph_name, candidates)?;
+            inserted += run_runtime_inference(store, data_graph, &graph_name)?;
             Ok(inserted)
         }
     };
