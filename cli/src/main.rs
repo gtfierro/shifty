@@ -1012,10 +1012,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::create_dir_all(&generated_dir)?;
             fs::write(generated_dir.join("mod.rs"), generated_root)?;
             for (name, content) in generated_files {
-                fs::write(generated_dir.join(name), content)?;
+                let path = generated_dir.join(name);
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(path, content)?;
             }
-            let shape_ir_json = serde_json::to_string(&shape_ir)
-                .map_err(|e| format!("Failed to serialize SHACL-IR: {}", e))?;
+            let shape_ir_json = match serde_json::to_string(&shape_ir) {
+                Ok(json) => json,
+                Err(err) => {
+                    info!(
+                        "Skipping embedded shape_ir.json (non-JSON map keys in ShapeIR): {}",
+                        err
+                    );
+                    "null".to_string()
+                }
+            };
             fs::write(generated_dir.join("shape_ir.json"), shape_ir_json)?;
             write_shape_graph_ttl(&shape_ir, &out_dir.join("shape_graph.ttl"))?;
 

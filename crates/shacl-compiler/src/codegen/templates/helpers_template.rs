@@ -1514,6 +1514,20 @@ fn sparql_any_solution(
     };
     sparql_any_solution_with_bindings(query, &prefixes, store, graph, focus, value, &[])
 }
+
+fn sparql_any_solution_lenient(
+    query: &str,
+    store: &Store,
+    graph: Option<GraphNameRef<'_>>,
+    selector: Option<&Term>,
+    focus: Option<&Term>,
+    value: Option<&Term>,
+) -> bool {
+    // Keep this wrapper for backwards-compatible generated validators that
+    // call the lenient helper for range checks.
+    sparql_any_solution(query, store, graph, selector, focus, value)
+}
+
 fn sparql_any_solution_with_bindings(
     query: &str,
     prefixes: &str,
