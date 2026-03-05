@@ -1,12 +1,12 @@
 use crate::ir::{
     FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
     SrcGenMeta, SrcGenNodeShape, SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind,
-    SrcGenRuleObject, SrcGenRuleSubject,
+    SrcGenRuleObject, SrcGenRuleSubject, SrcGenSparqlBinding,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
-    ComponentDescriptor, Path, PropShapeID, Rule, RuleCondition, RuleID, ShapeIR, Target,
-    TriplePatternTerm, ID,
+    ComponentDescriptor, CustomConstraintComponentDefinition, Path, PropShapeID, Rule,
+    RuleCondition, RuleID, SPARQLValidator, ShapeIR, Target, TriplePatternTerm, ID,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -72,7 +72,8 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let path_predicate = simple_named_path_predicate(&shape.path);
             let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
             constraints.sort_unstable();
-            let lowered_targets = lower_supported_node_targets(&shape.targets);
+            let lowered_targets =
+                lower_supported_node_targets(shape_ir, &shape.targets, false);
             let (
                 target_classes,
                 target_nodes,
@@ -158,27 +159,38 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let mut property_shapes = shape.property_shapes.clone();
             property_shapes.sort_by_key(|id| id.0);
 
-            let lowered_targets = lower_supported_node_targets(&shape.targets);
+            let lowered_targets =
+                lower_supported_node_targets(shape_ir, &shape.targets, true);
             let (
                 target_classes,
                 target_nodes,
                 target_subjects_of,
                 target_objects_of,
+                target_advanced_select_queries,
                 targets_supported,
             ) = if let Some(targets) = lowered_targets {
                 let has_supported_targets = !targets.target_classes.is_empty()
                     || !targets.target_nodes.is_empty()
                     || !targets.target_subjects_of.is_empty()
-                    || !targets.target_objects_of.is_empty();
+                    || !targets.target_objects_of.is_empty()
+                    || !targets.target_advanced_select_queries.is_empty();
                 (
                     targets.target_classes,
                     targets.target_nodes,
                     targets.target_subjects_of,
                     targets.target_objects_of,
+                    targets.target_advanced_select_queries,
                     has_supported_targets,
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false)
+                (
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
+                )
             };
             let base_supported = if shape.deactivated {
                 // Deactivated shapes are semantic no-ops and should not force runtime fallback.
@@ -200,6 +212,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                     let kind_supported = node_constraint_supported(kind);
                     let context_supported = match kind {
                         SrcGenComponentKind::Sparql { requires_path, .. } => !requires_path,
+                        SrcGenComponentKind::CustomSparql { requires_path, .. } => !requires_path,
                         _ => true,
                     };
                     if base_supported && kind_supported && context_supported {
@@ -217,6 +230,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 target_nodes,
                 target_subjects_of,
                 target_objects_of,
+                target_advanced_select_queries,
                 constraints,
                 supported_constraints,
                 fallback_constraints,
@@ -306,6 +320,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 target_nodes: shape.target_nodes,
                 target_subjects_of: shape.target_subjects_of,
                 target_objects_of: shape.target_objects_of,
+                target_advanced_select_queries: shape.target_advanced_select_queries,
                 constraints: shape.constraints,
                 supported_constraints: shape.supported_constraints,
                 fallback_constraints: shape.fallback_constraints,
@@ -417,6 +432,7 @@ struct PendingNodeShape {
     target_nodes: Vec<Term>,
     target_subjects_of: Vec<String>,
     target_objects_of: Vec<String>,
+    target_advanced_select_queries: Vec<String>,
     constraints: Vec<u64>,
     supported_constraints: Vec<u64>,
     fallback_constraints: Vec<u64>,
@@ -448,6 +464,7 @@ struct LoweredNodeTargets {
     target_nodes: Vec<Term>,
     target_subjects_of: Vec<String>,
     target_objects_of: Vec<String>,
+    target_advanced_select_queries: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -459,7 +476,11 @@ struct LoweredRuleTargets {
     target_advanced_select_queries: Vec<String>,
 }
 
-fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets> {
+fn lower_supported_node_targets(
+    shape_ir: &ShapeIR,
+    targets: &[Target],
+    allow_advanced: bool,
+) -> Option<LoweredNodeTargets> {
     let mut lowered = LoweredNodeTargets::default();
 
     for target in targets {
@@ -478,6 +499,10 @@ fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets
                     .target_objects_of
                     .push(predicate.as_str().to_string());
             }
+            Target::Advanced(selector) if allow_advanced => {
+                let query = resolve_advanced_target_select_query(shape_ir, selector)?;
+                lowered.target_advanced_select_queries.push(query);
+            }
             _ => return None,
         }
     }
@@ -493,6 +518,9 @@ fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets
 
     lowered.target_objects_of.sort();
     lowered.target_objects_of.dedup();
+
+    lowered.target_advanced_select_queries.sort();
+    lowered.target_advanced_select_queries.dedup();
 
     Some(lowered)
 }
@@ -880,6 +908,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::LessThan { .. }
             | SrcGenComponentKind::LessThanOrEquals { .. }
             | SrcGenComponentKind::Sparql { .. }
+            | SrcGenComponentKind::CustomSparql { .. }
     )
 }
 
@@ -914,6 +943,7 @@ fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::LessThan { .. }
             | SrcGenComponentKind::LessThanOrEquals { .. }
             | SrcGenComponentKind::Sparql { .. }
+            | SrcGenComponentKind::CustomSparql { .. }
     )
 }
 
@@ -1138,6 +1168,159 @@ fn sparql_query_is_select(query: &str) -> bool {
         return upper.starts_with("SELECT");
     }
     false
+}
+
+fn local_name_from_iri(iri: &oxigraph::model::NamedNode) -> String {
+    let iri_str = iri.as_str();
+    if let Some(hash_idx) = iri_str.rfind('#') {
+        iri_str[hash_idx + 1..].to_string()
+    } else if let Some(slash_idx) = iri_str.rfind('/') {
+        if slash_idx < iri_str.len() - 1 {
+            iri_str[slash_idx + 1..].to_string()
+        } else {
+            let end = slash_idx;
+            let mut start = slash_idx;
+            if let Some(prev_slash) = iri_str[..end].rfind('/') {
+                start = prev_slash + 1;
+            }
+            iri_str[start..end].to_string()
+        }
+    } else {
+        iri_str.to_string()
+    }
+}
+
+fn sparql_validator_signature(validator: &SPARQLValidator) -> (bool, bool, bool, String, String) {
+    (
+        validator.is_ask,
+        validator.require_this,
+        validator.require_path,
+        validator.query.clone(),
+        validator.prefixes.clone(),
+    )
+}
+
+fn selected_custom_sparql_validator<'a>(
+    definition: &'a CustomConstraintComponentDefinition,
+) -> Result<&'a SPARQLValidator, String> {
+    let mut validators: Vec<&SPARQLValidator> = Vec::new();
+    if let Some(validator) = definition.validator.as_ref() {
+        validators.push(validator);
+    }
+    if let Some(validator) = definition.node_validator.as_ref() {
+        validators.push(validator);
+    }
+    if let Some(validator) = definition.property_validator.as_ref() {
+        validators.push(validator);
+    }
+
+    let Some(first) = validators.first().copied() else {
+        return Err(format!(
+            "Custom constraint component {} does not declare a SPARQL validator",
+            definition.iri
+        ));
+    };
+    let first_signature = sparql_validator_signature(first);
+    if validators
+        .iter()
+        .skip(1)
+        .any(|validator| sparql_validator_signature(validator) != first_signature)
+    {
+        return Err(format!(
+            "Custom constraint component {} has context-dependent validators that are not yet specialized",
+            definition.iri
+        ));
+    }
+    Ok(first)
+}
+
+fn lower_custom_component_kind(
+    definition: &CustomConstraintComponentDefinition,
+    parameter_values: &HashMap<oxigraph::model::NamedNode, Vec<Term>>,
+) -> (SrcGenComponentKind, Option<String>) {
+    let validator = match selected_custom_sparql_validator(definition) {
+        Ok(validator) => validator,
+        Err(reason) => {
+            return (
+                SrcGenComponentKind::Unsupported {
+                    kind: "Custom(validator-selection)".to_string(),
+                },
+                Some(reason),
+            );
+        }
+    };
+
+    let query = validator.query.clone();
+    if !query.is_ascii() {
+        return (
+            SrcGenComponentKind::Unsupported {
+                kind: "Custom(non-ascii-query)".to_string(),
+            },
+            Some(format!(
+                "Custom constraint component {} uses a non-ASCII SPARQL query that is not yet specialized",
+                definition.iri
+            )),
+        );
+    }
+
+    let mut parameter_bindings: Vec<SrcGenSparqlBinding> = Vec::new();
+    for parameter in &definition.parameters {
+        let var_name = parameter
+            .var_name
+            .clone()
+            .unwrap_or_else(|| local_name_from_iri(&parameter.path));
+        if !sparql_query_mentions_var(&query, &var_name) {
+            continue;
+        }
+        let Some(values) = parameter_values.get(&parameter.path) else {
+            if parameter.optional {
+                continue;
+            }
+            return (
+                SrcGenComponentKind::Unsupported {
+                    kind: "Custom(missing-parameter)".to_string(),
+                },
+                Some(format!(
+                    "Custom constraint component {} is missing required parameter {}",
+                    definition.iri, parameter.path
+                )),
+            );
+        };
+        if values.len() != 1 {
+            return (
+                SrcGenComponentKind::Unsupported {
+                    kind: "Custom(multi-valued-parameter)".to_string(),
+                },
+                Some(format!(
+                    "Custom constraint component {} currently supports one value per parameter (parameter {} had {})",
+                    definition.iri,
+                    parameter.path,
+                    values.len()
+                )),
+            );
+        }
+        parameter_bindings.push(SrcGenSparqlBinding {
+            var_name,
+            value: values[0].clone(),
+        });
+    }
+    parameter_bindings.sort_by(|left, right| {
+        left.var_name
+            .cmp(&right.var_name)
+            .then_with(|| left.value.to_string().cmp(&right.value.to_string()))
+    });
+
+    (
+        SrcGenComponentKind::CustomSparql {
+            query: query.clone(),
+            prefixes: validator.prefixes.clone(),
+            is_ask: validator.is_ask,
+            requires_path: validator.require_path || sparql_query_requires_path(&query),
+            bind_value: validator.is_ask && sparql_query_mentions_var(&query, "value"),
+            parameter_bindings,
+        },
+        None,
+    )
 }
 
 fn resolve_shape_iri(shape_ir: &ShapeIR, shape_id: ID) -> Option<String> {
@@ -1471,6 +1654,10 @@ fn component_kind(
                 None,
             )
         }
+        ComponentDescriptor::Custom {
+            definition,
+            parameter_values,
+        } => lower_custom_component_kind(definition, parameter_values),
         ComponentDescriptor::LanguageIn { languages } => (
             SrcGenComponentKind::LanguageIn {
                 languages: languages.clone(),
@@ -1554,50 +1741,6 @@ fn component_kind(
             },
             Some("NodeKind constraint uses a non-IRI node kind term".to_string()),
         ),
-        other => (
-            SrcGenComponentKind::Unsupported {
-                kind: component_kind_name(other).to_string(),
-            },
-            Some(format!(
-                "component kind {} is not specialized in phase-2",
-                component_kind_name(other)
-            )),
-        ),
-    }
-}
-
-fn component_kind_name(component: &ComponentDescriptor) -> &'static str {
-    match component {
-        ComponentDescriptor::Node { .. } => "Node",
-        ComponentDescriptor::Property { .. } => "Property",
-        ComponentDescriptor::QualifiedValueShape { .. } => "QualifiedValueShape",
-        ComponentDescriptor::Class { .. } => "Class",
-        ComponentDescriptor::Datatype { .. } => "Datatype",
-        ComponentDescriptor::NodeKind { .. } => "NodeKind",
-        ComponentDescriptor::MinCount { .. } => "MinCount",
-        ComponentDescriptor::MaxCount { .. } => "MaxCount",
-        ComponentDescriptor::MinExclusive { .. } => "MinExclusive",
-        ComponentDescriptor::MinInclusive { .. } => "MinInclusive",
-        ComponentDescriptor::MaxExclusive { .. } => "MaxExclusive",
-        ComponentDescriptor::MaxInclusive { .. } => "MaxInclusive",
-        ComponentDescriptor::MinLength { .. } => "MinLength",
-        ComponentDescriptor::MaxLength { .. } => "MaxLength",
-        ComponentDescriptor::Pattern { .. } => "Pattern",
-        ComponentDescriptor::LanguageIn { .. } => "LanguageIn",
-        ComponentDescriptor::UniqueLang { .. } => "UniqueLang",
-        ComponentDescriptor::Equals { .. } => "Equals",
-        ComponentDescriptor::Disjoint { .. } => "Disjoint",
-        ComponentDescriptor::LessThan { .. } => "LessThan",
-        ComponentDescriptor::LessThanOrEquals { .. } => "LessThanOrEquals",
-        ComponentDescriptor::Not { .. } => "Not",
-        ComponentDescriptor::And { .. } => "And",
-        ComponentDescriptor::Or { .. } => "Or",
-        ComponentDescriptor::Xone { .. } => "Xone",
-        ComponentDescriptor::Closed { .. } => "Closed",
-        ComponentDescriptor::HasValue { .. } => "HasValue",
-        ComponentDescriptor::In { .. } => "In",
-        ComponentDescriptor::Sparql { .. } => "Sparql",
-        ComponentDescriptor::Custom { .. } => "Custom",
     }
 }
 
@@ -2128,6 +2271,68 @@ mod tests {
         assert_eq!(
             lowered.node_shapes[0].target_objects_of,
             vec!["urn:pred:o".to_string()]
+        );
+    }
+
+    #[test]
+    fn node_shape_with_advanced_target_select_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::NodeKind {
+                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#IRI",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:advanced-target",
+            )),
+        );
+
+        let selector = Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:selector"));
+        let query = "SELECT ?this WHERE { ?this a <urn:Thing> . }";
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Advanced(selector.clone())],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedOrBlankNode::from(
+                    oxigraph::model::NamedNode::new_unchecked("urn:selector"),
+                ),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_simple_literal(query),
+                oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.node_shapes[0].supported);
+        assert_eq!(
+            lowered.node_shapes[0].target_advanced_select_queries,
+            vec![query.to_string()]
         );
     }
 

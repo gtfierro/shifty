@@ -44,6 +44,8 @@ pub struct SrcGenNodeShape {
     pub target_subjects_of: Vec<String>,
     #[serde(default)]
     pub target_objects_of: Vec<String>,
+    #[serde(default)]
+    pub target_advanced_select_queries: Vec<String>,
     pub constraints: Vec<u64>,
     #[serde(default)]
     pub supported_constraints: Vec<u64>,
@@ -57,6 +59,14 @@ pub struct SrcGenNodeShape {
 pub struct SrcGenPropertyShape {
     pub id: u64,
     pub iri: String,
+    #[serde(default)]
+    pub target_classes: Vec<String>,
+    #[serde(default)]
+    pub target_nodes: Vec<Term>,
+    #[serde(default)]
+    pub target_subjects_of: Vec<String>,
+    #[serde(default)]
+    pub target_objects_of: Vec<String>,
     pub path: SrcGenPath,
     pub path_term: Term,
     pub path_sparql: String,
@@ -89,8 +99,16 @@ pub struct SrcGenComponent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SrcGenSparqlBinding {
+    pub var_name: String,
+    pub value: Term,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SrcGenComponentKind {
-    PropertyLink,
+    PropertyLink {
+        property_shape_iri: String,
+    },
     Class {
         class_iri: String,
     },
@@ -139,6 +157,15 @@ pub enum SrcGenComponentKind {
         prefixes: String,
         requires_path: bool,
         constraint_term: String,
+    },
+    CustomSparql {
+        query: String,
+        prefixes: String,
+        is_ask: bool,
+        requires_path: bool,
+        bind_value: bool,
+        #[serde(default)]
+        parameter_bindings: Vec<SrcGenSparqlBinding>,
     },
     Node {
         shape_iri: String,

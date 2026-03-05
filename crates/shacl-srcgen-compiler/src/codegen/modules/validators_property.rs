@@ -225,6 +225,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             let valid = match value {
                                 oxigraph::model::Term::Literal(literal) => {
                                     literal.datatype().as_str() == #datatype_lit
+                                        && literal_has_valid_lexical_form_for_datatype(
+                                            literal.as_ref(),
+                                            #datatype_lit,
+                                        )
                                 }
                                 _ => false,
                             };
@@ -543,6 +547,111 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 value,
                                 path,
                             });
+                        }
+                    });
+                }
+                SrcGenComponentKind::CustomSparql {
+                    query,
+                    prefixes,
+                    is_ask,
+                    bind_value,
+                    parameter_bindings,
+                    ..
+                } => {
+                    let query_lit = LitStr::new(query, Span::call_site());
+                    let prefixes_lit = LitStr::new(prefixes, Span::call_site());
+                    let is_ask_lit = syn::LitBool::new(*is_ask, Span::call_site());
+                    let bind_value_lit = syn::LitBool::new(*bind_value, Span::call_site());
+                    let parameter_binding_pushes: Vec<TokenStream> = parameter_bindings
+                        .iter()
+                        .map(|binding| {
+                            let var_name_lit = LitStr::new(&binding.var_name, Span::call_site());
+                            let value_expr = term_expr(&binding.value);
+                            quote! {
+                                base_bindings.push((#var_name_lit, #value_expr));
+                            }
+                        })
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let mut query = String::from(#query_lit);
+                        if query.contains("$PATH") {
+                            query = query.replace("$PATH", #path_sparql_lit);
+                        }
+
+                        let mut base_bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                        base_bindings.push(("this", focus.clone()));
+                        if query_mentions_var(&query, "currentShape") {
+                            if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                base_bindings.push(("currentShape", current_shape_term));
+                            }
+                        }
+                        if query_mentions_var(&query, "shapesGraph") {
+                            if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                base_bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                            }
+                        }
+                        #(#parameter_binding_pushes)*
+
+                        let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
+                        if #is_ask_lit {
+                            for value in &values {
+                                let mut bindings = base_bindings.clone();
+                                if #bind_value_lit {
+                                    bindings.push(("value", value.clone()));
+                                }
+                                let conforms = sparql_ask_with_bindings(
+                                    &query,
+                                    #prefixes_lit,
+                                    store,
+                                    data_graph,
+                                    &bindings,
+                                )?;
+                                if !conforms {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: default_path.clone(),
+                                    });
+                                }
+                            }
+                        } else {
+                            let solutions = sparql_select_solutions_with_bindings(
+                                &query,
+                                #prefixes_lit,
+                                store,
+                                data_graph,
+                                &base_bindings,
+                            )?;
+                            let mut seen: std::collections::HashSet<Option<oxigraph::model::Term>> =
+                                std::collections::HashSet::new();
+                            for row in solutions {
+                                if let Some(failure_term) = row.get("failure") {
+                                    if term_is_true_boolean(failure_term) {
+                                        return Err(format!(
+                                            "SPARQL constraint query reported failure for shape {} component {}",
+                                            #shape_id, #component_id_value
+                                        ));
+                                    }
+                                }
+                                let value = row.get("value").cloned();
+                                if !seen.insert(value.clone()) {
+                                    continue;
+                                }
+                                let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                    Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
+                                } else {
+                                    default_path.clone()
+                                };
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value,
+                                    path,
+                                });
+                            }
                         }
                     });
                 }
@@ -902,7 +1011,25 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
-                SrcGenComponentKind::PropertyLink => {}
+                SrcGenComponentKind::PropertyLink { property_shape_iri } => {
+                    let property_shape_lit = LitStr::new(property_shape_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        if let Some(linked_shape_id) = shape_id_for_iri(#property_shape_lit) {
+                            if linked_shape_id != #shape_id {
+                                for value in &values {
+                                    validate_supported_property_shape(
+                                        linked_shape_id,
+                                        parent_node_shape_id,
+                                        store,
+                                        data_graph,
+                                        value,
+                                        violations,
+                                    )?;
+                                }
+                            }
+                        }
+                    });
+                }
                 SrcGenComponentKind::Closed { .. } => {}
                 SrcGenComponentKind::Unsupported { .. } => {}
             }
@@ -1331,6 +1458,185 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 .any(|allowed| lang_matches(literal_language, allowed))
         }
 
+        #[derive(Debug, Clone, Copy)]
+        struct ParsedInteger<'a> {
+            negative: bool,
+            digits: &'a str,
+        }
+
+        impl<'a> ParsedInteger<'a> {
+            fn normalized_digits(self) -> &'a str {
+                let trimmed = self.digits.trim_start_matches('0');
+                if trimmed.is_empty() {
+                    "0"
+                } else {
+                    trimmed
+                }
+            }
+
+            fn is_zero(self) -> bool {
+                self.normalized_digits() == "0"
+            }
+
+            fn is_negative_non_zero(self) -> bool {
+                self.negative && !self.is_zero()
+            }
+        }
+
+        fn parse_integer_lexical(input: &str) -> Option<ParsedInteger<'_>> {
+            if input.is_empty() {
+                return None;
+            }
+            let (negative, digits) = match input.as_bytes().first() {
+                Some(b'+') => (false, &input[1..]),
+                Some(b'-') => (true, &input[1..]),
+                _ => (false, input),
+            };
+            if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            Some(ParsedInteger { negative, digits })
+        }
+
+        fn compare_unsigned_decimal(left: &str, right: &str) -> std::cmp::Ordering {
+            let left = left.trim_start_matches('0');
+            let right = right.trim_start_matches('0');
+            let left = if left.is_empty() { "0" } else { left };
+            let right = if right.is_empty() { "0" } else { right };
+            left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+        }
+
+        fn is_valid_decimal_lexical(input: &str) -> bool {
+            if input.is_empty() {
+                return false;
+            }
+            let mut chars = input.chars().peekable();
+            if matches!(chars.peek(), Some('+') | Some('-')) {
+                chars.next();
+            }
+            let mut digits_before = 0usize;
+            while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
+                digits_before += 1;
+                chars.next();
+            }
+            if matches!(chars.peek(), Some('.')) {
+                chars.next();
+                let mut digits_after = 0usize;
+                while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
+                    digits_after += 1;
+                    chars.next();
+                }
+                chars.peek().is_none() && (digits_before > 0 || digits_after > 0)
+            } else {
+                chars.peek().is_none() && digits_before > 0
+            }
+        }
+
+        fn is_integer_within_signed_bounds(input: &str, min_abs: &str, max: &str) -> bool {
+            let Some(parsed) = parse_integer_lexical(input) else {
+                return false;
+            };
+            if parsed.is_negative_non_zero() {
+                compare_unsigned_decimal(parsed.normalized_digits(), min_abs)
+                    != std::cmp::Ordering::Greater
+            } else {
+                compare_unsigned_decimal(parsed.normalized_digits(), max)
+                    != std::cmp::Ordering::Greater
+            }
+        }
+
+        fn is_integer_within_unsigned_bound(input: &str, max: &str) -> bool {
+            let Some(parsed) = parse_integer_lexical(input) else {
+                return false;
+            };
+            if parsed.is_negative_non_zero() {
+                return false;
+            }
+            compare_unsigned_decimal(parsed.normalized_digits(), max)
+                != std::cmp::Ordering::Greater
+        }
+
+        fn literal_has_valid_lexical_form_for_datatype(
+            literal: oxigraph::model::LiteralRef<'_>,
+            target_datatype_iri: &str,
+        ) -> bool {
+            use std::str::FromStr;
+            let value = literal.value();
+            if target_datatype_iri == oxigraph::model::vocab::xsd::STRING.as_str() {
+                true
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::BOOLEAN.as_str() {
+                oxsdatatypes::Boolean::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DECIMAL.as_str() {
+                is_valid_decimal_lexical(value)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::INTEGER.as_str() {
+                parse_integer_lexical(value).is_some()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::LONG.as_str() {
+                is_integer_within_signed_bounds(value, "9223372036854775808", "9223372036854775807")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::INT.as_str() {
+                is_integer_within_signed_bounds(value, "2147483648", "2147483647")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::SHORT.as_str() {
+                is_integer_within_signed_bounds(value, "32768", "32767")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::BYTE.as_str() {
+                is_integer_within_signed_bounds(value, "128", "127")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_LONG.as_str() {
+                is_integer_within_unsigned_bound(value, "18446744073709551615")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_INT.as_str() {
+                is_integer_within_unsigned_bound(value, "4294967295")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_SHORT.as_str() {
+                is_integer_within_unsigned_bound(value, "65535")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_BYTE.as_str() {
+                is_integer_within_unsigned_bound(value, "255")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::NON_NEGATIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| !parsed.is_negative_non_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::POSITIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| !parsed.is_negative_non_zero() && !parsed.is_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::NON_POSITIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| parsed.is_negative_non_zero() || parsed.is_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::NEGATIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| parsed.is_negative_non_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DOUBLE.as_str() {
+                oxsdatatypes::Double::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::FLOAT.as_str() {
+                oxsdatatypes::Float::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DATE.as_str() {
+                oxsdatatypes::Date::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::TIME.as_str() {
+                oxsdatatypes::Time::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DATE_TIME.as_str() {
+                oxsdatatypes::DateTime::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_YEAR.as_str() {
+                oxsdatatypes::GYear::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_MONTH.as_str() {
+                oxsdatatypes::GMonth::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_DAY.as_str() {
+                oxsdatatypes::GDay::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_YEAR_MONTH.as_str() {
+                oxsdatatypes::GYearMonth::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_MONTH_DAY.as_str() {
+                oxsdatatypes::GMonthDay::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DURATION.as_str() {
+                oxsdatatypes::Duration::from_str(value).is_ok()
+            } else if target_datatype_iri
+                == oxigraph::model::vocab::xsd::YEAR_MONTH_DURATION.as_str()
+            {
+                oxsdatatypes::YearMonthDuration::from_str(value).is_ok()
+            } else if target_datatype_iri
+                == oxigraph::model::vocab::xsd::DAY_TIME_DURATION.as_str()
+            {
+                oxsdatatypes::DayTimeDuration::from_str(value).is_ok()
+            } else {
+                true
+            }
+        }
+
         fn decimal_from_literal(literal: oxigraph::model::LiteralRef<'_>) -> Option<oxsdatatypes::Decimal> {
             let datatype = literal.datatype();
             if datatype == oxigraph::model::vocab::xsd::INTEGER
@@ -1470,18 +1776,34 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             contains_variable_token(query, '?', var) || contains_variable_token(query, '$', var)
         }
 
+        fn brace_starts_subquery(query: &str, brace_byte_idx: usize) -> bool {
+            let rest = match query.get(brace_byte_idx + 1..) {
+                Some(slice) => slice,
+                None => return false,
+            };
+            let rest = rest.trim_start();
+            let upper = rest.to_ascii_uppercase();
+            upper.starts_with("SELECT")
+                || upper.starts_with("CONSTRUCT")
+                || upper.starts_with("ASK")
+                || upper.starts_with("DESCRIBE")
+        }
+
         fn inject_bindings_everywhere(query: &str, bindings_clause: &str) -> String {
             let mut out = String::with_capacity(
                 query.len() + bindings_clause.len().saturating_mul(4),
             );
-            let mut chars = query.chars().peekable();
-            while let Some(ch) = chars.next() {
+            let mut chars = query.char_indices().peekable();
+            while let Some((idx, ch)) = chars.next() {
                 out.push(ch);
                 if ch == '{' {
+                    if brace_starts_subquery(query, idx) {
+                        continue;
+                    }
                     out.push('\n');
                     out.push_str(bindings_clause);
                     out.push('\n');
-                    while let Some(next) = chars.peek() {
+                    while let Some((_, next)) = chars.peek() {
                         if next.is_whitespace() {
                             out.push(*next);
                             let _ = chars.next();
@@ -1510,13 +1832,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             > = std::cell::RefCell::new(std::collections::HashMap::new());
         }
 
-        fn sparql_select_solutions_with_bindings(
+        fn sparql_with_bindings<T, F>(
             query: &str,
             prefixes: &str,
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
             bindings: &[(&str, oxigraph::model::Term)],
-        ) -> Result<Vec<std::collections::HashMap<String, oxigraph::model::Term>>, String> {
+            handler: F,
+        ) -> Result<T, String>
+        where
+            F: FnOnce(oxigraph::sparql::QueryResults) -> Result<T, String>,
+        {
             let mut normalized_query = query.replace('$', "?");
             let mut bind_lines: Vec<String> = Vec::new();
             let mut remaining: Vec<(&str, oxigraph::model::Term)> = Vec::new();
@@ -1567,26 +1893,67 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     term,
                 );
             }
+            let results = bound
+                .execute()
+                .map_err(|err| format!("failed to execute SPARQL query: {err}"))?;
+            handler(results)
+        }
 
-            let mut rows = Vec::new();
-            match bound.execute() {
-                Ok(oxigraph::sparql::QueryResults::Solutions(solutions)) => {
-                    for solution in solutions {
-                        let solution =
-                            solution.map_err(|err| format!("SPARQL solution error: {err}"))?;
-                        let mut row = std::collections::HashMap::new();
-                        for variable in solution.variables() {
-                            if let Some(term) = solution.get(variable) {
-                                row.insert(variable.as_str().to_string(), term.clone());
+        fn sparql_select_solutions_with_bindings(
+            query: &str,
+            prefixes: &str,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            bindings: &[(&str, oxigraph::model::Term)],
+        ) -> Result<Vec<std::collections::HashMap<String, oxigraph::model::Term>>, String> {
+            sparql_with_bindings(
+                query,
+                prefixes,
+                store,
+                data_graph,
+                bindings,
+                |results| {
+                    let mut rows = Vec::new();
+                    match results {
+                        oxigraph::sparql::QueryResults::Solutions(solutions) => {
+                            for solution in solutions {
+                                let solution =
+                                    solution.map_err(|err| format!("SPARQL solution error: {err}"))?;
+                                let mut row = std::collections::HashMap::new();
+                                for variable in solution.variables() {
+                                    if let Some(term) = solution.get(variable) {
+                                        row.insert(variable.as_str().to_string(), term.clone());
+                                    }
+                                }
+                                rows.push(row);
                             }
+                            Ok(rows)
                         }
-                        rows.push(row);
+                        _ => Ok(Vec::new()),
                     }
-                    Ok(rows)
-                }
-                Ok(_) => Ok(Vec::new()),
-                Err(err) => Err(format!("failed to execute SPARQL query: {err}")),
-            }
+                },
+            )
+        }
+
+        fn sparql_ask_with_bindings(
+            query: &str,
+            prefixes: &str,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            bindings: &[(&str, oxigraph::model::Term)],
+        ) -> Result<bool, String> {
+            sparql_with_bindings(
+                query,
+                prefixes,
+                store,
+                data_graph,
+                bindings,
+                |results| match results {
+                    oxigraph::sparql::QueryResults::Boolean(result) => Ok(result),
+                    oxigraph::sparql::QueryResults::Solutions(_) => Ok(false),
+                    oxigraph::sparql::QueryResults::Graph(_) => Ok(false),
+                },
+            )
         }
 
         fn compare_terms_with_operator(
