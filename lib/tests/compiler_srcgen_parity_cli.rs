@@ -1,5 +1,7 @@
 #![cfg(feature = "compiled-tests")]
 
+use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
+use oxigraph::model::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
 use std::error::Error;
 use std::fs;
 use std::io::Write;
@@ -109,13 +111,83 @@ fn run_status_success(mut cmd: Command, context: &str) -> Result<(), Box<dyn Err
     Ok(())
 }
 
+fn is_skolem_iri(iri: &str) -> bool {
+    iri.contains("/.sk/")
+}
+
+fn deskolemized_blank(
+    iri: &str,
+    bnodes: &mut std::collections::HashMap<String, BlankNode>,
+) -> BlankNode {
+    if let Some(existing) = bnodes.get(iri) {
+        return existing.clone();
+    }
+    let id = format!("desk{}", bnodes.len() + 1);
+    let bnode = BlankNode::new(id).expect("generated blank node id should be valid");
+    bnodes.insert(iri.to_string(), bnode.clone());
+    bnode
+}
+
+fn deskolemize_subject(
+    subject: NamedOrBlankNode,
+    bnodes: &mut std::collections::HashMap<String, BlankNode>,
+) -> NamedOrBlankNode {
+    match subject {
+        NamedOrBlankNode::NamedNode(node) if is_skolem_iri(node.as_str()) => {
+            NamedOrBlankNode::BlankNode(deskolemized_blank(node.as_str(), bnodes))
+        }
+        other => other,
+    }
+}
+
+fn deskolemize_term(term: Term, bnodes: &mut std::collections::HashMap<String, BlankNode>) -> Term {
+    match term {
+        Term::NamedNode(node) if is_skolem_iri(node.as_str()) => {
+            Term::BlankNode(deskolemized_blank(node.as_str(), bnodes))
+        }
+        other => other,
+    }
+}
+
+fn normalize_report_for_comparison(path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("report");
+    let normalized_path = parent.join(format!("{stem}.deskolemized.ttl"));
+
+    let file = fs::File::open(path)?;
+    let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
+    let mut bnodes: std::collections::HashMap<String, BlankNode> = std::collections::HashMap::new();
+    let mut triples: Vec<Triple> = Vec::new();
+    for quad in parser.for_reader(file) {
+        let triple: Triple = quad?.into();
+        let subject = deskolemize_subject(triple.subject.to_owned(), &mut bnodes);
+        let predicate: NamedNode = triple.predicate.to_owned();
+        let object = deskolemize_term(triple.object.to_owned(), &mut bnodes);
+        triples.push(Triple::new(subject, predicate, object));
+    }
+
+    let mut output = Vec::new();
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle).for_writer(&mut output);
+    for triple in triples {
+        serializer.serialize_triple(triple.as_ref())?;
+    }
+    serializer.finish()?;
+    fs::write(&normalized_path, output)?;
+    Ok(normalized_path)
+}
+
 fn assert_reports_isomorphic(left: &Path, right: &Path) -> Result<(), Box<dyn Error>> {
+    let left_norm = normalize_report_for_comparison(left)?;
+    let right_norm = normalize_report_for_comparison(right)?;
     let iso_output = run_command(
         Command::new("cargo")
             .args(["run", "-p", "shifty-shacl", "--bin", "isomorphic", "--"])
             .env("CARGO_TARGET_DIR", shared_target_dir())
-            .arg(left.to_str().unwrap())
-            .arg(right.to_str().unwrap()),
+            .arg(left_norm.to_str().unwrap())
+            .arg(right_norm.to_str().unwrap()),
     )?;
 
     assert!(

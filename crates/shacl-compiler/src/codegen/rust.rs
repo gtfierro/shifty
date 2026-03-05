@@ -4250,6 +4250,23 @@ fn generate_run_module(plan: &PlanView) -> Result<String, String> {
             report
         }
 
+        pub fn run_with_extended_options(
+            store: &Store,
+            data_graph: Option<&NamedNode>,
+            enable_inference: bool,
+            _full_aot: bool,
+        ) -> Report {
+            run_with_options(store, data_graph, enable_inference)
+        }
+
+        pub fn run_with_full_aot(
+            store: &Store,
+            data_graph: Option<&NamedNode>,
+            enable_inference: bool,
+        ) -> Report {
+            run_with_options(store, data_graph, enable_inference)
+        }
+
         pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {
             run_with_options(store, data_graph, true)
         }

@@ -155,6 +155,23 @@ pub fn generate_modules(program: &CompiledProgram) -> Result<GeneratedRust, Stri
              }}\n\
          }}\n\
          \n\
+         pub fn run_with_extended_options(\n\
+             store: &Store,\n\
+             data_graph: Option<&NamedNode>,\n\
+             enable_inference: bool,\n\
+             _full_aot: bool,\n\
+         ) -> Report {{\n\
+             run_with_options(store, data_graph, enable_inference)\n\
+         }}\n\
+         \n\
+         pub fn run_with_full_aot(\n\
+             store: &Store,\n\
+             data_graph: Option<&NamedNode>,\n\
+             enable_inference: bool,\n\
+         ) -> Report {{\n\
+             run_with_options(store, data_graph, enable_inference)\n\
+         }}\n\
+         \n\
          pub fn run(store: &Store, data_graph: Option<&NamedNode>) -> Report {{\n\
              run_with_options(store, data_graph, true)\n\
          }}\n\
