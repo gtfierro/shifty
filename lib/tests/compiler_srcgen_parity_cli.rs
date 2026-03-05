@@ -96,6 +96,19 @@ fn run_binary_to_file(
     Ok(())
 }
 
+fn run_command_capture(mut cmd: Command) -> Result<std::process::Output, Box<dyn Error>> {
+    let output = cmd.output()?;
+    Ok(output)
+}
+
+fn run_status_success(mut cmd: Command, context: &str) -> Result<(), Box<dyn Error>> {
+    let status = cmd.status()?;
+    if !status.success() {
+        return Err(format!("{context} failed with {status}").into());
+    }
+    Ok(())
+}
+
 fn assert_reports_isomorphic(left: &Path, right: &Path) -> Result<(), Box<dyn Error>> {
     let iso_output = run_command(
         Command::new("cargo")
@@ -1009,5 +1022,196 @@ ex:PersonShape
         runtime_median
     );
 
+    Ok(())
+}
+
+#[test]
+#[ignore = "strict aot gate: run manually with --ignored"]
+fn srcgen_strict_full_aot_223_invalid_case_fails() -> Result<(), Box<dyn Error>> {
+    let _guard = compiled_test_lock();
+    let root = workspace_root();
+    let mut cmd = Command::new("bash");
+    cmd.arg("223test.sh")
+        .current_dir(&root)
+        .env("CARGO_TARGET_DIR", shared_target_dir())
+        .env("FORCE_REFRESH", "false")
+        .env("TEMPORARY_ONTOENV", "true")
+        .env("FULL_AOT", "true")
+        .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
+        .env("DATA_FILE", "ttl/medium-223p.ttl");
+    let output = run_command_capture(cmd)?;
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit code 2 for violations, got {:?}\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Validation failed (violations found)."),
+        "expected strict 223 run to report violations:\n{}",
+        stdout
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "perf gate: run manually with --ignored"]
+fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>> {
+    let _guard = compiled_test_lock();
+    let root = workspace_root();
+    let target_dir = shared_target_dir();
+
+    run_status_success(
+        {
+            let mut cmd = Command::new("cargo");
+            cmd.args([
+                "build",
+                "--release",
+                "-p",
+                "cli",
+                "--features",
+                "shacl-compiler",
+            ])
+            .current_dir(&root)
+            .env("CARGO_TARGET_DIR", &target_dir);
+            cmd
+        },
+        "build release cli",
+    )?;
+
+    let runtime_cli = target_dir.join("release").join("shifty");
+    let compiled_223_out = std::env::temp_dir().join("compiled-shacl-223p-gate");
+    let compiled_brick_out = std::env::temp_dir().join("compiled-shacl-brick-gate");
+    fs::create_dir_all(&compiled_223_out)?;
+    fs::create_dir_all(&compiled_brick_out)?;
+
+    run_status_success(
+        {
+            let mut cmd = Command::new("cargo");
+            cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+                .args([
+                    "compile",
+                    "--shapes-file",
+                    "ttl/223p.ttl",
+                    "--compiler",
+                    "srcgen",
+                    "--backend",
+                    "specialized",
+                    "--out-dir",
+                ])
+                .arg(&compiled_223_out)
+                .args(["--bin-name", "s223gate", "--shifty-path"])
+                .arg(root.join("lib"))
+                .args(["--release", "--temporary"])
+                .current_dir(&root)
+                .env("CARGO_TARGET_DIR", &target_dir)
+                .env("FORCE_REFRESH", "false");
+            cmd
+        },
+        "compile 223 srcgen binary",
+    )?;
+
+    run_status_success(
+        {
+            let mut cmd = Command::new("cargo");
+            cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+                .args([
+                    "compile",
+                    "--shapes-file",
+                    "ttl/Brick.ttl",
+                    "--compiler",
+                    "srcgen",
+                    "--backend",
+                    "specialized",
+                    "--out-dir",
+                ])
+                .arg(&compiled_brick_out)
+                .args(["--bin-name", "brickgate", "--shifty-path"])
+                .arg(root.join("lib"))
+                .args(["--release", "--temporary"])
+                .current_dir(&root)
+                .env("CARGO_TARGET_DIR", &target_dir)
+                .env("FORCE_REFRESH", "false");
+            cmd
+        },
+        "compile brick srcgen binary",
+    )?;
+
+    let compiled_223_bin = compiled_223_out.join("target/release/s223gate");
+    let compiled_brick_bin = compiled_brick_out.join("target/release/brickgate");
+
+    let bench_dataset = |name: &str,
+                         shapes: &str,
+                         data: &str,
+                         compiled_bin: &Path|
+     -> Result<(), Box<dyn Error>> {
+        let mut runtime_runs = Vec::new();
+        let mut compiled_runs = Vec::new();
+
+        for _ in 0..3 {
+            let start = Instant::now();
+            run_status_success(
+                {
+                    let mut cmd = Command::new(&runtime_cli);
+                    cmd.args([
+                        "validate",
+                        "--shapes-file",
+                        shapes,
+                        "--data-file",
+                        data,
+                        "--run-inference",
+                        "--format",
+                        "turtle",
+                    ])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                    cmd
+                },
+                &format!("runtime validate for {name}"),
+            )?;
+            runtime_runs.push(start.elapsed());
+
+            let start = Instant::now();
+            run_status_success(
+                {
+                    let mut cmd = Command::new(compiled_bin);
+                    cmd.args(["--run-inference=true", "--full-aot=true", data])
+                        .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                    cmd
+                },
+                &format!("compiled strict validate for {name}"),
+            )?;
+            compiled_runs.push(start.elapsed());
+        }
+
+        runtime_runs.sort();
+        compiled_runs.sort();
+        let runtime_median = runtime_runs[runtime_runs.len() / 2];
+        let compiled_median = compiled_runs[compiled_runs.len() / 2];
+        assert!(
+            compiled_median < runtime_median,
+            "perf gate failed for {name}: compiled_median={compiled_median:?}, runtime_median={runtime_median:?}"
+        );
+        Ok(())
+    };
+
+    bench_dataset(
+        "223",
+        "ttl/223p.ttl",
+        "ttl/medium-223p.ttl",
+        &compiled_223_bin,
+    )?;
+    bench_dataset(
+        "brick",
+        "ttl/Brick.ttl",
+        "ttl/small-brick-model.ttl",
+        &compiled_brick_bin,
+    )?;
     Ok(())
 }

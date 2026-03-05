@@ -172,8 +172,21 @@ cargo test -p shifty-shacl --lib
 # Compiled manifest tests (new backend path)
 cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test -- --nocapture
 
+# Compiled manifest tests (srcgen strict full-AOT path)
+SHFTY_COMPILED_MANIFEST_COMPILER=srcgen \
+SHFTY_COMPILED_MANIFEST_STRICT_FULL_AOT=1 \
+cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test -- --nocapture
+
 # 223 compiled scenario (deterministic script)
 DATA_FILE=ttl/medium-223p.ttl bash 223test.sh
+
+# Strict full-AOT 223 invalid-case gate
+cargo test -p shifty-shacl --features compiled-tests --test compiler_srcgen_parity_cli \
+  srcgen_strict_full_aot_223_invalid_case_fails -- --ignored --nocapture
+
+# Strict full-AOT perf gates (223 + Brick)
+cargo test -p shifty-shacl --features compiled-tests --test compiler_srcgen_parity_cli \
+  srcgen_strict_full_aot_perf_gate_223_and_brick -- --ignored --nocapture
 
 # Inspect fallback reasons quickly
 jq -r '.fallback_annotations[].reason' /tmp/compiled-shacl-223p/srcgen.ir.json | sort | uniq -c | sort -nr

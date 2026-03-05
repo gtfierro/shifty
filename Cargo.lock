@@ -3189,6 +3189,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shacl-compiler",
+ "shacl-srcgen-compiler",
  "spargebra",
  "url",
  "xxhash-rust",
