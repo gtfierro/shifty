@@ -6,6 +6,7 @@ OUT_DIR="${OUT_DIR:-/tmp/compiled-shacl}"
 BIN_NAME="${BIN_NAME:-brickexe}"
 SHAPES_FILE="${SHAPES_FILE:-$ROOT_DIR/ttl/Brick.ttl}"
 DATA_FILE="${DATA_FILE:-${1:-}}"
+FULL_AOT="${FULL_AOT:-true}"
 
 mkdir -p "$OUT_DIR"
 
@@ -25,8 +26,9 @@ echo "Wrote SrcGenIR: $OUT_DIR/srcgen.ir.json"
 
 if [[ -n "$DATA_FILE" ]]; then
   echo "Running compiled binary with generated inference enabled..."
-  "$BIN_PATH" --run-inference=true "$DATA_FILE"
+  echo "Full AOT mode: $FULL_AOT"
+  "$BIN_PATH" --run-inference=true --full-aot="$FULL_AOT" "$DATA_FILE"
 else
   echo "No data file supplied. To run validation with inference:"
-  echo "  $BIN_PATH --run-inference=true <data.ttl>"
+  echo "  $BIN_PATH --run-inference=true --full-aot=true <data.ttl>"
 fi

@@ -8,6 +8,7 @@ SHAPES_FILE="${SHAPES_FILE:-$ROOT_DIR/ttl/223p.ttl}"
 DATA_FILE="${DATA_FILE:-${1:-}}"
 FORCE_REFRESH="${FORCE_REFRESH:-true}"
 TEMPORARY_ONTOENV="${TEMPORARY_ONTOENV:-true}"
+FULL_AOT="${FULL_AOT:-true}"
 
 mkdir -p "$OUT_DIR"
 
@@ -40,8 +41,9 @@ echo "Wrote SrcGenIR: $OUT_DIR/srcgen.ir.json"
 if [[ -n "$DATA_FILE" ]]; then
   REPORT_FILE="$OUT_DIR/validation-report.ttl"
   echo "Running compiled binary with generated inference enabled..."
+  echo "Full AOT mode: $FULL_AOT"
   echo "Report file: $REPORT_FILE"
-  if "$BIN_PATH" --run-inference=true --fail-on-violations "$DATA_FILE" | tee "$REPORT_FILE"; then
+  if "$BIN_PATH" --run-inference=true --full-aot="$FULL_AOT" --fail-on-violations "$DATA_FILE" | tee "$REPORT_FILE"; then
     echo "Validation conforms."
   else
     status=$?
@@ -53,5 +55,5 @@ if [[ -n "$DATA_FILE" ]]; then
   fi
 else
   echo "No data file supplied. To run validation with inference:"
-  echo "  $BIN_PATH --run-inference=true --fail-on-violations <data.ttl>"
+  echo "  $BIN_PATH --run-inference=true --full-aot=true --fail-on-violations <data.ttl>"
 fi
