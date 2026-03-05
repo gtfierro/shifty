@@ -1,9 +1,122 @@
 use crate::codegen::render_tokens_as_module;
-use crate::ir::{SrcGenComponentKind, SrcGenIR};
+use crate::ir::{SrcGenComponentKind, SrcGenIR, SrcGenPath};
+use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use std::collections::{BTreeMap, HashMap};
 use syn::LitStr;
+
+fn term_expr(term: &Term) -> TokenStream {
+    match term {
+        Term::NamedNode(node) => {
+            let iri = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked(#iri),
+                )
+            }
+        }
+        Term::BlankNode(node) => {
+            let id = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::BlankNode(
+                    oxigraph::model::BlankNode::new_unchecked(#id),
+                )
+            }
+        }
+        Term::Literal(literal) => {
+            let value = LitStr::new(literal.value(), Span::call_site());
+            if let Some(language) = literal.language() {
+                let language_lit = LitStr::new(language, Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_language_tagged_literal(
+                            #value,
+                            #language_lit,
+                        ).expect("invalid language-tagged literal in srcgen property path"),
+                    )
+                }
+            } else if literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#string" {
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_simple_literal(#value),
+                    )
+                }
+            } else {
+                let datatype = LitStr::new(literal.datatype().as_str(), Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_typed_literal(
+                            #value,
+                            oxigraph::model::NamedNode::new_unchecked(#datatype),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+fn path_expr(path: &SrcGenPath) -> TokenStream {
+    match path {
+        SrcGenPath::SimplePredicate { predicate_iri } => {
+            let iri = LitStr::new(predicate_iri, Span::call_site());
+            quote! {
+                CompiledPath::SimplePredicate {
+                    predicate_iri: #iri.to_string(),
+                }
+            }
+        }
+        SrcGenPath::Inverse { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::Inverse {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+        SrcGenPath::Sequence { items } => {
+            let items: Vec<TokenStream> = items.iter().map(path_expr).collect();
+            quote! {
+                CompiledPath::Sequence {
+                    items: vec![#(#items),*],
+                }
+            }
+        }
+        SrcGenPath::Alternative { items } => {
+            let items: Vec<TokenStream> = items.iter().map(path_expr).collect();
+            quote! {
+                CompiledPath::Alternative {
+                    items: vec![#(#items),*],
+                }
+            }
+        }
+        SrcGenPath::ZeroOrMore { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::ZeroOrMore {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+        SrcGenPath::OneOrMore { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::OneOrMore {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+        SrcGenPath::ZeroOrOne { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::ZeroOrOne {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+    }
+}
 
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let component_by_id: HashMap<u64, &SrcGenComponentKind> = ir
@@ -62,14 +175,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let mut supported_shapes = 0usize;
 
     for shape in ir.property_shapes.iter().filter(|shape| shape.supported) {
-        let Some(predicate) = shape.path_predicate.as_ref() else {
-            continue;
-        };
         supported_shapes += 1;
 
         let shape_id = shape.id;
-        let predicate_lit = LitStr::new(predicate, Span::call_site());
-        let path_sparql_lit = LitStr::new(&format!("<{predicate}>"), Span::call_site());
+        let path_expr = path_expr(&shape.path);
+        let path_term_expr = term_expr(&shape.path_term);
+        let path_sparql_lit = LitStr::new(&shape.path_sparql, Span::call_site());
 
         let mut constraint_checks: Vec<TokenStream> = Vec::new();
         for component_id in &shape.supported_constraints {
@@ -799,10 +910,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
         match_arms.push(quote! {
             #shape_id => {
-                let values = values_for_predicate(store, data_graph, focus, #predicate_lit)?;
-                let predicate_term = oxigraph::model::Term::NamedNode(
-                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
-                );
+                let path = #path_expr;
+                let values = values_for_compiled_path(store, data_graph, focus, &path)?;
+                let predicate_term = #path_term_expr;
                 #(#constraint_checks)*
             }
         });
@@ -810,6 +920,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
     let tokens = quote! {
         pub const GENERATED_PROPERTY_VALIDATORS: usize = #supported_shapes;
+
+        #[derive(Debug, Clone)]
+        enum CompiledPath {
+            SimplePredicate { predicate_iri: String },
+            Inverse { inner: Box<CompiledPath> },
+            Sequence { items: Vec<CompiledPath> },
+            Alternative { items: Vec<CompiledPath> },
+            ZeroOrMore { inner: Box<CompiledPath> },
+            OneOrMore { inner: Box<CompiledPath> },
+            ZeroOrOne { inner: Box<CompiledPath> },
+        }
 
         fn qualified_sibling_shapes(
             parent_node_shape_id: u64,
@@ -847,13 +968,19 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
-        fn values_for_predicate(
+        fn sort_and_dedup_terms(mut terms: Vec<oxigraph::model::Term>) -> Vec<oxigraph::model::Term> {
+            terms.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            terms.dedup();
+            terms
+        }
+
+        fn objects_for_simple_predicate(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
-            focus: &oxigraph::model::Term,
+            start: &oxigraph::model::Term,
             predicate_iri: &str,
         ) -> Result<Vec<oxigraph::model::Term>, String> {
-            let Some(subject_ref) = subject_ref_from_term(focus) else {
+            let Some(subject_ref) = subject_ref_from_term(start) else {
                 return Ok(Vec::new());
             };
             let predicate = oxigraph::model::NamedNode::new(predicate_iri)
@@ -871,9 +998,205 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     values.push(quad.object);
                 }
             }
-            values.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-            values.dedup();
-            Ok(values)
+            Ok(sort_and_dedup_terms(values))
+        }
+
+        fn subjects_for_simple_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            end: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri)
+                .map_err(|err| format!("invalid path predicate IRI {predicate_iri}: {err}"))?;
+            let mut subjects = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    Some(end.as_ref()),
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    subjects.push(oxigraph::model::Term::from(quad.subject));
+                }
+            }
+            Ok(sort_and_dedup_terms(subjects))
+        }
+
+        fn closure_objects_for_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            start: &oxigraph::model::Term,
+            inner: &CompiledPath,
+            include_start: bool,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let mut visited: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            let mut queue: std::collections::VecDeque<oxigraph::model::Term> =
+                std::collections::VecDeque::new();
+            visited.insert(start.clone());
+            queue.push_back(start.clone());
+
+            while let Some(current) = queue.pop_front() {
+                let next_nodes = objects_for_compiled_path(store, data_graph, &current, inner)?;
+                for next in next_nodes {
+                    if visited.insert(next.clone()) {
+                        queue.push_back(next);
+                    }
+                }
+            }
+
+            let mut out: Vec<oxigraph::model::Term> = visited.into_iter().collect();
+            if !include_start {
+                out.retain(|term| term != start);
+            }
+            Ok(sort_and_dedup_terms(out))
+        }
+
+        fn closure_subjects_for_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            end: &oxigraph::model::Term,
+            inner: &CompiledPath,
+            include_end: bool,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let mut visited: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            let mut queue: std::collections::VecDeque<oxigraph::model::Term> =
+                std::collections::VecDeque::new();
+            visited.insert(end.clone());
+            queue.push_back(end.clone());
+
+            while let Some(current) = queue.pop_front() {
+                let prev_nodes = subjects_for_compiled_path(store, data_graph, &current, inner)?;
+                for prev in prev_nodes {
+                    if visited.insert(prev.clone()) {
+                        queue.push_back(prev);
+                    }
+                }
+            }
+
+            let mut out: Vec<oxigraph::model::Term> = visited.into_iter().collect();
+            if !include_end {
+                out.retain(|term| term != end);
+            }
+            Ok(sort_and_dedup_terms(out))
+        }
+
+        fn objects_for_compiled_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            start: &oxigraph::model::Term,
+            path: &CompiledPath,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            match path {
+                CompiledPath::SimplePredicate { predicate_iri } => {
+                    objects_for_simple_predicate(store, data_graph, start, predicate_iri)
+                }
+                CompiledPath::Inverse { inner } => {
+                    subjects_for_compiled_path(store, data_graph, start, inner)
+                }
+                CompiledPath::Sequence { items } => {
+                    let mut frontier = vec![start.clone()];
+                    for item in items {
+                        let mut next = Vec::new();
+                        for node in &frontier {
+                            next.extend(objects_for_compiled_path(store, data_graph, node, item)?);
+                        }
+                        frontier = sort_and_dedup_terms(next);
+                        if frontier.is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(frontier)
+                }
+                CompiledPath::Alternative { items } => {
+                    let mut values = Vec::new();
+                    for item in items {
+                        values.extend(objects_for_compiled_path(store, data_graph, start, item)?);
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+                CompiledPath::ZeroOrMore { inner } => {
+                    closure_objects_for_path(store, data_graph, start, inner, true)
+                }
+                CompiledPath::OneOrMore { inner } => {
+                    closure_objects_for_path(store, data_graph, start, inner, false)
+                }
+                CompiledPath::ZeroOrOne { inner } => {
+                    let mut values = vec![start.clone()];
+                    values.extend(objects_for_compiled_path(store, data_graph, start, inner)?);
+                    Ok(sort_and_dedup_terms(values))
+                }
+            }
+        }
+
+        fn subjects_for_compiled_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            end: &oxigraph::model::Term,
+            path: &CompiledPath,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            match path {
+                CompiledPath::SimplePredicate { predicate_iri } => {
+                    subjects_for_simple_predicate(store, data_graph, end, predicate_iri)
+                }
+                CompiledPath::Inverse { inner } => {
+                    objects_for_compiled_path(store, data_graph, end, inner)
+                }
+                CompiledPath::Sequence { items } => {
+                    let mut frontier = vec![end.clone()];
+                    for item in items.iter().rev() {
+                        let mut prev = Vec::new();
+                        for node in &frontier {
+                            prev.extend(subjects_for_compiled_path(store, data_graph, node, item)?);
+                        }
+                        frontier = sort_and_dedup_terms(prev);
+                        if frontier.is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(frontier)
+                }
+                CompiledPath::Alternative { items } => {
+                    let mut values = Vec::new();
+                    for item in items {
+                        values.extend(subjects_for_compiled_path(store, data_graph, end, item)?);
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+                CompiledPath::ZeroOrMore { inner } => {
+                    closure_subjects_for_path(store, data_graph, end, inner, true)
+                }
+                CompiledPath::OneOrMore { inner } => {
+                    closure_subjects_for_path(store, data_graph, end, inner, false)
+                }
+                CompiledPath::ZeroOrOne { inner } => {
+                    let mut values = vec![end.clone()];
+                    values.extend(subjects_for_compiled_path(store, data_graph, end, inner)?);
+                    Ok(sort_and_dedup_terms(values))
+                }
+            }
+        }
+
+        fn values_for_compiled_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            path: &CompiledPath,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            objects_for_compiled_path(store, data_graph, focus, path)
+        }
+
+        fn values_for_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            objects_for_simple_predicate(store, data_graph, focus, predicate_iri)
         }
 
         pub fn term_has_rdf_type(

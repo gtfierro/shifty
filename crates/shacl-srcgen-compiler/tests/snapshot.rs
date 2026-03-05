@@ -235,7 +235,7 @@ fn validators_use_expected_graph_scope() {
     assert!(validators_property.contains("fn validation_graphs("));
     assert!(validators_property.contains("NamedNode::new(SHAPE_GRAPH)"));
     assert!(validators_property.contains("for graph in validation_graphs(data_graph)?"));
-    assert!(validators_property.contains("values.dedup();"));
+    assert!(validators_property.contains("fn sort_and_dedup_terms("));
 
     let validators_node = generated
         .files

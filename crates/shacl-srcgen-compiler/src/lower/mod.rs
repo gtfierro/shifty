@@ -1,7 +1,7 @@
 use crate::ir::{
     FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
-    SrcGenMeta, SrcGenNodeShape, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
-    SrcGenRuleSubject,
+    SrcGenMeta, SrcGenNodeShape, SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind,
+    SrcGenRuleObject, SrcGenRuleSubject,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
@@ -53,6 +53,22 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 .get(&shape.id)
                 .map(term_to_stable_string)
                 .unwrap_or_else(|| format!("_:property-shape-{}", shape.id.0));
+            let lowered_path = lower_supported_property_path(&shape.path);
+            let (path, path_sparql, path_supported) = if let Some(path) = lowered_path {
+                let path_sparql = shape
+                    .path
+                    .to_sparql_path()
+                    .unwrap_or_else(|_| String::new());
+                (path, path_sparql, true)
+            } else {
+                (
+                    SrcGenPath::SimplePredicate {
+                        predicate_iri: "urn:shifty:unsupported-path".to_string(),
+                    },
+                    String::new(),
+                    false,
+                )
+            };
             let path_predicate = simple_named_path_predicate(&shape.path);
             let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
             constraints.sort_unstable();
@@ -60,7 +76,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let base_supported = !shape.deactivated
                 && matches!(shape.severity, Severity::Violation)
                 && shape.targets.is_empty()
-                && path_predicate.is_some();
+                && path_supported;
             let mut supported_constraints = Vec::new();
             let mut fallback_constraints = Vec::new();
             for component_id in &constraints {
@@ -78,6 +94,9 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             PendingPropertyShape {
                 original_id: shape.id,
                 iri,
+                path,
+                path_term: shape.path_term.clone(),
+                path_sparql,
                 path_predicate,
                 constraints,
                 supported_constraints,
@@ -208,6 +227,9 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 .map(|id| SrcGenPropertyShape {
                     id,
                     iri: shape.iri,
+                    path: shape.path,
+                    path_term: shape.path_term,
+                    path_sparql: shape.path_sparql,
                     path_predicate: shape.path_predicate,
                     constraints: shape.constraints,
                     supported_constraints: shape.supported_constraints,
@@ -374,6 +396,9 @@ struct PendingNodeShape {
 struct PendingPropertyShape {
     original_id: PropShapeID,
     iri: String,
+    path: SrcGenPath,
+    path_term: Term,
+    path_sparql: String,
     path_predicate: Option<String>,
     constraints: Vec<u64>,
     supported_constraints: Vec<u64>,
@@ -431,6 +456,43 @@ fn simple_named_path_predicate(path: &Path) -> Option<String> {
     match path {
         Path::Simple(Term::NamedNode(predicate)) => Some(predicate.as_str().to_string()),
         _ => None,
+    }
+}
+
+fn lower_supported_property_path(path: &Path) -> Option<SrcGenPath> {
+    match path {
+        Path::Simple(Term::NamedNode(predicate)) => Some(SrcGenPath::SimplePredicate {
+            predicate_iri: predicate.as_str().to_string(),
+        }),
+        Path::Simple(_) => None,
+        Path::Inverse(inner) => Some(SrcGenPath::Inverse {
+            inner: Box::new(lower_supported_property_path(inner)?),
+        }),
+        Path::Sequence(items) => {
+            if items.is_empty() {
+                return None;
+            }
+            let lowered: Option<Vec<SrcGenPath>> =
+                items.iter().map(lower_supported_property_path).collect();
+            lowered.map(|items| SrcGenPath::Sequence { items })
+        }
+        Path::Alternative(items) => {
+            if items.is_empty() {
+                return None;
+            }
+            let lowered: Option<Vec<SrcGenPath>> =
+                items.iter().map(lower_supported_property_path).collect();
+            lowered.map(|items| SrcGenPath::Alternative { items })
+        }
+        Path::ZeroOrMore(inner) => Some(SrcGenPath::ZeroOrMore {
+            inner: Box::new(lower_supported_property_path(inner)?),
+        }),
+        Path::OneOrMore(inner) => Some(SrcGenPath::OneOrMore {
+            inner: Box::new(lower_supported_property_path(inner)?),
+        }),
+        Path::ZeroOrOne(inner) => Some(SrcGenPath::ZeroOrOne {
+            inner: Box::new(lower_supported_property_path(inner)?),
+        }),
     }
 }
 
@@ -1642,6 +1704,151 @@ mod tests {
         assert_eq!(lowered.property_shapes.len(), 1);
         assert!(lowered.node_shapes[0].supported);
         assert!(lowered.property_shapes[0].supported);
+    }
+
+    #[test]
+    fn property_shape_with_sequence_path_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::MinCount { min_count: 1 },
+        );
+
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:seq-path",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: Vec::new(),
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Sequence(vec![
+                    Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:p1",
+                    ))),
+                    Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:p2",
+                    ))),
+                ]),
+                path_term: Term::BlankNode(oxigraph::model::BlankNode::new_unchecked("path-seq")),
+                constraints: vec![ComponentID(1)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms: HashMap::new(),
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.property_shapes.len(), 1);
+        let property_shape = &lowered.property_shapes[0];
+        assert!(property_shape.supported);
+        assert!(property_shape.path_predicate.is_none());
+        assert_eq!(property_shape.path_sparql, "(<urn:p1> / <urn:p2>)");
+        assert!(matches!(
+            property_shape.path,
+            SrcGenPath::Sequence { ref items } if items.len() == 2
+        ));
+    }
+
+    #[test]
+    fn closed_constraint_with_complex_property_path_falls_back() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Closed {
+                closed: true,
+                ignored_properties: Vec::new(),
+            },
+        );
+        components.insert(
+            ComponentID(2),
+            ComponentDescriptor::Property {
+                shape: PropShapeID(7),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:closed",
+            )),
+        );
+        let mut property_shape_terms = HashMap::new();
+        property_shape_terms.insert(
+            PropShapeID(7),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:complex-path",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Asset"),
+                ))],
+                constraints: vec![ComponentID(1), ComponentID(2)],
+                property_shapes: vec![PropShapeID(7)],
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: vec![PropertyShapeIR {
+                id: PropShapeID(7),
+                targets: Vec::new(),
+                path: Path::Sequence(vec![
+                    Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:rel:hasPart",
+                    ))),
+                    Path::Simple(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:rel:name",
+                    ))),
+                ]),
+                path_term: Term::BlankNode(oxigraph::model::BlankNode::new_unchecked(
+                    "path-closed-seq",
+                )),
+                constraints: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms,
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.node_shapes.len(), 1);
+        let node_shape = &lowered.node_shapes[0];
+        assert!(node_shape.supported);
+        assert!(!node_shape.fallback_constraints.is_empty());
+        assert!(node_shape.fallback_constraints.contains(&1));
     }
 
     #[test]

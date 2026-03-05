@@ -57,6 +57,9 @@ pub struct SrcGenNodeShape {
 pub struct SrcGenPropertyShape {
     pub id: u64,
     pub iri: String,
+    pub path: SrcGenPath,
+    pub path_term: Term,
+    pub path_sparql: String,
     pub path_predicate: Option<String>,
     pub constraints: Vec<u64>,
     #[serde(default)]
@@ -64,6 +67,17 @@ pub struct SrcGenPropertyShape {
     #[serde(default)]
     pub fallback_constraints: Vec<u64>,
     pub supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenPath {
+    SimplePredicate { predicate_iri: String },
+    Inverse { inner: Box<SrcGenPath> },
+    Sequence { items: Vec<SrcGenPath> },
+    Alternative { items: Vec<SrcGenPath> },
+    ZeroOrMore { inner: Box<SrcGenPath> },
+    OneOrMore { inner: Box<SrcGenPath> },
+    ZeroOrOne { inner: Box<SrcGenPath> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
