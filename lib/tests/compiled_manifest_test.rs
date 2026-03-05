@@ -181,19 +181,7 @@ fn collect_tests_from_manifest(
 }
 
 fn skip_reason(test: &TestCase) -> Option<&'static str> {
-    let advanced_expr = "/advanced/expression/";
-    if test
-        .data_graph_path
-        .to_string_lossy()
-        .contains(advanced_expr)
-        || test
-            .shapes_graph_path
-            .to_string_lossy()
-            .contains(advanced_expr)
-    {
-        return Some("SHACL-AF expressions not supported yet");
-    }
-
+    let _ = test;
     None
 }
 
@@ -325,12 +313,15 @@ fn compiled_bin_for_shapes(
     );
     std::fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
-    let main_rs = match compiler {
+    let shapes_file_literal = canonical.to_string_lossy().to_string();
+    let main_template = match compiler {
         ManifestCompiler::Legacy => {
             r#"
 mod generated;
 
-use generated::{load_original_value_index, render_report, set_original_value_index, DATA_GRAPH};
+use generated::{
+    load_original_value_index, render_report, set_original_value_index, DATA_GRAPH, SHAPE_GRAPH,
+};
 use log::info;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, NamedNode, Quad};
@@ -339,6 +330,8 @@ use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
+
+const SHAPES_FILE: &str = "__SHAPES_FILE__";
 
 fn print_usage(program: &str) {
     eprintln!("usage: {} [--follow-bnodes] <data.rdf>", program);
@@ -398,6 +391,26 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
     set_original_value_index(Some(original_index));
     let store = Store::new()?;
+    let shape_graph = NamedNode::new(SHAPE_GRAPH).unwrap();
+    let shape_graph_name = GraphName::NamedNode(shape_graph.clone());
+    let shapes_path_ref = Path::new(SHAPES_FILE);
+    let shapes_format = sniff_format(shapes_path_ref)?;
+    let shapes_file = File::open(shapes_path_ref)?;
+    let shapes_parser = RdfParser::from_format(shapes_format).for_reader(shapes_file);
+    info!("Starting shape graph load from {}", SHAPES_FILE);
+    let mut shape_triple_count = 0;
+    for triple in shapes_parser {
+        let triple = triple?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            shape_graph_name.clone(),
+        );
+        store.insert(&quad)?;
+        shape_triple_count += 1;
+    }
+    info!("Finished shape graph load ({} triples)", shape_triple_count);
     let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
     let graph_name = GraphName::NamedNode(data_graph.clone());
     let file = File::open(data_path_ref)?;
@@ -428,7 +441,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             r#"
 mod generated;
 
-use generated::{render_report, DATA_GRAPH};
+use generated::{
+    load_original_value_index, render_report, set_original_value_index, DATA_GRAPH, SHAPE_GRAPH,
+};
 use log::info;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, NamedNode, Quad};
@@ -437,6 +452,8 @@ use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
+
+const SHAPES_FILE: &str = "__SHAPES_FILE__";
 
 fn print_usage(program: &str) {
     eprintln!("usage: {} [--follow-bnodes] <data.rdf>", program);
@@ -492,7 +509,30 @@ fn main() -> Result<(), Box<dyn Error>> {
         parse_args().map_err(|err| Box::<dyn std::error::Error>::from(err))?;
     let data_path_ref = Path::new(&data_path);
     let format = sniff_format(data_path_ref)?;
+    let original_index = load_original_value_index(data_path_ref)
+        .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
+    set_original_value_index(Some(original_index));
     let store = Store::new()?;
+    let shape_graph = NamedNode::new(SHAPE_GRAPH).unwrap();
+    let shape_graph_name = GraphName::NamedNode(shape_graph.clone());
+    let shapes_path_ref = Path::new(SHAPES_FILE);
+    let shapes_format = sniff_format(shapes_path_ref)?;
+    let shapes_file = File::open(shapes_path_ref)?;
+    let shapes_parser = RdfParser::from_format(shapes_format).for_reader(shapes_file);
+    info!("Starting shape graph load from {}", SHAPES_FILE);
+    let mut shape_triple_count = 0;
+    for triple in shapes_parser {
+        let triple = triple?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            shape_graph_name.clone(),
+        );
+        store.insert(&quad)?;
+        shape_triple_count += 1;
+    }
+    info!("Finished shape graph load ({} triples)", shape_triple_count);
     let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
     let graph_name = GraphName::NamedNode(data_graph.clone());
     let file = File::open(data_path_ref)?;
@@ -520,6 +560,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 "#
         }
     };
+    let main_rs = main_template.replace("__SHAPES_FILE__", &shapes_file_literal);
     std::fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
 
     let mut cmd = Command::new("cargo");
