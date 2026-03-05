@@ -183,6 +183,12 @@ pub struct SrcGenRule {
     pub id: u64,
     #[serde(default)]
     pub target_classes: Vec<String>,
+    #[serde(default)]
+    pub target_nodes: Vec<Term>,
+    #[serde(default)]
+    pub target_subjects_of: Vec<String>,
+    #[serde(default)]
+    pub target_objects_of: Vec<String>,
     pub kind: SrcGenRuleKind,
     pub fallback_only: bool,
 }

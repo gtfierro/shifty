@@ -298,16 +298,16 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             continue;
         }
 
-        let (kind, target_classes, fallback_reason) = match rule_target_classes(shape_ir, rule_id) {
-            Ok(target_classes) => {
-                let (kind, reason) = rule_kind(shape_ir, rule, &target_classes);
-                (kind, target_classes, reason)
+        let (kind, targets, fallback_reason) = match rule_targets(shape_ir, rule_id) {
+            Ok(targets) => {
+                let (kind, reason) = rule_kind(shape_ir, rule, &targets);
+                (kind, targets, reason)
             }
             Err(reason) => (
                 SrcGenRuleKind::Unsupported {
                     kind: format!("{}(targets)", rule_kind_name(rule)),
                 },
-                Vec::new(),
+                LoweredNodeTargets::default(),
                 Some(reason),
             ),
         };
@@ -315,7 +315,10 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
         let fallback_only = fallback_reason.is_some();
         rules.push(SrcGenRule {
             id: rule_id_value,
-            target_classes,
+            target_classes: targets.target_classes,
+            target_nodes: targets.target_nodes,
+            target_subjects_of: targets.target_subjects_of,
+            target_objects_of: targets.target_objects_of,
             kind,
             fallback_only,
         });
@@ -419,19 +422,6 @@ fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets
     Some(lowered)
 }
 
-fn class_targets_only(targets: &[Target]) -> Option<Vec<String>> {
-    let mut classes = Vec::new();
-    for target in targets {
-        match target {
-            Target::Class(Term::NamedNode(class)) => classes.push(class.as_str().to_string()),
-            _ => return None,
-        }
-    }
-    classes.sort();
-    classes.dedup();
-    Some(classes)
-}
-
 fn simple_named_path_predicate(path: &Path) -> Option<String> {
     match path {
         Path::Simple(Term::NamedNode(predicate)) => Some(predicate.as_str().to_string()),
@@ -439,7 +429,7 @@ fn simple_named_path_predicate(path: &Path) -> Option<String> {
     }
 }
 
-fn rule_target_classes(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<Vec<String>, String> {
+fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTargets, String> {
     if shape_ir
         .prop_shape_rules
         .values()
@@ -451,7 +441,7 @@ fn rule_target_classes(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<Vec<String
         ));
     }
 
-    let mut target_classes: Vec<String> = Vec::new();
+    let mut targets = LoweredNodeTargets::default();
     let mut matched = false;
     for node_shape in &shape_ir.node_shapes {
         let Some(rule_ids) = shape_ir.node_shape_rules.get(&node_shape.id) else {
@@ -467,19 +457,31 @@ fn rule_target_classes(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<Vec<String
                 rule_id.0
             ));
         }
-        let Some(classes) = class_targets_only(&node_shape.targets) else {
+        let Some(node_targets) = lower_supported_node_targets(&node_shape.targets) else {
             return Err(format!(
-                "Rule {} has non-class targets that are not yet specialized",
+                "Rule {} has unsupported targets that are not yet specialized",
                 rule_id.0
             ));
         };
-        if classes.is_empty() {
+        if node_targets.target_classes.is_empty()
+            && node_targets.target_nodes.is_empty()
+            && node_targets.target_subjects_of.is_empty()
+            && node_targets.target_objects_of.is_empty()
+        {
             return Err(format!(
-                "Rule {} has no class targets to drive focus-node inference",
+                "Rule {} has no specialized targets to drive focus-node inference",
                 rule_id.0
             ));
         }
-        target_classes.extend(classes);
+
+        targets.target_classes.extend(node_targets.target_classes);
+        targets.target_nodes.extend(node_targets.target_nodes);
+        targets
+            .target_subjects_of
+            .extend(node_targets.target_subjects_of);
+        targets
+            .target_objects_of
+            .extend(node_targets.target_objects_of);
     }
 
     if !matched {
@@ -489,15 +491,26 @@ fn rule_target_classes(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<Vec<String
         ));
     }
 
-    target_classes.sort();
-    target_classes.dedup();
-    if target_classes.is_empty() {
-        return Err(format!(
-            "Rule {} has no specialized target classes",
-            rule_id.0
-        ));
+    targets.target_classes.sort();
+    targets.target_classes.dedup();
+
+    targets.target_nodes.sort_by_key(term_to_stable_string);
+    targets.target_nodes.dedup();
+
+    targets.target_subjects_of.sort();
+    targets.target_subjects_of.dedup();
+
+    targets.target_objects_of.sort();
+    targets.target_objects_of.dedup();
+
+    if targets.target_classes.is_empty()
+        && targets.target_nodes.is_empty()
+        && targets.target_subjects_of.is_empty()
+        && targets.target_objects_of.is_empty()
+    {
+        return Err(format!("Rule {} has no specialized targets", rule_id.0));
     }
-    Ok(target_classes)
+    Ok(targets)
 }
 
 fn rule_kind_name(rule: &Rule) -> &'static str {
@@ -510,15 +523,19 @@ fn rule_kind_name(rule: &Rule) -> &'static str {
 fn rule_kind(
     shape_ir: &ShapeIR,
     rule: &Rule,
-    target_classes: &[String],
+    targets: &LoweredNodeTargets,
 ) -> (SrcGenRuleKind, Option<String>) {
-    if target_classes.is_empty() {
+    let has_specialized_targets = !targets.target_classes.is_empty()
+        || !targets.target_nodes.is_empty()
+        || !targets.target_subjects_of.is_empty()
+        || !targets.target_objects_of.is_empty();
+    if !has_specialized_targets {
         return (
             SrcGenRuleKind::Unsupported {
-                kind: format!("{}(no-target-classes)", rule_kind_name(rule)),
+                kind: format!("{}(no-targets)", rule_kind_name(rule)),
             },
             Some(format!(
-                "{} has no specialized target classes",
+                "{} has no specialized targets",
                 rule_kind_name(rule)
             )),
         );
@@ -2994,6 +3011,85 @@ mod tests {
         assert!(!lowered.rules[0].fallback_only);
         assert_eq!(lowered.rules[0].target_classes, vec!["urn:Equipment"]);
         assert!(lowered.rule_fallback_annotations.is_empty());
+    }
+
+    #[test]
+    fn triple_rule_with_target_node_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::NodeKind {
+                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#IRI",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:target-node-rule",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(111),
+            Rule::Triple(TripleRule {
+                id: RuleID(111),
+                subject: TriplePatternTerm::This,
+                predicate: oxigraph::model::NamedNode::new_unchecked("urn:inferred:type"),
+                object: TriplePatternTerm::Constant(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:InferredType"),
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:target-node",
+                )),
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(111)]);
+
+        let target_node = Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:focus"));
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Node(target_node.clone())],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(!lowered.rules[0].fallback_only);
+        assert_eq!(lowered.rules[0].target_nodes, vec![target_node]);
+        assert!(lowered.rules[0].target_classes.is_empty());
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Triple { .. }
+        ));
     }
 
     #[test]

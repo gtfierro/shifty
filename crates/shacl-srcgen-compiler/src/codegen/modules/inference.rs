@@ -91,6 +91,47 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .iter()
             .map(|iri| LitStr::new(iri, Span::call_site()))
             .collect();
+        let target_node_exprs: Vec<TokenStream> = rule.target_nodes.iter().map(term_expr).collect();
+        let target_subjects_of_lits: Vec<LitStr> = rule
+            .target_subjects_of
+            .iter()
+            .map(|iri| LitStr::new(iri, Span::call_site()))
+            .collect();
+        let target_objects_of_lits: Vec<LitStr> = rule
+            .target_objects_of
+            .iter()
+            .map(|iri| LitStr::new(iri, Span::call_site()))
+            .collect();
+        let rule_focus_sources = quote! {
+            #(
+                focus_nodes.extend(focus_nodes_for_target_class_cached_cloned(
+                    &mut target_class_focus_cache,
+                    &mut target_class_index,
+                    store,
+                    data_graph,
+                    #target_class_lits,
+                )?);
+            )*
+            #(
+                focus_nodes.push(#target_node_exprs);
+            )*
+            #(
+                focus_nodes.extend(focus_nodes_for_target_subjects_of_cached_cloned(
+                    &mut target_subjects_of_focus_cache,
+                    store,
+                    data_graph,
+                    #target_subjects_of_lits,
+                )?);
+            )*
+            #(
+                focus_nodes.extend(focus_nodes_for_target_objects_of_cached_cloned(
+                    &mut target_objects_of_focus_cache,
+                    store,
+                    data_graph,
+                    #target_objects_of_lits,
+                )?);
+            )*
+        };
         match &rule.kind {
             SrcGenRuleKind::Triple {
                 subject,
@@ -132,14 +173,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             std::collections::HashMap::new();
                         let mut condition_validator: Option<shifty::Validator> = None;
                         let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
-                        #(
-                            focus_nodes.extend(focus_nodes_for_target_class_cached(
-                                &mut target_class_index,
-                                store,
-                                data_graph,
-                                #target_class_lits,
-                            )?);
-                        )*
+                        #rule_focus_sources
                         focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
                         focus_nodes.dedup();
 
@@ -199,19 +233,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     .collect();
                 if condition_shape_lits.is_empty() {
                     specialized_rule_blocks.push(quote! {
-                        {
-                            let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
-                            #(
-                                focus_nodes.extend(focus_nodes_for_target_class_cached_cloned(
-                                    &mut target_class_focus_cache,
-                                    &mut target_class_index,
-                                    store,
-                                    data_graph,
-                                    #target_class_lits,
-                                )?);
-                            )*
-                            focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-                            focus_nodes.dedup();
+                    {
+                        let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                        #rule_focus_sources
+                        focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                        focus_nodes.dedup();
 
                             let query_uses_this = sparql_query_uses_this(#query_lit);
                             let mut candidate_batches: Vec<Vec<(
@@ -323,22 +349,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     });
                 } else {
                     specialized_rule_blocks.push(quote! {
-                        {
-                            let mut condition_cache: std::collections::HashMap<(String, String), bool> =
-                                std::collections::HashMap::new();
-                            let mut condition_validator: Option<shifty::Validator> = None;
-                            let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
-                            #(
-                                focus_nodes.extend(focus_nodes_for_target_class_cached_cloned(
-                                    &mut target_class_focus_cache,
-                                    &mut target_class_index,
-                                    store,
-                                    data_graph,
-                                    #target_class_lits,
-                                )?);
-                            )*
-                            focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-                            focus_nodes.dedup();
+                    {
+                        let mut condition_cache: std::collections::HashMap<(String, String), bool> =
+                            std::collections::HashMap::new();
+                        let mut condition_validator: Option<shifty::Validator> = None;
+                        let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                        #rule_focus_sources
+                        focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                        focus_nodes.dedup();
 
                             for focus in focus_nodes {
                                 let mut conditions_met = true;
@@ -561,6 +579,74 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(nodes)
         }
 
+        fn focus_nodes_for_target_subjects_of_cached_cloned(
+            target_subjects_of_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if let Some(cached) = target_subjects_of_cache.get(predicate_iri) {
+                return Ok(cached.clone());
+            }
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri).map_err(|err| {
+                format!("invalid rule targetSubjectsOf predicate IRI {predicate_iri}: {err}")
+            })?;
+            let mut nodes = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    nodes.push(oxigraph::model::Term::from(quad.subject));
+                }
+            }
+            nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            nodes.dedup();
+            target_subjects_of_cache.insert(predicate_iri.to_string(), nodes.clone());
+            Ok(nodes)
+        }
+
+        fn focus_nodes_for_target_objects_of_cached_cloned(
+            target_objects_of_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if let Some(cached) = target_objects_of_cache.get(predicate_iri) {
+                return Ok(cached.clone());
+            }
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri).map_err(|err| {
+                format!("invalid rule targetObjectsOf predicate IRI {predicate_iri}: {err}")
+            })?;
+            let mut nodes = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    nodes.push(quad.object);
+                }
+            }
+            nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            nodes.dedup();
+            target_objects_of_cache.insert(predicate_iri.to_string(), nodes.clone());
+            Ok(nodes)
+        }
+
         fn insert_inferred_candidates(
             store: &oxigraph::store::Store,
             graph_name: &oxigraph::model::GraphName,
@@ -656,6 +742,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
             let mut target_class_index: Option<TargetClassIndex> = None;
             let mut target_class_focus_cache: std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            let mut target_subjects_of_focus_cache: std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            let mut target_objects_of_focus_cache: std::collections::HashMap<
                 String,
                 Vec<oxigraph::model::Term>,
             > = std::collections::HashMap::new();
