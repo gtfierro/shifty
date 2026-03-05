@@ -331,6 +331,10 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
     }
 
     let active_rule_count = rules.len();
+    let embedded_shape_ir_bincode =
+        bincode::serde::encode_to_vec(shape_ir, bincode::config::standard()).map_err(|err| {
+            format!("failed to serialize ShapeIR for embedded fallback payload: {err}")
+        })?;
 
     Ok(SrcGenIR {
         meta: SrcGenMeta {
@@ -347,6 +351,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
         rules,
         fallback_annotations,
         rule_fallback_annotations,
+        embedded_shape_ir_bincode,
     })
 }
 

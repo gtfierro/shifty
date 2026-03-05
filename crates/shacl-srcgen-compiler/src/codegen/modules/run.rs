@@ -1,6 +1,6 @@
 use crate::codegen::render_tokens_as_module;
 use crate::ir::SrcGenIR;
-use proc_macro2::TokenStream;
+use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 use std::collections::BTreeSet;
 
@@ -61,9 +61,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
     let has_planned_runtime_fallback =
         !full_fallback_shape_ids.is_empty() || !fallback_component_pairs.is_empty();
+    let embedded_shape_ir_bytes = Literal::byte_string(&ir.embedded_shape_ir_bincode);
 
     let tokens = quote! {
         const SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK: bool = #has_planned_runtime_fallback;
+        const SRCGEN_EMBEDDED_SHAPE_IR_BIN: &[u8] = #embedded_shape_ir_bytes;
 
         fn collect_graph_quads(
             store: &oxigraph::store::Store,
@@ -78,29 +80,311 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(out)
         }
 
-        fn build_runtime_validator(
+        fn deserialize_embedded_shape_ir() -> Result<shifty::shacl_ir::ShapeIR, String> {
+            if SRCGEN_EMBEDDED_SHAPE_IR_BIN.is_empty() {
+                return Err("embedded ShapeIR payload is empty".to_string());
+            }
+            bincode::serde::decode_from_slice::<shifty::shacl_ir::ShapeIR, _>(
+                SRCGEN_EMBEDDED_SHAPE_IR_BIN,
+                bincode::config::standard(),
+            )
+            .map(|(shape_ir, _)| shape_ir)
+            .map_err(|err| format!("failed to deserialize embedded ShapeIR payload: {err}"))
+        }
+
+        fn embedded_shape_ir() -> Result<&'static shifty::shacl_ir::ShapeIR, String> {
+            static SHAPE_IR: std::sync::OnceLock<Result<shifty::shacl_ir::ShapeIR, String>> =
+                std::sync::OnceLock::new();
+            match SHAPE_IR.get_or_init(deserialize_embedded_shape_ir) {
+                Ok(shape_ir) => Ok(shape_ir),
+                Err(err) => Err(err.clone()),
+            }
+        }
+
+        fn build_targeted_fallback_shape_ir() -> Result<Option<shifty::shacl_ir::ShapeIR>, String> {
+            use shifty::shacl_ir::{ComponentDescriptor, ComponentID, ID, PropShapeID};
+
+            if !SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
+                return Ok(None);
+            }
+
+            let full_shape_ir = embedded_shape_ir()?.clone();
+
+            let mut lowered_node_shape_by_ir: std::collections::HashMap<ID, u64> =
+                std::collections::HashMap::new();
+            for (shape_id, term) in &full_shape_ir.node_shape_terms {
+                let key = term.to_string();
+                if let Some(lowered_shape_id) = shape_id_for_iri(&key) {
+                    lowered_node_shape_by_ir.insert(*shape_id, lowered_shape_id);
+                }
+            }
+
+            let mut lowered_property_shape_by_ir: std::collections::HashMap<PropShapeID, u64> =
+                std::collections::HashMap::new();
+            for (shape_id, term) in &full_shape_ir.property_shape_terms {
+                let key = term.to_string();
+                if let Some(lowered_shape_id) = shape_id_for_iri(&key) {
+                    lowered_property_shape_by_ir.insert(*shape_id, lowered_shape_id);
+                }
+            }
+
+            let mut full_property_shape_ids: std::collections::HashSet<PropShapeID> =
+                std::collections::HashSet::new();
+            let mut partial_property_shape_constraints: std::collections::HashMap<
+                PropShapeID,
+                Vec<ComponentID>,
+            > = std::collections::HashMap::new();
+
+            for property_shape in &full_shape_ir.property_shapes {
+                let Some(lowered_shape_id) = lowered_property_shape_by_ir.get(&property_shape.id) else {
+                    continue;
+                };
+                if is_full_fallback_shape(*lowered_shape_id) {
+                    full_property_shape_ids.insert(property_shape.id);
+                    continue;
+                }
+                let mut fallback_constraints: Vec<ComponentID> = property_shape
+                    .constraints
+                    .iter()
+                    .copied()
+                    .filter(|component_id| {
+                        is_fallback_component_for_shape(*lowered_shape_id, component_id.0)
+                    })
+                    .collect();
+                fallback_constraints.sort_by_key(|component_id| component_id.0);
+                fallback_constraints.dedup();
+                if !fallback_constraints.is_empty() {
+                    partial_property_shape_constraints.insert(property_shape.id, fallback_constraints);
+                }
+            }
+
+            let mut full_node_shape_ids: std::collections::HashSet<ID> =
+                std::collections::HashSet::new();
+            for node_shape in &full_shape_ir.node_shapes {
+                let Some(lowered_shape_id) = lowered_node_shape_by_ir.get(&node_shape.id) else {
+                    continue;
+                };
+                if !is_full_fallback_shape(*lowered_shape_id) {
+                    continue;
+                }
+                full_node_shape_ids.insert(node_shape.id);
+                for property_shape_id in &node_shape.property_shapes {
+                    full_property_shape_ids.insert(*property_shape_id);
+                    partial_property_shape_constraints.remove(property_shape_id);
+                }
+            }
+
+            let mut filtered_property_shapes: Vec<shifty::shacl_ir::PropertyShapeIR> = Vec::new();
+            let mut filtered_property_shape_terms: std::collections::HashMap<
+                PropShapeID,
+                oxigraph::model::Term,
+            > = std::collections::HashMap::new();
+
+            for property_shape in &full_shape_ir.property_shapes {
+                if full_property_shape_ids.contains(&property_shape.id) {
+                    filtered_property_shapes.push(property_shape.clone());
+                    if let Some(term) = full_shape_ir.property_shape_terms.get(&property_shape.id) {
+                        filtered_property_shape_terms.insert(property_shape.id, term.clone());
+                    }
+                    continue;
+                }
+                let Some(constraints) = partial_property_shape_constraints.get(&property_shape.id) else {
+                    continue;
+                };
+                let mut filtered_shape = property_shape.clone();
+                filtered_shape.constraints = constraints.clone();
+                filtered_property_shapes.push(filtered_shape);
+                if let Some(term) = full_shape_ir.property_shape_terms.get(&property_shape.id) {
+                    filtered_property_shape_terms.insert(property_shape.id, term.clone());
+                }
+            }
+
+            let filtered_property_shape_ids: std::collections::HashSet<PropShapeID> = filtered_property_shapes
+                .iter()
+                .map(|shape| shape.id)
+                .collect();
+
+            let mut filtered_node_shapes: Vec<shifty::shacl_ir::NodeShapeIR> = Vec::new();
+            let mut filtered_node_shape_terms: std::collections::HashMap<ID, oxigraph::model::Term> =
+                std::collections::HashMap::new();
+            for node_shape in &full_shape_ir.node_shapes {
+                let Some(lowered_shape_id) = lowered_node_shape_by_ir.get(&node_shape.id) else {
+                    continue;
+                };
+
+                if full_node_shape_ids.contains(&node_shape.id) {
+                    filtered_node_shapes.push(node_shape.clone());
+                    if let Some(term) = full_shape_ir.node_shape_terms.get(&node_shape.id) {
+                        filtered_node_shape_terms.insert(node_shape.id, term.clone());
+                    }
+                    continue;
+                }
+
+                let mut constraints: Vec<ComponentID> = node_shape
+                    .constraints
+                    .iter()
+                    .copied()
+                    .filter(|component_id| {
+                        is_fallback_component_for_shape(*lowered_shape_id, component_id.0)
+                    })
+                    .collect();
+                for component_id in &node_shape.constraints {
+                    let Some(descriptor) = full_shape_ir.components.get(component_id) else {
+                        continue;
+                    };
+                    if let ComponentDescriptor::Property { shape } = descriptor {
+                        if filtered_property_shape_ids.contains(shape) {
+                            constraints.push(*component_id);
+                        }
+                    }
+                }
+                constraints.sort_by_key(|component_id| component_id.0);
+                constraints.dedup();
+
+                let mut property_shapes: Vec<PropShapeID> = node_shape
+                    .property_shapes
+                    .iter()
+                    .copied()
+                    .filter(|property_shape_id| filtered_property_shape_ids.contains(property_shape_id))
+                    .collect();
+                property_shapes.sort_by_key(|id| id.0);
+                property_shapes.dedup();
+
+                if constraints.is_empty() && property_shapes.is_empty() {
+                    continue;
+                }
+
+                let mut filtered_shape = node_shape.clone();
+                filtered_shape.constraints = constraints;
+                filtered_shape.property_shapes = property_shapes;
+                filtered_node_shapes.push(filtered_shape);
+                if let Some(term) = full_shape_ir.node_shape_terms.get(&node_shape.id) {
+                    filtered_node_shape_terms.insert(node_shape.id, term.clone());
+                }
+            }
+
+            let mut needed_component_ids: std::collections::HashSet<ComponentID> =
+                std::collections::HashSet::new();
+            for node_shape in &filtered_node_shapes {
+                for component_id in &node_shape.constraints {
+                    needed_component_ids.insert(*component_id);
+                }
+            }
+            for property_shape in &filtered_property_shapes {
+                for component_id in &property_shape.constraints {
+                    needed_component_ids.insert(*component_id);
+                }
+            }
+
+            for component_id in &needed_component_ids {
+                let Some(descriptor) = full_shape_ir.components.get(component_id) else {
+                    continue;
+                };
+                if matches!(
+                    descriptor,
+                    ComponentDescriptor::Node { .. }
+                        | ComponentDescriptor::Not { .. }
+                        | ComponentDescriptor::And { .. }
+                        | ComponentDescriptor::Or { .. }
+                        | ComponentDescriptor::Xone { .. }
+                        | ComponentDescriptor::QualifiedValueShape { .. }
+                ) {
+                    return Err(format!(
+                        "targeted runtime fallback shape-IR filtering is not yet enabled for shape-dependent component {}",
+                        component_id.0
+                    ));
+                }
+            }
+
+            if filtered_node_shapes.is_empty() && filtered_property_shapes.is_empty() {
+                return Ok(None);
+            }
+
+            let mut filtered_components: std::collections::HashMap<
+                ComponentID,
+                shifty::shacl_ir::ComponentDescriptor,
+            > = std::collections::HashMap::new();
+            for component_id in needed_component_ids {
+                if let Some(descriptor) = full_shape_ir.components.get(&component_id) {
+                    filtered_components.insert(component_id, descriptor.clone());
+                }
+            }
+
+            let mut filtered = full_shape_ir.clone();
+            filtered.node_shapes = filtered_node_shapes;
+            filtered.property_shapes = filtered_property_shapes;
+            filtered.components = filtered_components;
+            filtered.node_shape_terms = filtered_node_shape_terms;
+            filtered.property_shape_terms = filtered_property_shape_terms;
+            filtered.rules = std::collections::HashMap::new();
+            filtered.node_shape_rules = std::collections::HashMap::new();
+            filtered.prop_shape_rules = std::collections::HashMap::new();
+            Ok(Some(filtered))
+        }
+
+        fn cached_targeted_fallback_shape_ir(
+        ) -> Result<Option<shifty::shacl_ir::ShapeIR>, String> {
+            static CACHED: std::sync::OnceLock<Result<Option<shifty::shacl_ir::ShapeIR>, String>> =
+                std::sync::OnceLock::new();
+            match CACHED.get_or_init(build_targeted_fallback_shape_ir) {
+                Ok(Some(shape_ir)) => Ok(Some(shape_ir.clone())),
+                Ok(None) => Ok(None),
+                Err(err) => Err(err.clone()),
+            }
+        }
+
+        fn build_runtime_validator_with_shape_ir(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
+            shape_ir_override: Option<&shifty::shacl_ir::ShapeIR>,
         ) -> Result<shifty::Validator, String> {
-            let shape_graph = oxigraph::model::NamedNode::new(SHAPE_GRAPH)
-                .map_err(|err| format!("invalid SHAPE_GRAPH IRI: {err}"))?;
-            let shape_quads = collect_graph_quads(store, &shape_graph)?;
             let data_quads = collect_graph_quads(store, data_graph)?;
 
-            shifty::ValidatorBuilder::new()
-                .with_shapes_source(shifty::Source::Quads {
-                    graph: SHAPE_GRAPH.to_string(),
-                    quads: shape_quads,
-                })
+            let mut builder = shifty::ValidatorBuilder::new()
                 .with_data_source(shifty::Source::Quads {
                     graph: data_graph.as_str().to_string(),
                     quads: data_quads,
                 })
                 .with_shapes_data_union(true)
                 .with_store_optimization(false)
-                .with_do_imports(false)
+                .with_do_imports(false);
+
+            if let Some(shape_ir) = shape_ir_override {
+                builder = builder.with_shape_ir(shape_ir.clone());
+            } else {
+                let shape_graph = oxigraph::model::NamedNode::new(SHAPE_GRAPH)
+                    .map_err(|err| format!("invalid SHAPE_GRAPH IRI: {err}"))?;
+                let shape_quads = collect_graph_quads(store, &shape_graph)?;
+                builder = builder.with_shapes_source(shifty::Source::Quads {
+                    graph: SHAPE_GRAPH.to_string(),
+                    quads: shape_quads,
+                });
+            }
+
+            builder
                 .build()
                 .map_err(|err| format!("failed to initialize runtime validator: {err}"))
+        }
+
+        fn build_runtime_validator_full(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<shifty::Validator, String> {
+            build_runtime_validator_with_shape_ir(store, data_graph, None)
+        }
+
+        fn build_runtime_validator_targeted_fallback(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<shifty::Validator, String> {
+            if !SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
+                return build_runtime_validator_full(store, data_graph);
+            }
+            let fallback_shape_ir = cached_targeted_fallback_shape_ir()?;
+            if let Some(shape_ir) = fallback_shape_ir.as_ref() {
+                return build_runtime_validator_with_shape_ir(store, data_graph, Some(shape_ir));
+            }
+            build_runtime_validator_full(store, data_graph)
         }
 
         fn violation_path_key(path: &Option<ResultPath>) -> String {
@@ -304,12 +588,20 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 };
             }
 
-            let validator = match build_runtime_validator(store, data_graph) {
+            let validator = match build_runtime_validator_targeted_fallback(store, data_graph) {
                 Ok(validator) => validator,
                 Err(err) => {
-                    eprintln!("srcgen runtime fallback error: {err}");
-                    record_fallback_dispatch();
-                    return None;
+                    eprintln!(
+                        "srcgen targeted runtime fallback unavailable ({err}); using full runtime fallback"
+                    );
+                    match build_runtime_validator_full(store, data_graph) {
+                        Ok(validator) => validator,
+                        Err(full_err) => {
+                            eprintln!("srcgen runtime fallback error: {full_err}");
+                            record_fallback_dispatch();
+                            return None;
+                        }
+                    }
                 }
             };
             let runtime_report = validator.validate();
@@ -412,7 +704,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 return empty_conforming_report();
             }
 
-            let validator = match build_runtime_validator(store, &data_graph) {
+            let validator = match build_runtime_validator_full(store, &data_graph) {
                 Ok(validator) => validator,
                 Err(err) => {
                     eprintln!("srcgen runtime error: {err}");

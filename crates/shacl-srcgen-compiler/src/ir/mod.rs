@@ -12,6 +12,8 @@ pub struct SrcGenIR {
     pub fallback_annotations: Vec<FallbackAnnotation>,
     #[serde(default)]
     pub rule_fallback_annotations: Vec<RuleFallbackAnnotation>,
+    #[serde(default, skip_serializing)]
+    pub embedded_shape_ir_bincode: Vec<u8>,
 }
 
 impl SrcGenIR {
