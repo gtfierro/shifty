@@ -257,7 +257,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         fn run_hybrid_validation(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
-            full_aot: bool,
+            strict_full_aot: bool,
         ) -> Option<Report> {
             if generated_backend_is_tables() {
                 record_fallback_dispatch();
@@ -278,7 +278,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
             };
 
-            if full_aot {
+            if strict_full_aot {
                 if SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
                     eprintln!(
                         "srcgen full-aot mode enabled: skipping planned runtime fallback dispatch"
@@ -354,6 +354,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        fn env_full_aot_strict_enabled() -> bool {
+            match std::env::var("SHFTY_SRCGEN_FULL_AOT_STRICT") {
+                Ok(value) => match value.to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" => true,
+                    _ => false,
+                },
+                Err(_) => false,
+            }
+        }
+
         pub fn run_with_extended_options(
             store: &oxigraph::store::Store,
             data_graph: Option<&oxigraph::model::NamedNode>,
@@ -361,6 +371,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             full_aot: bool,
         ) -> Report {
             let full_aot = full_aot || env_full_aot_enabled();
+            let strict_full_aot = full_aot && env_full_aot_strict_enabled();
             reset_runtime_metrics();
             reset_runtime_shape_conformance_cache();
             let data_graph = if let Some(graph) = data_graph {
@@ -384,11 +395,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
             }
 
-            if let Some(report) = run_hybrid_validation(store, &data_graph, full_aot) {
+            if full_aot && !strict_full_aot && SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
+                eprintln!(
+                    "srcgen full-aot mode: runtime fallback remains enabled for unsupported validators"
+                );
+            }
+
+            if let Some(report) = run_hybrid_validation(store, &data_graph, strict_full_aot) {
                 return report;
             }
 
-            if full_aot {
+            if strict_full_aot {
                 eprintln!(
                     "srcgen full-aot mode could not complete specialized validation; runtime fallback disabled"
                 );
