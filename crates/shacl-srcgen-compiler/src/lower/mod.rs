@@ -329,7 +329,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 SrcGenRuleKind::Unsupported {
                     kind: format!("{}(targets)", rule_kind_name(rule)),
                 },
-                LoweredNodeTargets::default(),
+                LoweredRuleTargets::default(),
                 Some(reason),
             ),
         };
@@ -341,6 +341,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             target_nodes: targets.target_nodes,
             target_subjects_of: targets.target_subjects_of,
             target_objects_of: targets.target_objects_of,
+            target_advanced_select_queries: targets.target_advanced_select_queries,
             kind,
             fallback_only,
         });
@@ -414,6 +415,15 @@ struct LoweredNodeTargets {
     target_objects_of: Vec<String>,
 }
 
+#[derive(Debug, Default)]
+struct LoweredRuleTargets {
+    target_classes: Vec<String>,
+    target_nodes: Vec<Term>,
+    target_subjects_of: Vec<String>,
+    target_objects_of: Vec<String>,
+    target_advanced_select_queries: Vec<String>,
+}
+
 fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets> {
     let mut lowered = LoweredNodeTargets::default();
 
@@ -450,6 +460,76 @@ fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets
     lowered.target_objects_of.dedup();
 
     Some(lowered)
+}
+
+fn lower_supported_rule_targets(
+    shape_ir: &ShapeIR,
+    targets: &[Target],
+) -> Option<LoweredRuleTargets> {
+    let mut lowered = LoweredRuleTargets::default();
+
+    for target in targets {
+        match target {
+            Target::Class(Term::NamedNode(class)) => {
+                lowered.target_classes.push(class.as_str().to_string());
+            }
+            Target::Node(term) => lowered.target_nodes.push(term.clone()),
+            Target::SubjectsOf(Term::NamedNode(predicate)) => {
+                lowered
+                    .target_subjects_of
+                    .push(predicate.as_str().to_string());
+            }
+            Target::ObjectsOf(Term::NamedNode(predicate)) => {
+                lowered
+                    .target_objects_of
+                    .push(predicate.as_str().to_string());
+            }
+            Target::Advanced(selector) => {
+                let query = resolve_advanced_target_select_query(shape_ir, selector)?;
+                lowered.target_advanced_select_queries.push(query);
+            }
+            _ => return None,
+        }
+    }
+
+    lowered.target_classes.sort();
+    lowered.target_classes.dedup();
+
+    lowered.target_nodes.sort_by_key(term_to_stable_string);
+    lowered.target_nodes.dedup();
+
+    lowered.target_subjects_of.sort();
+    lowered.target_subjects_of.dedup();
+
+    lowered.target_objects_of.sort();
+    lowered.target_objects_of.dedup();
+
+    lowered.target_advanced_select_queries.sort();
+    lowered.target_advanced_select_queries.dedup();
+
+    Some(lowered)
+}
+
+fn resolve_advanced_target_select_query(shape_ir: &ShapeIR, selector: &Term) -> Option<String> {
+    const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
+    let selector_key = term_to_stable_string(selector);
+    let mut fallback_select: Option<String> = None;
+    for quad in &shape_ir.shape_quads {
+        if quad.predicate.as_str() != SH_SELECT {
+            continue;
+        }
+        let Term::Literal(literal) = &quad.object else {
+            continue;
+        };
+        let quad_subject_key = term_to_stable_string(&Term::from(quad.subject.clone()));
+        if quad_subject_key == selector_key {
+            return Some(literal.value().to_string());
+        }
+        if fallback_select.is_none() {
+            fallback_select = Some(literal.value().to_string());
+        }
+    }
+    fallback_select
 }
 
 fn simple_named_path_predicate(path: &Path) -> Option<String> {
@@ -496,7 +576,7 @@ fn lower_supported_property_path(path: &Path) -> Option<SrcGenPath> {
     }
 }
 
-fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTargets, String> {
+fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredRuleTargets, String> {
     if shape_ir
         .prop_shape_rules
         .values()
@@ -508,7 +588,7 @@ fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTarget
         ));
     }
 
-    let mut targets = LoweredNodeTargets::default();
+    let mut targets = LoweredRuleTargets::default();
     let mut matched = false;
     for node_shape in &shape_ir.node_shapes {
         let Some(rule_ids) = shape_ir.node_shape_rules.get(&node_shape.id) else {
@@ -524,7 +604,7 @@ fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTarget
                 rule_id.0
             ));
         }
-        let Some(node_targets) = lower_supported_node_targets(&node_shape.targets) else {
+        let Some(node_targets) = lower_supported_rule_targets(shape_ir, &node_shape.targets) else {
             return Err(format!(
                 "Rule {} has unsupported targets that are not yet specialized",
                 rule_id.0
@@ -534,6 +614,7 @@ fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTarget
             && node_targets.target_nodes.is_empty()
             && node_targets.target_subjects_of.is_empty()
             && node_targets.target_objects_of.is_empty()
+            && node_targets.target_advanced_select_queries.is_empty()
         {
             return Err(format!(
                 "Rule {} has no specialized targets to drive focus-node inference",
@@ -549,6 +630,9 @@ fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTarget
         targets
             .target_objects_of
             .extend(node_targets.target_objects_of);
+        targets
+            .target_advanced_select_queries
+            .extend(node_targets.target_advanced_select_queries);
     }
 
     if !matched {
@@ -570,10 +654,14 @@ fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredNodeTarget
     targets.target_objects_of.sort();
     targets.target_objects_of.dedup();
 
+    targets.target_advanced_select_queries.sort();
+    targets.target_advanced_select_queries.dedup();
+
     if targets.target_classes.is_empty()
         && targets.target_nodes.is_empty()
         && targets.target_subjects_of.is_empty()
         && targets.target_objects_of.is_empty()
+        && targets.target_advanced_select_queries.is_empty()
     {
         return Err(format!("Rule {} has no specialized targets", rule_id.0));
     }
@@ -590,12 +678,13 @@ fn rule_kind_name(rule: &Rule) -> &'static str {
 fn rule_kind(
     shape_ir: &ShapeIR,
     rule: &Rule,
-    targets: &LoweredNodeTargets,
+    targets: &LoweredRuleTargets,
 ) -> (SrcGenRuleKind, Option<String>) {
     let has_specialized_targets = !targets.target_classes.is_empty()
         || !targets.target_nodes.is_empty()
         || !targets.target_subjects_of.is_empty()
-        || !targets.target_objects_of.is_empty();
+        || !targets.target_objects_of.is_empty()
+        || !targets.target_advanced_select_queries.is_empty();
     if !has_specialized_targets {
         return (
             SrcGenRuleKind::Unsupported {
@@ -3722,5 +3811,89 @@ mod tests {
         assert!(lowered.rules[0].fallback_only);
         assert_eq!(lowered.rule_fallback_annotations.len(), 1);
         assert_eq!(lowered.rule_fallback_annotations[0].rule_id, 12);
+    }
+
+    #[test]
+    fn sparql_rule_with_advanced_target_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Device")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:advanced-target",
+            )),
+        );
+
+        let selector = Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+            "urn:selector:advanced",
+        ));
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(200),
+            Rule::Sparql(SparqlRule {
+                id: RuleID(200),
+                query: "CONSTRUCT { $this <urn:inferred:edge> <urn:target> . } WHERE { }"
+                    .to_string(),
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:advanced-target",
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(200)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Advanced(selector.clone())],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:selector:advanced"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                Term::Literal(oxigraph::model::Literal::new_simple_literal(
+                    "SELECT ?this WHERE { ?this a <urn:Device> . }",
+                )),
+                oxigraph::model::GraphName::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:shape-graph",
+                )),
+            )],
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert_eq!(lowered.meta.rule_count, 1);
+        assert_eq!(lowered.rules.len(), 1);
+        assert!(!lowered.rules[0].fallback_only);
+        assert_eq!(
+            lowered.rules[0].target_advanced_select_queries,
+            vec!["SELECT ?this WHERE { ?this a <urn:Device> . }".to_string()]
+        );
+        assert!(lowered.rule_fallback_annotations.is_empty());
     }
 }

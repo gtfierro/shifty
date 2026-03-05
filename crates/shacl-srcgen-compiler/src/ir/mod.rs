@@ -205,6 +205,8 @@ pub struct SrcGenRule {
     pub target_subjects_of: Vec<String>,
     #[serde(default)]
     pub target_objects_of: Vec<String>,
+    #[serde(default)]
+    pub target_advanced_select_queries: Vec<String>,
     pub kind: SrcGenRuleKind,
     pub fallback_only: bool,
 }

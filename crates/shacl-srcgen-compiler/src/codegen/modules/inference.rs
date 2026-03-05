@@ -101,6 +101,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .iter()
             .map(|iri| LitStr::new(iri, Span::call_site()))
             .collect();
+        let target_advanced_select_query_lits: Vec<LitStr> = rule
+            .target_advanced_select_queries
+            .iter()
+            .map(|query| LitStr::new(query, Span::call_site()))
+            .collect();
         let rule_focus_sources = quote! {
             #(
                 focus_nodes.extend(focus_nodes_for_target_class_cached_cloned(
@@ -128,6 +133,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     store,
                     data_graph,
                     #target_objects_of_lits,
+                )?);
+            )*
+            #(
+                focus_nodes.extend(focus_nodes_for_advanced_target_select_cached_cloned(
+                    &mut advanced_target_select_focus_cache,
+                    store,
+                    data_graph,
+                    #target_advanced_select_query_lits,
                 )?);
             )*
         };
@@ -639,6 +652,72 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(nodes)
         }
 
+        fn focus_nodes_for_advanced_target_select_cached_cloned(
+            advanced_target_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            select_query: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if let Some(cached) = advanced_target_cache.get(select_query) {
+                return Ok(cached.clone());
+            }
+
+            let mut prepared = SPARQL_RULE_PREPARED_CACHE.with(
+                |cache| -> Result<oxigraph::sparql::PreparedSparqlQuery, String> {
+                    let mut cache = cache.borrow_mut();
+                    if let Some(cached) = cache.get(select_query) {
+                        return Ok(cached.clone());
+                    }
+                    let parsed = oxigraph::sparql::SparqlEvaluator::new()
+                        .parse_query(select_query)
+                        .map_err(|err| format!("failed to parse advanced target SELECT query: {err}"))?;
+                    cache.insert(select_query.to_string(), parsed.clone());
+                    Ok(parsed)
+                }
+            )?;
+
+            let default_graphs: Vec<oxigraph::model::GraphName> = validation_graphs(data_graph)?
+                .into_iter()
+                .map(oxigraph::model::GraphName::NamedNode)
+                .collect();
+            prepared.dataset_mut().set_default_graph(default_graphs);
+
+            let mut out: Vec<oxigraph::model::Term> = Vec::new();
+            match prepared.on_store(store).execute() {
+                Ok(oxigraph::sparql::QueryResults::Solutions(solutions)) => {
+                    for solution_result in solutions {
+                        let solution = solution_result
+                            .map_err(|err| format!("advanced target SELECT solution error: {err}"))?;
+                        if let Some(term) = solution.get("this") {
+                            out.push(term.to_owned());
+                            continue;
+                        }
+                        if let Some(term) = solution.get("target") {
+                            out.push(term.to_owned());
+                            continue;
+                        }
+                        if let Some(first_var) = solution.variables().first() {
+                            if let Some(term) = solution.get(first_var.as_str()) {
+                                out.push(term.to_owned());
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {
+                    return Err("advanced target SELECT query returned non-solution results".to_string());
+                }
+                Err(err) => return Err(format!("failed to execute advanced target SELECT query: {err}")),
+            }
+
+            out.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            out.dedup();
+            advanced_target_cache.insert(select_query.to_string(), out.clone());
+            Ok(out)
+        }
+
         fn insert_inferred_candidates(
             store: &oxigraph::store::Store,
             graph_name: &oxigraph::model::GraphName,
@@ -731,6 +810,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 Vec<oxigraph::model::Term>,
             > = std::collections::HashMap::new();
             let mut target_objects_of_focus_cache: std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            let mut advanced_target_select_focus_cache: std::collections::HashMap<
                 String,
                 Vec<oxigraph::model::Term>,
             > = std::collections::HashMap::new();
