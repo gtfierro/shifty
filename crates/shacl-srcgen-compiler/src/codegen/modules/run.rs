@@ -373,6 +373,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             build_runtime_validator_with_shape_ir(store, data_graph, None)
         }
 
+        fn build_runtime_validator(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<shifty::Validator, String> {
+            build_runtime_validator_full(store, data_graph)
+        }
+
         fn build_runtime_validator_targeted_fallback(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,

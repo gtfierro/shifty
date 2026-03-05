@@ -3,7 +3,7 @@ use crate::ir::{SrcGenComponentKind, SrcGenIR};
 use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use syn::LitStr;
 
 fn term_expr(term: &Term) -> TokenStream {
@@ -73,6 +73,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .iter()
         .map(|component| (component.id, &component.kind))
         .collect();
+    let fully_supported_property_shape_ids: BTreeSet<u64> = ir
+        .property_shapes
+        .iter()
+        .filter(|shape| shape.supported && shape.fallback_constraints.is_empty())
+        .map(|shape| shape.id)
+        .collect();
     let property_path_by_id: HashMap<u64, String> = ir
         .property_shapes
         .iter()
@@ -85,16 +91,22 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .collect();
 
     let mut node_arms: Vec<TokenStream> = Vec::new();
+    let mut conformance_arms: Vec<TokenStream> = Vec::new();
     let mut supported_shapes = 0usize;
     let mut supported_node_ids: Vec<u64> = Vec::new();
 
-    for shape in ir.node_shapes.iter().filter(|shape| {
-        shape.supported
-            && (!shape.supported_constraints.is_empty() || !shape.property_shapes.is_empty())
-    }) {
-        supported_shapes += 1;
-        supported_node_ids.push(shape.id);
+    for shape in ir.node_shapes.iter().filter(|shape| shape.supported) {
         let shape_id = shape.id;
+        let has_validation_work =
+            !shape.supported_constraints.is_empty() || !shape.property_shapes.is_empty();
+        if has_validation_work {
+            supported_shapes += 1;
+            supported_node_ids.push(shape.id);
+        }
+        let conformance_ready = shape.fallback_constraints.is_empty()
+            && shape.property_shapes.iter().all(|property_shape_id| {
+                fully_supported_property_shape_ids.contains(property_shape_id)
+            });
 
         let mut focus_sources: Vec<TokenStream> = shape
             .target_classes
@@ -141,6 +153,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }));
 
         let mut shape_batched_checks: Vec<TokenStream> = Vec::new();
+        let mut conformance_batched_checks: Vec<TokenStream> = Vec::new();
         let mut node_constraint_checks: Vec<TokenStream> = Vec::new();
         for component_id in &shape.supported_constraints {
             let component_id_value = *component_id;
@@ -339,6 +352,24 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 store,
                                 data_graph,
                                 &focus_nodes,
+                                #mode_token,
+                            )?;
+                            for focus_term in closed_world_violations {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus_term.clone(),
+                                    value: Some(focus_term),
+                                    path: None,
+                                });
+                            }
+                        });
+                        conformance_batched_checks.push(quote! {
+                            let conformance_focus_nodes = vec![focus.clone()];
+                            let closed_world_violations = run_closed_world_batch_violations(
+                                store,
+                                data_graph,
+                                &conformance_focus_nodes,
                                 #mode_token,
                             )?;
                             for focus_term in closed_world_violations {
@@ -596,21 +627,37 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             })
             .collect();
 
-        node_arms.push(quote! {
-            #shape_id => {
-                let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
-                #(#focus_sources)*
-                focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-                focus_nodes.dedup();
-
-                #(#shape_batched_checks)*
-
-                for focus in &focus_nodes {
-                    #(#node_constraint_checks)*
-                    #(#property_calls)*
+        let node_constraint_checks_for_conformance = node_constraint_checks.clone();
+        let conformance_property_calls = property_calls.clone();
+        if conformance_ready {
+            conformance_arms.push(quote! {
+                #shape_id => {
+                    let mut violations: Vec<Violation> = Vec::new();
+                    #(#conformance_batched_checks)*
+                    #(#node_constraint_checks_for_conformance)*
+                    #(#conformance_property_calls)*
+                    Ok(Some(violations.is_empty()))
                 }
-            }
-        });
+            });
+        }
+
+        if has_validation_work {
+            node_arms.push(quote! {
+                #shape_id => {
+                    let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
+                    #(#focus_sources)*
+                    focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                    focus_nodes.dedup();
+
+                    #(#shape_batched_checks)*
+
+                    for focus in &focus_nodes {
+                        #(#node_constraint_checks)*
+                        #(#property_calls)*
+                    }
+                }
+            });
+        }
     }
 
     supported_node_ids.sort_unstable();
@@ -1094,6 +1141,157 @@ WHERE {
             }
 
             Ok(violations)
+        }
+
+        thread_local! {
+            static SRCGEN_COMPILED_SHAPE_CONFORMANCE_CACHE: std::cell::RefCell<
+                std::collections::HashMap<(u64, String), bool>
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+            static SRCGEN_COMPILED_SHAPE_CONFORMANCE_IN_PROGRESS: std::cell::RefCell<
+                std::collections::HashSet<(u64, String)>
+            > = std::cell::RefCell::new(std::collections::HashSet::new());
+            static SRCGEN_RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE: std::cell::RefCell<
+                std::collections::HashMap<(String, String), bool>
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+            static SRCGEN_RUNTIME_SHAPE_CONFORMANCE_VALIDATOR: std::cell::RefCell<
+                Option<shifty::Validator>
+            > = std::cell::RefCell::new(None);
+        }
+
+        pub fn reset_srcgen_shape_conformance_cache() {
+            SRCGEN_COMPILED_SHAPE_CONFORMANCE_CACHE.with(|cache| cache.borrow_mut().clear());
+            SRCGEN_COMPILED_SHAPE_CONFORMANCE_IN_PROGRESS.with(|set| set.borrow_mut().clear());
+            SRCGEN_RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| cache.borrow_mut().clear());
+            SRCGEN_RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(|slot| {
+                let _ = slot.borrow_mut().take();
+            });
+        }
+
+        fn full_aot_strict_shape_conformance_enabled() -> bool {
+            match std::env::var("SHFTY_SRCGEN_FULL_AOT_STRICT") {
+                Ok(value) => matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                ),
+                Err(_) => false,
+            }
+        }
+
+        fn runtime_shape_conforms_fallback(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            shape_iri: &str,
+            focus: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            if full_aot_strict_shape_conformance_enabled() {
+                return Err(format!(
+                    "srcgen full-aot strict mode: logical conformance query for shape {shape_iri} requires runtime fallback"
+                ));
+            }
+
+            let cache_key = (shape_iri.to_string(), focus.to_string());
+            if let Some(cached) = SRCGEN_RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| {
+                cache.borrow().get(&cache_key).copied()
+            }) {
+                return Ok(cached);
+            }
+
+            let conforms = SRCGEN_RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(
+                |slot| -> Result<bool, String> {
+                    if slot.borrow().is_none() {
+                        let validator = build_runtime_validator(store, data_graph)?;
+                        *slot.borrow_mut() = Some(validator);
+                    }
+                    let borrowed = slot.borrow();
+                    let validator = borrowed
+                        .as_ref()
+                        .ok_or_else(|| "runtime shape conformance validator missing".to_string())?;
+                    validator
+                        .node_conforms_to_shape_id(focus, shape_iri)
+                        .map_err(|err| format!("runtime shape conformance query failed: {err}"))
+                },
+            )?;
+
+            SRCGEN_RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| {
+                cache.borrow_mut().insert(cache_key, conforms);
+            });
+            Ok(conforms)
+        }
+
+        fn compiled_shape_conforms_for_shape_id(
+            shape_id: u64,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+        ) -> Result<Option<bool>, String> {
+            match shape_id {
+                #(#conformance_arms,)*
+                _ => Ok(None),
+            }
+        }
+
+        fn srcgen_shape_conforms_by_shape_id(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            shape_id: u64,
+            focus: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            let cache_key = (shape_id, focus.to_string());
+            if let Some(cached) = SRCGEN_COMPILED_SHAPE_CONFORMANCE_CACHE.with(|cache| {
+                cache.borrow().get(&cache_key).copied()
+            }) {
+                return Ok(cached);
+            }
+
+            let recursive_cycle = SRCGEN_COMPILED_SHAPE_CONFORMANCE_IN_PROGRESS.with(|set| {
+                set.borrow().contains(&cache_key)
+            });
+            if recursive_cycle {
+                return Ok(true);
+            }
+
+            SRCGEN_COMPILED_SHAPE_CONFORMANCE_IN_PROGRESS.with(|set| {
+                set.borrow_mut().insert(cache_key.clone());
+            });
+
+            let outcome_result: Result<bool, String> = (|| {
+                match compiled_shape_conforms_for_shape_id(shape_id, store, data_graph, focus)? {
+                    Some(result) => Ok(result),
+                    None => {
+                        let shape = shape_iri(shape_id);
+                        if shape.is_empty() {
+                            Ok(false)
+                        } else {
+                            runtime_shape_conforms_fallback(store, data_graph, shape, focus)
+                        }
+                    }
+                }
+            })();
+
+            SRCGEN_COMPILED_SHAPE_CONFORMANCE_IN_PROGRESS.with(|set| {
+                set.borrow_mut().remove(&cache_key);
+            });
+            match outcome_result {
+                Ok(outcome) => {
+                    SRCGEN_COMPILED_SHAPE_CONFORMANCE_CACHE.with(|cache| {
+                        cache.borrow_mut().insert(cache_key, outcome);
+                    });
+                    Ok(outcome)
+                }
+                Err(err) => Err(err),
+            }
+        }
+
+        pub fn srcgen_shape_conforms(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            shape_iri: &str,
+            focus: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            if let Some(shape_id) = shape_id_for_iri(shape_iri) {
+                return srcgen_shape_conforms_by_shape_id(store, data_graph, shape_id, focus);
+            }
+            runtime_shape_conforms_fallback(store, data_graph, shape_iri, focus)
         }
 
         pub fn run_specialized_node_validation(

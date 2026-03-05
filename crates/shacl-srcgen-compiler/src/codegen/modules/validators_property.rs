@@ -1650,86 +1650,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
-        fn shape_nonconformance_cache(
-        ) -> &'static std::sync::Mutex<Option<std::sync::Arc<std::collections::HashSet<(String, String)>>>> {
-            static CACHE: std::sync::OnceLock<
-                std::sync::Mutex<Option<std::sync::Arc<std::collections::HashSet<(String, String)>>>>,
-            > = std::sync::OnceLock::new();
-            CACHE.get_or_init(|| std::sync::Mutex::new(None))
-        }
-
-        thread_local! {
-            static RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE: std::cell::RefCell<
-                std::collections::HashMap<(String, String), bool>
-            > = std::cell::RefCell::new(std::collections::HashMap::new());
-            static RUNTIME_SHAPE_CONFORMANCE_VALIDATOR: std::cell::RefCell<
-                Option<shifty::Validator>
-            > = std::cell::RefCell::new(None);
-        }
-
         pub fn reset_runtime_shape_conformance_cache() {
-            if let Ok(mut cache_guard) = shape_nonconformance_cache().lock() {
-                *cache_guard = None;
-            }
-            RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| cache.borrow_mut().clear());
-            RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(|slot| {
-                let _ = slot.borrow_mut().take();
-            });
-        }
-
-        fn runtime_nonconformance_set(
-            store: &oxigraph::store::Store,
-            data_graph: &oxigraph::model::NamedNode,
-        ) -> Result<std::sync::Arc<std::collections::HashSet<(String, String)>>, String> {
-            let mut cache_guard = shape_nonconformance_cache()
-                .lock()
-                .map_err(|_| "shape conformance cache mutex poisoned".to_string())?;
-            if let Some(existing) = cache_guard.as_ref() {
-                return Ok(existing.clone());
-            }
-
-            let validator = build_runtime_validator(store, data_graph)?;
-            let report = validator.validate();
-            let report_graph = report.to_graph_with_options(shifty::ValidationReportOptions {
-                follow_bnodes: false,
-            });
-
-            let rdf_type = oxigraph::model::vocab::rdf::TYPE;
-            let sh_validation_result =
-                oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#ValidationResult")
-                    .map_err(|err| format!("invalid sh:ValidationResult IRI: {err}"))?;
-            let sh_source_shape =
-                oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#sourceShape")
-                    .map_err(|err| format!("invalid sh:sourceShape IRI: {err}"))?;
-            let sh_focus_node =
-                oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#focusNode")
-                    .map_err(|err| format!("invalid sh:focusNode IRI: {err}"))?;
-
-            let mut result_nodes: Vec<oxigraph::model::NamedOrBlankNode> = Vec::new();
-            for triple in report_graph.iter() {
-                if triple.predicate == rdf_type
-                    && triple.object
-                        == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
-                {
-                    result_nodes.push(triple.subject.into_owned());
-                }
-            }
-
-            let mut nonconformance_set: std::collections::HashSet<(String, String)> =
-                std::collections::HashSet::new();
-            for result_node in result_nodes {
-                let source_shape =
-                    report_graph.object_for_subject_predicate(result_node.as_ref(), sh_source_shape.as_ref());
-                let focus_node =
-                    report_graph.object_for_subject_predicate(result_node.as_ref(), sh_focus_node.as_ref());
-                if let (Some(source_shape), Some(focus_node)) = (source_shape, focus_node) {
-                    nonconformance_set.insert((source_shape.to_string(), focus_node.to_string()));
-                }
-            }
-
-            let cached = std::sync::Arc::new(nonconformance_set);
-            *cache_guard = Some(cached.clone());
-            Ok(cached)
+            reset_srcgen_shape_conformance_cache();
         }
 
         pub fn runtime_shape_conforms(
@@ -1738,39 +1660,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             shape_iri: &str,
             focus: &oxigraph::model::Term,
         ) -> Result<bool, String> {
-            let cache_key = (shape_iri.to_string(), focus.to_string());
-            let nonconformance_set = runtime_nonconformance_set(store, data_graph)?;
-            if nonconformance_set.contains(&cache_key) {
-                return Ok(false);
-            }
-
-            if let Some(cached) = RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| {
-                cache.borrow().get(&cache_key).copied()
-            }) {
-                return Ok(cached);
-            }
-
-            let conforms = RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(
-                |slot| -> Result<bool, String> {
-                    if slot.borrow().is_none() {
-                        let validator = build_runtime_validator(store, data_graph)?;
-                        *slot.borrow_mut() = Some(validator);
-                    }
-                    let borrowed = slot.borrow();
-                    let validator = borrowed
-                        .as_ref()
-                        .ok_or_else(|| "runtime shape conformance validator missing".to_string())?;
-                    validator
-                        .node_conforms_to_shape_id(focus, shape_iri)
-                        .map_err(|err| format!("runtime shape conformance query failed: {err}"))
-                },
-            )?;
-
-            RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| {
-                cache.borrow_mut().insert(cache_key, conforms);
-            });
-
-            Ok(conforms)
+            srcgen_shape_conforms(store, data_graph, shape_iri, focus)
         }
 
         pub fn validate_supported_property_shape(
