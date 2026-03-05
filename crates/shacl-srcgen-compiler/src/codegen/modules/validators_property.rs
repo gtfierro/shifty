@@ -885,6 +885,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let Some(subject_ref) = subject_ref_from_term(term) else {
                 return Ok(false);
             };
+
+            let mut direct_types: Vec<oxigraph::model::NamedNode> = Vec::new();
             for graph in validation_graphs(data_graph)? {
                 let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
                 for quad in store.quads_for_pattern(
@@ -898,9 +900,48 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         if node.as_str() == class_iri {
                             return Ok(true);
                         }
+                        direct_types.push(node);
                     }
                 }
             }
+
+            if direct_types.is_empty() {
+                return Ok(false);
+            }
+
+            let sub_class_of = oxigraph::model::NamedNodeRef::new_unchecked(
+                "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+            );
+            let mut queue: std::collections::VecDeque<oxigraph::model::NamedNode> =
+                direct_types.into_iter().collect();
+            let mut visited: std::collections::HashSet<oxigraph::model::NamedNode> =
+                std::collections::HashSet::new();
+
+            while let Some(current) = queue.pop_front() {
+                if !visited.insert(current.clone()) {
+                    continue;
+                }
+
+                let current_ref = oxigraph::model::NamedOrBlankNodeRef::NamedNode(current.as_ref());
+                for graph in validation_graphs(data_graph)? {
+                    let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                    for quad in store.quads_for_pattern(
+                        Some(current_ref),
+                        Some(sub_class_of),
+                        None,
+                        Some(graph_ref),
+                    ) {
+                        let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                        if let oxigraph::model::Term::NamedNode(superclass) = quad.object {
+                            if superclass.as_str() == class_iri {
+                                return Ok(true);
+                            }
+                            queue.push_back(superclass);
+                        }
+                    }
+                }
+            }
+
             Ok(false)
         }
 
@@ -1294,10 +1335,23 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             CACHE.get_or_init(|| std::sync::Mutex::new(None))
         }
 
+        thread_local! {
+            static RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE: std::cell::RefCell<
+                std::collections::HashMap<(String, String), bool>
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+            static RUNTIME_SHAPE_CONFORMANCE_VALIDATOR: std::cell::RefCell<
+                Option<shifty::Validator>
+            > = std::cell::RefCell::new(None);
+        }
+
         pub fn reset_runtime_shape_conformance_cache() {
             if let Ok(mut cache_guard) = shape_nonconformance_cache().lock() {
                 *cache_guard = None;
             }
+            RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| cache.borrow_mut().clear());
+            RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(|slot| {
+                let _ = slot.borrow_mut().take();
+            });
         }
 
         fn runtime_nonconformance_set(
@@ -1361,8 +1415,39 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             shape_iri: &str,
             focus: &oxigraph::model::Term,
         ) -> Result<bool, String> {
+            let cache_key = (shape_iri.to_string(), focus.to_string());
             let nonconformance_set = runtime_nonconformance_set(store, data_graph)?;
-            Ok(!nonconformance_set.contains(&(shape_iri.to_string(), focus.to_string())))
+            if nonconformance_set.contains(&cache_key) {
+                return Ok(false);
+            }
+
+            if let Some(cached) = RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| {
+                cache.borrow().get(&cache_key).copied()
+            }) {
+                return Ok(cached);
+            }
+
+            let conforms = RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(
+                |slot| -> Result<bool, String> {
+                    if slot.borrow().is_none() {
+                        let validator = build_runtime_validator(store, data_graph)?;
+                        *slot.borrow_mut() = Some(validator);
+                    }
+                    let borrowed = slot.borrow();
+                    let validator = borrowed
+                        .as_ref()
+                        .ok_or_else(|| "runtime shape conformance validator missing".to_string())?;
+                    validator
+                        .node_conforms_to_shape_id(focus, shape_iri)
+                        .map_err(|err| format!("runtime shape conformance query failed: {err}"))
+                },
+            )?;
+
+            RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| {
+                cache.borrow_mut().insert(cache_key, conforms);
+            });
+
+            Ok(conforms)
         }
 
         pub fn validate_supported_property_shape(
