@@ -36,6 +36,12 @@ pub struct SrcGenNodeShape {
     pub id: u64,
     pub iri: String,
     pub target_classes: Vec<String>,
+    #[serde(default)]
+    pub target_nodes: Vec<Term>,
+    #[serde(default)]
+    pub target_subjects_of: Vec<String>,
+    #[serde(default)]
+    pub target_objects_of: Vec<String>,
     pub constraints: Vec<u64>,
     #[serde(default)]
     pub supported_constraints: Vec<u64>,

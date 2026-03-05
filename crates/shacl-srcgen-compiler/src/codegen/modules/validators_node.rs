@@ -1,9 +1,59 @@
 use crate::codegen::render_tokens_as_module;
 use crate::ir::{SrcGenComponentKind, SrcGenIR};
+use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use std::collections::HashMap;
 use syn::LitStr;
+
+fn term_expr(term: &Term) -> TokenStream {
+    match term {
+        Term::NamedNode(node) => {
+            let iri = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked(#iri),
+                )
+            }
+        }
+        Term::BlankNode(node) => {
+            let id = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::BlankNode(
+                    oxigraph::model::BlankNode::new_unchecked(#id),
+                )
+            }
+        }
+        Term::Literal(literal) => {
+            let value = LitStr::new(literal.value(), Span::call_site());
+            if let Some(language) = literal.language() {
+                let language_lit = LitStr::new(language, Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_language_tagged_literal(
+                            #value,
+                            #language_lit,
+                        ).expect("invalid language-tagged literal in srcgen node target"),
+                    )
+                }
+            } else if literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#string" {
+                quote! {
+                    oxigraph::model::Term::Literal(oxigraph::model::Literal::new_simple_literal(#value))
+                }
+            } else {
+                let datatype = LitStr::new(literal.datatype().as_str(), Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_typed_literal(
+                            #value,
+                            oxigraph::model::NamedNode::new_unchecked(#datatype),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
 
 fn sparql_uses_relation_projection_pattern(query: &str) -> bool {
     (query.contains("$this ?p ?o") || query.contains("?this ?p ?o"))
@@ -46,7 +96,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         supported_node_ids.push(shape.id);
         let shape_id = shape.id;
 
-        let focus_sources: Vec<TokenStream> = shape
+        let mut focus_sources: Vec<TokenStream> = shape
             .target_classes
             .iter()
             .map(|class_iri| {
@@ -61,6 +111,34 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
             })
             .collect();
+        focus_sources.extend(shape.target_nodes.iter().map(|target_node| {
+            let target_expr = term_expr(target_node);
+            quote! {
+                focus_nodes.push(#target_expr);
+            }
+        }));
+        focus_sources.extend(shape.target_subjects_of.iter().map(|predicate_iri| {
+            let predicate_lit = LitStr::new(predicate_iri, Span::call_site());
+            quote! {
+                focus_nodes.extend(focus_nodes_for_target_subjects_of_cached(
+                    &mut target_subjects_of_cache,
+                    store,
+                    data_graph,
+                    #predicate_lit,
+                )?);
+            }
+        }));
+        focus_sources.extend(shape.target_objects_of.iter().map(|predicate_iri| {
+            let predicate_lit = LitStr::new(predicate_iri, Span::call_site());
+            quote! {
+                focus_nodes.extend(focus_nodes_for_target_objects_of_cached(
+                    &mut target_objects_of_cache,
+                    store,
+                    data_graph,
+                    #predicate_lit,
+                )?);
+            }
+        }));
 
         let mut shape_batched_checks: Vec<TokenStream> = Vec::new();
         let mut node_constraint_checks: Vec<TokenStream> = Vec::new();
@@ -680,6 +758,86 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(nodes)
         }
 
+        fn validation_graphs_for_targets(
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<Vec<oxigraph::model::NamedNode>, String> {
+            let mut graphs = vec![data_graph.clone()];
+            let shape_graph = oxigraph::model::NamedNode::new(SHAPE_GRAPH)
+                .map_err(|err| format!("invalid SHAPE_GRAPH IRI: {err}"))?;
+            if shape_graph.as_str() != data_graph.as_str() {
+                graphs.push(shape_graph);
+            }
+            Ok(graphs)
+        }
+
+        fn focus_nodes_for_target_subjects_of_cached(
+            target_subjects_of_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if let Some(cached) = target_subjects_of_cache.get(predicate_iri) {
+                return Ok(cached.clone());
+            }
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri).map_err(|err| {
+                format!("invalid targetSubjectsOf predicate IRI {predicate_iri}: {err}")
+            })?;
+            let mut nodes = Vec::new();
+            for graph in validation_graphs_for_targets(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    nodes.push(oxigraph::model::Term::from(quad.subject));
+                }
+            }
+            nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            nodes.dedup();
+            target_subjects_of_cache.insert(predicate_iri.to_string(), nodes.clone());
+            Ok(nodes)
+        }
+
+        fn focus_nodes_for_target_objects_of_cached(
+            target_objects_of_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if let Some(cached) = target_objects_of_cache.get(predicate_iri) {
+                return Ok(cached.clone());
+            }
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri).map_err(|err| {
+                format!("invalid targetObjectsOf predicate IRI {predicate_iri}: {err}")
+            })?;
+            let mut nodes = Vec::new();
+            for graph in validation_graphs_for_targets(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    nodes.push(quad.object);
+                }
+            }
+            nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            nodes.dedup();
+            target_objects_of_cache.insert(predicate_iri.to_string(), nodes.clone());
+            Ok(nodes)
+        }
+
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum ClosedWorldConstraintMode {
             S223Relation,
@@ -945,6 +1103,14 @@ WHERE {
             let mut violations: Vec<Violation> = Vec::new();
             let node_shape_ids: &[u64] = &[#(#supported_node_ids),*];
             let mut target_class_index: Option<TargetClassIndex> = None;
+            let mut target_subjects_of_cache: std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
+            let mut target_objects_of_cache: std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            > = std::collections::HashMap::new();
 
             for shape_id in node_shape_ids {
                 match shape_id {

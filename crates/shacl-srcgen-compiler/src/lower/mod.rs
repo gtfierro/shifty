@@ -112,8 +112,28 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let mut property_shapes = shape.property_shapes.clone();
             property_shapes.sort_by_key(|id| id.0);
 
-            let target_classes = class_targets_only(&shape.targets).unwrap_or_default();
-            let targets_supported = !target_classes.is_empty();
+            let lowered_targets = lower_supported_node_targets(&shape.targets);
+            let (
+                target_classes,
+                target_nodes,
+                target_subjects_of,
+                target_objects_of,
+                targets_supported,
+            ) = if let Some(targets) = lowered_targets {
+                let has_supported_targets = !targets.target_classes.is_empty()
+                    || !targets.target_nodes.is_empty()
+                    || !targets.target_subjects_of.is_empty()
+                    || !targets.target_objects_of.is_empty();
+                (
+                    targets.target_classes,
+                    targets.target_nodes,
+                    targets.target_subjects_of,
+                    targets.target_objects_of,
+                    has_supported_targets,
+                )
+            } else {
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false)
+            };
             let base_supported = !shape.deactivated
                 && matches!(shape.severity, Severity::Violation)
                 && targets_supported;
@@ -148,6 +168,9 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 original_id: shape.id,
                 iri,
                 target_classes,
+                target_nodes,
+                target_subjects_of,
+                target_objects_of,
                 constraints,
                 supported_constraints,
                 fallback_constraints,
@@ -227,6 +250,9 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 id,
                 iri: shape.iri,
                 target_classes: shape.target_classes,
+                target_nodes: shape.target_nodes,
+                target_subjects_of: shape.target_subjects_of,
+                target_objects_of: shape.target_objects_of,
                 constraints: shape.constraints,
                 supported_constraints: shape.supported_constraints,
                 fallback_constraints: shape.fallback_constraints,
@@ -326,6 +352,9 @@ struct PendingNodeShape {
     original_id: ID,
     iri: String,
     target_classes: Vec<String>,
+    target_nodes: Vec<Term>,
+    target_subjects_of: Vec<String>,
+    target_objects_of: Vec<String>,
     constraints: Vec<u64>,
     supported_constraints: Vec<u64>,
     fallback_constraints: Vec<u64>,
@@ -342,6 +371,52 @@ struct PendingPropertyShape {
     supported_constraints: Vec<u64>,
     fallback_constraints: Vec<u64>,
     supported: bool,
+}
+
+#[derive(Debug, Default)]
+struct LoweredNodeTargets {
+    target_classes: Vec<String>,
+    target_nodes: Vec<Term>,
+    target_subjects_of: Vec<String>,
+    target_objects_of: Vec<String>,
+}
+
+fn lower_supported_node_targets(targets: &[Target]) -> Option<LoweredNodeTargets> {
+    let mut lowered = LoweredNodeTargets::default();
+
+    for target in targets {
+        match target {
+            Target::Class(Term::NamedNode(class)) => {
+                lowered.target_classes.push(class.as_str().to_string());
+            }
+            Target::Node(term) => lowered.target_nodes.push(term.clone()),
+            Target::SubjectsOf(Term::NamedNode(predicate)) => {
+                lowered
+                    .target_subjects_of
+                    .push(predicate.as_str().to_string());
+            }
+            Target::ObjectsOf(Term::NamedNode(predicate)) => {
+                lowered
+                    .target_objects_of
+                    .push(predicate.as_str().to_string());
+            }
+            _ => return None,
+        }
+    }
+
+    lowered.target_classes.sort();
+    lowered.target_classes.dedup();
+
+    lowered.target_nodes.sort_by_key(term_to_stable_string);
+    lowered.target_nodes.dedup();
+
+    lowered.target_subjects_of.sort();
+    lowered.target_subjects_of.dedup();
+
+    lowered.target_objects_of.sort();
+    lowered.target_objects_of.dedup();
+
+    Some(lowered)
 }
 
 fn class_targets_only(targets: &[Target]) -> Option<Vec<String>> {
@@ -1545,6 +1620,122 @@ mod tests {
         assert_eq!(lowered.property_shapes.len(), 1);
         assert!(lowered.node_shapes[0].supported);
         assert!(lowered.property_shapes[0].supported);
+    }
+
+    #[test]
+    fn node_shape_with_target_node_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::NodeKind {
+                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#IRI",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:target-node",
+            )),
+        );
+
+        let target_node = Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:focus"));
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Node(target_node.clone())],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.node_shapes[0].supported);
+        assert_eq!(lowered.node_shapes[0].target_nodes, vec![target_node]);
+        assert!(lowered.node_shapes[0].target_classes.is_empty());
+    }
+
+    #[test]
+    fn node_shape_with_subjects_and_objects_targets_is_specialized() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::NodeKind {
+                node_kind: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "http://www.w3.org/ns/shacl#BlankNodeOrIRI",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:targets-of",
+            )),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![
+                    Target::SubjectsOf(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:pred:s",
+                    ))),
+                    Target::ObjectsOf(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:pred:o",
+                    ))),
+                ],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(lowered.node_shapes[0].supported);
+        assert_eq!(
+            lowered.node_shapes[0].target_subjects_of,
+            vec!["urn:pred:s".to_string()]
+        );
+        assert_eq!(
+            lowered.node_shapes[0].target_objects_of,
+            vec!["urn:pred:o".to_string()]
+        );
     }
 
     #[test]
