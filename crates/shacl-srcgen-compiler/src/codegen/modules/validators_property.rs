@@ -1030,6 +1030,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::ExpressionThis => {}
                 SrcGenComponentKind::Closed { .. } => {}
                 SrcGenComponentKind::Unsupported { .. } => {}
             }

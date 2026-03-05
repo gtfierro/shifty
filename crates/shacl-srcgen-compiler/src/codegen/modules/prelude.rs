@@ -78,6 +78,12 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                 let term_lit = LitStr::new(constraint_term, proc_macro2::Span::call_site());
                 Some(quote! { #term_lit => Some(#id), })
             }
+            SrcGenComponentKind::ExpressionThis => {
+                let id = component.id;
+                Some(
+                    quote! { "http://www.w3.org/ns/shacl#this" => Some(#id), }
+                )
+            }
             _ => None,
         })
         .collect();
@@ -91,6 +97,10 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                 let id = component.id;
                 let term_lit = LitStr::new(constraint_term, proc_macro2::Span::call_site());
                 Some(quote! { #id => parse_term_key(#term_lit), })
+            }
+            SrcGenComponentKind::ExpressionThis => {
+                let id = component.id;
+                Some(quote! { #id => parse_term_key("http://www.w3.org/ns/shacl#this"), })
             }
             _ => None,
         })

@@ -44,6 +44,32 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
         }
     }
 
+    let mut next_synthetic_component_id = component_kinds.keys().copied().max().unwrap_or(0) + 1;
+    let mut expression_component_id_by_shape: HashMap<ID, u64> = HashMap::new();
+    let mut expression_unsupported_shapes: HashSet<ID> = HashSet::new();
+    let mut ordered_node_shape_ids: Vec<ID> = shape_ir.node_shapes.iter().map(|shape| shape.id).collect();
+    ordered_node_shape_ids.sort_by_key(|id| id.0);
+    for shape_id in ordered_node_shape_ids {
+        match node_shape_expression_constraint_support(shape_ir, shape_id) {
+            ExpressionConstraintSupport::None => {}
+            ExpressionConstraintSupport::This => {
+                let component_id = next_synthetic_component_id;
+                next_synthetic_component_id += 1;
+                component_kinds.insert(component_id, SrcGenComponentKind::ExpressionThis);
+                components.push(SrcGenComponent {
+                    id: component_id,
+                    iri: "http://www.w3.org/ns/shacl#ExpressionConstraintComponent".to_string(),
+                    kind: SrcGenComponentKind::ExpressionThis,
+                    fallback_only: false,
+                });
+                expression_component_id_by_shape.insert(shape_id, component_id);
+            }
+            ExpressionConstraintSupport::Unsupported => {
+                expression_unsupported_shapes.insert(shape_id);
+            }
+        }
+    }
+
     let mut pending_property_shapes: Vec<PendingPropertyShape> = shape_ir
         .property_shapes
         .iter()
@@ -158,6 +184,11 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             constraints.sort_unstable();
             let mut property_shapes = shape.property_shapes.clone();
             property_shapes.sort_by_key(|id| id.0);
+            if let Some(component_id) = expression_component_id_by_shape.get(&shape.id) {
+                constraints.push(*component_id);
+                constraints.sort_unstable();
+            }
+            let expression_supported = !expression_unsupported_shapes.contains(&shape.id);
 
             let lowered_targets =
                 lower_supported_node_targets(shape_ir, &shape.targets, true);
@@ -196,7 +227,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 // Deactivated shapes are semantic no-ops and should not force runtime fallback.
                 true
             } else {
-                targets_supported || shape.targets.is_empty()
+                (targets_supported || shape.targets.is_empty()) && expression_supported
             };
             let mut supported_constraints = Vec::new();
             let mut fallback_constraints = Vec::new();
@@ -476,6 +507,13 @@ struct LoweredRuleTargets {
     target_advanced_select_queries: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpressionConstraintSupport {
+    None,
+    This,
+    Unsupported,
+}
+
 fn lower_supported_node_targets(
     shape_ir: &ShapeIR,
     targets: &[Target],
@@ -593,6 +631,47 @@ fn resolve_advanced_target_select_query(shape_ir: &ShapeIR, selector: &Term) -> 
         }
     }
     fallback_select
+}
+
+fn node_shape_expression_constraint_support(
+    shape_ir: &ShapeIR,
+    shape_id: ID,
+) -> ExpressionConstraintSupport {
+    const SH_EXPRESSION: &str = "http://www.w3.org/ns/shacl#expression";
+    const SH_THIS: &str = "http://www.w3.org/ns/shacl#this";
+
+    let Some(shape_term) = shape_ir.node_shape_terms.get(&shape_id) else {
+        return ExpressionConstraintSupport::None;
+    };
+    let shape_term_key = term_to_stable_string(shape_term);
+    let mut saw_expression = false;
+    let mut supported = true;
+
+    for quad in &shape_ir.shape_quads {
+        if quad.predicate.as_str() != SH_EXPRESSION {
+            continue;
+        }
+        let subject_key = term_to_stable_string(&Term::from(quad.subject.clone()));
+        if subject_key != shape_term_key {
+            continue;
+        }
+        saw_expression = true;
+        match &quad.object {
+            Term::NamedNode(named_node) if named_node.as_str() == SH_THIS => {}
+            _ => {
+                supported = false;
+                break;
+            }
+        }
+    }
+
+    if !saw_expression {
+        ExpressionConstraintSupport::None
+    } else if supported {
+        ExpressionConstraintSupport::This
+    } else {
+        ExpressionConstraintSupport::Unsupported
+    }
 }
 
 fn simple_named_path_predicate(path: &Path) -> Option<String> {
@@ -909,6 +988,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::LessThanOrEquals { .. }
             | SrcGenComponentKind::Sparql { .. }
             | SrcGenComponentKind::CustomSparql { .. }
+            | SrcGenComponentKind::ExpressionThis
     )
 }
 
@@ -2334,6 +2414,67 @@ mod tests {
             lowered.node_shapes[0].target_advanced_select_queries,
             vec![query.to_string()]
         );
+    }
+
+    #[test]
+    fn node_shape_with_expression_this_generates_specialized_component() {
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:shape:expr-this")),
+        );
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Node(Term::Literal(
+                    oxigraph::model::Literal::from(true),
+                ))],
+                constraints: Vec::new(),
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components: HashMap::new(),
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedOrBlankNode::from(
+                    oxigraph::model::NamedNode::new_unchecked("urn:shape:expr-this"),
+                ),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#expression"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#this"),
+                oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        let expression_component = lowered
+            .components
+            .iter()
+            .find(|component| matches!(component.kind, SrcGenComponentKind::ExpressionThis))
+            .expect("expected synthetic expression-this component");
+        assert_eq!(
+            expression_component.iri,
+            "http://www.w3.org/ns/shacl#ExpressionConstraintComponent"
+        );
+        assert_eq!(lowered.node_shapes[0].constraints, vec![expression_component.id]);
+        assert_eq!(
+            lowered.node_shapes[0].supported_constraints,
+            vec![expression_component.id]
+        );
+        assert!(lowered.node_shapes[0].fallback_constraints.is_empty());
+        assert!(lowered.node_shapes[0].supported);
     }
 
     #[test]

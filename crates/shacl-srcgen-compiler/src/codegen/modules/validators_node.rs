@@ -353,6 +353,20 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         }
                     });
                 }
+                SrcGenComponentKind::ExpressionThis => {
+                    node_constraint_checks.push(quote! {
+                        let valid = term_is_true_boolean(focus);
+                        if !valid {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(focus.clone()),
+                                path: None,
+                            });
+                        }
+                    });
+                }
                 SrcGenComponentKind::Sparql {
                     query,
                     prefixes,

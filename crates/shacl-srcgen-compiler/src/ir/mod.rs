@@ -167,6 +167,7 @@ pub enum SrcGenComponentKind {
         #[serde(default)]
         parameter_bindings: Vec<SrcGenSparqlBinding>,
     },
+    ExpressionThis,
     Node {
         shape_iri: String,
     },
