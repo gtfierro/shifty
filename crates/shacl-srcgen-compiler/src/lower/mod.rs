@@ -95,20 +95,27 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false)
             };
 
-            let base_supported = !shape.deactivated
-                && path_supported
-                && (targets_supported || shape.targets.is_empty());
+            let base_supported = if shape.deactivated {
+                // Deactivated shapes are semantic no-ops and should not force runtime fallback.
+                true
+            } else {
+                path_supported && (targets_supported || shape.targets.is_empty())
+            };
             let mut supported_constraints = Vec::new();
             let mut fallback_constraints = Vec::new();
-            for component_id in &constraints {
-                let supported_component = component_kinds
-                    .get(component_id)
-                    .map(property_constraint_supported)
-                    .unwrap_or(false);
-                if base_supported && supported_component {
-                    supported_constraints.push(*component_id);
-                } else {
-                    fallback_constraints.push(*component_id);
+            if shape.deactivated {
+                constraints.clear();
+            } else {
+                for component_id in &constraints {
+                    let supported_component = component_kinds
+                        .get(component_id)
+                        .map(property_constraint_supported)
+                        .unwrap_or(false);
+                    if base_supported && supported_component {
+                        supported_constraints.push(*component_id);
+                    } else {
+                        fallback_constraints.push(*component_id);
+                    }
                 }
             }
 
@@ -173,23 +180,33 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             } else {
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false)
             };
-            let base_supported = !shape.deactivated && targets_supported;
+            let base_supported = if shape.deactivated {
+                // Deactivated shapes are semantic no-ops and should not force runtime fallback.
+                true
+            } else {
+                targets_supported || shape.targets.is_empty()
+            };
             let mut supported_constraints = Vec::new();
             let mut fallback_constraints = Vec::new();
-            for component_id in &constraints {
-                let Some(kind) = component_kinds.get(component_id) else {
-                    fallback_constraints.push(*component_id);
-                    continue;
-                };
-                let kind_supported = node_constraint_supported(kind);
-                let context_supported = match kind {
-                    SrcGenComponentKind::Sparql { requires_path, .. } => !requires_path,
-                    _ => true,
-                };
-                if base_supported && kind_supported && context_supported {
-                    supported_constraints.push(*component_id);
-                } else {
-                    fallback_constraints.push(*component_id);
+            if shape.deactivated {
+                constraints.clear();
+                property_shapes.clear();
+            } else {
+                for component_id in &constraints {
+                    let Some(kind) = component_kinds.get(component_id) else {
+                        fallback_constraints.push(*component_id);
+                        continue;
+                    };
+                    let kind_supported = node_constraint_supported(kind);
+                    let context_supported = match kind {
+                        SrcGenComponentKind::Sparql { requires_path, .. } => !requires_path,
+                        _ => true,
+                    };
+                    if base_supported && kind_supported && context_supported {
+                        supported_constraints.push(*component_id);
+                    } else {
+                        fallback_constraints.push(*component_id);
+                    }
                 }
             }
 
@@ -1753,7 +1770,7 @@ mod tests {
         );
         assert_eq!(first.node_shapes[0].iri, "urn:shape:a-node");
         assert_eq!(first.components[0].id, 3);
-        assert!(!first.meta.specialization_ready);
+        assert!(first.meta.specialization_ready);
     }
 
     #[test]
