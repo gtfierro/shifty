@@ -680,6 +680,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     Ok(graph) => graph,
                     Err(err) => {
                         eprintln!("srcgen runtime error: invalid DATA_GRAPH IRI: {err}");
+                        if strict_full_aot {
+                            return strict_incomplete_report("invalid DATA_GRAPH IRI");
+                        }
                         return empty_conforming_report();
                     }
                 }
@@ -690,6 +693,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     run_generated_inference_with_options(store, &data_graph, !full_aot)
                 {
                     eprintln!("srcgen runtime inference error: {err}");
+                    if strict_full_aot {
+                        return strict_incomplete_report("generated inference failed in strict full-aot mode");
+                    }
                     return empty_conforming_report();
                 }
             }
@@ -708,13 +714,20 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 eprintln!(
                     "srcgen full-aot mode could not complete specialized validation; runtime fallback disabled"
                 );
-                return empty_conforming_report();
+                return strict_incomplete_report(
+                    "strict full-aot could not complete specialized validation without runtime fallback",
+                );
             }
 
             let validator = match build_runtime_validator_full(store, &data_graph) {
                 Ok(validator) => validator,
                 Err(err) => {
                     eprintln!("srcgen runtime error: {err}");
+                    if strict_full_aot {
+                        return strict_incomplete_report(
+                            "runtime validator construction failed in strict full-aot mode",
+                        );
+                    }
                     return empty_conforming_report();
                 }
             };

@@ -261,6 +261,24 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        pub fn strict_incomplete_report(reason: &str) -> Report {
+            let report = format!(
+                "@prefix sh: <http://www.w3.org/ns/shacl#> .\n[] a sh:ValidationReport ; sh:conforms false ; sh:result [ a sh:ValidationResult ; sh:resultSeverity sh:Violation ; sh:resultMessage {:?} ] .\n",
+                reason
+            );
+            Report {
+                violations: vec![Violation {
+                    shape_id: 0,
+                    component_id: 0,
+                    focus: oxigraph::model::Term::BlankNode(oxigraph::model::BlankNode::default()),
+                    value: None,
+                    path: None,
+                }],
+                report_turtle: report.clone(),
+                report_turtle_follow_bnodes: report,
+            }
+        }
+
         pub fn render_report(
             report: &Report,
             _store: &oxigraph::store::Store,

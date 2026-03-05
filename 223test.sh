@@ -37,7 +37,20 @@ fi
 cargo run -p cli --features shacl-compiler -- compile \
   "${compile_args[@]}"
 
-BIN_PATH="$OUT_DIR/target/release/$BIN_NAME"
+DEFAULT_BIN_PATH="$OUT_DIR/target/release/$BIN_NAME"
+SHARED_BIN_PATH=""
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  SHARED_BIN_PATH="${CARGO_TARGET_DIR%/}/release/$BIN_NAME"
+fi
+if [[ -n "$SHARED_BIN_PATH" && -x "$SHARED_BIN_PATH" ]]; then
+  BIN_PATH="$SHARED_BIN_PATH"
+elif [[ -x "$DEFAULT_BIN_PATH" ]]; then
+  BIN_PATH="$DEFAULT_BIN_PATH"
+elif [[ -n "$SHARED_BIN_PATH" ]]; then
+  BIN_PATH="$SHARED_BIN_PATH"
+else
+  BIN_PATH="$DEFAULT_BIN_PATH"
+fi
 echo "Built executable: $BIN_PATH"
 echo "Wrote SrcGenIR: $OUT_DIR/srcgen.ir.json"
 

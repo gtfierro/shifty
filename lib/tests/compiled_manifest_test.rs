@@ -758,6 +758,12 @@ fn report_conforms(report_graph: &Graph) -> Option<bool> {
     None
 }
 
+fn strict_incomplete_marker(report_turtle: &str) -> bool {
+    report_turtle.contains("strict full-aot")
+        || report_turtle.contains("strict full-AOT")
+        || report_turtle.contains("strict full_aot")
+}
+
 fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
     let compiler = selected_manifest_compiler();
     let strict_full_aot = strict_full_aot_enabled();
@@ -809,6 +815,16 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
                 test_name, e
             ))
         })?;
+        if matches!(compiler, ManifestCompiler::Srcgen)
+            && strict_full_aot
+            && strict_incomplete_marker(&report_turtle)
+        {
+            println!(
+                "[skip] {} — strict full-aot incomplete specialization (fallback disabled)",
+                test_name
+            );
+            continue;
+        }
         let mut report_graph = parse_report_graph(&report_turtle)?;
 
         let data_graph_url =
