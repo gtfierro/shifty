@@ -1,8 +1,53 @@
 use crate::codegen::render_tokens_as_module;
-use crate::ir::SrcGenIR;
+use crate::ir::{SrcGenIR, SrcGenPath};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
+use syn::LitStr;
 
-pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
+fn report_path_spec_expr(path: &SrcGenPath) -> TokenStream {
+    match path {
+        SrcGenPath::SimplePredicate { predicate_iri } => {
+            let predicate_lit = LitStr::new(predicate_iri, Span::call_site());
+            quote! { ReportPathSpec::SimplePredicate(#predicate_lit) }
+        }
+        SrcGenPath::Inverse { inner } => {
+            let inner_expr = report_path_spec_expr(inner);
+            quote! { ReportPathSpec::Inverse(Box::new(#inner_expr)) }
+        }
+        SrcGenPath::Sequence { items } => {
+            let item_exprs: Vec<TokenStream> = items.iter().map(report_path_spec_expr).collect();
+            quote! { ReportPathSpec::Sequence(vec![#(#item_exprs),*]) }
+        }
+        SrcGenPath::Alternative { items } => {
+            let item_exprs: Vec<TokenStream> = items.iter().map(report_path_spec_expr).collect();
+            quote! { ReportPathSpec::Alternative(vec![#(#item_exprs),*]) }
+        }
+        SrcGenPath::ZeroOrMore { inner } => {
+            let inner_expr = report_path_spec_expr(inner);
+            quote! { ReportPathSpec::ZeroOrMore(Box::new(#inner_expr)) }
+        }
+        SrcGenPath::OneOrMore { inner } => {
+            let inner_expr = report_path_spec_expr(inner);
+            quote! { ReportPathSpec::OneOrMore(Box::new(#inner_expr)) }
+        }
+        SrcGenPath::ZeroOrOne { inner } => {
+            let inner_expr = report_path_spec_expr(inner);
+            quote! { ReportPathSpec::ZeroOrOne(Box::new(#inner_expr)) }
+        }
+    }
+}
+
+pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
+    let path_spec_arms: Vec<TokenStream> = ir
+        .property_shapes
+        .iter()
+        .map(|shape| {
+            let shape_id = shape.id;
+            let path_expr = report_path_spec_expr(&shape.path);
+            quote! { #shape_id => Some(#path_expr), }
+        })
+        .collect();
+
     let tokens = quote! {
         const SH_RESULT: &str = "http://www.w3.org/ns/shacl#result";
         const SH_FOCUS_NODE: &str = "http://www.w3.org/ns/shacl#focusNode";
@@ -11,6 +56,153 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
         const SH_SOURCE_CONSTRAINT: &str = "http://www.w3.org/ns/shacl#sourceConstraint";
         const SH_VALUE: &str = "http://www.w3.org/ns/shacl#value";
         const SH_RESULT_PATH: &str = "http://www.w3.org/ns/shacl#resultPath";
+        const SH_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
+        const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
+
+        #[derive(Clone)]
+        enum ReportPathSpec {
+            SimplePredicate(&'static str),
+            Inverse(Box<ReportPathSpec>),
+            Sequence(Vec<ReportPathSpec>),
+            Alternative(Vec<ReportPathSpec>),
+            ZeroOrMore(Box<ReportPathSpec>),
+            OneOrMore(Box<ReportPathSpec>),
+            ZeroOrOne(Box<ReportPathSpec>),
+        }
+
+        fn path_spec_for_shape(shape_id: u64) -> Option<ReportPathSpec> {
+            match shape_id {
+                #(#path_spec_arms)*
+                _ => None,
+            }
+        }
+
+        fn path_spec_requires_materialization(path_spec: &ReportPathSpec) -> bool {
+            !matches!(path_spec, ReportPathSpec::SimplePredicate(_))
+        }
+
+        fn is_skolemized_path_term(term: &oxigraph::model::Term) -> bool {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => node.as_str().contains("/.sk/"),
+                _ => false,
+            }
+        }
+
+        fn build_path_list_from_specs(
+            items: &[ReportPathSpec],
+            graph: &mut oxigraph::model::Graph,
+        ) -> oxigraph::model::Term {
+            let rdf_first =
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#first");
+            let rdf_rest =
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest");
+            let rdf_nil = oxigraph::model::Term::NamedNode(
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"),
+            );
+
+            if items.is_empty() {
+                return rdf_nil;
+            }
+
+            let mut head: Option<oxigraph::model::BlankNode> = None;
+            let mut prev: Option<oxigraph::model::BlankNode> = None;
+            for item in items {
+                let list_node = oxigraph::model::BlankNode::default();
+                if let Some(prev_node) = prev.as_ref() {
+                    graph.insert(&oxigraph::model::Triple::new(
+                        oxigraph::model::NamedOrBlankNode::BlankNode(prev_node.clone()),
+                        rdf_rest.clone(),
+                        oxigraph::model::Term::BlankNode(list_node.clone()),
+                    ));
+                } else {
+                    head = Some(list_node.clone());
+                }
+
+                let value_term = build_path_term_from_spec(item, graph);
+                graph.insert(&oxigraph::model::Triple::new(
+                    oxigraph::model::NamedOrBlankNode::BlankNode(list_node.clone()),
+                    rdf_first.clone(),
+                    value_term,
+                ));
+                prev = Some(list_node);
+            }
+
+            if let Some(prev_node) = prev {
+                graph.insert(&oxigraph::model::Triple::new(
+                    oxigraph::model::NamedOrBlankNode::BlankNode(prev_node),
+                    rdf_rest,
+                    rdf_nil,
+                ));
+            }
+
+            oxigraph::model::Term::BlankNode(
+                head.expect("path list should have at least one blank node"),
+            )
+        }
+
+        fn build_path_term_from_spec(
+            path_spec: &ReportPathSpec,
+            graph: &mut oxigraph::model::Graph,
+        ) -> oxigraph::model::Term {
+            match path_spec {
+                ReportPathSpec::SimplePredicate(predicate_iri) => {
+                    oxigraph::model::Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        *predicate_iri,
+                    ))
+                }
+                ReportPathSpec::Inverse(inner) => {
+                    let path_node = oxigraph::model::BlankNode::default();
+                    let inner_term = build_path_term_from_spec(inner, graph);
+                    graph.insert(&oxigraph::model::Triple::new(
+                        oxigraph::model::NamedOrBlankNode::BlankNode(path_node.clone()),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#inversePath"),
+                        inner_term,
+                    ));
+                    oxigraph::model::Term::BlankNode(path_node)
+                }
+                ReportPathSpec::Sequence(items) => build_path_list_from_specs(items, graph),
+                ReportPathSpec::Alternative(items) => {
+                    let path_node = oxigraph::model::BlankNode::default();
+                    let list_term = build_path_list_from_specs(items, graph);
+                    graph.insert(&oxigraph::model::Triple::new(
+                        oxigraph::model::NamedOrBlankNode::BlankNode(path_node.clone()),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#alternativePath"),
+                        list_term,
+                    ));
+                    oxigraph::model::Term::BlankNode(path_node)
+                }
+                ReportPathSpec::ZeroOrMore(inner) => {
+                    let path_node = oxigraph::model::BlankNode::default();
+                    let inner_term = build_path_term_from_spec(inner, graph);
+                    graph.insert(&oxigraph::model::Triple::new(
+                        oxigraph::model::NamedOrBlankNode::BlankNode(path_node.clone()),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#zeroOrMorePath"),
+                        inner_term,
+                    ));
+                    oxigraph::model::Term::BlankNode(path_node)
+                }
+                ReportPathSpec::OneOrMore(inner) => {
+                    let path_node = oxigraph::model::BlankNode::default();
+                    let inner_term = build_path_term_from_spec(inner, graph);
+                    graph.insert(&oxigraph::model::Triple::new(
+                        oxigraph::model::NamedOrBlankNode::BlankNode(path_node.clone()),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#oneOrMorePath"),
+                        inner_term,
+                    ));
+                    oxigraph::model::Term::BlankNode(path_node)
+                }
+                ReportPathSpec::ZeroOrOne(inner) => {
+                    let path_node = oxigraph::model::BlankNode::default();
+                    let inner_term = build_path_term_from_spec(inner, graph);
+                    graph.insert(&oxigraph::model::Triple::new(
+                        oxigraph::model::NamedOrBlankNode::BlankNode(path_node.clone()),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#zeroOrOnePath"),
+                        inner_term,
+                    ));
+                    oxigraph::model::Term::BlankNode(path_node)
+                }
+            }
+        }
 
         pub fn build_violations(report_graph: &oxigraph::model::Graph) -> Vec<Violation> {
             let mut result_nodes: Vec<oxigraph::model::Term> = Vec::new();
@@ -93,7 +285,178 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             violations
         }
 
-        pub fn render_violations_to_turtle(violations: &[Violation]) -> Result<String, String> {
+        fn term_stable_string(term: &oxigraph::model::Term) -> String {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => node.as_str().to_string(),
+                _ => term.to_string(),
+            }
+        }
+
+        fn shape_messages(shape_id: u64) -> Vec<oxigraph::model::Term> {
+            let Ok(shape_ir) = embedded_shape_ir() else {
+                return Vec::new();
+            };
+            let shape = shape_iri(shape_id);
+            if shape.is_empty() {
+                return Vec::new();
+            }
+            let Ok(message_predicate) = oxigraph::model::NamedNode::new(SH_MESSAGE) else {
+                return Vec::new();
+            };
+
+            let mut messages = Vec::new();
+            for quad in &shape_ir.shape_quads {
+                if term_stable_string(&oxigraph::model::Term::from(quad.subject.clone())) == shape
+                    && quad.predicate == message_predicate
+                {
+                    messages.push(quad.object.clone());
+                }
+            }
+            messages
+        }
+
+        fn severity_term_from_shape(shape_id: u64) -> Option<oxigraph::model::Term> {
+            let Ok(shape_ir) = embedded_shape_ir() else {
+                return None;
+            };
+
+            let severity = shape_ir
+                .node_shapes
+                .iter()
+                .find(|shape| shape.id.0 == shape_id)
+                .map(|shape| shape.severity.clone())
+                .or_else(|| {
+                    shape_ir
+                        .property_shapes
+                        .iter()
+                        .find(|shape| shape.id.0 == shape_id)
+                        .map(|shape| shape.severity.clone())
+                })?;
+
+            match severity {
+                shifty::shacl_ir::Severity::Violation => {
+                    oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#Violation")
+                        .ok()
+                        .map(oxigraph::model::Term::NamedNode)
+                }
+                shifty::shacl_ir::Severity::Warning => {
+                    oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#Warning")
+                        .ok()
+                        .map(oxigraph::model::Term::NamedNode)
+                }
+                shifty::shacl_ir::Severity::Info => {
+                    oxigraph::model::NamedNode::new("http://www.w3.org/ns/shacl#Info")
+                        .ok()
+                        .map(oxigraph::model::Term::NamedNode)
+                }
+                shifty::shacl_ir::Severity::Custom(iri) => {
+                    Some(oxigraph::model::Term::NamedNode(iri))
+                }
+            }
+        }
+
+        fn shape_messages_from_store(
+            store: &oxigraph::store::Store,
+            shape_iri: &str,
+        ) -> Vec<oxigraph::model::Term> {
+            let Ok(shape_node) = oxigraph::model::NamedNode::new(shape_iri) else {
+                return Vec::new();
+            };
+            let Ok(message_predicate) = oxigraph::model::NamedNode::new(SH_MESSAGE) else {
+                return Vec::new();
+            };
+            let Ok(shape_graph) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) else {
+                return Vec::new();
+            };
+
+            let mut out = Vec::new();
+            for quad in store.quads_for_pattern(
+                None,
+                Some(message_predicate.as_ref()),
+                None,
+                Some(oxigraph::model::GraphNameRef::NamedNode(shape_graph.as_ref())),
+            ) {
+                let Ok(quad) = quad else {
+                    continue;
+                };
+                if quad.subject == oxigraph::model::NamedOrBlankNode::NamedNode(shape_node.clone()) {
+                    out.push(quad.object);
+                }
+            }
+            out
+        }
+
+        fn constraint_messages_from_store(
+            store: &oxigraph::store::Store,
+            source_constraint: &oxigraph::model::Term,
+        ) -> Vec<oxigraph::model::Term> {
+            let shape_subject = match source_constraint {
+                oxigraph::model::Term::NamedNode(node) => {
+                    oxigraph::model::NamedOrBlankNodeRef::NamedNode(node.as_ref())
+                }
+                oxigraph::model::Term::BlankNode(node) => {
+                    oxigraph::model::NamedOrBlankNodeRef::BlankNode(node.as_ref())
+                }
+                _ => return Vec::new(),
+            };
+
+            let Ok(message_predicate) = oxigraph::model::NamedNode::new(SH_MESSAGE) else {
+                return Vec::new();
+            };
+            let Ok(shape_graph) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) else {
+                return Vec::new();
+            };
+            let graph_ref = oxigraph::model::GraphNameRef::NamedNode(shape_graph.as_ref());
+
+            let mut out = Vec::new();
+            for quad in store.quads_for_pattern(
+                Some(shape_subject),
+                Some(message_predicate.as_ref()),
+                None,
+                Some(graph_ref),
+            ) {
+                let Ok(quad) = quad else {
+                    continue;
+                };
+                out.push(quad.object);
+            }
+            out
+        }
+
+        fn shape_severity_from_store(
+            store: &oxigraph::store::Store,
+            shape_iri: &str,
+        ) -> Option<oxigraph::model::Term> {
+            let Ok(shape_node) = oxigraph::model::NamedNode::new(shape_iri) else {
+                return None;
+            };
+            let Ok(severity_predicate) = oxigraph::model::NamedNode::new(SH_SEVERITY) else {
+                return None;
+            };
+            let Ok(shape_graph) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) else {
+                return None;
+            };
+
+            for quad in store.quads_for_pattern(
+                None,
+                Some(severity_predicate.as_ref()),
+                None,
+                Some(oxigraph::model::GraphNameRef::NamedNode(shape_graph.as_ref())),
+            ) {
+                let Ok(quad) = quad else {
+                    continue;
+                };
+                if quad.subject == oxigraph::model::NamedOrBlankNode::NamedNode(shape_node.clone()) {
+                    return Some(quad.object);
+                }
+            }
+            None
+        }
+
+        pub fn render_violations_to_turtle(
+            violations: &[Violation],
+            store: &oxigraph::store::Store,
+        ) -> Result<String, String> {
             let mut graph = oxigraph::model::Graph::new();
             let report_node: oxigraph::model::NamedOrBlankNode =
                 oxigraph::model::BlankNode::default().into();
@@ -113,6 +476,7 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
             ));
 
             for violation in violations {
+                let source_shape = shape_iri(violation.shape_id);
                 let result_node: oxigraph::model::NamedOrBlankNode =
                     oxigraph::model::BlankNode::default().into();
                 graph.insert(&oxigraph::model::Triple::new(
@@ -132,35 +496,105 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                     oxigraph::model::NamedNode::new_unchecked(
                         "http://www.w3.org/ns/shacl#resultSeverity",
                     ),
-                    oxigraph::model::Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
-                        "http://www.w3.org/ns/shacl#Violation",
-                    )),
+                    shape_severity_from_store(store, source_shape)
+                        .or_else(|| severity_term_from_shape(violation.shape_id))
+                        .unwrap_or_else(|| {
+                            oxigraph::model::Term::NamedNode(
+                                oxigraph::model::NamedNode::new_unchecked(
+                                    "http://www.w3.org/ns/shacl#Violation",
+                                ),
+                            )
+                        }),
                 ));
                 graph.insert(&oxigraph::model::Triple::new(
                     result_node.clone(),
                     oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#focusNode"),
                     violation.focus.clone(),
                 ));
+                let source_constraint_term =
+                    source_constraint_term_for_component(violation.component_id);
 
-                if let Some(value) = &violation.value {
+                let allow_focus_value_fallback = component_iri(violation.component_id)
+                    != "http://www.w3.org/ns/shacl#HasValueConstraintComponent";
+                if let Some(value_term) = violation
+                    .value
+                    .clone()
+                    .or_else(|| {
+                        if violation.path.is_none() && allow_focus_value_fallback {
+                            Some(violation.focus.clone())
+                        } else {
+                            None
+                        }
+                    })
+                {
+                    let value_term = match (&violation.path, &value_term) {
+                        (
+                            Some(ResultPath::Term(oxigraph::model::Term::NamedNode(predicate))),
+                            oxigraph::model::Term::Literal(literal),
+                        ) => resolve_original_literal_term(
+                            &violation.focus,
+                            predicate,
+                            literal,
+                        )
+                        .unwrap_or_else(|| value_term.clone()),
+                        _ => value_term,
+                    };
                     graph.insert(&oxigraph::model::Triple::new(
                         result_node.clone(),
                         oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#value"),
-                        value.clone(),
+                        value_term,
                     ));
                 }
 
                 if let Some(path) = &violation.path {
-                    if let ResultPath::Term(path_term) = path {
+                    let mut resolved_path_term = match path {
+                        ResultPath::Term(path_term) => Some(path_term.clone()),
+                        ResultPath::PathId(_) => None,
+                    };
+                    if let Some(path_spec) = path_spec_for_shape(violation.shape_id) {
+                        let should_materialize = path_spec_requires_materialization(&path_spec)
+                            || matches!(
+                                path,
+                                ResultPath::Term(path_term) if is_skolemized_path_term(path_term)
+                            )
+                            || matches!(path, ResultPath::PathId(_));
+                        if should_materialize {
+                            resolved_path_term =
+                                Some(build_path_term_from_spec(&path_spec, &mut graph));
+                        }
+                    }
+                    if let Some(path_term) = resolved_path_term {
                         graph.insert(&oxigraph::model::Triple::new(
                             result_node.clone(),
                             oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#resultPath"),
-                            path_term.clone(),
+                            path_term,
                         ));
                     }
                 }
 
-                let source_shape = shape_iri(violation.shape_id);
+                let mut message_terms = shape_messages(violation.shape_id);
+                for message_term in shape_messages_from_store(store, source_shape) {
+                    if !message_terms.contains(&message_term) {
+                        message_terms.push(message_term);
+                    }
+                }
+                if let Some(source_constraint) = source_constraint_term.as_ref() {
+                    for message_term in constraint_messages_from_store(store, source_constraint) {
+                        if !message_terms.contains(&message_term) {
+                            message_terms.push(message_term);
+                        }
+                    }
+                }
+                for message_term in message_terms {
+                    graph.insert(&oxigraph::model::Triple::new(
+                        result_node.clone(),
+                        oxigraph::model::NamedNode::new_unchecked(
+                            "http://www.w3.org/ns/shacl#resultMessage",
+                        ),
+                        message_term,
+                    ));
+                }
+
                 if !source_shape.is_empty() {
                     if let Ok(shape_node) = oxigraph::model::NamedNode::new(source_shape) {
                         graph.insert(&oxigraph::model::Triple::new(
@@ -171,10 +605,20 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
                     }
                 }
 
+                if let Some(source_constraint) = source_constraint_term {
+                    graph.insert(&oxigraph::model::Triple::new(
+                        result_node.clone(),
+                        oxigraph::model::NamedNode::new_unchecked(
+                            "http://www.w3.org/ns/shacl#sourceConstraint",
+                        ),
+                        source_constraint,
+                    ));
+                }
+
                 let source_component = component_iri(violation.component_id);
                 if let Ok(component_node) = oxigraph::model::NamedNode::new(source_component) {
                     graph.insert(&oxigraph::model::Triple::new(
-                        result_node,
+                        result_node.clone(),
                         oxigraph::model::NamedNode::new_unchecked(
                             "http://www.w3.org/ns/shacl#sourceConstraintComponent",
                         ),
@@ -203,9 +647,10 @@ pub fn generate(_ir: &SrcGenIR) -> Result<String, String> {
 
         pub fn build_report_from_specialized_violations(
             violations: Vec<Violation>,
+            store: &oxigraph::store::Store,
         ) -> Result<Report, String> {
             record_violation_metrics(&violations);
-            let report_turtle = render_violations_to_turtle(&violations)?;
+            let report_turtle = render_violations_to_turtle(&violations, store)?;
             Ok(Report {
                 violations,
                 report_turtle: report_turtle.clone(),

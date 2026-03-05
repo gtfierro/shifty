@@ -5,7 +5,7 @@ use crate::ir::{
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
-    ComponentDescriptor, Path, PropShapeID, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target,
+    ComponentDescriptor, Path, PropShapeID, Rule, RuleCondition, RuleID, ShapeIR, Target,
     TriplePatternTerm, ID,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -72,11 +72,32 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let path_predicate = simple_named_path_predicate(&shape.path);
             let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
             constraints.sort_unstable();
+            let lowered_targets = lower_supported_node_targets(&shape.targets);
+            let (
+                target_classes,
+                target_nodes,
+                target_subjects_of,
+                target_objects_of,
+                targets_supported,
+            ) = if let Some(targets) = lowered_targets {
+                let has_supported_targets = !targets.target_classes.is_empty()
+                    || !targets.target_nodes.is_empty()
+                    || !targets.target_subjects_of.is_empty()
+                    || !targets.target_objects_of.is_empty();
+                (
+                    targets.target_classes,
+                    targets.target_nodes,
+                    targets.target_subjects_of,
+                    targets.target_objects_of,
+                    has_supported_targets,
+                )
+            } else {
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false)
+            };
 
             let base_supported = !shape.deactivated
-                && matches!(shape.severity, Severity::Violation)
-                && shape.targets.is_empty()
-                && path_supported;
+                && path_supported
+                && (targets_supported || shape.targets.is_empty());
             let mut supported_constraints = Vec::new();
             let mut fallback_constraints = Vec::new();
             for component_id in &constraints {
@@ -94,6 +115,10 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             PendingPropertyShape {
                 original_id: shape.id,
                 iri,
+                target_classes,
+                target_nodes,
+                target_subjects_of,
+                target_objects_of,
                 path,
                 path_term: shape.path_term.clone(),
                 path_sparql,
@@ -111,11 +136,6 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             .cmp(&b.iri)
             .then_with(|| a.original_id.0.cmp(&b.original_id.0))
     });
-
-    let property_path_by_original: HashMap<PropShapeID, Option<String>> = pending_property_shapes
-        .iter()
-        .map(|shape| (shape.original_id, shape.path_predicate.clone()))
-        .collect();
 
     let mut pending_node_shapes: Vec<PendingNodeShape> = shape_ir
         .node_shapes
@@ -153,16 +173,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             } else {
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new(), false)
             };
-            let base_supported = !shape.deactivated
-                && matches!(shape.severity, Severity::Violation)
-                && targets_supported;
-            let linked_property_paths_supported = property_shapes.iter().all(|property_id| {
-                property_path_by_original
-                    .get(property_id)
-                    .and_then(|path| path.as_ref())
-                    .is_some()
-            });
-
+            let base_supported = !shape.deactivated && targets_supported;
             let mut supported_constraints = Vec::new();
             let mut fallback_constraints = Vec::new();
             for component_id in &constraints {
@@ -172,7 +183,6 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 };
                 let kind_supported = node_constraint_supported(kind);
                 let context_supported = match kind {
-                    SrcGenComponentKind::Closed { .. } => linked_property_paths_supported,
                     SrcGenComponentKind::Sparql { requires_path, .. } => !requires_path,
                     _ => true,
                 };
@@ -227,6 +237,10 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
                 .map(|id| SrcGenPropertyShape {
                     id,
                     iri: shape.iri,
+                    target_classes: shape.target_classes,
+                    target_nodes: shape.target_nodes,
+                    target_subjects_of: shape.target_subjects_of,
+                    target_objects_of: shape.target_objects_of,
                     path: shape.path,
                     path_term: shape.path_term,
                     path_sparql: shape.path_sparql,
@@ -397,6 +411,10 @@ struct PendingNodeShape {
 struct PendingPropertyShape {
     original_id: PropShapeID,
     iri: String,
+    target_classes: Vec<String>,
+    target_nodes: Vec<Term>,
+    target_subjects_of: Vec<String>,
+    target_objects_of: Vec<String>,
     path: SrcGenPath,
     path_term: Term,
     path_sparql: String,
@@ -598,9 +616,9 @@ fn rule_targets(shape_ir: &ShapeIR, rule_id: RuleID) -> Result<LoweredRuleTarget
             continue;
         }
         matched = true;
-        if node_shape.deactivated || !matches!(node_shape.severity, Severity::Violation) {
+        if node_shape.deactivated {
             return Err(format!(
-                "Rule {} is attached to a deactivated or non-violation node shape",
+                "Rule {} is attached to a deactivated node shape",
                 rule_id.0
             ));
         }
@@ -821,7 +839,7 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
     matches!(
         kind,
         SrcGenComponentKind::Class { .. }
-            | SrcGenComponentKind::PropertyLink
+            | SrcGenComponentKind::PropertyLink { .. }
             | SrcGenComponentKind::Closed { .. }
             | SrcGenComponentKind::Datatype { .. }
             | SrcGenComponentKind::Node { .. }
@@ -832,10 +850,18 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
             | SrcGenComponentKind::NodeKind { .. }
             | SrcGenComponentKind::MinLength { .. }
             | SrcGenComponentKind::MaxLength { .. }
+            | SrcGenComponentKind::MinExclusive { .. }
+            | SrcGenComponentKind::MinInclusive { .. }
+            | SrcGenComponentKind::MaxExclusive { .. }
+            | SrcGenComponentKind::MaxInclusive { .. }
             | SrcGenComponentKind::Pattern { .. }
             | SrcGenComponentKind::HasValue { .. }
             | SrcGenComponentKind::In { .. }
             | SrcGenComponentKind::LanguageIn { .. }
+            | SrcGenComponentKind::Equals { .. }
+            | SrcGenComponentKind::Disjoint { .. }
+            | SrcGenComponentKind::LessThan { .. }
+            | SrcGenComponentKind::LessThanOrEquals { .. }
             | SrcGenComponentKind::Sparql { .. }
     )
 }
@@ -843,7 +869,8 @@ fn node_constraint_supported(kind: &SrcGenComponentKind) -> bool {
 fn property_constraint_supported(kind: &SrcGenComponentKind) -> bool {
     matches!(
         kind,
-        SrcGenComponentKind::Class { .. }
+        SrcGenComponentKind::PropertyLink { .. }
+            | SrcGenComponentKind::Class { .. }
             | SrcGenComponentKind::Datatype { .. }
             | SrcGenComponentKind::QualifiedValueShape { .. }
             | SrcGenComponentKind::Node { .. }
@@ -1110,12 +1137,43 @@ fn resolve_shape_iri(shape_ir: &ShapeIR, shape_id: ID) -> Option<String> {
         })
 }
 
+fn resolve_property_shape_iri(shape_ir: &ShapeIR, shape_id: PropShapeID) -> Option<String> {
+    shape_ir
+        .property_shape_terms
+        .get(&shape_id)
+        .map(term_to_stable_string)
+        .or_else(|| {
+            shape_ir
+                .property_shapes
+                .iter()
+                .find(|shape| shape.id == shape_id)
+                .map(|_| format!("_:property-shape-{}", shape_id.0))
+        })
+}
+
 fn component_kind(
     shape_ir: &ShapeIR,
     descriptor: &ComponentDescriptor,
 ) -> (SrcGenComponentKind, Option<String>) {
     match descriptor {
-        ComponentDescriptor::Property { .. } => (SrcGenComponentKind::PropertyLink, None),
+        ComponentDescriptor::Property { shape } => {
+            if let Some(property_shape_iri) = resolve_property_shape_iri(shape_ir, *shape) {
+                (
+                    SrcGenComponentKind::PropertyLink { property_shape_iri },
+                    None,
+                )
+            } else {
+                (
+                    SrcGenComponentKind::Unsupported {
+                        kind: "Property(missing-shape-iri)".to_string(),
+                    },
+                    Some(format!(
+                        "Property component references missing property shape {}",
+                        shape.0
+                    )),
+                )
+            }
+        }
         ComponentDescriptor::QualifiedValueShape {
             shape,
             min_count,
@@ -1857,7 +1915,7 @@ mod tests {
     }
 
     #[test]
-    fn closed_constraint_with_complex_property_path_falls_back() {
+    fn closed_constraint_with_complex_property_path_is_specialized() {
         let mut components = HashMap::new();
         components.insert(
             ComponentID(1),
@@ -1936,8 +1994,8 @@ mod tests {
         assert_eq!(lowered.node_shapes.len(), 1);
         let node_shape = &lowered.node_shapes[0];
         assert!(node_shape.supported);
-        assert!(!node_shape.fallback_constraints.is_empty());
-        assert!(node_shape.fallback_constraints.contains(&1));
+        assert!(node_shape.supported_constraints.contains(&1));
+        assert!(!node_shape.fallback_constraints.contains(&1));
     }
 
     #[test]

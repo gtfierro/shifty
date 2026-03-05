@@ -571,11 +571,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
             if strict_full_aot {
                 if SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
-                    eprintln!(
-                        "srcgen full-aot mode enabled: skipping planned runtime fallback dispatch"
-                    );
+                    eprintln!("srcgen full-aot mode enabled: planned runtime fallback detected");
+                    return Some(strict_incomplete_report(
+                        "strict full-aot mode requires complete specialization (runtime fallback plan detected)",
+                    ));
                 }
-                return match build_report_from_specialized_violations(specialized_violations) {
+                return match build_report_from_specialized_violations(specialized_violations, store)
+                {
                     Ok(report) => Some(report),
                     Err(err) => {
                         eprintln!("srcgen specialized report build fallback: {err}");
@@ -585,7 +587,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
 
             if !SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
-                return match build_report_from_specialized_violations(specialized_violations) {
+                return match build_report_from_specialized_violations(specialized_violations, store)
+                {
                     Ok(report) => Some(report),
                     Err(err) => {
                         eprintln!("srcgen specialized report build fallback: {err}");
@@ -634,7 +637,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 eprintln!("srcgen hybrid runtime dispatch executed with zero fallback violations");
             }
 
-            match build_report_from_specialized_violations(merged_violations) {
+            match build_report_from_specialized_violations(merged_violations, store) {
                 Ok(report) => Some(report),
                 Err(err) => {
                     eprintln!("srcgen hybrid report build fallback: {err}");
@@ -663,6 +666,43 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        fn debug_shape_message_stats_once() {
+            if std::env::var("SHFTY_SRCGEN_DEBUG_REPORT_MESSAGES").is_err() {
+                return;
+            }
+            static PRINTED: std::sync::Once = std::sync::Once::new();
+            PRINTED.call_once(|| {
+                let shape_ir = match embedded_shape_ir() {
+                    Ok(shape_ir) => shape_ir,
+                    Err(err) => {
+                        eprintln!("srcgen debug: embedded_shape_ir unavailable: {err}");
+                        return;
+                    }
+                };
+                let Ok(message_predicate) = oxigraph::model::NamedNode::new(SH_MESSAGE) else {
+                    eprintln!("srcgen debug: invalid SH_MESSAGE IRI");
+                    return;
+                };
+                let mut count = 0usize;
+                let mut subjects: std::collections::BTreeSet<String> =
+                    std::collections::BTreeSet::new();
+                for quad in &shape_ir.shape_quads {
+                    if quad.predicate == message_predicate {
+                        count += 1;
+                        subjects.insert(oxigraph::model::Term::from(quad.subject.clone()).to_string());
+                    }
+                }
+                eprintln!(
+                    "srcgen debug: embedded shape_quads message triples={} unique_subjects={}",
+                    count,
+                    subjects.len()
+                );
+                for subject in subjects.into_iter().take(5) {
+                    eprintln!("srcgen debug: message subject sample {subject}");
+                }
+            });
+        }
+
         pub fn run_with_extended_options(
             store: &oxigraph::store::Store,
             data_graph: Option<&oxigraph::model::NamedNode>,
@@ -673,6 +713,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let strict_full_aot = full_aot && env_full_aot_strict_enabled();
             reset_runtime_metrics();
             reset_runtime_shape_conformance_cache();
+            debug_shape_message_stats_once();
             let data_graph = if let Some(graph) = data_graph {
                 graph.clone()
             } else {
