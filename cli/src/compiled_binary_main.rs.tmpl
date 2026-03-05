@@ -993,10 +993,12 @@ enum CommandSpec {
         data_path: PathBuf,
         follow_bnodes: bool,
         run_inference: bool,
+        full_aot: bool,
         fail_on_violations: bool,
     },
     Infer {
         data_path: PathBuf,
+        full_aot: bool,
     },
     Serve {
         bind: String,
@@ -1013,7 +1015,7 @@ struct HttpRequest {
 
 fn print_usage(program: &str) {
     eprintln!(
-        "usage:\n  {} [--follow-bnodes] [--run-inference=true|false] [--fail-on-violations] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference=true|false] [--fail-on-violations] <data.rdf>\n  {} infer <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
+        "usage:\n  {} [--follow-bnodes] [--run-inference=true|false] [--full-aot] [--fail-on-violations] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference=true|false] [--full-aot] [--fail-on-violations] <data.rdf>\n  {} infer [--full-aot] <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
         program, program, program, program
     );
 }
@@ -1029,6 +1031,7 @@ fn parse_bool_arg(value: &str) -> Result<bool, String> {
 fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
     let mut follow_bnodes = false;
     let mut run_inference = true;
+    let mut full_aot = false;
     let mut fail_on_violations = false;
     let mut data_path: Option<PathBuf> = None;
 
@@ -1041,6 +1044,10 @@ fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, St
             run_inference = true;
         } else if let Some(value) = arg.strip_prefix("--run-inference=") {
             run_inference = parse_bool_arg(value)?;
+        } else if arg == "--full-aot" {
+            full_aot = true;
+        } else if let Some(value) = arg.strip_prefix("--full-aot=") {
+            full_aot = parse_bool_arg(value)?;
         } else if arg == "--fail-on-violations" {
             fail_on_violations = true;
         } else if arg.starts_with("--") {
@@ -1059,6 +1066,7 @@ fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, St
             data_path: path,
             follow_bnodes,
             run_inference,
+            full_aot,
             fail_on_violations,
         }),
         None => {
@@ -1069,8 +1077,17 @@ fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, St
 }
 
 fn parse_infer_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
+    let mut full_aot = false;
     let mut data_path: Option<PathBuf> = None;
     for arg in args {
+        if arg == "--full-aot" {
+            full_aot = true;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--full-aot=") {
+            full_aot = parse_bool_arg(value)?;
+            continue;
+        }
         if arg.starts_with("--") {
             print_usage(program);
             return Err(format!("unknown option: {}", arg));
@@ -1083,7 +1100,10 @@ fn parse_infer_args(args: &[String], program: &str) -> Result<CommandSpec, Strin
         }
     }
     match data_path {
-        Some(path) => Ok(CommandSpec::Infer { data_path: path }),
+        Some(path) => Ok(CommandSpec::Infer {
+            data_path: path,
+            full_aot,
+        }),
         None => {
             print_usage(program);
             Err("data file argument missing".into())
@@ -1379,10 +1399,12 @@ fn run_validate_command(
     path: &Path,
     follow_bnodes: bool,
     run_inference: bool,
+    full_aot: bool,
 ) -> Result<(String, bool), String> {
     let (store, data_graph) = load_store_for_path(path)?;
     stage_mark("compiled validation start");
-    let report = generated::run_with_options(&store, Some(&data_graph), run_inference);
+    let report =
+        generated::run_with_extended_options(&store, Some(&data_graph), run_inference, full_aot);
     let metrics = generated::runtime_metrics_snapshot();
     stage_mark(&format!(
         "compiled validation finish violations={} fast_path_hits={} fallback_dispatches={}",
@@ -1402,10 +1424,10 @@ fn render_report_output(
     Ok(render_report(report, store, follow_bnodes))
 }
 
-fn run_infer_command(path: &Path) -> Result<String, String> {
+fn run_infer_command(path: &Path, full_aot: bool) -> Result<String, String> {
     let (store, data_graph) = load_store_for_path(path)?;
     stage_mark("compiled inference start");
-    let report = generated::run_with_options(&store, Some(&data_graph), true);
+    let report = generated::run_with_extended_options(&store, Some(&data_graph), true, full_aot);
     let metrics = generated::runtime_metrics_snapshot();
     stage_mark(&format!(
         "compiled inference finish violations={} fast_path_hits={} fallback_dispatches={}",
@@ -1549,6 +1571,10 @@ fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
         .get("run_inference")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let full_aot = payload
+        .get("full_aot")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let follow_bnodes = payload
         .get("follow_bnodes")
         .and_then(Value::as_bool)
@@ -1562,7 +1588,8 @@ fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
         .optimize()
         .map_err(|e| format!("store optimize failed: {}", e))?;
 
-    let report = generated::run_with_options(&store, Some(&data_graph), run_inference);
+    let report =
+        generated::run_with_extended_options(&store, Some(&data_graph), run_inference, full_aot);
     let metrics = generated::runtime_metrics_snapshot();
     let report_ttl = render_report_output(&store, &report, follow_bnodes)?;
     let human_report = format_human_report(&report, run_inference);
@@ -1572,6 +1599,7 @@ fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
         "ok": true,
         "conforms": conforms,
         "run_inference": run_inference,
+        "full_aot": full_aot,
         "metrics": {
             "fast_path_hits": metrics.fast_path_hits,
             "fallback_dispatches": metrics.fallback_dispatches,
@@ -1584,7 +1612,11 @@ fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
 }
 
 fn handle_infer_api(body: &[u8]) -> Result<Value, String> {
-    let (graph, format, _payload) = parse_graph_payload(body)?;
+    let (graph, format, payload) = parse_graph_payload(body)?;
+    let full_aot = payload
+        .get("full_aot")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let store = Store::new().map_err(|e| format!("failed to create store: {}", e))?;
     let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
@@ -1594,7 +1626,7 @@ fn handle_infer_api(body: &[u8]) -> Result<Value, String> {
         .optimize()
         .map_err(|e| format!("store optimize failed: {}", e))?;
 
-    let report = generated::run_with_options(&store, Some(&data_graph), true);
+    let report = generated::run_with_extended_options(&store, Some(&data_graph), true, full_aot);
     let metrics = generated::runtime_metrics_snapshot();
     let graph_ttl = serialize_graph_to_turtle(&store, &data_graph)?;
     let triples = count_graph_triples(&store, &data_graph)?;
@@ -1603,6 +1635,7 @@ fn handle_infer_api(body: &[u8]) -> Result<Value, String> {
         "ok": true,
         "triples": triples,
         "violations": report.violations.len(),
+        "full_aot": full_aot,
         "metrics": {
             "fast_path_hits": metrics.fast_path_hits,
             "fallback_dispatches": metrics.fallback_dispatches,
@@ -1707,18 +1740,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             data_path,
             follow_bnodes,
             run_inference,
+            full_aot,
             fail_on_violations,
         } => {
-            let (output, conforms) = run_validate_command(&data_path, follow_bnodes, run_inference)
-                .map_err(Box::<dyn Error>::from)?;
+            let (output, conforms) =
+                run_validate_command(&data_path, follow_bnodes, run_inference, full_aot)
+                    .map_err(Box::<dyn Error>::from)?;
             println!("{}", output);
             if fail_on_violations && !conforms {
                 std::process::exit(2);
             }
             Ok(())
         }
-        CommandSpec::Infer { data_path } => {
-            let output = run_infer_command(&data_path).map_err(Box::<dyn Error>::from)?;
+        CommandSpec::Infer {
+            data_path,
+            full_aot,
+        } => {
+            let output = run_infer_command(&data_path, full_aot).map_err(Box::<dyn Error>::from)?;
             println!("{}", output);
             Ok(())
         }

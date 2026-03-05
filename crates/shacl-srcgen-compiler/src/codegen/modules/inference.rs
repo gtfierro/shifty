@@ -79,28 +79,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .filter(|rule| !rule.fallback_only && matches!(rule.kind, SrcGenRuleKind::Sparql { .. }))
         .count();
     let runtime_prefers_sparql_rules = specialized_sparql_rule_count > 0;
-    let emitted_specialized_rule_count = if runtime_prefers_sparql_rules {
-        0
-    } else {
-        specialized_rule_count
-    };
-    let emitted_specialized_triple_rule_count = if runtime_prefers_sparql_rules {
-        0
-    } else {
-        specialized_triple_rule_count
-    };
-    let emitted_specialized_sparql_rule_count = if runtime_prefers_sparql_rules {
-        0
-    } else {
-        specialized_sparql_rule_count
-    };
 
     let mut specialized_rule_blocks: Vec<TokenStream> = Vec::new();
     for rule in &ir.rules {
         if rule.fallback_only {
-            continue;
-        }
-        if runtime_prefers_sparql_rules {
             continue;
         }
         let rule_id = rule.id;
@@ -416,9 +398,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         use rayon::prelude::*;
 
         pub const GENERATED_INFERENCE_RULES: usize = #generated_rule_count;
-        pub const GENERATED_SPECIALIZED_INFERENCE_RULES: usize = #emitted_specialized_rule_count;
-        pub const GENERATED_SPECIALIZED_TRIPLE_INFERENCE_RULES: usize = #emitted_specialized_triple_rule_count;
-        pub const GENERATED_SPECIALIZED_SPARQL_INFERENCE_RULES: usize = #emitted_specialized_sparql_rule_count;
+        pub const GENERATED_SPECIALIZED_INFERENCE_RULES: usize = #specialized_rule_count;
+        pub const GENERATED_SPECIALIZED_TRIPLE_INFERENCE_RULES: usize = #specialized_triple_rule_count;
+        pub const GENERATED_SPECIALIZED_SPARQL_INFERENCE_RULES: usize = #specialized_sparql_rule_count;
         pub const GENERATED_FALLBACK_INFERENCE_RULES: usize = #fallback_rule_count;
         pub const SRCGEN_PREFERS_RUNTIME_INFERENCE: bool = #runtime_prefers_sparql_rules;
 
@@ -649,9 +631,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             insert_inferred_candidates(store, graph_name, candidates)
         }
 
-        pub fn run_generated_inference(
+        pub fn run_generated_inference_with_options(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
+            allow_runtime_fallback: bool,
         ) -> Result<usize, String> {
             if GENERATED_INFERENCE_RULES == 0 {
                 return Ok(0);
@@ -661,7 +644,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let mut inserted = 0usize;
 
             // Runtime inference is currently faster and more stable on SPARQL-heavy rule sets.
-            if SRCGEN_PREFERS_RUNTIME_INFERENCE {
+            if SRCGEN_PREFERS_RUNTIME_INFERENCE && allow_runtime_fallback {
                 return run_runtime_inference(store, data_graph, &graph_name);
             }
 
@@ -672,12 +655,19 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             > = std::collections::HashMap::new();
             #(#specialized_rule_blocks)*
 
-            if GENERATED_FALLBACK_INFERENCE_RULES == 0 {
+            if GENERATED_FALLBACK_INFERENCE_RULES == 0 || !allow_runtime_fallback {
                 return Ok(inserted);
             }
 
             inserted += run_runtime_inference(store, data_graph, &graph_name)?;
             Ok(inserted)
+        }
+
+        pub fn run_generated_inference(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<usize, String> {
+            run_generated_inference_with_options(store, data_graph, true)
         }
     };
     render_tokens_as_module(tokens)

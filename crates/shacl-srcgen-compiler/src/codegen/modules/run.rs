@@ -257,6 +257,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         fn run_hybrid_validation(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
+            full_aot: bool,
         ) -> Option<Report> {
             if generated_backend_is_tables() {
                 record_fallback_dispatch();
@@ -276,6 +277,21 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     return None;
                 }
             };
+
+            if full_aot {
+                if SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
+                    eprintln!(
+                        "srcgen full-aot mode enabled: skipping planned runtime fallback dispatch"
+                    );
+                }
+                return match build_report_from_specialized_violations(specialized_violations) {
+                    Ok(report) => Some(report),
+                    Err(err) => {
+                        eprintln!("srcgen specialized report build fallback: {err}");
+                        None
+                    }
+                };
+            }
 
             if !SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK {
                 return match build_report_from_specialized_violations(specialized_violations) {
@@ -328,11 +344,23 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
-        pub fn run_with_options(
+        fn env_full_aot_enabled() -> bool {
+            match std::env::var("SHFTY_SRCGEN_FULL_AOT") {
+                Ok(value) => match value.to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" => true,
+                    _ => false,
+                },
+                Err(_) => false,
+            }
+        }
+
+        pub fn run_with_extended_options(
             store: &oxigraph::store::Store,
             data_graph: Option<&oxigraph::model::NamedNode>,
             enable_inference: bool,
+            full_aot: bool,
         ) -> Report {
+            let full_aot = full_aot || env_full_aot_enabled();
             reset_runtime_metrics();
             reset_runtime_shape_conformance_cache();
             let data_graph = if let Some(graph) = data_graph {
@@ -348,14 +376,23 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             };
 
             if enable_inference {
-                if let Err(err) = run_generated_inference(store, &data_graph) {
+                if let Err(err) =
+                    run_generated_inference_with_options(store, &data_graph, !full_aot)
+                {
                     eprintln!("srcgen runtime inference error: {err}");
                     return empty_conforming_report();
                 }
             }
 
-            if let Some(report) = run_hybrid_validation(store, &data_graph) {
+            if let Some(report) = run_hybrid_validation(store, &data_graph, full_aot) {
                 return report;
+            }
+
+            if full_aot {
+                eprintln!(
+                    "srcgen full-aot mode could not complete specialized validation; runtime fallback disabled"
+                );
+                return empty_conforming_report();
             }
 
             let validator = match build_runtime_validator(store, &data_graph) {
@@ -367,6 +404,22 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             };
             let report = validator.validate();
             build_report_from_runtime_validation_report(&report)
+        }
+
+        pub fn run_with_options(
+            store: &oxigraph::store::Store,
+            data_graph: Option<&oxigraph::model::NamedNode>,
+            enable_inference: bool,
+        ) -> Report {
+            run_with_extended_options(store, data_graph, enable_inference, false)
+        }
+
+        pub fn run_with_full_aot(
+            store: &oxigraph::store::Store,
+            data_graph: Option<&oxigraph::model::NamedNode>,
+            enable_inference: bool,
+        ) -> Report {
+            run_with_extended_options(store, data_graph, enable_inference, true)
         }
 
         pub fn run(
