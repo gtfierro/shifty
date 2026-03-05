@@ -644,8 +644,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let mut inserted = 0usize;
 
             // Runtime inference is currently faster and more stable on SPARQL-heavy rule sets.
-            if SRCGEN_PREFERS_RUNTIME_INFERENCE && allow_runtime_fallback {
-                return run_runtime_inference(store, data_graph, &graph_name);
+            if SRCGEN_PREFERS_RUNTIME_INFERENCE {
+                if allow_runtime_fallback {
+                    return run_runtime_inference(store, data_graph, &graph_name);
+                }
+                eprintln!(
+                    "srcgen full-aot mode: skipping SPARQL-heavy inference (runtime fallback disabled)"
+                );
+                return Ok(0);
             }
 
             let mut target_class_index: Option<TargetClassIndex> = None;
