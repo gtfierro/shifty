@@ -78,7 +78,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .iter()
         .filter(|rule| !rule.fallback_only && matches!(rule.kind, SrcGenRuleKind::Sparql { .. }))
         .count();
-    let runtime_prefers_sparql_rules = specialized_sparql_rule_count > 0;
 
     let mut specialized_rule_blocks: Vec<TokenStream> = Vec::new();
     for rule in &ir.rules {
@@ -171,7 +170,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     {
                         let mut condition_cache: std::collections::HashMap<(String, String), bool> =
                             std::collections::HashMap::new();
-                        let mut condition_validator: Option<shifty::Validator> = None;
                         let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
                         #rule_focus_sources
                         focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
@@ -187,14 +185,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 let condition_conforms = if let Some(cached) = condition_cache.get(&condition_key) {
                                     *cached
                                 } else {
-                                    if condition_validator.is_none() {
-                                        condition_validator = Some(build_runtime_validator(store, data_graph)?);
-                                    }
-                                    let validator = condition_validator
-                                        .as_ref()
-                                        .ok_or_else(|| "condition validator was not initialized".to_string())?;
-                                    let conforms = validator
-                                        .node_conforms_to_shape_id(&focus, #condition_shape_lits)?;
+                                    let conforms = srcgen_shape_conforms(
+                                        store,
+                                        data_graph,
+                                        #condition_shape_lits,
+                                        &focus,
+                                    )?;
                                     condition_cache.insert(condition_key, conforms);
                                     conforms
                                 };
@@ -215,7 +211,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             if added > 0 {
                                 inserted += added;
                                 condition_cache.clear();
-                                let _ = condition_validator.take();
+                                reset_srcgen_shape_conformance_cache();
                             }
                         }
                     }
@@ -352,7 +348,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     {
                         let mut condition_cache: std::collections::HashMap<(String, String), bool> =
                             std::collections::HashMap::new();
-                        let mut condition_validator: Option<shifty::Validator> = None;
                         let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
                         #rule_focus_sources
                         focus_nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
@@ -365,14 +360,12 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     let condition_conforms = if let Some(cached) = condition_cache.get(&condition_key) {
                                         *cached
                                     } else {
-                                        if condition_validator.is_none() {
-                                            condition_validator = Some(build_runtime_validator(store, data_graph)?);
-                                        }
-                                        let validator = condition_validator
-                                            .as_ref()
-                                            .ok_or_else(|| "condition validator was not initialized".to_string())?;
-                                        let conforms = validator
-                                            .node_conforms_to_shape_id(&focus, #condition_shape_lits)?;
+                                        let conforms = srcgen_shape_conforms(
+                                            store,
+                                            data_graph,
+                                            #condition_shape_lits,
+                                            &focus,
+                                        )?;
                                         condition_cache.insert(condition_key, conforms);
                                         conforms
                                     };
@@ -401,7 +394,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 if added > 0 {
                                     inserted += added;
                                     condition_cache.clear();
-                                    let _ = condition_validator.take();
+                                    reset_srcgen_shape_conformance_cache();
                                 }
                             }
                         }
@@ -420,7 +413,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         pub const GENERATED_SPECIALIZED_TRIPLE_INFERENCE_RULES: usize = #specialized_triple_rule_count;
         pub const GENERATED_SPECIALIZED_SPARQL_INFERENCE_RULES: usize = #specialized_sparql_rule_count;
         pub const GENERATED_FALLBACK_INFERENCE_RULES: usize = #fallback_rule_count;
-        pub const SRCGEN_PREFERS_RUNTIME_INFERENCE: bool = #runtime_prefers_sparql_rules;
 
         thread_local! {
             static SPARQL_RULE_PREPARED_CACHE: std::cell::RefCell<
@@ -729,17 +721,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let graph_name = oxigraph::model::GraphName::NamedNode(data_graph.clone());
             let mut inserted = 0usize;
 
-            // Runtime inference is currently faster and more stable on SPARQL-heavy rule sets.
-            if SRCGEN_PREFERS_RUNTIME_INFERENCE {
-                if allow_runtime_fallback {
-                    return run_runtime_inference(store, data_graph, &graph_name);
-                }
-                eprintln!(
-                    "srcgen full-aot mode: skipping SPARQL-heavy inference (runtime fallback disabled)"
-                );
-                return Ok(0);
-            }
-
             let mut target_class_index: Option<TargetClassIndex> = None;
             let mut target_class_focus_cache: std::collections::HashMap<
                 String,
@@ -755,7 +736,15 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             > = std::collections::HashMap::new();
             #(#specialized_rule_blocks)*
 
-            if GENERATED_FALLBACK_INFERENCE_RULES == 0 || !allow_runtime_fallback {
+            if GENERATED_FALLBACK_INFERENCE_RULES == 0 {
+                return Ok(inserted);
+            }
+
+            if !allow_runtime_fallback {
+                eprintln!(
+                    "srcgen full-aot mode: skipping {} unsupported inference rule(s) because runtime fallback is disabled",
+                    GENERATED_FALLBACK_INFERENCE_RULES,
+                );
                 return Ok(inserted);
             }
 
