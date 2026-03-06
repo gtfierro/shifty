@@ -1,8 +1,56 @@
 use crate::codegen::render_tokens_as_module;
 use crate::ir::SrcGenIR;
-use proc_macro2::{Literal, TokenStream};
+use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::BTreeSet;
+
+pub fn has_planned_runtime_fallback(ir: &SrcGenIR) -> bool {
+    let full_fallback_node_shape_ids: BTreeSet<u64> = ir
+        .node_shapes
+        .iter()
+        .filter(|shape| !shape.supported)
+        .map(|shape| shape.id)
+        .collect();
+
+    let unsupported_parent_property_shape_ids: BTreeSet<u64> = ir
+        .node_shapes
+        .iter()
+        .filter(|shape| !shape.supported)
+        .flat_map(|shape| shape.property_shapes.iter().copied())
+        .collect();
+
+    let mut full_fallback_property_shape_ids: BTreeSet<u64> = ir
+        .property_shapes
+        .iter()
+        .filter(|shape| !shape.supported)
+        .map(|shape| shape.id)
+        .collect();
+    full_fallback_property_shape_ids.extend(unsupported_parent_property_shape_ids);
+
+    let mut full_fallback_shape_ids: BTreeSet<u64> = full_fallback_node_shape_ids;
+    full_fallback_shape_ids.extend(full_fallback_property_shape_ids.iter().copied());
+
+    let fully_fallback_property_shape_ids: BTreeSet<u64> =
+        full_fallback_property_shape_ids.iter().copied().collect();
+    let mut fallback_component_pairs: BTreeSet<(u64, u64)> = BTreeSet::new();
+
+    for shape in ir.node_shapes.iter().filter(|shape| shape.supported) {
+        for component_id in &shape.fallback_constraints {
+            fallback_component_pairs.insert((shape.id, *component_id));
+        }
+    }
+
+    for shape in ir.property_shapes.iter().filter(|shape| shape.supported) {
+        if fully_fallback_property_shape_ids.contains(&shape.id) {
+            continue;
+        }
+        for component_id in &shape.fallback_constraints {
+            fallback_component_pairs.insert((shape.id, *component_id));
+        }
+    }
+
+    !full_fallback_shape_ids.is_empty() || !fallback_component_pairs.is_empty()
+}
 
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let full_fallback_node_shape_ids: BTreeSet<u64> = ir
@@ -59,13 +107,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .map(|(shape_id, component_id)| quote! { (#shape_id, #component_id) => true, })
         .collect();
 
-    let has_planned_runtime_fallback =
-        !full_fallback_shape_ids.is_empty() || !fallback_component_pairs.is_empty();
-    let embedded_shape_ir_bytes = Literal::byte_string(&ir.embedded_shape_ir_bincode);
+    let has_planned_runtime_fallback = has_planned_runtime_fallback(ir);
+    let embedded_shape_ir_const = if has_planned_runtime_fallback {
+        quote! { const SRCGEN_EMBEDDED_SHAPE_IR_BIN: &[u8] = include_bytes!("shape_ir.bin"); }
+    } else {
+        quote! { const SRCGEN_EMBEDDED_SHAPE_IR_BIN: &[u8] = b""; }
+    };
 
     let tokens = quote! {
         const SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK: bool = #has_planned_runtime_fallback;
-        const SRCGEN_EMBEDDED_SHAPE_IR_BIN: &[u8] = #embedded_shape_ir_bytes;
+        #embedded_shape_ir_const
 
         fn collect_graph_quads(
             store: &oxigraph::store::Store,
@@ -713,6 +764,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let strict_full_aot = full_aot && env_full_aot_strict_enabled();
             reset_runtime_metrics();
             reset_runtime_shape_conformance_cache();
+            set_runtime_shape_conformance_fallback_allowed(!full_aot);
             debug_shape_message_stats_once();
             let data_graph = if let Some(graph) = data_graph {
                 graph.clone()

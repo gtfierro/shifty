@@ -158,17 +158,22 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 )?);
             }
         }));
-        focus_sources.extend(shape.target_advanced_select_queries.iter().map(|select_query| {
-            let select_query_lit = LitStr::new(select_query, Span::call_site());
-            quote! {
-                focus_nodes.extend(focus_nodes_for_advanced_target_select_cached(
-                    &mut advanced_target_select_cache,
-                    store,
-                    data_graph,
-                    #select_query_lit,
-                )?);
-            }
-        }));
+        focus_sources.extend(
+            shape
+                .target_advanced_select_queries
+                .iter()
+                .map(|select_query| {
+                    let select_query_lit = LitStr::new(select_query, Span::call_site());
+                    quote! {
+                        focus_nodes.extend(focus_nodes_for_advanced_target_select_cached(
+                            &mut advanced_target_select_cache,
+                            store,
+                            data_graph,
+                            #select_query_lit,
+                        )?);
+                    }
+                }),
+        );
 
         let mut shape_batched_checks: Vec<TokenStream> = Vec::new();
         let mut conformance_batched_checks: Vec<TokenStream> = Vec::new();
@@ -1652,6 +1657,8 @@ WHERE {
             static SRCGEN_RUNTIME_SHAPE_CONFORMANCE_VALIDATOR: std::cell::RefCell<
                 Option<shifty::Validator>
             > = std::cell::RefCell::new(None);
+            static SRCGEN_RUNTIME_SHAPE_CONFORMANCE_FALLBACK_ALLOWED: std::cell::RefCell<bool> =
+                std::cell::RefCell::new(true);
         }
 
         pub fn reset_srcgen_shape_conformance_cache() {
@@ -1660,6 +1667,9 @@ WHERE {
             SRCGEN_RUNTIME_SHAPE_CONFORMANCE_QUERY_CACHE.with(|cache| cache.borrow_mut().clear());
             SRCGEN_RUNTIME_SHAPE_CONFORMANCE_VALIDATOR.with(|slot| {
                 let _ = slot.borrow_mut().take();
+            });
+            SRCGEN_RUNTIME_SHAPE_CONFORMANCE_FALLBACK_ALLOWED.with(|allowed| {
+                *allowed.borrow_mut() = true;
             });
         }
 
@@ -1673,12 +1683,27 @@ WHERE {
             }
         }
 
+        pub fn set_runtime_shape_conformance_fallback_allowed(allowed: bool) {
+            SRCGEN_RUNTIME_SHAPE_CONFORMANCE_FALLBACK_ALLOWED.with(|slot| {
+                *slot.borrow_mut() = allowed;
+            });
+        }
+
+        fn runtime_shape_conformance_fallback_allowed() -> bool {
+            SRCGEN_RUNTIME_SHAPE_CONFORMANCE_FALLBACK_ALLOWED.with(|slot| *slot.borrow())
+        }
+
         fn runtime_shape_conforms_fallback(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
             shape_iri: &str,
             focus: &oxigraph::model::Term,
         ) -> Result<bool, String> {
+            if !runtime_shape_conformance_fallback_allowed() {
+                return Err(format!(
+                    "srcgen full-aot mode: logical conformance query for shape {shape_iri} requires runtime fallback"
+                ));
+            }
             if full_aot_strict_shape_conformance_enabled() {
                 return Err(format!(
                     "srcgen full-aot strict mode: logical conformance query for shape {shape_iri} requires runtime fallback"

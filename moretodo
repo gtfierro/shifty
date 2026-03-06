@@ -33,6 +33,9 @@ Open priorities
   - Expand compiled conformance dispatch coverage to all shape references used by logical constraints.
   - Keep memoized recursion semantics.
   - Preserve parity for `node/not/and/or/xone/qualifiedValueShape`.
+- Progress:
+  - Added generated runtime flag plumbing so full-AOT execution explicitly disables runtime shape-conformance fallback paths.
+  - Remaining work is expanding compiled conformance coverage so disabled fallback does not force global runtime fallback for shape sets with unresolved conformance dispatch.
 
 [ ] B. Finish compiled inference parity in strict full-AOT
 - Current behavior intentionally skips unsupported inference rules when runtime fallback is disabled.

@@ -266,6 +266,7 @@ fn run_module_uses_hybrid_dispatch_planning() {
     assert!(run
         .contains("fn is_fallback_component_for_shape(shape_id: u64, component_id: u64) -> bool"));
     assert!(run.contains("fn merge_specialized_with_runtime("));
+    assert!(run.contains("set_runtime_shape_conformance_fallback_allowed(!full_aot);"));
     assert!(!run.contains("generated_backend_is_tables() || !SPECIALIZATION_READY"));
 }
 
