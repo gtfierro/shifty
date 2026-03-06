@@ -65,6 +65,10 @@ fn strict_full_aot_enabled() -> bool {
     parse_bool_env("SHFTY_COMPILED_MANIFEST_STRICT_FULL_AOT")
 }
 
+fn strict_incomplete_is_error_enabled() -> bool {
+    parse_bool_env("SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR")
+}
+
 fn cache_profile_key(path: &Path, compiler: ManifestCompiler, strict_full_aot: bool) -> String {
     format!(
         "{}|{}|{}",
@@ -822,10 +826,12 @@ fn strict_incomplete_marker(report_turtle: &str) -> bool {
 fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
     let compiler = selected_manifest_compiler();
     let strict_full_aot = strict_full_aot_enabled();
+    let strict_incomplete_is_error = strict_incomplete_is_error_enabled();
     println!(
-        "compiled-manifest mode: compiler={} strict_full_aot={}",
+        "compiled-manifest mode: compiler={} strict_full_aot={} strict_incomplete_is_error={}",
         compiler.as_str(),
-        strict_full_aot
+        strict_full_aot,
+        strict_incomplete_is_error
     );
     let tests = collect_tests_from_manifest(Path::new(file))?;
     for (manifest_path, test) in tests {
@@ -874,6 +880,12 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
             && strict_full_aot
             && strict_incomplete_marker(&report_turtle)
         {
+            if strict_incomplete_is_error {
+                return Err(Box::new(io::Error::other(format!(
+                    "strict full-aot incomplete specialization marker encountered for test '{}'",
+                    test_name
+                ))));
+            }
             println!(
                 "[skip] {} — strict full-aot incomplete specialization (fallback disabled)",
                 test_name

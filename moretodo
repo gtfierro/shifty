@@ -50,6 +50,9 @@ Open priorities
 [ ] C. Full strict compiled-manifest parity and report fidelity gates
 - Need full strict srcgen compiled-manifest run green without relying on “strict incomplete” skips.
 - Verify report semantic parity (not only conforms boolean): severity, messages, sourceConstraint/sourceShape, resultPath/value fidelity.
+- Progress:
+  - Added `SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR` gate switch in compiled-manifest tests.
+  - Default behavior remains backward-compatible (skip), but we can now run strict parity in hard-fail mode.
 
 [ ] D. Perf gates (end-to-end)
 - Confirm strict compiled path is faster than runtime baseline for 223 + Brick validation scenarios.
