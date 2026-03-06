@@ -41,6 +41,8 @@ Open priorities
   - Compile broader SPARQL rule subset.
   - Keep deterministic rule execution and convergence semantics.
   - Add strict-mode assertions for unsupported inference residue.
+- Progress:
+  - Added strict full-AOT guard in generated inference runtime: when unsupported inference rules remain and runtime fallback is disabled, strict mode now errors instead of silently skipping.
 
 [ ] C. Full strict compiled-manifest parity and report fidelity gates
 - Need full strict srcgen compiled-manifest run green without relying on “strict incomplete” skips.

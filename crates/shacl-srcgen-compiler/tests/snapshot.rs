@@ -268,3 +268,22 @@ fn run_module_uses_hybrid_dispatch_planning() {
     assert!(run.contains("fn merge_specialized_with_runtime("));
     assert!(!run.contains("generated_backend_is_tables() || !SPECIALIZATION_READY"));
 }
+
+#[test]
+fn inference_module_contains_strict_full_aot_fallback_guard() {
+    let ir = sample_shape_ir();
+    let generated = generate_modules_from_shape_ir_with_backend(&ir, SrcGenBackend::Specialized)
+        .expect("specialized codegen should succeed");
+
+    let inference = generated
+        .files
+        .iter()
+        .find(|(name, _)| name == "inference.rs")
+        .map(|(_, content)| content.as_str())
+        .expect("inference module must exist");
+
+    assert!(inference.contains("SHFTY_SRCGEN_FULL_AOT_STRICT"));
+    assert!(inference.contains(
+        "unsupported inference rule(s) require runtime fallback"
+    ));
+}

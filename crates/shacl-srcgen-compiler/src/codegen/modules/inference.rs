@@ -823,11 +823,22 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 return Ok(inserted);
             }
 
+            let strict_full_aot = match std::env::var("SHFTY_SRCGEN_FULL_AOT_STRICT") {
+                Ok(value) => matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                ),
+                Err(_) => false,
+            };
             if !allow_runtime_fallback {
-                eprintln!(
-                    "srcgen full-aot mode: skipping {} unsupported inference rule(s) because runtime fallback is disabled",
+                let message = format!(
+                    "srcgen full-aot mode: {} unsupported inference rule(s) require runtime fallback",
                     GENERATED_FALLBACK_INFERENCE_RULES,
                 );
+                if strict_full_aot {
+                    return Err(format!("{message} (strict full-aot mode)"));
+                }
+                eprintln!("{message}; skipping them because runtime fallback is disabled");
                 return Ok(inserted);
             }
 
