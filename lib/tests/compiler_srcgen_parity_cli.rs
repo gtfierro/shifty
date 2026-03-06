@@ -111,6 +111,100 @@ fn run_status_success(mut cmd: Command, context: &str) -> Result<(), Box<dyn Err
     Ok(())
 }
 
+fn unique_temp_file(prefix: &str, suffix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("{prefix}-{}-{nanos}{suffix}", std::process::id()))
+}
+
+fn parse_max_rss_kib(path: &Path) -> Option<u64> {
+    let raw = fs::read_to_string(path).ok()?;
+    raw.trim().parse::<u64>().ok()
+}
+
+fn run_runtime_validate_with_metrics(
+    runtime_cli: &Path,
+    shapes: &str,
+    data: &str,
+) -> Result<(Duration, Option<u64>), Box<dyn Error>> {
+    let start = Instant::now();
+    let time_bin = Path::new("/usr/bin/time");
+    let mut rss_kib = None;
+    if time_bin.exists() {
+        let rss_file = unique_temp_file("shifty-runtime-rss", ".txt");
+        let mut cmd = Command::new(time_bin);
+        cmd.args(["-f", "%M", "-o"])
+            .arg(&rss_file)
+            .arg("--")
+            .arg(runtime_cli)
+            .args([
+                "validate",
+                "--shapes-file",
+                shapes,
+                "--data-file",
+                data,
+                "--run-inference",
+                "--format",
+                "turtle",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        run_status_success(cmd, "runtime validation")?;
+        rss_kib = parse_max_rss_kib(&rss_file);
+        let _ = fs::remove_file(rss_file);
+    } else {
+        let mut cmd = Command::new(runtime_cli);
+        cmd.args([
+            "validate",
+            "--shapes-file",
+            shapes,
+            "--data-file",
+            data,
+            "--run-inference",
+            "--format",
+            "turtle",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+        run_status_success(cmd, "runtime validation")?;
+    }
+    Ok((start.elapsed(), rss_kib))
+}
+
+fn run_compiled_validate_with_metrics(
+    compiled_bin: &Path,
+    data: &str,
+) -> Result<(Duration, Option<u64>), Box<dyn Error>> {
+    let start = Instant::now();
+    let time_bin = Path::new("/usr/bin/time");
+    let mut rss_kib = None;
+    if time_bin.exists() {
+        let rss_file = unique_temp_file("shifty-compiled-rss", ".txt");
+        let mut cmd = Command::new(time_bin);
+        cmd.args(["-f", "%M", "-o"])
+            .arg(&rss_file)
+            .arg("--")
+            .arg(compiled_bin)
+            .args(["--run-inference=true", "--full-aot=true", data])
+            .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        run_status_success(cmd, "compiled validation")?;
+        rss_kib = parse_max_rss_kib(&rss_file);
+        let _ = fs::remove_file(rss_file);
+    } else {
+        let mut cmd = Command::new(compiled_bin);
+        cmd.args(["--run-inference=true", "--full-aot=true", data])
+            .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        run_status_success(cmd, "compiled validation")?;
+    }
+    Ok((start.elapsed(), rss_kib))
+}
+
 fn is_skolem_iri(iri: &str) -> bool {
     iri.contains("/.sk/")
 }
@@ -1137,6 +1231,7 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
     let root = workspace_root();
     let target_dir = shared_target_dir();
 
+    let build_cli_start = Instant::now();
     run_status_success(
         {
             let mut cmd = Command::new("cargo");
@@ -1149,72 +1244,121 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
                 "shacl-compiler",
             ])
             .current_dir(&root)
-            .env("CARGO_TARGET_DIR", &target_dir);
+            .env("CARGO_TARGET_DIR", &target_dir)
+            .env("CARGO_PROFILE_RELEASE_DEBUG", "0");
             cmd
         },
         "build release cli",
     )?;
+    let runtime_cli_build = build_cli_start.elapsed();
 
     let runtime_cli = target_dir.join("release").join("shifty");
+    if !runtime_cli.exists() {
+        return Err(format!("runtime cli binary missing at {}", runtime_cli.display()).into());
+    }
+
+    let env_bin_223 = std::env::var_os("SHFTY_PERF_GATE_BIN_223")
+        .map(PathBuf::from)
+        .filter(|path| path.exists());
+    let env_bin_brick = std::env::var_os("SHFTY_PERF_GATE_BIN_BRICK")
+        .map(PathBuf::from)
+        .filter(|path| path.exists());
+
     let compiled_223_out = std::env::temp_dir().join("compiled-shacl-223p-gate");
     let compiled_brick_out = std::env::temp_dir().join("compiled-shacl-brick-gate");
     fs::create_dir_all(&compiled_223_out)?;
     fs::create_dir_all(&compiled_brick_out)?;
 
-    run_status_success(
-        {
-            let mut cmd = Command::new("cargo");
-            cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
-                .args([
-                    "compile",
-                    "--shapes-file",
-                    "ttl/223p.ttl",
-                    "--compiler",
-                    "srcgen",
-                    "--backend",
-                    "specialized",
-                    "--out-dir",
-                ])
-                .arg(&compiled_223_out)
-                .args(["--bin-name", "s223gate", "--shifty-path"])
-                .arg(root.join("lib"))
-                .args(["--release", "--temporary"])
-                .current_dir(&root)
-                .env("CARGO_TARGET_DIR", &target_dir)
-                .env("FORCE_REFRESH", "false");
-            cmd
-        },
-        "compile 223 srcgen binary",
-    )?;
+    let (compiled_223_bin, compile_223_elapsed) = if let Some(path) = env_bin_223 {
+        (path, Duration::from_secs(0))
+    } else {
+        let compile_start = Instant::now();
+        run_status_success(
+            {
+                let mut cmd = Command::new("cargo");
+                cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+                    .args([
+                        "compile",
+                        "--shapes-file",
+                        "ttl/223p.ttl",
+                        "--compiler",
+                        "srcgen",
+                        "--backend",
+                        "specialized",
+                        "--out-dir",
+                    ])
+                    .arg(&compiled_223_out)
+                    .args(["--bin-name", "s223gate", "--shifty-path"])
+                    .arg(root.join("lib"))
+                    .args(["--release", "--temporary"])
+                    .current_dir(&root)
+                    .env("CARGO_TARGET_DIR", &target_dir)
+                    .env("CARGO_PROFILE_RELEASE_DEBUG", "0")
+                    .env("FORCE_REFRESH", "false");
+                cmd
+            },
+            "compile 223 srcgen binary",
+        )?;
+        (
+            compiled_223_out.join("target/release/s223gate"),
+            compile_start.elapsed(),
+        )
+    };
 
-    run_status_success(
-        {
-            let mut cmd = Command::new("cargo");
-            cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
-                .args([
-                    "compile",
-                    "--shapes-file",
-                    "ttl/Brick.ttl",
-                    "--compiler",
-                    "srcgen",
-                    "--backend",
-                    "specialized",
-                    "--out-dir",
-                ])
-                .arg(&compiled_brick_out)
-                .args(["--bin-name", "brickgate", "--shifty-path"])
-                .arg(root.join("lib"))
-                .args(["--release", "--temporary"])
-                .current_dir(&root)
-                .env("CARGO_TARGET_DIR", &target_dir)
-                .env("FORCE_REFRESH", "false");
-            cmd
-        },
-        "compile brick srcgen binary",
-    )?;
+    let (compiled_brick_bin, compile_brick_elapsed) = if let Some(path) = env_bin_brick {
+        (path, Duration::from_secs(0))
+    } else {
+        let compile_start = Instant::now();
+        run_status_success(
+            {
+                let mut cmd = Command::new("cargo");
+                cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+                    .args([
+                        "compile",
+                        "--shapes-file",
+                        "ttl/Brick.ttl",
+                        "--compiler",
+                        "srcgen",
+                        "--backend",
+                        "specialized",
+                        "--out-dir",
+                    ])
+                    .arg(&compiled_brick_out)
+                    .args(["--bin-name", "brickgate", "--shifty-path"])
+                    .arg(root.join("lib"))
+                    .args(["--release", "--temporary"])
+                    .current_dir(&root)
+                    .env("CARGO_TARGET_DIR", &target_dir)
+                    .env("CARGO_PROFILE_RELEASE_DEBUG", "0")
+                    .env("FORCE_REFRESH", "false");
+                cmd
+            },
+            "compile brick srcgen binary",
+        )?;
+        (
+            compiled_brick_out.join("target/release/brickgate"),
+            compile_start.elapsed(),
+        )
+    };
 
-    let compiled_223_bin = compiled_223_out.join("target/release/s223gate");
-    let compiled_brick_bin = compiled_brick_out.join("target/release/brickgate");
+    if !compiled_223_bin.exists() {
+        return Err(format!(
+            "compiled 223 binary missing at {}",
+            compiled_223_bin.display()
+        )
+        .into());
+    }
+    if !compiled_brick_bin.exists() {
+        return Err(format!(
+            "compiled brick binary missing at {}",
+            compiled_brick_bin.display()
+        )
+        .into());
+    }
+
+    eprintln!(
+        "perf gate compile metrics: runtime_cli={runtime_cli_build:?} compiled_223={compile_223_elapsed:?} compiled_brick={compile_brick_elapsed:?}"
+    );
 
     let bench_dataset = |name: &str,
                          shapes: &str,
@@ -1223,49 +1367,40 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
      -> Result<(), Box<dyn Error>> {
         let mut runtime_runs = Vec::new();
         let mut compiled_runs = Vec::new();
+        let mut runtime_rss_kib = Vec::new();
+        let mut compiled_rss_kib = Vec::new();
 
         for _ in 0..3 {
-            let start = Instant::now();
-            run_status_success(
-                {
-                    let mut cmd = Command::new(&runtime_cli);
-                    cmd.args([
-                        "validate",
-                        "--shapes-file",
-                        shapes,
-                        "--data-file",
-                        data,
-                        "--run-inference",
-                        "--format",
-                        "turtle",
-                    ])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                    cmd
-                },
-                &format!("runtime validate for {name}"),
-            )?;
-            runtime_runs.push(start.elapsed());
+            let (runtime_elapsed, runtime_rss) =
+                run_runtime_validate_with_metrics(&runtime_cli, shapes, data)?;
+            runtime_runs.push(runtime_elapsed);
+            if let Some(rss) = runtime_rss {
+                runtime_rss_kib.push(rss);
+            }
 
-            let start = Instant::now();
-            run_status_success(
-                {
-                    let mut cmd = Command::new(compiled_bin);
-                    cmd.args(["--run-inference=true", "--full-aot=true", data])
-                        .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null());
-                    cmd
-                },
-                &format!("compiled strict validate for {name}"),
-            )?;
-            compiled_runs.push(start.elapsed());
+            let (compiled_elapsed, compiled_rss) =
+                run_compiled_validate_with_metrics(compiled_bin, data)?;
+            compiled_runs.push(compiled_elapsed);
+            if let Some(rss) = compiled_rss {
+                compiled_rss_kib.push(rss);
+            }
         }
 
         runtime_runs.sort();
         compiled_runs.sort();
         let runtime_median = runtime_runs[runtime_runs.len() / 2];
         let compiled_median = compiled_runs[compiled_runs.len() / 2];
+        runtime_rss_kib.sort_unstable();
+        compiled_rss_kib.sort_unstable();
+        let runtime_rss_median = runtime_rss_kib
+            .get(runtime_rss_kib.len().saturating_sub(1) / 2)
+            .copied();
+        let compiled_rss_median = compiled_rss_kib
+            .get(compiled_rss_kib.len().saturating_sub(1) / 2)
+            .copied();
+        eprintln!(
+            "perf gate dataset={name} runtime_median={runtime_median:?} compiled_median={compiled_median:?} runtime_rss_kib={runtime_rss_median:?} compiled_rss_kib={compiled_rss_median:?}"
+        );
         assert!(
             compiled_median < runtime_median,
             "perf gate failed for {name}: compiled_median={compiled_median:?}, runtime_median={runtime_median:?}"

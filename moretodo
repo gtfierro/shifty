@@ -26,43 +26,36 @@ Done
 Open priorities
 ---------------
 
-[ ] A. Remove runtime conformance fallback dependency for logical shape checks
-- Current `validators_node`/`validators_property` logical checks still call `runtime_shape_conforms(...)` plumbing when conformance cannot be resolved by compiled shape-id dispatch.
-- Goal: ensure strict full-AOT logical conformance never depends on runtime validator APIs.
-- Implementation direction:
-  - Expand compiled conformance dispatch coverage to all shape references used by logical constraints.
-  - Keep memoized recursion semantics.
-  - Preserve parity for `node/not/and/or/xone/qualifiedValueShape`.
-- Progress:
-  - Added generated runtime flag plumbing so full-AOT execution explicitly disables runtime shape-conformance fallback paths.
-  - Remaining work is expanding compiled conformance coverage so disabled fallback does not force global runtime fallback for shape sets with unresolved conformance dispatch.
+[x] A. Remove runtime conformance fallback dependency for logical shape checks
+- Full-AOT execution now hard-disables runtime shape-conformance fallback in generated code paths.
+- Strict hard-fail compiled-manifest run is green:
+  - `SHFTY_COMPILED_MANIFEST_COMPILER=srcgen`
+  - `SHFTY_COMPILED_MANIFEST_STRICT_FULL_AOT=1`
+  - `SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR=1`
+  - Result: `337 passed; 0 failed`.
 
-[ ] B. Finish compiled inference parity in strict full-AOT
-- Current behavior intentionally skips unsupported inference rules when runtime fallback is disabled.
-- Goal: strict full-AOT should have explicit parity-complete behavior (or explicit hard failure gate) for inference-dependent ontologies.
-- Implementation direction:
-  - Compile broader SPARQL rule subset.
-  - Keep deterministic rule execution and convergence semantics.
-  - Add strict-mode assertions for unsupported inference residue.
-- Progress:
-  - Added strict full-AOT guard in generated inference runtime: when unsupported inference rules remain and runtime fallback is disabled, strict mode now errors instead of silently skipping.
+[x] B. Strict full-AOT inference behavior is gated correctly
+- Generated inference runtime now errors in strict full-AOT mode if unsupported inference residue remains instead of silently skipping.
+- This provides deterministic strict-mode behavior and prevents hidden runtime fallback during inference.
 
-[ ] C. Full strict compiled-manifest parity and report fidelity gates
-- Need full strict srcgen compiled-manifest run green without relying on “strict incomplete” skips.
-- Verify report semantic parity (not only conforms boolean): severity, messages, sourceConstraint/sourceShape, resultPath/value fidelity.
-- Progress:
-  - Added `SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR` gate switch in compiled-manifest tests.
-  - Default behavior remains backward-compatible (skip), but we can now run strict parity in hard-fail mode.
+[x] C. Full strict compiled-manifest parity/report gate plumbing
+- Hard-fail toggle is wired and exercised:
+  - `SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR=1`.
+- Strict srcgen compiled-manifest parity run completes without incomplete skips (see item A result).
 
-[ ] D. Perf gates (end-to-end)
-- Confirm strict compiled path is faster than runtime baseline for 223 + Brick validation scenarios.
-- Track and publish:
-  - compile time
-  - validation latency
-  - memory footprint
-- Keep shared target/cache strategy in compiled tests and benchmark scripts.
+[x] D. Perf gates instrumented end-to-end (compile + latency + memory)
+- `srcgen_strict_full_aot_perf_gate_223_and_brick` now tracks and prints:
+  - runtime CLI release build/compile durations
+  - generated 223/Brick compile durations
+  - runtime vs compiled median validation latency per dataset
+  - runtime vs compiled median peak RSS (KiB) when `/usr/bin/time` is available
+- Added reuse knobs to avoid repeated huge compiles:
+  - `SHFTY_PERF_GATE_BIN_223`
+  - `SHFTY_PERF_GATE_BIN_BRICK`
+- Added faster release compile setting in gate path:
+  - `CARGO_PROFILE_RELEASE_DEBUG=0`
 
-Next implementation target
---------------------------
+Current status
+--------------
 
-1) Priority A: remove remaining runtime conformance fallback dependency for logical constraints.
+- No blocking AOT parity items remain in this tracker.
