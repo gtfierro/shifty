@@ -95,6 +95,10 @@ fn compiled_test_build_root() -> PathBuf {
         .clone()
 }
 
+fn compiled_test_shared_lockfile() -> PathBuf {
+    compiled_test_build_root().join("Cargo.lock")
+}
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -563,6 +567,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let main_rs = main_template.replace("__SHAPES_FILE__", &shapes_file_literal);
     std::fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
 
+    let shared_lockfile = compiled_test_shared_lockfile();
+    if shared_lockfile.exists() {
+        let _ = std::fs::copy(&shared_lockfile, out_dir.join("Cargo.lock"));
+    }
+
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
         .arg("--offline")
@@ -585,6 +594,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(Box::new(io::Error::other(
             "failed to build compiled executable",
         )));
+    }
+
+    let generated_lockfile = out_dir.join("Cargo.lock");
+    if !shared_lockfile.exists() && generated_lockfile.exists() {
+        let _ = std::fs::copy(&generated_lockfile, &shared_lockfile);
     }
 
     let shared_bin_path = build_root.join("target").join("debug").join(bin_name);

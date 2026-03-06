@@ -1,0 +1,60 @@
+Compiler remaining work (live tracker)
+======================================
+
+Last updated: 2026-03-06
+
+Done
+----
+
+[x] 1. Compile non-class targets
+- Current IR status is fully specialized for both primary ontologies:
+  - `/tmp/compiled-shacl-223p/srcgen.ir.json`: `specialization_ready=true`, unsupported node/property shapes = `0/0`.
+  - `/tmp/compiled-shacl-brick/srcgen.ir.json`: `specialization_ready=true`, unsupported node/property shapes = `0/0`.
+
+[x] 2. Compile complex property paths
+- Current lowering/codegen supports sequence/alternative/inverse/repetition path forms.
+- Current 223 + Brick IR snapshots show no unsupported property shapes.
+
+[x] 3. Stabilize srcgen code chunking for large generated modules
+- Item-based chunk splitting is in place so include chunks stay syntax-balanced.
+- 223 generated binary now builds and runs validation (no truncated/unclosed chunk failures).
+
+[x] 4. Compiled-manifest dependency-resolution overhead reduction
+- `lib/tests/compiled_manifest_test.rs` now reuses a shared `Cargo.lock` across generated workspaces.
+- Verified in strict-srcgen shard run: first workspace resolves/locks; subsequent workspaces reuse lock and avoid repeated locking.
+
+Open priorities
+---------------
+
+[ ] A. Remove runtime conformance fallback dependency for logical shape checks
+- Current `validators_node`/`validators_property` logical checks still call `runtime_shape_conforms(...)` plumbing when conformance cannot be resolved by compiled shape-id dispatch.
+- Goal: ensure strict full-AOT logical conformance never depends on runtime validator APIs.
+- Implementation direction:
+  - Expand compiled conformance dispatch coverage to all shape references used by logical constraints.
+  - Keep memoized recursion semantics.
+  - Preserve parity for `node/not/and/or/xone/qualifiedValueShape`.
+
+[ ] B. Finish compiled inference parity in strict full-AOT
+- Current behavior intentionally skips unsupported inference rules when runtime fallback is disabled.
+- Goal: strict full-AOT should have explicit parity-complete behavior (or explicit hard failure gate) for inference-dependent ontologies.
+- Implementation direction:
+  - Compile broader SPARQL rule subset.
+  - Keep deterministic rule execution and convergence semantics.
+  - Add strict-mode assertions for unsupported inference residue.
+
+[ ] C. Full strict compiled-manifest parity and report fidelity gates
+- Need full strict srcgen compiled-manifest run green without relying on “strict incomplete” skips.
+- Verify report semantic parity (not only conforms boolean): severity, messages, sourceConstraint/sourceShape, resultPath/value fidelity.
+
+[ ] D. Perf gates (end-to-end)
+- Confirm strict compiled path is faster than runtime baseline for 223 + Brick validation scenarios.
+- Track and publish:
+  - compile time
+  - validation latency
+  - memory footprint
+- Keep shared target/cache strategy in compiled tests and benchmark scripts.
+
+Next implementation target
+--------------------------
+
+1) Priority A: remove remaining runtime conformance fallback dependency for logical constraints.
