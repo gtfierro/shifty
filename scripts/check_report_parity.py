@@ -8,7 +8,7 @@
 #   "rdflib",
 # ]
 # ///
-"""Check SHACL report parity across benchmark platforms.
+"""Check SHACL report parity across validation platforms.
 
 This script mirrors the platform setup in run_benchmarks.py and verifies whether:
 - pyshacl
@@ -55,14 +55,14 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "--models-glob",
-        default="benchmark/s223/models/*.ttl",
-        help="Glob of data files to check (relative to repo root).",
+        "--shapes-file",
+        required=True,
+        help="SHACL shapes file used for all validators.",
     )
     parser.add_argument(
-        "--shapes-file",
-        default="benchmark/s223/223p.ttl",
-        help="Shapes file used for all validators.",
+        "--data-file",
+        required=True,
+        help="Data graph file to validate.",
     )
     parser.add_argument(
         "--out-dir",
@@ -162,15 +162,6 @@ def ensure_runtime_dependencies() -> None:
     )
     result = subprocess.run(command, cwd=REPO_ROOT, env=env)
     raise SystemExit(result.returncode)
-
-
-def collect_models(pattern: str) -> List[Path]:
-    models = sorted(REPO_ROOT.glob(pattern))
-    if not models:
-        raise FileNotFoundError(
-            f"No data graphs found for pattern '{pattern}' from {REPO_ROOT}"
-        )
-    return models
 
 
 def run_checked(
@@ -407,14 +398,62 @@ def run_topquadrant_report(*, shapes_file: Path, data_file: Path) -> rdflib.Grap
 def compare_pairwise(
     reports: Dict[str, rdflib.Graph], diff_root: Path
 ) -> Dict[str, Dict[str, bool]]:
+    import rdflib
+
     from compare_validation_reports import (
+        canonical_report_signature,
         graph_report_signature_counter,
         summarize_signature,
+        stable_json,
     )
+    from rdflib.namespace import RDF, SH
+    from rdflib.term import BNode, Identifier
 
     matrix: Dict[str, Dict[str, bool]] = {
         platform: {} for platform in sorted(reports.keys())
     }
+
+    def report_nodes_by_signature(graph: rdflib.Graph) -> Dict[str, List[Identifier]]:
+        grouped: Dict[str, List[Identifier]] = {}
+        for report_node in set(graph.subjects(RDF.type, SH.ValidationReport)):
+            signature = stable_json(canonical_report_signature(graph, report_node))
+            grouped.setdefault(signature, []).append(report_node)
+        return grouped
+
+    def add_reachable_subgraph(
+        source_graph: rdflib.Graph,
+        source_node: Identifier,
+        destination_graph: rdflib.Graph,
+        visited: set[Identifier],
+    ) -> None:
+        if source_node in visited:
+            return
+        visited.add(source_node)
+        for predicate, obj in source_graph.predicate_objects(source_node):
+            destination_graph.add((source_node, predicate, obj))
+            if isinstance(obj, BNode):
+                add_reachable_subgraph(source_graph, obj, destination_graph, visited)
+
+    def build_diff_graph(
+        source_graph: rdflib.Graph,
+        signature_counter: Dict[str, int],
+    ) -> rdflib.Graph:
+        diff_graph = rdflib.Graph()
+        for prefix, namespace in source_graph.namespaces():
+            diff_graph.bind(prefix, namespace)
+
+        grouped_nodes = report_nodes_by_signature(source_graph)
+        for signature, count in signature_counter.items():
+            nodes = grouped_nodes.get(signature, [])
+            for report_node in nodes[:count]:
+                add_reachable_subgraph(
+                    source_graph,
+                    report_node,
+                    diff_graph,
+                    visited=set(),
+                )
+        return diff_graph
+
     for left, right in itertools.combinations(sorted(reports.keys()), 2):
         left_counter = graph_report_signature_counter(reports[left])
         right_counter = graph_report_signature_counter(reports[right])
@@ -426,6 +465,8 @@ def compare_pairwise(
         if not equal:
             pair_dir = diff_root / f"{left}__vs__{right}"
             pair_dir.mkdir(parents=True, exist_ok=True)
+            left_name = sanitize_name(left)
+            right_name = sanitize_name(right)
 
             missing_from_right = left_counter - right_counter
             missing_from_left = right_counter - left_counter
@@ -442,25 +483,63 @@ def compare_pairwise(
                     )
                 return entries
 
+            only_left_path = pair_dir / f"only_{left_name}.ttl"
+            only_right_path = pair_dir / f"only_{right_name}.ttl"
+            build_diff_graph(reports[left], missing_from_right).serialize(
+                destination=only_left_path,
+                format="turtle",
+            )
+            build_diff_graph(reports[right], missing_from_left).serialize(
+                destination=only_right_path,
+                format="turtle",
+            )
+
             comparison = {
                 "algorithm": "canonical-validation-report-signatures",
                 "left": left,
                 "right": right,
                 "equal": False,
-                "only_left": counter_entries(missing_from_right),
-                "only_right": counter_entries(missing_from_left),
+                "left_total_signatures": sum(left_counter.values()),
+                "right_total_signatures": sum(right_counter.values()),
+                "only_left_signature_count": sum(missing_from_right.values()),
+                "only_right_signature_count": sum(missing_from_left.values()),
+                "only_left_file": str(only_left_path),
+                "only_right_file": str(only_right_path),
             }
-            (pair_dir / "comparison.json").write_text(
+            comparison_path = pair_dir / "comparison.json"
+            comparison_path.write_text(
                 json.dumps(comparison, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
 
-            (pair_dir / f"normalized_{sanitize_name(left)}.json").write_text(
+            normalized_left_path = pair_dir / f"normalized_{left_name}.json"
+            normalized_right_path = pair_dir / f"normalized_{right_name}.json"
+            normalized_left_path.write_text(
                 json.dumps(counter_entries(left_counter), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-            (pair_dir / f"normalized_{sanitize_name(right)}.json").write_text(
+            normalized_right_path.write_text(
                 json.dumps(counter_entries(right_counter), indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+
+            summary_lines = [
+                f"Pair: {left} vs {right}",
+                "Algorithm: canonical-validation-report-signatures",
+                "",
+                f"Total signatures: {left}={sum(left_counter.values())}, {right}={sum(right_counter.values())}",
+                f"Only in {left}: {sum(missing_from_right.values())}",
+                f"Only in {right}: {sum(missing_from_left.values())}",
+                "",
+                f"Structured diff files:",
+                f"- {comparison_path}",
+                f"- {only_left_path}",
+                f"- {only_right_path}",
+                f"- {normalized_left_path}",
+                f"- {normalized_right_path}",
+            ]
+            (pair_dir / "diff_summary.txt").write_text(
+                "\n".join(summary_lines) + "\n",
                 encoding="utf-8",
             )
     for platform in matrix:
@@ -470,11 +549,6 @@ def compare_pairwise(
 
 def sanitize_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", name)
-
-
-def model_key(model_path: Path) -> str:
-    rel = model_path.relative_to(REPO_ROOT)
-    return sanitize_name(str(rel))
 
 
 def run_model(
@@ -530,13 +604,15 @@ def main() -> int:
     ensure_runtime_dependencies()
 
     shapes_file = resolve_path(args.shapes_file)
+    data_file = resolve_path(args.data_file)
     out_dir = resolve_path(args.out_dir)
     compiled_out_dir = resolve_path(args.compiled_out_dir)
     shacl_ir_file = resolve_path(args.shacl_ir_file)
-    models = collect_models(args.models_glob)
 
     if not shapes_file.exists():
         raise FileNotFoundError(f"Shapes file not found: {shapes_file}")
+    if not data_file.exists():
+        raise FileNotFoundError(f"Data file not found: {data_file}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -552,45 +628,34 @@ def main() -> int:
 
     summary: Dict[str, object] = {
         "shapes_file": str(shapes_file),
+        "data_file": str(data_file),
         "compiled_binary": str(compiled_binary),
-        "models": {},
     }
-    failing_models: List[str] = []
 
-    for idx, model in enumerate(models, start=1):
-        LOGGER.info("Model %d/%d: %s", idx, len(models), model.name)
-        model_dir = out_dir / model_key(model)
-        all_equal, matrix = run_model(
-            shapes_file=shapes_file,
-            data_file=model.resolve(),
-            shacl_ir_file=shacl_ir_file,
-            compiled_binary=compiled_binary,
-            timeout_seconds=args.timeout_seconds,
-            model_out_dir=model_dir,
-        )
-        matrix_path = model_dir / "pairwise_isomorphism.json"
-        matrix_path.write_text(json.dumps(matrix, indent=2, sort_keys=True), encoding="utf-8")
+    all_equal, matrix = run_model(
+        shapes_file=shapes_file,
+        data_file=data_file,
+        shacl_ir_file=shacl_ir_file,
+        compiled_binary=compiled_binary,
+        timeout_seconds=args.timeout_seconds,
+        model_out_dir=out_dir,
+    )
+    matrix_path = out_dir / "pairwise_isomorphism.json"
+    matrix_path.write_text(json.dumps(matrix, indent=2, sort_keys=True), encoding="utf-8")
 
-        model_rel = str(model.relative_to(REPO_ROOT))
-        summary["models"][model_rel] = {
-            "all_equal": all_equal,
-            "matrix_path": str(matrix_path),
-            "artifact_dir": str(model_dir),
-        }
-        if not all_equal:
-            failing_models.append(model_rel)
+    summary["all_equal"] = all_equal
+    summary["matrix_path"] = str(matrix_path)
+    summary["artifact_dir"] = str(out_dir)
 
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
     LOGGER.info("Wrote parity summary: %s", summary_path)
 
-    if failing_models:
-        LOGGER.error("Report mismatches found for %d model(s):", len(failing_models))
-        for model_rel in failing_models:
-            LOGGER.error("  %s", model_rel)
+    if not all_equal:
+        LOGGER.error("Report mismatches found for data file: %s", data_file)
         return 1
 
-    LOGGER.info("All checked models produced pairwise-equivalent reports.")
+    LOGGER.info("All validator reports are pairwise equivalent for: %s", data_file)
     return 0
 
 
