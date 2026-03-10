@@ -4,7 +4,7 @@ This file captures remaining work to complete the srcgen-first AOT compiler roll
 
 ## Current Snapshot
 
-- `srcgen` is wired and usable via `shifty compile --compiler srcgen --backend specialized`.
+- The srcgen compiler is the only compile path and is usable via `shifty compile --backend specialized`.
 - Many core constraints are specialized.
 - 223p run still reports `specialization_ready: false` and falls back to runtime validation.
   - In recent `srcgen.ir.json`, fallback annotations were all `Sparql` (76 components).
@@ -137,7 +137,7 @@ Establish objective gates before making srcgen specialized the default execution
    - 223 medium profile should fail on known invalid triples (e.g., `nrel00000000` case).
 3. Add performance baselines:
    - Compile time, runtime latency, memory.
-   - Compare `legacy`, `srcgen tables`, `srcgen specialized`.
+   - Compare runtime validation, `srcgen tables`, and `srcgen specialized`.
 4. Stabilize CI:
    - Shared build dirs/caches to avoid artifact ballooning.
    - Deterministic ontology/import behavior in test scripts.
@@ -172,8 +172,7 @@ cargo test -p shifty-shacl --lib
 # Compiled manifest tests (new backend path)
 cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test -- --nocapture
 
-# Compiled manifest tests (srcgen strict full-AOT path)
-SHFTY_COMPILED_MANIFEST_COMPILER=srcgen \
+# Compiled manifest tests (strict full-AOT path)
 SHFTY_COMPILED_MANIFEST_STRICT_FULL_AOT=1 \
 cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test -- --nocapture
 
