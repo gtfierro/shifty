@@ -3,17 +3,17 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 use oxigraph::model::{Graph, Triple};
 use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
     generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
     lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
 };
 use shifty::ir_cache;
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 use shifty::shacl_ir::ShapeIR;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 use std::process::Command;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
@@ -176,7 +176,7 @@ struct GenerateIrArgs {
     output_file: PathBuf,
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 #[derive(Parser)]
 struct CompileArgs {
     #[clap(flatten)]
@@ -247,19 +247,19 @@ struct CompileArgs {
     shifty_git_ref: Option<String>,
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum CompileBackendArg {
     Specialized,
     Tables,
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 enum ResolvedCompileBackend {
     Srcgen(SrcGenBackend),
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 impl CompileArgs {
     fn resolve_backend(&self) -> Result<ResolvedCompileBackend, String> {
         match self.backend.unwrap_or(CompileBackendArg::Specialized) {
@@ -507,7 +507,7 @@ enum Commands {
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
     /// Generate + compile a specialized SHACL executable for the given shapes
-    #[cfg(feature = "shacl-compiler")]
+    #[cfg(feature = "srcgen-compiler")]
     Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
@@ -594,7 +594,7 @@ fn get_validator_shapes_only(
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
@@ -999,7 +999,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             emit_validator_traces(&validator, &args.trace)?;
         }
-        #[cfg(feature = "shacl-compiler")]
+        #[cfg(feature = "srcgen-compiler")]
         Commands::Compile(args) => {
             let validator = get_validator_shapes_only_for_compile(&args)?;
             let shapes_file_is_ir = args
@@ -1218,7 +1218,7 @@ impl TraceOutputArgs {
     }
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 fn write_shape_graph_ttl(
     shape_ir: &ShapeIR,
     path: &Path,
@@ -1247,7 +1247,7 @@ fn write_shape_graph_ttl(
     Ok(())
 }
 
-#[cfg(all(test, feature = "shacl-compiler"))]
+#[cfg(all(test, feature = "srcgen-compiler"))]
 mod tests {
     use super::*;
 

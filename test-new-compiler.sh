@@ -11,7 +11,7 @@ FULL_AOT="${FULL_AOT:-true}"
 mkdir -p "$OUT_DIR"
 
 echo "Compiling with srcgen specialized backend (default compiler track)..."
-cargo run -p cli --features shacl-compiler -- compile \
+cargo run -p cli --features srcgen-compiler -- compile \
   --shapes-file "$SHAPES_FILE" \
   --backend specialized \
   --out-dir "$OUT_DIR" \

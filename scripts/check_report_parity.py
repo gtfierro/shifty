@@ -269,7 +269,7 @@ def ensure_artifacts(
                 "-p",
                 "cli",
                 "--features",
-                "shacl-compiler",
+                "srcgen-compiler",
                 "--",
                 "compile",
                 "--shapes-file",

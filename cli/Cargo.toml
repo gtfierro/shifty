@@ -22,4 +22,4 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-shacl-compiler = ["dep:shacl-srcgen-compiler"]
+srcgen-compiler = ["dep:shacl-srcgen-compiler"]

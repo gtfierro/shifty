@@ -70,7 +70,7 @@ fn run_command(cmd: &mut Command) -> Result<String, Box<dyn Error>> {
 
 fn run_cli_to_file(args: &[&str], output_path: &Path) -> Result<(), Box<dyn Error>> {
     let mut child = Command::new("cargo")
-        .args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+        .args(["run", "-p", "cli", "--features", "srcgen-compiler", "--"])
         .args(args)
         .env("CARGO_TARGET_DIR", shared_target_dir())
         .stdout(Stdio::from(fs::File::create(output_path)?))
@@ -1201,7 +1201,7 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
                 "-p",
                 "cli",
                 "--features",
-                "shacl-compiler",
+                "srcgen-compiler",
             ])
             .current_dir(&root)
             .env("CARGO_TARGET_DIR", &target_dir)
@@ -1236,7 +1236,7 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
         run_status_success(
             {
                 let mut cmd = Command::new("cargo");
-                cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+                cmd.args(["run", "-p", "cli", "--features", "srcgen-compiler", "--"])
                     .args([
                         "compile",
                         "--shapes-file",
@@ -1270,7 +1270,7 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
         run_status_success(
             {
                 let mut cmd = Command::new("cargo");
-                cmd.args(["run", "-p", "cli", "--features", "shacl-compiler", "--"])
+                cmd.args(["run", "-p", "cli", "--features", "srcgen-compiler", "--"])
                     .args([
                         "compile",
                         "--shapes-file",

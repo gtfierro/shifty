@@ -334,7 +334,7 @@ def benchmark_platforms(
                 "-p",
                 "cli",
                 "--features",
-                "shacl-compiler",
+                "srcgen-compiler",
                 "--",
                 "compile",
                 "--shapes-file",
@@ -372,7 +372,7 @@ def benchmark_platforms(
             str(shapes_file),
             "--run-inference",
         ],
-        "shacl-compiler": lambda data: [
+        "srcgen-compiler": lambda data: [
             str(compiled_binary),
             str(data),
         ],
@@ -478,7 +478,7 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
     preferred_order = [
         "shifty-pre",
         "shifty",
-        "shacl-compiler",
+        "srcgen-compiler",
         "pyshacl",
         "topquadrant",
         "bmotif-topquadrant",

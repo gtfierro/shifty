@@ -32,7 +32,7 @@ if [[ "$TEMPORARY_ONTOENV" == "true" ]]; then
   compile_args+=(--temporary)
 fi
 
-cargo run -p cli --features shacl-compiler -- compile \
+cargo run -p cli --features srcgen-compiler -- compile \
   "${compile_args[@]}"
 
 DEFAULT_BIN_PATH="$OUT_DIR/target/release/$BIN_NAME"
