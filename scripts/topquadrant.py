@@ -2,7 +2,7 @@
 # requires-python = "==3.12"
 # dependencies = [
 #   "brick-tq-shacl>=0.4.1",
-#   "pyontoenv>=0.5.0a5",
+#   "ontoenv>=0.5.1",
 # ]
 # ///
 import rdflib

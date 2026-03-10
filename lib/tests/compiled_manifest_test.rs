@@ -266,7 +266,7 @@ fn compiled_bin_for_shapes(
     let shifty_path = root.join("lib");
     let bin_name = "shacl-compiled";
     let cargo_toml = format!(
-        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\", package = \"shifty-shacl\" }}\nontoenv = \"0.5.0-a9\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\nlog = \"0.4\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\n\n[profile.release]\ndebug = true\n",
+        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\", package = \"shifty-shacl\" }}\nontoenv = \"0.5.1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\nlog = \"0.4\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\n\n[profile.release]\ndebug = true\n",
         bin_name,
         shifty_path.display(),
     );

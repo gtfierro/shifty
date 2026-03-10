@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
     "maturin>=1.9.6",
-    "ontoenv>=0.4.0",
+    "ontoenv>=0.5.1",
     "rdflib>=7.4.0",
 ]
 

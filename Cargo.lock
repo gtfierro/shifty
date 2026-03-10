@@ -427,7 +427,6 @@ dependencies = [
  "log",
  "oxigraph",
  "serde_json",
- "shacl-compiler",
  "shacl-srcgen-compiler",
  "shifty-shacl",
 ]
@@ -2029,9 +2028,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "ontoenv"
-version = "0.5.0-a9"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f785dd016fd813abe23d1e9a385a4b9aa0783396be2e590a346ce49dad3454"
+checksum = "688d619e3a3b3f7c725e2aace5c2fc61ed5eaa07e88964a86937e60438208d4d"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2734,9 +2733,9 @@ dependencies = [
 
 [[package]]
 name = "rdf5d"
-version = "0.5.0-a9"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9009b5c24d39bcebce884ed8c5e4241a7545d8e25c615f9ed00cb627002b679a"
+checksum = "4c7cf4ca6e7032acf074f8c1a70ef17cb4beeccca06a51d9118ab88324f09e37"
 dependencies = [
  "clap",
  "oxigraph",
@@ -3137,22 +3136,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shacl-compiler"
-version = "0.0.6"
-dependencies = [
- "clap",
- "oxigraph",
- "prettyplease",
- "proc-macro2",
- "quote",
- "serde",
- "serde_json",
- "sha2",
- "shifty-shacl",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "shacl-srcgen-compiler"
 version = "0.0.1"
 dependencies = [
@@ -3188,7 +3171,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "shacl-compiler",
  "shacl-srcgen-compiler",
  "spargebra",
  "url",

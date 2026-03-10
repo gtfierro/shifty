@@ -3,7 +3,7 @@
 # dependencies = [
 #   "rdflib",
 #   "pyshacl",
-#   "pyontoenv>=0.5.0a5",
+#   "ontoenv>=0.5.1",
 # ]
 # ///
 from rdflib import Graph
