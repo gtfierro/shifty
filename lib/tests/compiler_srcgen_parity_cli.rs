@@ -292,24 +292,20 @@ fn assert_reports_isomorphic(left: &Path, right: &Path) -> Result<(), Box<dyn Er
     Ok(())
 }
 
-fn compile_with_track(
+fn compile_srcgen_binary(
     shapes: &Path,
     out_dir: &Path,
     bin_name: &str,
-    _compiler: &str,
-    _backend: &str,
 ) -> Result<(), Box<dyn Error>> {
     let shifty_path = workspace_root().join("lib");
     let compile_stdout = out_dir
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("compile-srcgen.stdout");
+        .join(format!("compile-{bin_name}.stdout"));
     let args = vec![
         "compile",
         "--shapes-file",
         shapes.to_str().unwrap(),
-        "--compiler",
-        "srcgen",
         "--backend",
         "specialized",
         "--out-dir",
@@ -323,15 +319,15 @@ fn compile_with_track(
 }
 
 #[test]
-fn legacy_and_srcgen_compiled_reports_are_isomorphic() -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic() -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -367,25 +363,27 @@ ex:Alice a ex:Person ;
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(&shapes, &legacy_out, "legacy-bin-core", "legacy", "aot")?;
-    compile_with_track(
+    compile_srcgen_binary(&shapes, &compiled_primary_out, "compiled-primary-bin-core")?;
+    compile_srcgen_binary(
         &shapes,
-        &srcgen_out,
-        "srcgen-bin-core",
-        "srcgen",
-        "specialized",
+        &compiled_secondary_out,
+        "compiled-secondary-bin-core",
     )?;
 
     run_binary_to_file(
-        &shared_target_dir().join("debug").join("legacy-bin-core"),
+        &shared_target_dir()
+            .join("debug")
+            .join("compiled-primary-bin-core"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
-        &shared_target_dir().join("debug").join("srcgen-bin-core"),
+        &shared_target_dir()
+            .join("debug")
+            .join("compiled-secondary-bin-core"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -401,24 +399,24 @@ ex:Alice a ex:Person ;
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_phase2_expanded_constraints(
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_phase2_expanded_constraints(
 ) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -463,21 +461,19 @@ ex:d1 a ex:Device ;
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(&shapes, &legacy_out, "legacy-bin-expanded", "legacy", "aot")?;
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &srcgen_out,
-        "srcgen-bin-expanded",
-        "srcgen",
-        "specialized",
+        &compiled_primary_out,
+        "compiled-primary-bin-expanded",
     )?;
+    compile_srcgen_binary(&shapes, &compiled_secondary_out, "srcgen-bin-expanded")?;
 
     run_binary_to_file(
         &shared_target_dir()
             .join("debug")
-            .join("legacy-bin-expanded"),
+            .join("compiled-primary-bin-expanded"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
@@ -485,7 +481,7 @@ ex:d1 a ex:Device ;
             .join("debug")
             .join("srcgen-bin-expanded"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -501,24 +497,24 @@ ex:d1 a ex:Device ;
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_logical_node_constraints(
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_logical_node_constraints(
 ) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -562,27 +558,19 @@ ex:c2 a ex:Child, ex:AltChild ;
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &legacy_out,
-        "legacy-bin-logical-node",
-        "legacy",
-        "aot",
+        &compiled_primary_out,
+        "compiled-primary-bin-logical-node",
     )?;
-    compile_with_track(
-        &shapes,
-        &srcgen_out,
-        "srcgen-bin-logical-node",
-        "srcgen",
-        "specialized",
-    )?;
+    compile_srcgen_binary(&shapes, &compiled_secondary_out, "srcgen-bin-logical-node")?;
 
     run_binary_to_file(
         &shared_target_dir()
             .join("debug")
-            .join("legacy-bin-logical-node"),
+            .join("compiled-primary-bin-logical-node"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
@@ -590,7 +578,7 @@ ex:c2 a ex:Child, ex:AltChild ;
             .join("debug")
             .join("srcgen-bin-logical-node"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -606,24 +594,24 @@ ex:c2 a ex:Child, ex:AltChild ;
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_closed_and_qualified_constraints(
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_closed_and_qualified_constraints(
 ) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -669,27 +657,23 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &legacy_out,
-        "legacy-bin-closed-qualified",
-        "legacy",
-        "aot",
+        &compiled_primary_out,
+        "compiled-primary-bin-closed-qualified",
     )?;
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &srcgen_out,
+        &compiled_secondary_out,
         "srcgen-bin-closed-qualified",
-        "srcgen",
-        "specialized",
     )?;
 
     run_binary_to_file(
         &shared_target_dir()
             .join("debug")
-            .join("legacy-bin-closed-qualified"),
+            .join("compiled-primary-bin-closed-qualified"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
@@ -697,7 +681,7 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
             .join("debug")
             .join("srcgen-bin-closed-qualified"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -713,24 +697,24 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_reports_are_isomorphic_for_node_datatype_and_membership_constraints(
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_node_datatype_and_membership_constraints(
 ) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -753,27 +737,23 @@ ex:item1 a ex:Item .
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &legacy_out,
-        "legacy-bin-node-membership",
-        "legacy",
-        "aot",
+        &compiled_primary_out,
+        "compiled-primary-bin-node-membership",
     )?;
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &srcgen_out,
+        &compiled_secondary_out,
         "srcgen-bin-node-membership",
-        "srcgen",
-        "specialized",
     )?;
 
     run_binary_to_file(
         &shared_target_dir()
             .join("debug")
-            .join("legacy-bin-node-membership"),
+            .join("compiled-primary-bin-node-membership"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
@@ -781,7 +761,7 @@ ex:item1 a ex:Item .
             .join("debug")
             .join("srcgen-bin-node-membership"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -797,23 +777,24 @@ ex:item1 a ex:Item .
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_reports_are_isomorphic_with_inference() -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_with_inference(
+) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -842,25 +823,21 @@ ex:Alice a ex:Person .
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(&shapes, &legacy_out, "legacy-bin-infer", "legacy", "aot")?;
-    compile_with_track(
-        &shapes,
-        &srcgen_out,
-        "srcgen-bin-infer",
-        "srcgen",
-        "specialized",
-    )?;
+    compile_srcgen_binary(&shapes, &compiled_primary_out, "compiled-primary-bin-infer")?;
+    compile_srcgen_binary(&shapes, &compiled_secondary_out, "srcgen-bin-infer")?;
 
     run_binary_to_file(
-        &shared_target_dir().join("debug").join("legacy-bin-infer"),
+        &shared_target_dir()
+            .join("debug")
+            .join("compiled-primary-bin-infer"),
         &["--run-inference=true", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
         &shared_target_dir().join("debug").join("srcgen-bin-infer"),
         &["--run-inference=true", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -877,24 +854,24 @@ ex:Alice a ex:Person .
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_reports_are_isomorphic_with_shape_data_union(
+fn compiled_variants_and_runtime_reports_are_isomorphic_with_shape_data_union(
 ) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     // ex:refValue only has rdf:type in the shapes graph. Correct validation requires
@@ -923,25 +900,21 @@ ex:Alice a ex:Person ;
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(&shapes, &legacy_out, "legacy-bin-union", "legacy", "aot")?;
-    compile_with_track(
-        &shapes,
-        &srcgen_out,
-        "srcgen-bin-union",
-        "srcgen",
-        "specialized",
-    )?;
+    compile_srcgen_binary(&shapes, &compiled_primary_out, "compiled-primary-bin-union")?;
+    compile_srcgen_binary(&shapes, &compiled_secondary_out, "srcgen-bin-union")?;
 
     run_binary_to_file(
-        &shared_target_dir().join("debug").join("legacy-bin-union"),
+        &shared_target_dir()
+            .join("debug")
+            .join("compiled-primary-bin-union"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
         &shared_target_dir().join("debug").join("srcgen-bin-union"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -957,24 +930,24 @@ ex:Alice a ex:Person ;
         &runtime_report,
     )?;
 
-    assert_reports_isomorphic(&legacy_report, &srcgen_report)?;
-    assert_reports_isomorphic(&legacy_report, &runtime_report)?;
-    assert_reports_isomorphic(&srcgen_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &compiled_secondary_report)?;
+    assert_reports_isomorphic(&compiled_primary_report, &runtime_report)?;
+    assert_reports_isomorphic(&compiled_secondary_report, &runtime_report)?;
 
     Ok(())
 }
 
 #[test]
-fn legacy_srcgen_and_runtime_detect_domain_sparql_property_violation() -> Result<(), Box<dyn Error>>
-{
+fn compiled_variants_and_runtime_detect_domain_sparql_property_violation(
+) -> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let legacy_out = tmp.join("legacy-compiled");
-    let srcgen_out = tmp.join("srcgen-compiled");
-    let legacy_report = tmp.join("legacy-report.ttl");
-    let srcgen_report = tmp.join("srcgen-report.ttl");
+    let compiled_primary_out = tmp.join("compiled-primary");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
+    let compiled_primary_report = tmp.join("compiled-primary-report.ttl");
+    let compiled_secondary_report = tmp.join("compiled-secondary-report.ttl");
     let runtime_report = tmp.join("runtime-report.ttl");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -1018,27 +991,19 @@ ex:zoneBad a ex:HvacZone ;
     write_file(&shapes, shapes_ttl)?;
     write_file(&data, data_ttl)?;
 
-    compile_with_track(
+    compile_srcgen_binary(
         &shapes,
-        &legacy_out,
-        "legacy-bin-domain-sparql",
-        "legacy",
-        "aot",
+        &compiled_primary_out,
+        "compiled-primary-bin-domain-sparql",
     )?;
-    compile_with_track(
-        &shapes,
-        &srcgen_out,
-        "srcgen-bin-domain-sparql",
-        "srcgen",
-        "specialized",
-    )?;
+    compile_srcgen_binary(&shapes, &compiled_secondary_out, "srcgen-bin-domain-sparql")?;
 
     run_binary_to_file(
         &shared_target_dir()
             .join("debug")
-            .join("legacy-bin-domain-sparql"),
+            .join("compiled-primary-bin-domain-sparql"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &legacy_report,
+        &compiled_primary_report,
     )?;
 
     run_binary_to_file(
@@ -1046,7 +1011,7 @@ ex:zoneBad a ex:HvacZone ;
             .join("debug")
             .join("srcgen-bin-domain-sparql"),
         &["--run-inference=false", data.to_str().unwrap()],
-        &srcgen_report,
+        &compiled_secondary_report,
     )?;
 
     run_cli_to_file(
@@ -1062,7 +1027,11 @@ ex:zoneBad a ex:HvacZone ;
         &runtime_report,
     )?;
 
-    for report in [&legacy_report, &srcgen_report, &runtime_report] {
+    for report in [
+        &compiled_primary_report,
+        &compiled_secondary_report,
+        &runtime_report,
+    ] {
         assert_report_contains(report, "sh:conforms false")?;
         assert_report_contains(report, "<http://example.com/hvac#zoneBad>")?;
         assert_report_contains(report, "<http://example.com/hvac#airFlowRate>")?;
@@ -1083,7 +1052,7 @@ fn srcgen_compiled_perf_smoke_gate_against_runtime_validate() -> Result<(), Box<
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
     let data = tmp.join("data.ttl");
-    let srcgen_out = tmp.join("srcgen-compiled");
+    let compiled_secondary_out = tmp.join("compiled-secondary");
 
     let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://example.com/ns#> .
@@ -1117,13 +1086,7 @@ ex:PersonShape
     }
     write_file(&data, &data_ttl)?;
 
-    compile_with_track(
-        &shapes,
-        &srcgen_out,
-        "srcgen-bin-perf",
-        "srcgen",
-        "specialized",
-    )?;
+    compile_srcgen_binary(&shapes, &compiled_secondary_out, "srcgen-bin-perf")?;
 
     let srcgen_bin = shared_target_dir().join("debug").join("srcgen-bin-perf");
     let mut srcgen_runs: Vec<Duration> = Vec::new();
@@ -1278,8 +1241,6 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
                         "compile",
                         "--shapes-file",
                         "ttl/223p.ttl",
-                        "--compiler",
-                        "srcgen",
                         "--backend",
                         "specialized",
                         "--out-dir",
@@ -1314,8 +1275,6 @@ fn srcgen_strict_full_aot_perf_gate_223_and_brick() -> Result<(), Box<dyn Error>
                         "compile",
                         "--shapes-file",
                         "ttl/Brick.ttl",
-                        "--compiler",
-                        "srcgen",
                         "--backend",
                         "specialized",
                         "--out-dir",
