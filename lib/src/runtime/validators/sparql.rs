@@ -269,7 +269,6 @@ WHERE {
         let Ok(focus_subject) = focus_term.try_to_subject_ref() else {
             continue;
         };
-
         let mut is_node_shape = false;
         context.for_each_quad_for_pattern(
             Some(focus_subject),
@@ -304,7 +303,6 @@ WHERE {
                 Ok(())
             },
         )?;
-
         context.for_each_quad_for_pattern(Some(focus_subject), None, None, None, |quad| {
             let predicate = quad.predicate.clone();
             let predicate_allowed_scope = match mode {
@@ -588,7 +586,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
                                 .unwrap_or_default();
                             let rows_returned = focus_violations.len() as u64;
                             let mut results = Vec::new();
-                            if let Some(first_violation) = focus_violations.first() {
+                            for violation in &focus_violations {
                                 let failed_value_node = if c.source_shape().as_node_id().is_some() {
                                     Some(c.focus_node().clone())
                                 } else {
@@ -603,12 +601,12 @@ impl ValidateComponent for SPARQLConstraintComponent {
                                 substitutions_for_messages.push((
                                     "p".to_string(),
                                     term_to_message_value(&Term::NamedNode(
-                                        first_violation.predicate.clone(),
+                                        violation.predicate.clone(),
                                     )),
                                 ));
                                 substitutions_for_messages.push((
                                     "o".to_string(),
-                                    term_to_message_value(&first_violation.object),
+                                    term_to_message_value(&violation.object),
                                 ));
                                 let (message_opt, message_terms) = sparql_services
                                     .instantiate_messages(&messages, &substitutions_for_messages);
@@ -622,7 +620,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
                                     None,
                                     Some(self.constraint_node.clone()),
                                 )
-                                .with_severity(severity)
+                                .with_severity(severity.clone())
                                 .with_message_terms(message_terms);
                                 results.push(ComponentValidationResult::Fail(c.clone(), failure));
                             }
@@ -656,16 +654,14 @@ impl ValidateComponent for SPARQLConstraintComponent {
         let query_started = Instant::now();
         let query_outcome =
             context.execute_prepared(&full_query_str, &prepared_query, &substitutions, true);
-
         match query_outcome {
             Ok(QueryResults::Solutions(solutions)) => {
                 let mut results = vec![];
-                let mut seen_solutions = HashSet::new();
+                let mut seen_solutions: HashSet<Vec<(String, Term)>> = HashSet::new();
                 let mut rows_returned = 0u64;
                 #[cfg(debug_assertions)]
                 let debug_prebinding = std::env::var("SHACL_DEBUG_PRE_BINDING").is_ok();
-                #[cfg(not(debug_assertions))]
-                let debug_prebinding = false;
+                #[cfg(debug_assertions)]
                 let mut solution_count = 0usize;
                 for solution_res in solutions {
                     rows_returned = rows_returned.saturating_add(1);
@@ -683,7 +679,6 @@ impl ValidateComponent for SPARQLConstraintComponent {
                             return Err(e.to_string());
                         }
                     };
-
                     if let Some(Term::Literal(failure)) = solution.get("failure") {
                         if failure.datatype() == xsd::BOOLEAN && failure.value() == "true" {
                             context.record_sparql_query_call(
@@ -705,7 +700,17 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     } else {
                         None
                     };
-                    if !seen_solutions.insert(failed_value_node.clone()) {
+                    let mut solution_key: Vec<(String, Term)> = solution
+                        .variables()
+                        .iter()
+                        .filter_map(|var| {
+                            solution
+                                .get(var)
+                                .map(|term| (var.as_str().to_string(), term.clone()))
+                        })
+                        .collect();
+                    solution_key.sort_by(|a, b| a.0.cmp(&b.0));
+                    if !seen_solutions.insert(solution_key) {
                         // Skip duplicate solutions
                         continue;
                     }
@@ -759,7 +764,10 @@ impl ValidateComponent for SPARQLConstraintComponent {
                     .with_message_terms(message_terms);
 
                     results.push(ComponentValidationResult::Fail(c.clone(), failure));
-                    solution_count += 1;
+                    #[cfg(debug_assertions)]
+                    {
+                        solution_count += 1;
+                    }
                 }
                 #[cfg(debug_assertions)]
                 if debug_prebinding {

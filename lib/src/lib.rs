@@ -51,6 +51,8 @@ use oxigraph::model::{BlankNode, GraphName, GraphNameRef, NamedNode, Quad, Term}
 use oxigraph::store::Store;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use url::Url;
@@ -677,6 +679,18 @@ impl ValidatorBuilder {
             shape_graphs_for_union.push(shapes_graph_iri.clone());
         }
         Self::dedup_graphs(&mut shape_graphs_for_union);
+
+        if shape_ir.is_none() {
+            let shapes_source = shapes_source.as_ref().ok_or_else(|| {
+                Box::new(std::io::Error::other(
+                    "shapes source must be specified when shape IR is absent",
+                )) as Box<dyn Error>
+            })?;
+            Self::overwrite_graph_from_source(&store, shapes_source, &shapes_graph_iri, "shapes")?;
+        }
+        if !matches!(data_source, Source::Empty) {
+            Self::overwrite_graph_from_source(&store, &data_source, &data_graph_iri, "data")?;
+        }
 
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
@@ -1370,6 +1384,141 @@ impl ValidatorBuilder {
         Ok(())
     }
 
+    fn clear_named_graph(store: &Store, graph_iri: &NamedNode) -> Result<(), Box<dyn Error>> {
+        let quads: Vec<_> = store
+            .quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(GraphNameRef::NamedNode(graph_iri.as_ref())),
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to read quads from graph {}: {}",
+                    graph_iri, e
+                ))) as Box<dyn Error>
+            })?;
+
+        if quads.is_empty() {
+            return Ok(());
+        }
+
+        let mut transaction = store.start_transaction().map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to start transaction for graph {}: {}",
+                graph_iri, e
+            ))) as Box<dyn Error>
+        })?;
+        for quad in &quads {
+            transaction.remove(quad.as_ref());
+        }
+        transaction.commit().map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to clear graph {}: {}",
+                graph_iri, e
+            ))) as Box<dyn Error>
+        })?;
+        Ok(())
+    }
+
+    fn rdf_format_for_path(path: &std::path::Path) -> Option<RdfFormat> {
+        match path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("ttl") | Some("turtle") => Some(RdfFormat::Turtle),
+            Some("nt") => Some(RdfFormat::NTriples),
+            Some("rdf") | Some("xml") => Some(RdfFormat::RdfXml),
+            _ => None,
+        }
+    }
+
+    fn overwrite_graph_from_source(
+        store: &Store,
+        source: &Source,
+        graph_iri: &NamedNode,
+        label: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        match source {
+            Source::File(path) => {
+                let format = Self::rdf_format_for_path(path).ok_or_else(|| {
+                    Box::new(std::io::Error::other(format!(
+                        "Unsupported RDF format for {} source {}",
+                        label,
+                        path.display()
+                    ))) as Box<dyn Error>
+                })?;
+                let file = File::open(path).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to open {} source {}: {}",
+                        label,
+                        path.display(),
+                        e
+                    ))) as Box<dyn Error>
+                })?;
+                let reader = BufReader::new(file);
+                let mut parser = RdfParser::from_format(format);
+                if let Ok(base) = Url::from_file_path(path) {
+                    parser = parser.with_base_iri(base.as_str()).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to set base IRI for {} source {}: {}",
+                            label,
+                            path.display(),
+                            e
+                        ))) as Box<dyn Error>
+                    })?;
+                }
+
+                Self::clear_named_graph(store, graph_iri)?;
+                for quad in parser.without_named_graphs().for_reader(reader) {
+                    let quad = quad.map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to parse {} source {}: {}",
+                            label,
+                            path.display(),
+                            e
+                        ))) as Box<dyn Error>
+                    })?;
+                    let quad = Quad::new(
+                        quad.subject,
+                        quad.predicate,
+                        quad.object,
+                        GraphName::NamedNode(graph_iri.clone()),
+                    );
+                    store.insert(quad.as_ref()).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to insert quad into {} graph {}: {}",
+                            label, graph_iri, e
+                        ))) as Box<dyn Error>
+                    })?;
+                }
+                Ok(())
+            }
+            Source::Quads { quads, .. } => {
+                Self::clear_named_graph(store, graph_iri)?;
+                for quad in quads {
+                    let quad = Quad::new(
+                        quad.subject.clone(),
+                        quad.predicate.clone(),
+                        quad.object.clone(),
+                        GraphName::NamedNode(graph_iri.clone()),
+                    );
+                    store.insert(quad.as_ref()).map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to insert in-memory quad into {} graph {}: {}",
+                            label, graph_iri, e
+                        ))) as Box<dyn Error>
+                    })?;
+                }
+                Ok(())
+            }
+            Source::Empty | Source::Graph(_) => Ok(()),
+        }
+    }
+
     fn build_shapes_model(
         env: SharedEnvHandle,
         store: Store,
@@ -1930,6 +2079,21 @@ mod tests {
             })
     }
 
+    fn persistent_env_config(root: &Path) -> Result<Config, Box<dyn Error>> {
+        Config::builder()
+            .root(root.to_path_buf())
+            .locations(vec![root.to_path_buf()])
+            .offline(false)
+            .temporary(false)
+            .build()
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to build persistent test OntoEnv config: {}",
+                    e
+                ))) as Box<dyn Error>
+            })
+    }
+
     fn store_has_graph(store: &Store, graph_iri: &NamedNode) -> bool {
         store
             .quads_for_pattern(
@@ -2339,6 +2503,124 @@ ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
         assert!(
             !has_old_shape,
             "shape_ir_with_imports should not switch to another graph identifier that only matches by ontology IRI"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn root_graph_is_rewritten_from_requested_source_when_ontology_iri_collides(
+    ) -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_root_graph_collision")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        fs::write(
+            &imported_path,
+            "<http://example.com/imported-s> <http://example.com/imported-p> <http://example.com/imported-o> .\n",
+        )?;
+        let imported_url = format!("file://{}", imported_path.display());
+        let imported_graph = NamedNode::new(imported_url.clone())?;
+
+        let old_shapes_path = temp_dir.join("a_old.ttl");
+        let new_shapes_path = temp_dir.join("z_new.ttl");
+        let ontology_iri = "http://example.com/colliding-ontology";
+
+        let old_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:OldShape a sh:NodeShape ; sh:targetNode ex:Alice ; sh:deactivated true .\n"
+        );
+        let new_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
+        );
+
+        fs::write(&old_shapes_path, old_shapes)?;
+        fs::write(&new_shapes_path, new_shapes)?;
+
+        let config = persistent_env_config(&temp_dir)?;
+
+        Validator::builder()
+            .with_shapes_source(Source::File(old_shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(config.clone())
+            .with_do_imports(true)
+            .build()?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(new_shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(config)
+            .with_do_imports(true)
+            .build()?;
+
+        let shape_graph = validator.context.model.shape_graph_iri.clone();
+        let store = &validator.context.model.store;
+        let shape_graph_ref = GraphNameRef::NamedNode(shape_graph.as_ref());
+        let sh = SHACL::new();
+
+        let has_old_shape = store
+            .quads_for_pattern(
+                Some(
+                    NamedNode::new("http://example.com/ns#OldShape")?
+                        .as_ref()
+                        .into(),
+                ),
+                None,
+                None,
+                Some(shape_graph_ref),
+            )
+            .next()
+            .is_some();
+        let has_new_shape = store
+            .quads_for_pattern(
+                Some(
+                    NamedNode::new("http://example.com/ns#NewShape")?
+                        .as_ref()
+                        .into(),
+                ),
+                None,
+                None,
+                Some(shape_graph_ref),
+            )
+            .next()
+            .is_some();
+        let has_deactivated = store
+            .quads_for_pattern(
+                Some(
+                    NamedNode::new("http://example.com/ns#NewShape")?
+                        .as_ref()
+                        .into(),
+                ),
+                Some(sh.deactivated),
+                None,
+                Some(shape_graph_ref),
+            )
+            .next()
+            .is_some();
+
+        assert!(
+            has_new_shape,
+            "working shape graph should include the explicitly requested source graph"
+        );
+        assert!(
+            !has_old_shape,
+            "working shape graph should not retain stale quads from another source with the same ontology IRI"
+        );
+        assert!(
+            !has_deactivated,
+            "working shape graph should reflect the requested source, not a stale deactivated overlay"
+        );
+        assert!(
+            store_has_graph(store, &imported_graph),
+            "rewriting the root graph should preserve imported graphs in the working store"
         );
 
         fs::remove_dir_all(&temp_dir)?;

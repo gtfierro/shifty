@@ -169,15 +169,12 @@ impl ValidationReportBuilder {
     }
 
     pub(crate) fn conforms(&self, validation_context: &ValidationContext) -> bool {
-        self.results.iter().all(|(ctx, failure)| {
-            let sev = Self::effective_severity(ctx, failure, validation_context);
-            match sev {
-                Severity::Violation => false,
-                Severity::Warning => !validation_context.warnings_are_errors(),
-                Severity::Info => true,
-                Severity::Custom(_) => false,
-            }
-        })
+        if self.results.is_empty() {
+            return true;
+        }
+
+        let _ = validation_context;
+        false
     }
 
     pub fn with_capacity(capacity: usize) -> Self {

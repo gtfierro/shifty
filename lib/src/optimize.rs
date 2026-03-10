@@ -1,9 +1,7 @@
 use crate::context::ParsingContext;
-use crate::sparql::SparqlExecutor;
 use crate::types::Target;
-use oxigraph::model::Term;
-use oxigraph::sparql::QueryResults;
-use std::collections::HashSet;
+use oxigraph::model::{vocab::rdf, vocab::rdfs, NamedOrBlankNode, Term};
+use std::collections::{HashMap, HashSet};
 
 /// A struct to hold statistics about the optimizations performed.
 #[derive(Default, Debug)]
@@ -63,37 +61,47 @@ impl Optimizer {
 
     // Add methods for optimization logic here
     fn remove_unreachable_targets(&mut self) -> Result<(), String> {
-        // run a query on  ctx.data_graph to figure out what types of things there are:
-        // SELECT DISTINCT ?type WHERE { ?thing rdf:type/rdfs:subClassOf* ?type . }
-        // make a hashset of these types
-        // Then remove all TargetClasses from nodeshapes where their class does not exist in this
-        // hashset.
-        let query = format!(
-            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?type FROM <{}> WHERE {{ ?s rdf:type/rdfs:subClassOf* ?type . }}",
-            self.ctx.data_graph_iri.as_str()
-        );
-        let prepared = self
+        // Collect direct rdf:types from the data graph, then walk the subclass hierarchy across
+        // all graphs to retain implicit target classes such as s223:ObservableProperty.
+        let mut parents: HashMap<Term, Vec<Term>> = HashMap::new();
+        for quad in self
             .ctx
-            .sparql
-            .prepared_query(&query)
-            .map_err(|e| format!("SPARQL parse error: {}", e))?;
-        let results = self
-            .ctx
-            .sparql
-            .execute_with_substitutions(&query, &prepared, &self.ctx.store, &[], false)
-            .map_err(|e| e.to_string())?;
+            .store
+            .quads_for_pattern(None, Some(rdfs::SUB_CLASS_OF), None, None)
+            .flatten()
+        {
+            let child = match quad.subject {
+                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+            };
+            parents.entry(child).or_default().push(quad.object.into());
+        }
 
         let mut types = HashSet::<Term>::new();
-        match results {
-            QueryResults::Solutions(solutions) => {
-                for solution_result in solutions {
-                    let solution = solution_result.map_err(|e| e.to_string())?;
-                    if let Some(term_ref) = solution.get("type") {
-                        types.insert(term_ref.to_owned());
+        for quad in self
+            .ctx
+            .store
+            .quads_for_pattern(
+                None,
+                Some(rdf::TYPE),
+                None,
+                Some(self.ctx.data_graph_iri.as_ref().into()),
+            )
+            .flatten()
+        {
+            let mut stack: Vec<Term> = vec![quad.object.into()];
+            let mut visited = HashSet::new();
+            while let Some(ty) = stack.pop() {
+                if !visited.insert(ty.clone()) {
+                    continue;
+                }
+                types.insert(ty.clone());
+                if let Some(super_types) = parents.get(&ty) {
+                    for super_type in super_types {
+                        stack.push(super_type.clone());
                     }
                 }
             }
-            _ => return Err("Unexpected query result type when fetching types".to_string()),
         }
 
         for shape in self.ctx.node_shapes.values_mut() {
