@@ -296,22 +296,22 @@ fn compile_with_track(
     shapes: &Path,
     out_dir: &Path,
     bin_name: &str,
-    compiler: &str,
-    backend: &str,
+    _compiler: &str,
+    _backend: &str,
 ) -> Result<(), Box<dyn Error>> {
     let shifty_path = workspace_root().join("lib");
     let compile_stdout = out_dir
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(format!("compile-{compiler}.stdout"));
-    let mut args = vec![
+        .join("compile-srcgen.stdout");
+    let args = vec![
         "compile",
         "--shapes-file",
         shapes.to_str().unwrap(),
         "--compiler",
-        compiler,
+        "srcgen",
         "--backend",
-        backend,
+        "specialized",
         "--out-dir",
         out_dir.to_str().unwrap(),
         "--bin-name",
@@ -319,9 +319,6 @@ fn compile_with_track(
         "--shifty-path",
         shifty_path.to_str().unwrap(),
     ];
-    if compiler == "legacy" {
-        args.push("--allow-legacy-compiler");
-    }
     run_cli_to_file(&args, &compile_stdout)
 }
 

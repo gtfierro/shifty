@@ -3,7 +3,6 @@
 use ontoenv::config::Config;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
-use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
 use shacl_srcgen_compiler::{
     generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
     lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
@@ -26,21 +25,6 @@ static COMPILED_CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new
 static COMPILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BUILD_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-enum ManifestCompiler {
-    Legacy,
-    Srcgen,
-}
-
-impl ManifestCompiler {
-    fn as_str(self) -> &'static str {
-        match self {
-            ManifestCompiler::Legacy => "legacy",
-            ManifestCompiler::Srcgen => "srcgen",
-        }
-    }
-}
-
 fn parse_bool_env(name: &str) -> bool {
     match std::env::var(name) {
         Ok(value) => matches!(
@@ -48,16 +32,6 @@ fn parse_bool_env(name: &str) -> bool {
             "1" | "true" | "yes" | "on"
         ),
         Err(_) => false,
-    }
-}
-
-fn selected_manifest_compiler() -> ManifestCompiler {
-    match std::env::var("SHFTY_COMPILED_MANIFEST_COMPILER") {
-        Ok(value) => match value.to_ascii_lowercase().as_str() {
-            "srcgen" => ManifestCompiler::Srcgen,
-            _ => ManifestCompiler::Legacy,
-        },
-        Err(_) => ManifestCompiler::Legacy,
     }
 }
 
@@ -69,13 +43,8 @@ fn strict_incomplete_is_error_enabled() -> bool {
     parse_bool_env("SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR")
 }
 
-fn cache_profile_key(path: &Path, compiler: ManifestCompiler, strict_full_aot: bool) -> String {
-    format!(
-        "{}|{}|{}",
-        path.to_string_lossy(),
-        compiler.as_str(),
-        strict_full_aot
-    )
+fn cache_profile_key(path: &Path, strict_full_aot: bool) -> String {
+    format!("{}|srcgen|{}", path.to_string_lossy(), strict_full_aot)
 }
 
 fn compiled_cache() -> &'static Mutex<HashMap<String, PathBuf>> {
@@ -195,13 +164,11 @@ fn skip_reason(test: &TestCase) -> Option<&'static str> {
 
 fn shape_cache_key(
     path: &Path,
-    compiler: ManifestCompiler,
     strict_full_aot: bool,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let metadata = std::fs::metadata(path)?;
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
-    compiler.hash(&mut hasher);
     strict_full_aot.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
     if let Ok(modified) = metadata.modified() {
@@ -216,9 +183,8 @@ fn compiled_bin_for_shapes(
     shapes_graph_path: &Path,
 ) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     let canonical = shapes_graph_path.canonicalize()?;
-    let compiler = selected_manifest_compiler();
     let strict_full_aot = strict_full_aot_enabled();
-    let profile_key = cache_profile_key(&canonical, compiler, strict_full_aot);
+    let profile_key = cache_profile_key(&canonical, strict_full_aot);
     if let Some(existing) = compiled_cache().lock().unwrap().get(&profile_key).cloned() {
         return Ok(existing);
     }
@@ -227,13 +193,11 @@ fn compiled_bin_for_shapes(
     let build_root = compiled_test_build_root();
     let bin_cache_dir = build_root.join("bin");
     std::fs::create_dir_all(&bin_cache_dir)?;
-    let cache_key = shape_cache_key(&canonical, compiler, strict_full_aot)?;
+    let cache_key = shape_cache_key(&canonical, strict_full_aot)?;
     let strict_suffix = if strict_full_aot { "strict" } else { "hybrid" };
     let cached_bin = bin_cache_dir.join(format!(
-        "{}-{}-{}-shacl-compiled",
-        cache_key,
-        compiler.as_str(),
-        strict_suffix
+        "{}-srcgen-{}-shacl-compiled",
+        cache_key, strict_suffix
     ));
     if cached_bin.exists() {
         compiled_cache()
@@ -270,25 +234,12 @@ fn compiled_bin_for_shapes(
     let shape_ir = validator
         .shape_ir_with_imports(-1)
         .map_err(|e| io::Error::other(format!("Failed to build SHACL-IR: {}", e)))?;
-    let (generated_root, generated_files) = match compiler {
-        ManifestCompiler::Legacy => {
-            let plan = PlanIR::from_shape_ir(&shape_ir)
-                .map_err(|e| io::Error::other(format!("Failed to build plan: {}", e)))?;
-            let generated = generate_rust_modules_from_plan(&plan)
-                .map_err(|e| io::Error::other(format!("Failed to generate Rust: {}", e)))?;
-            (generated.root, generated.files)
-        }
-        ManifestCompiler::Srcgen => {
-            let srcgen_ir = lower_shape_ir_to_srcgen_ir(&shape_ir)
-                .map_err(|e| io::Error::other(format!("Failed to lower SrcGenIR: {}", e)))?;
-            let generated = generate_srcgen_modules_from_ir_with_backend(
-                &srcgen_ir,
-                SrcGenBackend::Specialized,
-            )
+    let srcgen_ir = lower_shape_ir_to_srcgen_ir(&shape_ir)
+        .map_err(|e| io::Error::other(format!("Failed to lower SrcGenIR: {}", e)))?;
+    let generated =
+        generate_srcgen_modules_from_ir_with_backend(&srcgen_ir, SrcGenBackend::Specialized)
             .map_err(|e| io::Error::other(format!("Failed to generate srcgen Rust: {}", e)))?;
-            (generated.root, generated.files)
-        }
-    };
+    let (generated_root, generated_files) = (generated.root, generated.files);
 
     let out_dir = build_root.join("workspaces").join(&cache_key);
     if out_dir.exists() {
@@ -322,131 +273,7 @@ fn compiled_bin_for_shapes(
     std::fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
     let shapes_file_literal = canonical.to_string_lossy().to_string();
-    let main_template = match compiler {
-        ManifestCompiler::Legacy => {
-            r#"
-mod generated;
-
-use generated::{
-    load_original_value_index, render_report, set_original_value_index, DATA_GRAPH, SHAPE_GRAPH,
-};
-use log::info;
-use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{GraphName, NamedNode, Quad};
-use oxigraph::store::Store;
-use std::env;
-use std::error::Error;
-use std::fs::File;
-use std::path::Path;
-
-const SHAPES_FILE: &str = "__SHAPES_FILE__";
-
-fn print_usage(program: &str) {
-    eprintln!("usage: {} [--follow-bnodes] <data.rdf>", program);
-}
-
-fn parse_args() -> Result<(String, bool), String> {
-    let mut args = env::args();
-    let program = args.next().unwrap_or_else(|| "shacl-compiled".to_string());
-    let mut follow_bnodes = false;
-    let mut data_path = None;
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--follow-bnodes" => follow_bnodes = true,
-            other if other.starts_with("--") => {
-                print_usage(&program);
-                return Err(format!("unknown option: {}", other));
-            }
-            other => {
-                if data_path.is_some() {
-                    print_usage(&program);
-                    return Err("multiple data files provided".into());
-                }
-                data_path = Some(other.to_string());
-            }
-        }
-    }
-
-    if let Some(path) = data_path {
-        Ok((path, follow_bnodes))
-    } else {
-        print_usage(&program);
-        Err("data file argument missing".into())
-    }
-}
-
-fn sniff_format(path: &Path) -> Result<RdfFormat, String> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    match ext.as_str() {
-        "ttl" => Ok(RdfFormat::Turtle),
-        "nt" => Ok(RdfFormat::NTriples),
-        "rdf" | "xml" => Ok(RdfFormat::RdfXml),
-        other => Err(format!("unsupported RDF format .{}", other)),
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let (data_path, follow_bnodes) =
-        parse_args().map_err(|err| Box::<dyn std::error::Error>::from(err))?;
-    let data_path_ref = Path::new(&data_path);
-    let format = sniff_format(data_path_ref)?;
-    let original_index = load_original_value_index(data_path_ref)
-        .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
-    set_original_value_index(Some(original_index));
-    let store = Store::new()?;
-    let shape_graph = NamedNode::new(SHAPE_GRAPH).unwrap();
-    let shape_graph_name = GraphName::NamedNode(shape_graph.clone());
-    let shapes_path_ref = Path::new(SHAPES_FILE);
-    let shapes_format = sniff_format(shapes_path_ref)?;
-    let shapes_file = File::open(shapes_path_ref)?;
-    let shapes_parser = RdfParser::from_format(shapes_format).for_reader(shapes_file);
-    info!("Starting shape graph load from {}", SHAPES_FILE);
-    let mut shape_triple_count = 0;
-    for triple in shapes_parser {
-        let triple = triple?;
-        let quad = Quad::new(
-            triple.subject.clone(),
-            triple.predicate.clone(),
-            triple.object.clone(),
-            shape_graph_name.clone(),
-        );
-        store.insert(&quad)?;
-        shape_triple_count += 1;
-    }
-    info!("Finished shape graph load ({} triples)", shape_triple_count);
-    let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
-    let graph_name = GraphName::NamedNode(data_graph.clone());
-    let file = File::open(data_path_ref)?;
-    let parser = RdfParser::from_format(format).for_reader(file);
-    info!("Starting data graph load from {}", data_path);
-    let mut triple_count = 0;
-    for triple in parser {
-        let triple = triple?;
-        let quad = Quad::new(
-            triple.subject.clone(),
-            triple.predicate.clone(),
-            triple.object.clone(),
-            graph_name.clone(),
-        );
-        store.insert(&quad)?;
-        triple_count += 1;
-    }
-    info!("Finished data graph load ({} triples)", triple_count);
-
-    let report = generated::run(&store, Some(&data_graph));
-    let output = render_report(&report, &store, follow_bnodes);
-    println!("{}", output);
-    Ok(())
-}
-"#
-        }
-        ManifestCompiler::Srcgen => {
-            r#"
+    let main_template = r#"
 mod generated;
 
 use generated::{
@@ -565,9 +392,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("{}", output);
     Ok(())
 }
-"#
-        }
-    };
+"#;
     let main_rs = main_template.replace("__SHAPES_FILE__", &shapes_file_literal);
     std::fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
 
@@ -824,14 +649,11 @@ fn strict_incomplete_marker(report_turtle: &str) -> bool {
 }
 
 fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let compiler = selected_manifest_compiler();
     let strict_full_aot = strict_full_aot_enabled();
     let strict_incomplete_is_error = strict_incomplete_is_error_enabled();
     println!(
-        "compiled-manifest mode: compiler={} strict_full_aot={} strict_incomplete_is_error={}",
-        compiler.as_str(),
-        strict_full_aot,
-        strict_incomplete_is_error
+        "compiled-manifest mode: compiler=srcgen strict_full_aot={} strict_incomplete_is_error={}",
+        strict_full_aot, strict_incomplete_is_error
     );
     let tests = collect_tests_from_manifest(Path::new(file))?;
     for (manifest_path, test) in tests {
@@ -854,7 +676,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         let bin_path = compiled_bin_for_shapes(&test.shapes_graph_path)?;
         let mut command = Command::new(&bin_path);
         command.arg(&test.data_graph_path);
-        if matches!(compiler, ManifestCompiler::Srcgen) && strict_full_aot {
+        if strict_full_aot {
             command.env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1");
         }
         let output = command
@@ -876,10 +698,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
                 test_name, e
             ))
         })?;
-        if matches!(compiler, ManifestCompiler::Srcgen)
-            && strict_full_aot
-            && strict_incomplete_marker(&report_turtle)
-        {
+        if strict_full_aot && strict_incomplete_marker(&report_turtle) {
             if strict_incomplete_is_error {
                 return Err(Box::new(io::Error::other(format!(
                     "strict full-aot incomplete specialization marker encountered for test '{}'",
