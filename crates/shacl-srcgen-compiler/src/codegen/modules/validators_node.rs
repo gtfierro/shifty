@@ -395,13 +395,15 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 &focus_nodes,
                                 #mode_token,
                             )?;
-                            for focus_term in closed_world_violations {
+                            for violation in closed_world_violations {
                                 violations.push(Violation {
                                     shape_id: #shape_id,
                                     component_id: #component_id_value,
-                                    focus: focus_term.clone(),
-                                    value: Some(focus_term),
-                                    path: None,
+                                    focus: violation.focus.clone(),
+                                    value: Some(violation.object),
+                                    path: Some(ResultPath::Term(oxigraph::model::Term::NamedNode(
+                                        violation.predicate,
+                                    ))),
                                 });
                             }
                         });
@@ -413,13 +415,15 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 &conformance_focus_nodes,
                                 #mode_token,
                             )?;
-                            for focus_term in closed_world_violations {
+                            for violation in closed_world_violations {
                                 violations.push(Violation {
                                     shape_id: #shape_id,
                                     component_id: #component_id_value,
-                                    focus: focus_term.clone(),
-                                    value: Some(focus_term),
-                                    path: None,
+                                    focus: violation.focus.clone(),
+                                    value: Some(violation.object),
+                                    path: Some(ResultPath::Term(oxigraph::model::Term::NamedNode(
+                                        violation.predicate,
+                                    ))),
                                 });
                             }
                         });
@@ -447,7 +451,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 &bindings,
                             )?;
 
-                            let mut seen: std::collections::HashSet<oxigraph::model::Term> =
+                            let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
                                 std::collections::HashSet::new();
                             for row in solutions {
                                 if let Some(failure_term) = row.get("failure") {
@@ -462,7 +466,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     .get("value")
                                     .cloned()
                                     .unwrap_or_else(|| focus.clone());
-                                if !seen.insert(value.clone()) {
+                                let row_signature = sparql_row_signature(&row);
+                                if !seen.insert(row_signature) {
                                     continue;
                                 }
                                 let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
@@ -548,7 +553,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 &bindings,
                             )?;
 
-                            let mut seen: std::collections::HashSet<oxigraph::model::Term> =
+                            let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
                                 std::collections::HashSet::new();
                             for row in solutions {
                                 if let Some(failure_term) = row.get("failure") {
@@ -563,7 +568,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     .get("value")
                                     .cloned()
                                     .unwrap_or_else(|| focus.clone());
-                                if !seen.insert(value.clone()) {
+                                let row_signature = sparql_row_signature(&row);
+                                if !seen.insert(row_signature) {
                                     continue;
                                 }
                                 let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
@@ -1392,6 +1398,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             QudtPredicate,
         }
 
+        #[derive(Clone)]
+        struct ClosedWorldViolation {
+            focus: oxigraph::model::Term,
+            predicate: oxigraph::model::NamedNode,
+            object: oxigraph::model::Term,
+        }
+
         fn closed_world_focus_terms(
             focus_nodes: &[oxigraph::model::Term],
         ) -> Vec<oxigraph::model::Term> {
@@ -1450,7 +1463,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             data_graph: &oxigraph::model::NamedNode,
             focus_nodes: &[oxigraph::model::Term],
             mode: ClosedWorldConstraintMode,
-        ) -> Result<Vec<oxigraph::model::Term>, String> {
+        ) -> Result<Vec<ClosedWorldViolation>, String> {
             let focus_terms = closed_world_focus_terms(focus_nodes);
             if focus_terms.is_empty() {
                 return Ok(Vec::new());
@@ -1608,7 +1621,6 @@ WHERE {
                     ));
                 }
 
-                let mut has_violation = false;
                 for quad in store.quads_for_pattern(Some(focus_subject), None, None, None) {
                     let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
                     let predicate = quad.predicate.clone();
@@ -1633,11 +1645,11 @@ WHERE {
                         continue;
                     }
 
-                    has_violation = true;
-                    break;
-                }
-                if has_violation {
-                    violations.push(focus_term);
+                    violations.push(ClosedWorldViolation {
+                        focus: focus_term.clone(),
+                        predicate,
+                        object: quad.object,
+                    });
                 }
             }
 

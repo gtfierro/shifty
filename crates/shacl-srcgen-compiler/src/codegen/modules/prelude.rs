@@ -80,9 +80,7 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             }
             SrcGenComponentKind::ExpressionThis => {
                 let id = component.id;
-                Some(
-                    quote! { "http://www.w3.org/ns/shacl#this" => Some(#id), }
-                )
+                Some(quote! { "http://www.w3.org/ns/shacl#this" => Some(#id), })
             }
             _ => None,
         })
@@ -168,6 +166,15 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             pub focus: Term,
             pub value: Option<Term>,
             pub path: Option<ResultPath>,
+        }
+
+        pub fn sparql_row_signature(
+            row: &std::collections::HashMap<String, oxigraph::model::Term>,
+        ) -> Vec<(String, oxigraph::model::Term)> {
+            let mut signature: Vec<(String, oxigraph::model::Term)> =
+                row.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+            signature.sort_by(|a, b| a.0.cmp(&b.0));
+            signature
         }
 
         #[derive(Debug, Default)]

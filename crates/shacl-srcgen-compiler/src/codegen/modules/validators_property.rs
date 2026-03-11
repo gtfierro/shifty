@@ -520,7 +520,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             &bindings,
                         )?;
                         let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
-                        let mut seen: std::collections::HashSet<Option<oxigraph::model::Term>> =
+                        let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
                             std::collections::HashSet::new();
                         for row in solutions {
                             if let Some(failure_term) = row.get("failure") {
@@ -532,7 +532,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 }
                             }
                             let value = row.get("value").cloned();
-                            if !seen.insert(value.clone()) {
+                            let row_signature = sparql_row_signature(&row);
+                            if !seen.insert(row_signature) {
                                 continue;
                             }
                             let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
@@ -624,7 +625,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 data_graph,
                                 &base_bindings,
                             )?;
-                            let mut seen: std::collections::HashSet<Option<oxigraph::model::Term>> =
+                            let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
                                 std::collections::HashSet::new();
                             for row in solutions {
                                 if let Some(failure_term) = row.get("failure") {
@@ -636,7 +637,8 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     }
                                 }
                                 let value = row.get("value").cloned();
-                                if !seen.insert(value.clone()) {
+                                let row_signature = sparql_row_signature(&row);
+                                if !seen.insert(row_signature) {
                                     continue;
                                 }
                                 let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
