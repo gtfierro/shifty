@@ -47,7 +47,8 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
     let mut next_synthetic_component_id = component_kinds.keys().copied().max().unwrap_or(0) + 1;
     let mut expression_component_id_by_shape: HashMap<ID, u64> = HashMap::new();
     let mut expression_unsupported_shapes: HashSet<ID> = HashSet::new();
-    let mut ordered_node_shape_ids: Vec<ID> = shape_ir.node_shapes.iter().map(|shape| shape.id).collect();
+    let mut ordered_node_shape_ids: Vec<ID> =
+        shape_ir.node_shapes.iter().map(|shape| shape.id).collect();
     ordered_node_shape_ids.sort_by_key(|id| id.0);
     for shape_id in ordered_node_shape_ids {
         match node_shape_expression_constraint_support(shape_ir, shape_id) {
@@ -98,8 +99,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             let path_predicate = simple_named_path_predicate(&shape.path);
             let mut constraints: Vec<u64> = shape.constraints.iter().map(|id| id.0).collect();
             constraints.sort_unstable();
-            let lowered_targets =
-                lower_supported_node_targets(shape_ir, &shape.targets, false);
+            let lowered_targets = lower_supported_node_targets(shape_ir, &shape.targets, false);
             let (
                 target_classes,
                 target_nodes,
@@ -190,8 +190,7 @@ pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
             }
             let expression_supported = !expression_unsupported_shapes.contains(&shape.id);
 
-            let lowered_targets =
-                lower_supported_node_targets(shape_ir, &shape.targets, true);
+            let lowered_targets = lower_supported_node_targets(shape_ir, &shape.targets, true);
             let (
                 target_classes,
                 target_nodes,
@@ -2395,9 +2394,9 @@ mod tests {
             node_shape_terms,
             property_shape_terms: HashMap::new(),
             shape_quads: vec![oxigraph::model::Quad::new(
-                oxigraph::model::NamedOrBlankNode::from(
-                    oxigraph::model::NamedNode::new_unchecked("urn:selector"),
-                ),
+                oxigraph::model::NamedOrBlankNode::from(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:selector",
+                )),
                 oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
                 oxigraph::model::Literal::new_simple_literal(query),
                 oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
@@ -2421,7 +2420,9 @@ mod tests {
         let mut node_shape_terms = HashMap::new();
         node_shape_terms.insert(
             ID(1),
-            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:shape:expr-this")),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:expr-this",
+            )),
         );
 
         let shape_ir = ShapeIR {
@@ -2429,9 +2430,9 @@ mod tests {
             data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
             node_shapes: vec![NodeShapeIR {
                 id: ID(1),
-                targets: vec![Target::Node(Term::Literal(
-                    oxigraph::model::Literal::from(true),
-                ))],
+                targets: vec![Target::Node(Term::Literal(oxigraph::model::Literal::from(
+                    true,
+                )))],
                 constraints: Vec::new(),
                 property_shapes: Vec::new(),
                 severity: Severity::Violation,
@@ -2445,9 +2446,9 @@ mod tests {
             node_shape_terms,
             property_shape_terms: HashMap::new(),
             shape_quads: vec![oxigraph::model::Quad::new(
-                oxigraph::model::NamedOrBlankNode::from(
-                    oxigraph::model::NamedNode::new_unchecked("urn:shape:expr-this"),
-                ),
+                oxigraph::model::NamedOrBlankNode::from(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:shape:expr-this",
+                )),
                 oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#expression"),
                 oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#this"),
                 oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
@@ -2468,7 +2469,10 @@ mod tests {
             expression_component.iri,
             "http://www.w3.org/ns/shacl#ExpressionConstraintComponent"
         );
-        assert_eq!(lowered.node_shapes[0].constraints, vec![expression_component.id]);
+        assert_eq!(
+            lowered.node_shapes[0].constraints,
+            vec![expression_component.id]
+        );
         assert_eq!(
             lowered.node_shapes[0].supported_constraints,
             vec![expression_component.id]

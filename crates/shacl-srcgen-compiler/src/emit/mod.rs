@@ -38,6 +38,15 @@ fn write_modules_dir(dir: &Path, modules: &GeneratedRust) -> Result<(), String> 
         fs::write(&path, content)
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
+    for (name, content) in &modules.binary_files {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create parent {}: {err}", parent.display()))?;
+        }
+        fs::write(&path, content)
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    }
 
     Ok(())
 }

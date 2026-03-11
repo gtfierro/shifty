@@ -87,6 +87,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(out) = args.out {
         write_generated_modules(&out, &modules).map_err(|err| format!("emit error: {err}"))?;
     } else {
+        if !modules.binary_files.is_empty() {
+            return Err(
+                "stdout emission is unavailable for this compile because generated binary payloads require --out"
+                    .into(),
+            );
+        }
         print!("{}", modules.to_single_file());
     }
 

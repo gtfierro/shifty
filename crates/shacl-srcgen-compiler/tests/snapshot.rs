@@ -284,7 +284,5 @@ fn inference_module_contains_strict_full_aot_fallback_guard() {
         .expect("inference module must exist");
 
     assert!(inference.contains("SHFTY_SRCGEN_FULL_AOT_STRICT"));
-    assert!(inference.contains(
-        "unsupported inference rule(s) require runtime fallback"
-    ));
+    assert!(inference.contains("unsupported inference rule(s) require runtime fallback"));
 }
