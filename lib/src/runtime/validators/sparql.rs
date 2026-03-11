@@ -9,8 +9,8 @@ use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 use crate::sparql::{
-    ensure_pre_binding_semantics, validate_prebound_variable_usage, MessageTemplater,
-    SparqlExecutor,
+    ensure_pre_binding_semantics, format_term_with_topquadrant_prefixes, parse_prefix_lines,
+    validate_prebound_variable_usage, MessageTemplater, SparqlExecutor,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
@@ -54,22 +54,26 @@ fn gather_default_substitutions(
     current_shape_term: Option<&Term>,
     value_term: Option<&Term>,
     path_override: Option<&String>,
+    message_prefixes: &[(String, String)],
 ) -> Vec<(String, String)> {
     let mut substitutions = Vec::new();
     substitutions.push((
         "this".to_string(),
-        term_to_message_value(context.focus_node()),
+        term_to_message_value(context.focus_node(), message_prefixes),
     ));
 
     if let Some(shape_term) = current_shape_term {
         substitutions.push((
             "currentShape".to_string(),
-            term_to_message_value(shape_term),
+            term_to_message_value(shape_term, message_prefixes),
         ));
     }
 
     if let Some(value) = value_term {
-        substitutions.push(("value".to_string(), term_to_message_value(value)));
+        substitutions.push((
+            "value".to_string(),
+            term_to_message_value(value, message_prefixes),
+        ));
     }
 
     if let Some(path) = path_override {
@@ -79,15 +83,15 @@ fn gather_default_substitutions(
     substitutions
 }
 
-fn term_to_message_value(term: &Term) -> String {
+fn term_to_message_value(term: &Term, message_prefixes: &[(String, String)]) -> String {
     match term {
         Term::Literal(lit) => lit.value().to_string(),
-        _ => format_term_for_label(term),
+        _ => format_term_with_topquadrant_prefixes(term, message_prefixes),
     }
 }
 
-fn term_ref_to_message_value(term: TermRef<'_>) -> String {
-    term_to_message_value(&term.into_owned())
+fn term_ref_to_message_value(term: TermRef<'_>, message_prefixes: &[(String, String)]) -> String {
+    term_to_message_value(&term.into_owned(), message_prefixes)
 }
 
 fn hash_query_64(query: &str) -> u64 {
@@ -464,6 +468,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // Collect prefixes using the shared SPARQL services
         let prefixes = context.prefixes_for_node(&self.constraint_node)?;
+        let message_prefixes = parse_prefix_lines(&prefixes);
 
         // Handle $PATH substitution for property shapes
         let mut path_substitution_value: Option<String> = None;
@@ -597,16 +602,18 @@ impl ValidateComponent for SPARQLConstraintComponent {
                                     current_shape_term.as_ref(),
                                     failed_value_node.as_ref(),
                                     path_substitution_value.as_ref(),
+                                    &message_prefixes,
                                 );
                                 substitutions_for_messages.push((
                                     "p".to_string(),
-                                    term_to_message_value(&Term::NamedNode(
-                                        violation.predicate.clone(),
-                                    )),
+                                    term_to_message_value(
+                                        &Term::NamedNode(violation.predicate.clone()),
+                                        &message_prefixes,
+                                    ),
                                 ));
                                 substitutions_for_messages.push((
                                     "o".to_string(),
-                                    term_to_message_value(&violation.object),
+                                    term_to_message_value(&violation.object, &message_prefixes),
                                 ));
                                 let (message_opt, message_terms) = sparql_services
                                     .instantiate_messages(&messages, &substitutions_for_messages);
@@ -728,12 +735,13 @@ impl ValidateComponent for SPARQLConstraintComponent {
                         current_shape_term.as_ref(),
                         failed_value_node.as_ref(),
                         path_substitution_value.as_ref(),
+                        &message_prefixes,
                     );
                     for var in solution.variables() {
                         if let Some(term) = solution.get(var) {
                             substitutions_for_messages.push((
                                 var.as_str().to_string(),
-                                term_ref_to_message_value(term.into()),
+                                term_ref_to_message_value(term.into(), &message_prefixes),
                             ));
                         }
                     }
@@ -1055,6 +1063,7 @@ impl ValidateComponent for CustomConstraintComponent {
                 validator.prefixes, query_body
             )
         };
+        let message_prefixes = parse_prefix_lines(&validator.prefixes);
 
         let context_label = if validator.is_ask {
             format!("SPARQL ASK validator {}", self.definition.iri)
@@ -1106,12 +1115,13 @@ impl ValidateComponent for CustomConstraintComponent {
                                     current_shape_term.as_ref(),
                                     Some(value_node),
                                     path_substitution_value.as_ref(),
+                                    &message_prefixes,
                                 );
                                 for (param_path, values) in &self.parameter_values {
                                     if let Some(val) = values.first() {
                                         substitutions_for_messages.push((
                                             local_name(param_path),
-                                            term_to_message_value(val),
+                                            term_to_message_value(val, &message_prefixes),
                                         ));
                                     }
                                 }
@@ -1194,12 +1204,13 @@ impl ValidateComponent for CustomConstraintComponent {
                             current_shape_term.as_ref(),
                             failed_value_node.as_ref(),
                             path_substitution_value.as_ref(),
+                            &message_prefixes,
                         );
                         for (param_path, values) in &self.parameter_values {
                             if let Some(val) = values.first() {
                                 substitutions_for_messages.push((
                                     local_name(param_path),
-                                    term_ref_to_message_value(val.as_ref()),
+                                    term_ref_to_message_value(val.as_ref(), &message_prefixes),
                                 ));
                             }
                         }
@@ -1207,7 +1218,7 @@ impl ValidateComponent for CustomConstraintComponent {
                             if let Some(term) = solution.get(var) {
                                 substitutions_for_messages.push((
                                     var.as_str().to_string(),
-                                    term_ref_to_message_value(term.into()),
+                                    term_ref_to_message_value(term.into(), &message_prefixes),
                                 ));
                             }
                         }

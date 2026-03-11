@@ -1,5 +1,6 @@
 #![allow(clippy::manual_flatten)]
 
+use crate::context::format_term_for_label;
 use crate::context::ParsingContext;
 use crate::model::components::sparql::{
     CustomConstraintComponentDefinition, Parameter, SPARQLValidator,
@@ -1256,11 +1257,89 @@ fn substitute_placeholders(message: &str, substitutions: &[(String, String)]) ->
     let mut text = message.to_string();
     for (name, value) in substitutions {
         let placeholder_q = format!("{{?{}}}", name);
-        let placeholder_dollar = format!("{{$${}}}", name);
+        let placeholder_dollar = format!("{{${}}}", name);
         text = text.replace(&placeholder_q, value);
         text = text.replace(&placeholder_dollar, value);
     }
     text
+}
+
+pub(crate) fn parse_prefix_lines(prefixes: &str) -> Vec<(String, String)> {
+    prefixes
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("PREFIX ") {
+                return None;
+            }
+            let rest = &trimmed["PREFIX ".len()..];
+            let (prefix, namespace) = rest.split_once(':')?;
+            let namespace = namespace.trim();
+            let namespace = namespace.strip_prefix('<')?.strip_suffix('>')?;
+            Some((prefix.trim().to_string(), namespace.to_string()))
+        })
+        .collect()
+}
+
+fn topquadrant_namespace_aliases(prefixes: &[(String, String)]) -> Vec<(String, String)> {
+    const STANDARD_PREFIXES: &[&str] = &["rdf", "rdfs", "xsd", "owl", "sh"];
+    const PREFERRED_NAMESPACES: &[&str] = &[
+        "http://data.ashrae.org/standard223#",
+        "http://qudt.org/schema/qudt/",
+    ];
+
+    let mut namespaces: Vec<String> = prefixes
+        .iter()
+        .filter(|(prefix, _)| !STANDARD_PREFIXES.contains(&prefix.as_str()))
+        .map(|(_, namespace)| namespace.clone())
+        .collect();
+    namespaces.dedup();
+    let mut ordered = Vec::new();
+    for namespace in PREFERRED_NAMESPACES {
+        if namespaces.iter().any(|candidate| candidate == namespace) {
+            ordered.push((*namespace).to_string());
+        }
+    }
+    namespaces.sort();
+    for namespace in namespaces {
+        if !ordered.iter().any(|existing| existing == &namespace) {
+            ordered.push(namespace);
+        }
+    }
+    ordered
+        .into_iter()
+        .enumerate()
+        .map(|(idx, namespace)| (format!("ns{}", idx + 1), namespace))
+        .collect()
+}
+
+pub(crate) fn format_term_with_topquadrant_prefixes(
+    term: &Term,
+    prefixes: &[(String, String)],
+) -> String {
+    match term {
+        Term::NamedNode(nn) => {
+            let iri = nn.as_str();
+            let mut best_match: Option<(String, String)> = None;
+            for (prefix, namespace) in topquadrant_namespace_aliases(prefixes) {
+                if iri.starts_with(&namespace) {
+                    match best_match {
+                        Some((_, ref best_ns)) if best_ns.len() >= namespace.len() => {}
+                        _ => best_match = Some((prefix, namespace)),
+                    }
+                }
+            }
+            if let Some((prefix, namespace)) = best_match {
+                let local = &iri[namespace.len()..];
+                if !local.is_empty() {
+                    return format!("{}:{}", prefix, local);
+                }
+            }
+            format!("<{}>", iri)
+        }
+        Term::Literal(lit) => lit.value().to_string(),
+        _ => format_term_for_label(term),
+    }
 }
 
 pub fn instantiate_message_terms(
@@ -1325,5 +1404,60 @@ mod tests {
             instantiate_message_terms(&templates, &[("x".into(), "42".into())]);
         assert_eq!(first.as_deref(), Some("Value 42"));
         assert_eq!(instantiated.len(), 2);
+    }
+
+    #[test]
+    fn message_instantiation_handles_dollar_placeholders() {
+        let templates = vec![Term::Literal(Literal::from("Value {$this}"))];
+        let (first, instantiated) =
+            instantiate_message_terms(&templates, &[("this".into(), "ns1:Foo".into())]);
+        assert_eq!(first.as_deref(), Some("Value ns1:Foo"));
+        assert_eq!(
+            instantiated[0],
+            Term::Literal(Literal::from("Value ns1:Foo"))
+        );
+    }
+
+    #[test]
+    fn format_term_with_topquadrant_prefixes_uses_ns_aliases() {
+        let term = Term::NamedNode(NamedNode::new_unchecked(
+            "http://data.ashrae.org/standard223#EnumerationKind-AlarmStatus",
+        ));
+        let prefixes = vec![
+            ("rdf".to_string(), "http://www.w3.org/1999/02/22-rdf-syntax-ns#".to_string()),
+            ("s223".to_string(), "http://data.ashrae.org/standard223#".to_string()),
+            ("qudt".to_string(), "http://qudt.org/schema/qudt/".to_string()),
+        ];
+        assert_eq!(
+            format_term_with_topquadrant_prefixes(&term, &prefixes),
+            "ns1:EnumerationKind-AlarmStatus"
+        );
+    }
+
+    #[test]
+    fn format_term_with_topquadrant_prefixes_prefers_s223_then_qudt_schema() {
+        let term = Term::NamedNode(NamedNode::new_unchecked("http://qudt.org/schema/qudt/Unit"));
+        let prefixes = vec![
+            (
+                "quantitykind".to_string(),
+                "http://qudt.org/vocab/quantitykind/".to_string(),
+            ),
+            ("s223".to_string(), "http://data.ashrae.org/standard223#".to_string()),
+            ("unit".to_string(), "http://qudt.org/vocab/unit/".to_string()),
+            ("qudt".to_string(), "http://qudt.org/schema/qudt/".to_string()),
+        ];
+        assert_eq!(
+            format_term_with_topquadrant_prefixes(&term, &prefixes),
+            "ns2:Unit"
+        );
+    }
+
+    #[test]
+    fn format_term_with_topquadrant_prefixes_falls_back_to_iri() {
+        let term = Term::NamedNode(NamedNode::new_unchecked("urn:nrel_example/nrel00000000"));
+        assert_eq!(
+            format_term_with_topquadrant_prefixes(&term, &[]),
+            "<urn:nrel_example/nrel00000000>"
+        );
     }
 }

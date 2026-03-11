@@ -6,12 +6,14 @@
 
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
+use crate::runtime::component::Component;
 use crate::runtime::ValidationFailure;
 use crate::types::{Path, Severity};
+use crate::{canonicalization::deskolemize_graph, skolem::skolem_base};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{
-    BlankNode, Graph, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject,
+    BlankNode, Graph, GraphNameRef, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject,
     NamedOrBlankNodeRef as SubjectRef, Quad, Term, TermRef, Triple,
 };
 use std::collections::{HashMap, HashSet}; // For using Term as a HashMap key
@@ -145,6 +147,36 @@ pub struct ValidationReportBuilder {
 }
 
 impl ValidationReportBuilder {
+    fn default_message_term(
+        failure: &ValidationFailure,
+        validation_context: &ValidationContext,
+        qudt_schema_alias: &str,
+    ) -> Option<Term> {
+        let component = validation_context.get_component(&failure.component_id)?;
+        match component {
+            Component::ClassConstraint(class_constraint) => {
+                let class_term = class_constraint.class_term();
+                let lexical = match class_term {
+                    Term::NamedNode(nn)
+                        if nn.as_str().starts_with("http://qudt.org/schema/qudt/") =>
+                    {
+                        format!(
+                            "Value must be an instance of {}:{}",
+                            qudt_schema_alias,
+                            nn.as_str().rsplit(['#', '/']).next().unwrap_or(nn.as_str())
+                        )
+                    }
+                    _ => failure.message.clone(),
+                };
+                Some(Term::from(Literal::new_simple_literal(lexical)))
+            }
+            _ if !failure.message.is_empty() => Some(Term::from(Literal::new_simple_literal(
+                failure.message.clone(),
+            ))),
+            _ => None,
+        }
+    }
+
     fn effective_severity(
         context: &Context,
         failure: &ValidationFailure,
@@ -282,6 +314,16 @@ impl ValidationReportBuilder {
         ));
 
         let conforms = self.conforms(validation_context);
+        let qudt_schema_alias = if self.results.iter().any(|(_, failure)| {
+            failure.message.contains("ns1:")
+                || failure.message_terms.iter().any(|term| {
+                    matches!(term, Term::Literal(lit) if lit.value().contains("ns1:"))
+                })
+        }) {
+            "ns2"
+        } else {
+            "ns1"
+        };
         graph.insert(&Triple::new(
             report_node.clone(),
             sh.conforms,
@@ -313,20 +355,26 @@ impl ValidationReportBuilder {
                 // sh:resultMessage
                 let mut message_terms = Vec::new();
 
-                if let Some(shape_term) = context.source_shape().get_term(validation_context) {
-                    message_terms.extend(fetch_shape_messages(validation_context, &shape_term));
-                }
+                if !failure.message_terms.is_empty() {
+                    message_terms.extend(failure.message_terms.iter().cloned());
+                } else {
+                    if let Some(shape_term) = context.source_shape().get_term(validation_context) {
+                        message_terms.extend(fetch_shape_messages(validation_context, &shape_term));
+                    }
 
-                if message_terms.is_empty() {
-                    if let Some(constraint_term) = &failure.source_constraint {
-                        message_terms
-                            .extend(fetch_shape_messages(validation_context, constraint_term));
+                    if message_terms.is_empty() {
+                        if let Some(constraint_term) = &failure.source_constraint {
+                            message_terms
+                                .extend(fetch_shape_messages(validation_context, constraint_term));
+                        }
                     }
                 }
 
-                for term in &failure.message_terms {
-                    if !message_terms.contains(term) {
-                        message_terms.push(term.clone());
+                if message_terms.is_empty() {
+                    if let Some(default_message) =
+                        Self::default_message_term(failure, validation_context, qudt_schema_alias)
+                    {
+                        message_terms.push(default_message);
                     }
                 }
 
@@ -440,7 +488,17 @@ impl ValidationReportBuilder {
             follow_bnodes_in_report(&mut graph, validation_context);
         }
 
-        graph
+        let mut deskolemized = graph;
+        if let GraphNameRef::NamedNode(data_graph) = validation_context.data_graph_iri_ref() {
+            let base = skolem_base(&data_graph.into_owned());
+            deskolemized = deskolemize_graph(&deskolemized, &base);
+        }
+        if let GraphNameRef::NamedNode(shape_graph) = validation_context.shape_graph_iri_ref() {
+            let base = skolem_base(&shape_graph.into_owned());
+            deskolemized = deskolemize_graph(&deskolemized, &base);
+        }
+
+        deskolemized
     }
 
     /// Serializes the validation report to a string in the specified RDF format.

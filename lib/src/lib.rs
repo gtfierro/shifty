@@ -695,6 +695,11 @@ impl ValidatorBuilder {
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
 
+        if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
+            let root_shape_graph = std::slice::from_ref(&shapes_graph_iri);
+            Self::union_shapes_into_data_graph(&store, root_shape_graph, &data_graph_iri)?;
+        }
+
         let data_skolem_base = if skolemize_data {
             Some(Self::skolem_base(&data_graph_iri))
         } else {
@@ -763,14 +768,6 @@ impl ValidatorBuilder {
             })?;
             (model, Arc::new(shape_ir))
         };
-
-        if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
-            Self::union_shapes_into_data_graph(
-                &model.store,
-                &shape_graphs_for_union,
-                &data_graph_iri,
-            )?;
-        }
 
         if optimize_store {
             info!(
@@ -2621,6 +2618,59 @@ ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
         assert!(
             store_has_graph(store, &imported_graph),
             "rewriting the root graph should preserve imported graphs in the working store"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn shapes_data_union_excludes_imported_shape_graphs() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_shapes_union_excludes_imports")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        let imported_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:UnitClass a <http://www.w3.org/2000/01/rdf-schema#Class> .
+ex:u a ex:UnitClass .
+"#;
+        fs::write(&imported_path, imported_ttl)?;
+        let imported_url = format!("file://{}", imported_path.display());
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<urn:shifty:test:root> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:Shape a sh:NodeShape ;\n\
+    sh:targetNode ex:s ;\n\
+    sh:property [\n\
+        sh:path ex:p ;\n\
+        sh:class ex:UnitClass\n\
+    ] .\n"
+        );
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:u .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let report = validator.validate();
+        assert!(
+            !report.conforms(),
+            "shapes-data union should not copy imported ontology graphs into the data graph"
         );
 
         fs::remove_dir_all(&temp_dir)?;

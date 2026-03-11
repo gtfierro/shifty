@@ -36,6 +36,10 @@ impl ClassConstraintComponent {
             query: query_str,
         }
     }
+
+    pub fn class_term(&self) -> &Term {
+        &self.class
+    }
 }
 
 impl GraphvizOutput for ClassConstraintComponent {
