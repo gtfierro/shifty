@@ -23,6 +23,7 @@ produce equivalent validation reports under canonical SHACL-report comparison.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import importlib.metadata
 import importlib.util
 import itertools
@@ -94,6 +95,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help="Timeout for each subprocess command.",
+    )
+    parser.add_argument(
+        "--follow-bnodes",
+        action="store_true",
+        help="Ask Shifty report generators to include CBDs for blank nodes referenced in reports.",
     )
     parser.add_argument(
         "--log-level",
@@ -298,23 +304,23 @@ def run_shifty_report(
     *,
     shapes_file: Path,
     data_file: Path,
+    follow_bnodes: bool,
     timeout_seconds: float | None,
 ) -> rdflib.Graph:
-    result = run_checked(
-        [
-            "./target/release/shifty",
-            "validate",
-            "--shapes-file",
-            str(shapes_file),
-            "--data-file",
-            str(data_file),
-            "--run-inference",
-            "--format",
-            "turtle",
-        ],
-        "shifty validate",
-        timeout_seconds,
-    )
+    command = [
+        "./target/release/shifty",
+        "validate",
+        "--shapes-file",
+        str(shapes_file),
+        "--data-file",
+        str(data_file),
+        "--run-inference",
+        "--format",
+        "turtle",
+    ]
+    if follow_bnodes:
+        command.append("--follow-bnodes")
+    result = run_checked(command, "shifty validate", timeout_seconds)
     return parse_report_text(result.stdout, "shifty")
 
 
@@ -322,23 +328,23 @@ def run_shifty_pre_report(
     *,
     shacl_ir_file: Path,
     data_file: Path,
+    follow_bnodes: bool,
     timeout_seconds: float | None,
 ) -> rdflib.Graph:
-    result = run_checked(
-        [
-            "./target/release/shifty",
-            "validate",
-            "--shacl-ir",
-            str(shacl_ir_file),
-            "--data-file",
-            str(data_file),
-            "--run-inference",
-            "--format",
-            "turtle",
-        ],
-        "shifty+pre validate",
-        timeout_seconds,
-    )
+    command = [
+        "./target/release/shifty",
+        "validate",
+        "--shacl-ir",
+        str(shacl_ir_file),
+        "--data-file",
+        str(data_file),
+        "--run-inference",
+        "--format",
+        "turtle",
+    ]
+    if follow_bnodes:
+        command.append("--follow-bnodes")
+    result = run_checked(command, "shifty+pre validate", timeout_seconds)
     return parse_report_text(result.stdout, "shifty+pre")
 
 
@@ -346,13 +352,14 @@ def run_shifty_compile_report(
     *,
     compiled_binary: Path,
     data_file: Path,
+    follow_bnodes: bool,
     timeout_seconds: float | None,
 ) -> rdflib.Graph:
-    result = run_checked(
-        [str(compiled_binary), str(data_file)],
-        "shifty+compile validate",
-        timeout_seconds,
-    )
+    command = [str(compiled_binary)]
+    if follow_bnodes:
+        command.append("--follow-bnodes")
+    command.append(str(data_file))
+    result = run_checked(command, "shifty+compile validate", timeout_seconds)
     return parse_report_text(result.stdout, "shifty+compile")
 
 
@@ -399,10 +406,13 @@ def compare_pairwise(
     reports: Dict[str, rdflib.Graph], diff_root: Path
 ) -> Dict[str, Dict[str, bool]]:
     import rdflib
+    scripts_dir = Path(__file__).resolve().parent
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
 
     from compare_validation_reports import (
         canonical_report_signature,
-        graph_report_signature_counter,
+        canonical_result_signature,
         summarize_signature,
         stable_json,
     )
@@ -420,6 +430,33 @@ def compare_pairwise(
             grouped.setdefault(signature, []).append(report_node)
         return grouped
 
+    def report_header_counter(graph: rdflib.Graph) -> Counter[str]:
+        counter: Counter[str] = Counter()
+        for report_node in set(graph.subjects(RDF.type, SH.ValidationReport)):
+            header_signature = stable_json(
+                {
+                    "report_triples": canonical_report_signature(graph, report_node)[
+                        "report_triples"
+                    ]
+                }
+            )
+            counter[header_signature] += 1
+        return counter
+
+    def result_nodes_by_signature(graph: rdflib.Graph) -> Dict[str, List[Identifier]]:
+        grouped: Dict[str, List[Identifier]] = {}
+        for result_node in set(graph.subjects(RDF.type, SH.ValidationResult)):
+            signature = stable_json(canonical_result_signature(graph, result_node))
+            grouped.setdefault(signature, []).append(result_node)
+        return grouped
+
+    def result_signature_counter(graph: rdflib.Graph) -> Counter[str]:
+        counter: Counter[str] = Counter()
+        for result_node in set(graph.subjects(RDF.type, SH.ValidationResult)):
+            signature = stable_json(canonical_result_signature(graph, result_node))
+            counter[signature] += 1
+        return counter
+
     def add_reachable_subgraph(
         source_graph: rdflib.Graph,
         source_node: Identifier,
@@ -434,7 +471,23 @@ def compare_pairwise(
             if isinstance(obj, BNode):
                 add_reachable_subgraph(source_graph, obj, destination_graph, visited)
 
-    def build_diff_graph(
+    def add_report_header(
+        source_graph: rdflib.Graph,
+        report_node: Identifier,
+        destination_graph: rdflib.Graph,
+        copied_headers: set[Identifier],
+    ) -> None:
+        if report_node in copied_headers:
+            return
+        copied_headers.add(report_node)
+        for predicate, obj in source_graph.predicate_objects(report_node):
+            if predicate == SH.result:
+                continue
+            destination_graph.add((report_node, predicate, obj))
+            if isinstance(obj, BNode):
+                add_reachable_subgraph(source_graph, obj, destination_graph, visited=set())
+
+    def build_result_diff_graph(
         source_graph: rdflib.Graph,
         signature_counter: Dict[str, int],
     ) -> rdflib.Graph:
@@ -442,22 +495,28 @@ def compare_pairwise(
         for prefix, namespace in source_graph.namespaces():
             diff_graph.bind(prefix, namespace)
 
-        grouped_nodes = report_nodes_by_signature(source_graph)
+        grouped_nodes = result_nodes_by_signature(source_graph)
+        copied_headers: set[Identifier] = set()
         for signature, count in signature_counter.items():
             nodes = grouped_nodes.get(signature, [])
-            for report_node in nodes[:count]:
+            for result_node in nodes[:count]:
+                for report_node in source_graph.subjects(SH.result, result_node):
+                    add_report_header(source_graph, report_node, diff_graph, copied_headers)
+                    diff_graph.add((report_node, SH.result, result_node))
                 add_reachable_subgraph(
                     source_graph,
-                    report_node,
+                    result_node,
                     diff_graph,
                     visited=set(),
                 )
         return diff_graph
 
     for left, right in itertools.combinations(sorted(reports.keys()), 2):
-        left_counter = graph_report_signature_counter(reports[left])
-        right_counter = graph_report_signature_counter(reports[right])
-        equal = left_counter == right_counter
+        left_headers = report_header_counter(reports[left])
+        right_headers = report_header_counter(reports[right])
+        left_results = result_signature_counter(reports[left])
+        right_results = result_signature_counter(reports[right])
+        equal = left_headers == right_headers and left_results == right_results
         matrix[left][right] = equal
         matrix[right][left] = equal
         matrix[left][left] = True
@@ -468,8 +527,8 @@ def compare_pairwise(
             left_name = sanitize_name(left)
             right_name = sanitize_name(right)
 
-            missing_from_right = left_counter - right_counter
-            missing_from_left = right_counter - left_counter
+            missing_from_right = left_results - right_results
+            missing_from_left = right_results - left_results
 
             def counter_entries(counter: Dict[str, int]) -> List[Dict[str, object]]:
                 entries: List[Dict[str, object]] = []
@@ -485,24 +544,26 @@ def compare_pairwise(
 
             only_left_path = pair_dir / f"only_{left_name}.ttl"
             only_right_path = pair_dir / f"only_{right_name}.ttl"
-            build_diff_graph(reports[left], missing_from_right).serialize(
+            build_result_diff_graph(reports[left], missing_from_right).serialize(
                 destination=only_left_path,
                 format="turtle",
             )
-            build_diff_graph(reports[right], missing_from_left).serialize(
+            build_result_diff_graph(reports[right], missing_from_left).serialize(
                 destination=only_right_path,
                 format="turtle",
             )
 
             comparison = {
-                "algorithm": "canonical-validation-report-signatures",
+                "algorithm": "canonical-report-header-plus-result-signatures",
                 "left": left,
                 "right": right,
                 "equal": False,
-                "left_total_signatures": sum(left_counter.values()),
-                "right_total_signatures": sum(right_counter.values()),
-                "only_left_signature_count": sum(missing_from_right.values()),
-                "only_right_signature_count": sum(missing_from_left.values()),
+                "left_report_header_count": sum(left_headers.values()),
+                "right_report_header_count": sum(right_headers.values()),
+                "left_total_results": sum(left_results.values()),
+                "right_total_results": sum(right_results.values()),
+                "only_left_result_count": sum(missing_from_right.values()),
+                "only_right_result_count": sum(missing_from_left.values()),
                 "only_left_file": str(only_left_path),
                 "only_right_file": str(only_right_path),
             }
@@ -515,19 +576,20 @@ def compare_pairwise(
             normalized_left_path = pair_dir / f"normalized_{left_name}.json"
             normalized_right_path = pair_dir / f"normalized_{right_name}.json"
             normalized_left_path.write_text(
-                json.dumps(counter_entries(left_counter), indent=2, sort_keys=True),
+                json.dumps(counter_entries(left_results), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
             normalized_right_path.write_text(
-                json.dumps(counter_entries(right_counter), indent=2, sort_keys=True),
+                json.dumps(counter_entries(right_results), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
 
             summary_lines = [
                 f"Pair: {left} vs {right}",
-                "Algorithm: canonical-validation-report-signatures",
+                "Algorithm: canonical-report-header-plus-result-signatures",
                 "",
-                f"Total signatures: {left}={sum(left_counter.values())}, {right}={sum(right_counter.values())}",
+                f"Report headers: {left}={sum(left_headers.values())}, {right}={sum(right_headers.values())}",
+                f"Total results: {left}={sum(left_results.values())}, {right}={sum(right_results.values())}",
                 f"Only in {left}: {sum(missing_from_right.values())}",
                 f"Only in {right}: {sum(missing_from_left.values())}",
                 "",
@@ -557,6 +619,7 @@ def run_model(
     data_file: Path,
     shacl_ir_file: Path,
     compiled_binary: Path,
+    follow_bnodes: bool,
     timeout_seconds: float | None,
     model_out_dir: Path,
 ) -> Tuple[bool, Dict[str, Dict[str, bool]]]:
@@ -573,16 +636,19 @@ def run_model(
     reports["shifty"] = run_shifty_report(
         shapes_file=shapes_file,
         data_file=data_file,
+        follow_bnodes=follow_bnodes,
         timeout_seconds=timeout_seconds,
     )
     reports["shifty+pre"] = run_shifty_pre_report(
         shacl_ir_file=shacl_ir_file,
         data_file=data_file,
+        follow_bnodes=follow_bnodes,
         timeout_seconds=timeout_seconds,
     )
     reports["shifty+compile"] = run_shifty_compile_report(
         compiled_binary=compiled_binary,
         data_file=data_file,
+        follow_bnodes=follow_bnodes,
         timeout_seconds=timeout_seconds,
     )
 
@@ -637,6 +703,7 @@ def main() -> int:
         data_file=data_file,
         shacl_ir_file=shacl_ir_file,
         compiled_binary=compiled_binary,
+        follow_bnodes=args.follow_bnodes,
         timeout_seconds=args.timeout_seconds,
         model_out_dir=out_dir,
     )

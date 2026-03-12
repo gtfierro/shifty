@@ -236,6 +236,9 @@ fn validators_use_expected_graph_scope() {
     assert!(validators_property.contains("NamedNode::new(SHAPE_GRAPH)"));
     assert!(validators_property.contains("for graph in validation_graphs(data_graph)?"));
     assert!(validators_property.contains("fn sort_and_dedup_terms("));
+    assert!(validators_property.contains("Some(subject_ref)"));
+    assert!(validators_property.contains("Some(oxigraph::model::vocab::rdf::TYPE)"));
+    assert!(validators_property.contains("None,"));
 
     let validators_node = generated
         .files
@@ -245,7 +248,6 @@ fn validators_use_expected_graph_scope() {
         .expect("validators_node module must exist");
     assert!(validators_node.contains("fn build_target_class_index("));
     assert!(validators_node.contains("http://www.w3.org/2000/01/rdf-schema#subClassOf"));
-    assert!(validators_node.contains("Some(data_graph_ref)"));
 }
 
 #[test]

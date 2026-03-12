@@ -1335,26 +1335,24 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             term: &oxigraph::model::Term,
             class_iri: &str,
         ) -> Result<bool, String> {
+            let _ = data_graph;
             let Some(subject_ref) = subject_ref_from_term(term) else {
                 return Ok(false);
             };
 
             let mut direct_types: Vec<oxigraph::model::NamedNode> = Vec::new();
-            for graph in validation_graphs(data_graph)? {
-                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
-                for quad in store.quads_for_pattern(
-                    Some(subject_ref),
-                    Some(oxigraph::model::vocab::rdf::TYPE),
-                    None,
-                    Some(graph_ref),
-                ) {
-                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
-                    if let oxigraph::model::Term::NamedNode(node) = quad.object {
-                        if node.as_str() == class_iri {
-                            return Ok(true);
-                        }
-                        direct_types.push(node);
+            for quad in store.quads_for_pattern(
+                Some(subject_ref),
+                Some(oxigraph::model::vocab::rdf::TYPE),
+                None,
+                None,
+            ) {
+                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                if let oxigraph::model::Term::NamedNode(node) = quad.object {
+                    if node.as_str() == class_iri {
+                        return Ok(true);
                     }
+                    direct_types.push(node);
                 }
             }
 
@@ -1376,21 +1374,18 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
 
                 let current_ref = oxigraph::model::NamedOrBlankNodeRef::NamedNode(current.as_ref());
-                for graph in validation_graphs(data_graph)? {
-                    let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
-                    for quad in store.quads_for_pattern(
-                        Some(current_ref),
-                        Some(sub_class_of),
-                        None,
-                        Some(graph_ref),
-                    ) {
-                        let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
-                        if let oxigraph::model::Term::NamedNode(superclass) = quad.object {
-                            if superclass.as_str() == class_iri {
-                                return Ok(true);
-                            }
-                            queue.push_back(superclass);
+                for quad in store.quads_for_pattern(
+                    Some(current_ref),
+                    Some(sub_class_of),
+                    None,
+                    None,
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    if let oxigraph::model::Term::NamedNode(superclass) = quad.object {
+                        if superclass.as_str() == class_iri {
+                            return Ok(true);
                         }
+                        queue.push_back(superclass);
                     }
                 }
             }

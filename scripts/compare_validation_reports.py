@@ -131,7 +131,31 @@ def canonical_resource(
 
 def canonical_result_signature(graph: rdflib.Graph, result_node: Identifier) -> dict[str, Any]:
     # Result nodes are compared by outgoing content only, not by node identity.
-    return canonical_resource(graph, result_node, frozenset())
+    #
+    # `sh:resultMessage` is intentionally normalized to message presence rather than
+    # literal content. Different validators often choose different prefix aliases
+    # inside human-readable messages while still reporting the same failure.
+    visited = frozenset({result_node})
+    triples: list[list[dict[str, Any]]] = []
+    saw_result_message = False
+    for predicate, obj in graph.predicate_objects(result_node):
+        predicate_repr = canonical_term(predicate)
+        if predicate == SH.resultMessage:
+            saw_result_message = True
+            continue
+        object_repr = canonical_object(graph, obj, visited)
+        triples.append([predicate_repr, object_repr])
+
+    if saw_result_message:
+        triples.append(
+            [
+                canonical_term(SH.resultMessage),
+                {"message_present": True},
+            ]
+        )
+
+    triples.sort(key=stable_json)
+    return {"triples": triples}
 
 
 def canonical_report_signature(graph: rdflib.Graph, report_node: Identifier) -> dict[str, Any]:
