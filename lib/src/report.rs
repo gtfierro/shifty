@@ -316,9 +316,10 @@ impl ValidationReportBuilder {
         let conforms = self.conforms(validation_context);
         let qudt_schema_alias = if self.results.iter().any(|(_, failure)| {
             failure.message.contains("ns1:")
-                || failure.message_terms.iter().any(|term| {
-                    matches!(term, Term::Literal(lit) if lit.value().contains("ns1:"))
-                })
+                || failure
+                    .message_terms
+                    .iter()
+                    .any(|term| matches!(term, Term::Literal(lit) if lit.value().contains("ns1:")))
         }) {
             "ns2"
         } else {

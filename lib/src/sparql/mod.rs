@@ -1424,9 +1424,18 @@ mod tests {
             "http://data.ashrae.org/standard223#EnumerationKind-AlarmStatus",
         ));
         let prefixes = vec![
-            ("rdf".to_string(), "http://www.w3.org/1999/02/22-rdf-syntax-ns#".to_string()),
-            ("s223".to_string(), "http://data.ashrae.org/standard223#".to_string()),
-            ("qudt".to_string(), "http://qudt.org/schema/qudt/".to_string()),
+            (
+                "rdf".to_string(),
+                "http://www.w3.org/1999/02/22-rdf-syntax-ns#".to_string(),
+            ),
+            (
+                "s223".to_string(),
+                "http://data.ashrae.org/standard223#".to_string(),
+            ),
+            (
+                "qudt".to_string(),
+                "http://qudt.org/schema/qudt/".to_string(),
+            ),
         ];
         assert_eq!(
             format_term_with_topquadrant_prefixes(&term, &prefixes),
@@ -1442,9 +1451,18 @@ mod tests {
                 "quantitykind".to_string(),
                 "http://qudt.org/vocab/quantitykind/".to_string(),
             ),
-            ("s223".to_string(), "http://data.ashrae.org/standard223#".to_string()),
-            ("unit".to_string(), "http://qudt.org/vocab/unit/".to_string()),
-            ("qudt".to_string(), "http://qudt.org/schema/qudt/".to_string()),
+            (
+                "s223".to_string(),
+                "http://data.ashrae.org/standard223#".to_string(),
+            ),
+            (
+                "unit".to_string(),
+                "http://qudt.org/vocab/unit/".to_string(),
+            ),
+            (
+                "qudt".to_string(),
+                "http://qudt.org/schema/qudt/".to_string(),
+            ),
         ];
         assert_eq!(
             format_term_with_topquadrant_prefixes(&term, &prefixes),
