@@ -2038,12 +2038,13 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::canonicalization::are_isomorphic;
     use crate::named_nodes::SHACL;
     use crate::runtime::Component;
     use crate::sparql::validate_prebound_variable_usage;
     use oxigraph::model::vocab::rdf;
     use oxigraph::model::{
-        GraphName, GraphNameRef, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
+        Graph, GraphName, GraphNameRef, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
     };
     use std::error::Error;
     use std::fs;
@@ -2106,6 +2107,26 @@ mod tests {
     fn validator_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn extract_result_subgraph(report_graph: &Graph, subject: NamedOrBlankNode) -> Graph {
+        let mut subgraph = Graph::new();
+        let mut queue = vec![subject];
+        let mut visited = HashSet::new();
+
+        while let Some(node) = queue.pop() {
+            if !visited.insert(node.clone()) {
+                continue;
+            }
+            for triple in report_graph.triples_for_subject(node.as_ref()) {
+                subgraph.insert(triple);
+                if let TermRef::BlankNode(bn) = triple.object {
+                    queue.push(NamedOrBlankNode::from(bn.into_owned()));
+                }
+            }
+        }
+
+        subgraph
     }
 
     #[test]
@@ -2667,10 +2688,76 @@ ex:s ex:p ex:u .
             .with_do_imports(true)
             .build()?;
 
+        let imported_type_quad = Quad::new(
+            NamedNode::new("http://example.com/ns#u")?,
+            rdf::TYPE,
+            NamedNode::new("http://example.com/ns#UnitClass")?,
+            GraphName::NamedNode(validator.context.data_graph_iri.clone()),
+        );
+        let data_quads = validator.data_graph_quads()?;
+        assert!(
+            !data_quads.contains(&imported_type_quad),
+            "shapes-data union should not copy imported ontology graphs into the data graph"
+        );
+
         let report = validator.validate();
         assert!(
-            !report.conforms(),
-            "shapes-data union should not copy imported ontology graphs into the data graph"
+            report.conforms(),
+            "validation should still see imported class typing from the merged store"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn imported_class_types_satisfy_class_constraints() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_imported_class_types")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        let imported_ttl = r#"@prefix ex: <http://example.com/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:UnitClass a rdfs:Class .
+ex:ImportedUnit a ex:UnitClass .
+"#;
+        fs::write(&imported_path, imported_ttl)?;
+        let imported_url = format!("file://{}", imported_path.display());
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<urn:shifty:test:root> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:Shape a sh:NodeShape ;\n\
+    sh:targetNode ex:s ;\n\
+    sh:property [\n\
+        sh:path ex:p ;\n\
+        sh:class ex:UnitClass\n\
+    ] .\n"
+        );
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:ImportedUnit .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let report = validator.validate();
+        assert!(
+            report.conforms(),
+            "sh:class should accept values typed in imported ontology graphs"
         );
 
         fs::remove_dir_all(&temp_dir)?;
@@ -2789,6 +2876,69 @@ ex:Alice a ex:Person ;
                 }
             }),
             "Expected substituted result message literal"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn report_validation_results_are_unique_by_isomorphism() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_report_unique_results")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:property [
+        sh:path ex:name ;
+        sh:minCount 1 ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing .
+ex:Bob a ex:Thing .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let report = validator.validate();
+        assert!(!report.conforms(), "Expected validation to fail");
+
+        let graph = report.to_graph();
+        let sh = SHACL::new();
+        let result_nodes: Vec<NamedOrBlankNode> = graph
+            .iter()
+            .filter(|triple| {
+                triple.predicate == rdf::TYPE
+                    && triple.object == TermRef::NamedNode(sh.validation_result)
+            })
+            .map(|triple| triple.subject.into_owned())
+            .collect();
+        assert_eq!(
+            result_nodes.len(),
+            2,
+            "Expected both named-node violations to be reported"
+        );
+        let result_graphs: Vec<Graph> = result_nodes
+            .into_iter()
+            .map(|node| extract_result_subgraph(&graph, node))
+            .collect();
+        assert!(
+            !are_isomorphic(&result_graphs[0], &result_graphs[1]),
+            "Validation results should remain unique by isomorphism"
         );
 
         fs::remove_dir_all(&temp_dir)?;

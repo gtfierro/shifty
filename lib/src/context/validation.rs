@@ -867,22 +867,19 @@ impl ValidationContext {
             Ok(())
         })?;
 
-        self.for_each_quad_for_pattern(
-            None,
-            Some(rdf::TYPE),
-            None,
-            Some(self.data_graph_iri_ref()),
-            |quad| {
-                let subject = term_from_subject(&quad.subject);
-                let class = term_from_term_ref(quad.object.as_ref());
-                let (Some(subject), Some(class)) = (subject, class) else {
-                    return Ok(());
-                };
-                let class_id = intern(class);
-                subject_type_ids.entry(subject).or_default().push(class_id);
-                Ok(())
-            },
-        )?;
+        // `sh:class` checks must see type assertions from the merged validation store,
+        // not only the root data graph. Imported ontologies like QUDT often carry the
+        // rdf:type facts for values referenced from the data graph.
+        self.for_each_quad_for_pattern(None, Some(rdf::TYPE), None, None, |quad| {
+            let subject = term_from_subject(&quad.subject);
+            let class = term_from_term_ref(quad.object.as_ref());
+            let (Some(subject), Some(class)) = (subject, class) else {
+                return Ok(());
+            };
+            let class_id = intern(class);
+            subject_type_ids.entry(subject).or_default().push(class_id);
+            Ok(())
+        })?;
 
         let class_count = next_id;
         let mut parents: Vec<Vec<usize>> = vec![Vec::new(); class_count];
