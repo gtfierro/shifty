@@ -11,7 +11,7 @@ import pyshacl
 from ontoenv import OntoEnv
 import sys
 
-env = OntoEnv(temporary=True, no_search=True)
+env = OntoEnv(temporary=True)
 model_graph = Graph().parse(sys.argv[1], format="turtle")
 
 # add a local copy of 223p.ttl to the environment

@@ -88,6 +88,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             }
         }
 
+        fn skolem_base(iri: &str) -> String {
+            format!("{}{}", iri.trim_end_matches('/'), "/.sk/")
+        }
+
         fn build_path_list_from_specs(
             items: &[ReportPathSpec],
             graph: &mut oxigraph::model::Graph,
@@ -423,6 +427,57 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             out
         }
 
+        fn is_skolem_term(term: &oxigraph::model::Term) -> bool {
+            matches!(
+                term,
+                oxigraph::model::Term::NamedNode(node) if node.as_str().contains("/.sk/")
+            )
+        }
+
+        fn copy_shape_term_subgraph_from_store(
+            store: &oxigraph::store::Store,
+            root: &oxigraph::model::Term,
+            report_graph: &mut oxigraph::model::Graph,
+        ) {
+            let Ok(shape_graph) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) else {
+                return;
+            };
+            let graph_ref = oxigraph::model::GraphNameRef::NamedNode(shape_graph.as_ref());
+            let mut queue = std::collections::VecDeque::from([root.clone()]);
+            let mut seen = std::collections::HashSet::new();
+
+            while let Some(term) = queue.pop_front() {
+                if !seen.insert(term.clone()) {
+                    continue;
+                }
+                let subject = match &term {
+                    oxigraph::model::Term::NamedNode(node) => {
+                        oxigraph::model::NamedOrBlankNodeRef::NamedNode(node.as_ref())
+                    }
+                    oxigraph::model::Term::BlankNode(node) => {
+                        oxigraph::model::NamedOrBlankNodeRef::BlankNode(node.as_ref())
+                    }
+                    _ => continue,
+                };
+
+                for quad in store.quads_for_pattern(Some(subject), None, None, Some(graph_ref)) {
+                    let Ok(quad) = quad else {
+                        continue;
+                    };
+                    report_graph.insert(&oxigraph::model::Triple::new(
+                        quad.subject,
+                        quad.predicate,
+                        quad.object.clone(),
+                    ));
+                    if matches!(quad.object, oxigraph::model::Term::BlankNode(_))
+                        || is_skolem_term(&quad.object)
+                    {
+                        queue.push_back(quad.object);
+                    }
+                }
+            }
+        }
+
         fn shape_severity_from_store(
             store: &oxigraph::store::Store,
             shape_iri: &str,
@@ -456,6 +511,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         pub fn render_violations_to_turtle(
             violations: &[Violation],
             store: &oxigraph::store::Store,
+            follow_bnodes: bool,
         ) -> Result<String, String> {
             let mut graph = oxigraph::model::Graph::new();
             let report_node: oxigraph::model::NamedOrBlankNode =
@@ -477,6 +533,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 
             for violation in violations {
                 let source_shape = shape_iri(violation.shape_id);
+                let source_shape_term = shape_term_for_id(violation.shape_id);
                 let result_node: oxigraph::model::NamedOrBlankNode =
                     oxigraph::model::BlankNode::default().into();
                 graph.insert(&oxigraph::model::Triple::new(
@@ -595,7 +652,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     ));
                 }
 
-                if !source_shape.is_empty() {
+                if let Some(shape_term) = source_shape_term.clone() {
+                    graph.insert(&oxigraph::model::Triple::new(
+                        result_node.clone(),
+                        oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#sourceShape"),
+                        shape_term.clone(),
+                    ));
+                    if follow_bnodes {
+                        copy_shape_term_subgraph_from_store(store, &shape_term, &mut graph);
+                    }
+                } else if !source_shape.is_empty() {
                     if let Ok(shape_node) = oxigraph::model::NamedNode::new(source_shape) {
                         graph.insert(&oxigraph::model::Triple::new(
                             result_node.clone(),
@@ -611,8 +677,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         oxigraph::model::NamedNode::new_unchecked(
                             "http://www.w3.org/ns/shacl#sourceConstraint",
                         ),
-                        source_constraint,
+                        source_constraint.clone(),
                     ));
+                    if follow_bnodes {
+                        copy_shape_term_subgraph_from_store(store, &source_constraint, &mut graph);
+                    }
                 }
 
                 let source_component = component_iri(violation.component_id);
@@ -627,6 +696,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 }
             }
 
+            let mut deskolemized = graph;
+            deskolemized =
+                shifty::canonicalization::deskolemize_graph(&deskolemized, &skolem_base(DATA_GRAPH));
+            deskolemized = shifty::canonicalization::deskolemize_graph(
+                &deskolemized,
+                &skolem_base(SHAPE_GRAPH),
+            );
+
             let mut writer = Vec::new();
             let mut serializer = oxigraph::io::RdfSerializer::from_format(oxigraph::io::RdfFormat::Turtle)
                 .with_prefix("sh", "http://www.w3.org/ns/shacl#")
@@ -634,7 +711,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
                 .map_err(|err| format!("failed to set rdf prefix: {err}"))?
                 .for_writer(&mut writer);
-            for triple in graph.iter() {
+            for triple in deskolemized.iter() {
                 serializer
                     .serialize_triple(triple)
                     .map_err(|err| format!("failed to serialize report triple: {err}"))?;
@@ -650,11 +727,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             store: &oxigraph::store::Store,
         ) -> Result<Report, String> {
             record_violation_metrics(&violations);
-            let report_turtle = render_violations_to_turtle(&violations, store)?;
+            let report_turtle = render_violations_to_turtle(&violations, store, false)?;
+            let report_turtle_follow_bnodes =
+                render_violations_to_turtle(&violations, store, true)?;
             Ok(Report {
                 violations,
-                report_turtle: report_turtle.clone(),
-                report_turtle_follow_bnodes: report_turtle,
+                report_turtle,
+                report_turtle_follow_bnodes,
             })
         }
 

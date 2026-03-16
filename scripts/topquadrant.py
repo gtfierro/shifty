@@ -12,7 +12,7 @@ import sys
 
 model = rdflib.Graph().parse(sys.argv[1])
 
-env = OntoEnv(temporary=True, no_search=True)
+env = OntoEnv(temporary=True)
 shapes_id = env.add(sys.argv[2])
 shapes_with_deps = env.get_graph(shapes_id)
 env.import_dependencies(shapes_with_deps)

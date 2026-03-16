@@ -42,7 +42,7 @@ impl ValidateComponent for MinCountConstraintComponent {
         _context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        let count = c.value_nodes().map_or(0, |v| v.len());
+        let count = c.value_count();
         if count < self.min_count as usize {
             let failure = ValidationFailure {
                 component_id,
@@ -102,7 +102,7 @@ impl ValidateComponent for MaxCountConstraintComponent {
         _context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        let count = c.value_nodes().map_or(0, |v| v.len());
+        let count = c.value_count();
         if count > self.max_count as usize {
             let failure = ValidationFailure {
                 component_id,

@@ -1279,9 +1279,9 @@ fn sparql_validator_signature(validator: &SPARQLValidator) -> (bool, bool, bool,
     )
 }
 
-fn selected_custom_sparql_validator<'a>(
-    definition: &'a CustomConstraintComponentDefinition,
-) -> Result<&'a SPARQLValidator, String> {
+fn selected_custom_sparql_validator(
+    definition: &CustomConstraintComponentDefinition,
+) -> Result<&SPARQLValidator, String> {
     let mut validators: Vec<&SPARQLValidator> = Vec::new();
     if let Some(validator) = definition.validator.as_ref() {
         validators.push(validator);

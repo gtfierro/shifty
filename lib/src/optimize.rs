@@ -1,5 +1,5 @@
 use crate::context::ParsingContext;
-use crate::types::Target;
+use crate::types::{ComponentDescriptor, Target};
 use oxigraph::model::{vocab::rdf, vocab::rdfs, NamedOrBlankNode, Term};
 use std::collections::{HashMap, HashSet};
 
@@ -74,8 +74,10 @@ impl Optimizer {
                 NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
                 NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
             };
-            parents.entry(child).or_default().push(quad.object.into());
+            parents.entry(child).or_default().push(quad.object);
         }
+
+        let present_predicates = self.present_data_graph_predicates();
 
         let mut types = HashSet::<Term>::new();
         for quad in self
@@ -89,7 +91,7 @@ impl Optimizer {
             )
             .flatten()
         {
-            let mut stack: Vec<Term> = vec![quad.object.into()];
+            let mut stack: Vec<Term> = vec![quad.object];
             let mut visited = HashSet::new();
             while let Some(ty) = stack.pop() {
                 if !visited.insert(ty.clone()) {
@@ -108,12 +110,77 @@ impl Optimizer {
             let targets_before = shape.targets.len();
             shape.targets.retain(|target| match target {
                 Target::Class(class_term) => types.contains(class_term),
+                Target::SubjectsOf(predicate) | Target::ObjectsOf(predicate) => {
+                    present_predicates.contains(predicate)
+                }
                 _ => true, // Keep other target types
             });
             let targets_after = shape.targets.len();
             self.stats.unreachable_targets_removed += (targets_before - targets_after) as u64;
         }
 
+        let component_descriptors = &self.ctx.component_descriptors;
+        for shape in self.ctx.prop_shapes.values_mut() {
+            let targets_before = shape.targets.len();
+            shape.targets.retain(|target| match target {
+                Target::Class(class_term) => types.contains(class_term),
+                Target::SubjectsOf(predicate) | Target::ObjectsOf(predicate) => {
+                    present_predicates.contains(predicate)
+                }
+                _ => true,
+            });
+
+            if !shape.targets.is_empty()
+                && shape.path().is_simple_predicate()
+                && !present_predicates.contains(shape.path_term())
+                && property_shape_is_safe_when_path_absent(shape, component_descriptors)
+            {
+                shape.targets.clear();
+            }
+
+            let targets_after = shape.targets.len();
+            self.stats.unreachable_targets_removed += (targets_before - targets_after) as u64;
+        }
+
         Ok(())
+    }
+
+    fn present_data_graph_predicates(&self) -> HashSet<Term> {
+        self.ctx
+            .store
+            .quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(self.ctx.data_graph_iri.as_ref().into()),
+            )
+            .flatten()
+            .map(|quad| Term::NamedNode(quad.predicate))
+            .collect()
+    }
+}
+
+fn property_shape_is_safe_when_path_absent(
+    shape: &crate::model::shapes::PropertyShape,
+    component_descriptors: &HashMap<crate::types::ComponentID, ComponentDescriptor>,
+) -> bool {
+    shape.constraints().iter().all(|component_id| {
+        let Some(descriptor) = component_descriptors.get(component_id) else {
+            return false;
+        };
+        component_is_safe_when_value_set_is_empty(descriptor)
+    })
+}
+
+fn component_is_safe_when_value_set_is_empty(descriptor: &ComponentDescriptor) -> bool {
+    match descriptor {
+        ComponentDescriptor::MinCount { min_count } => *min_count == 0,
+        ComponentDescriptor::HasValue { .. } => false,
+        ComponentDescriptor::QualifiedValueShape { min_count, .. } => {
+            min_count.is_none_or(|min| min == 0)
+        }
+        ComponentDescriptor::Equals { .. } => false,
+        ComponentDescriptor::Sparql { .. } | ComponentDescriptor::Custom { .. } => false,
+        _ => true,
     }
 }

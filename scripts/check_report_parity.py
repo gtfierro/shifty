@@ -39,6 +39,9 @@ from typing import Dict, Iterable, List, Tuple
 LOGGER = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS = ("pyshacl", "topquadrant", "shifty", "shifty+pre", "shifty+compile")
+PLATFORM_ALIASES = {
+    "rdflib": "pyshacl",
+}
 ONTOENV_VERSION = "0.5.1"
 RUNTIME_DEPS: List[Tuple[str, str]] = [
     ("rdflib", "rdflib"),
@@ -102,6 +105,15 @@ def parse_args() -> argparse.Namespace:
         help="Ask Shifty report generators to include CBDs for blank nodes referenced in reports.",
     )
     parser.add_argument(
+        "--skip",
+        default="",
+        help=(
+            "Comma-separated engines to skip. Valid names: "
+            "pyshacl, topquadrant, shifty, shifty+pre, shifty+compile. "
+            "Alias: rdflib -> pyshacl."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
@@ -110,6 +122,7 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.timeout_seconds is not None and args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be greater than 0")
+    args.platforms = resolve_platforms(args.skip, parser)
     return args
 
 
@@ -122,6 +135,31 @@ def resolve_path(path: str) -> Path:
     if not candidate.is_absolute():
         candidate = REPO_ROOT / candidate
     return candidate.resolve()
+
+
+def resolve_platforms(skip_csv: str, parser: argparse.ArgumentParser) -> Tuple[str, ...]:
+    raw_entries = [entry.strip() for entry in skip_csv.split(",") if entry.strip()]
+    unknown = sorted(
+        {
+            entry
+            for entry in raw_entries
+            if entry not in PLATFORMS and entry not in PLATFORM_ALIASES
+        }
+    )
+    if unknown:
+        parser.error(
+            "--skip contains unknown engines: "
+            + ", ".join(unknown)
+            + ". Valid names: "
+            + ", ".join(PLATFORMS)
+            + ". Alias: rdflib -> pyshacl."
+        )
+
+    skipped = {PLATFORM_ALIASES.get(entry, entry) for entry in raw_entries}
+    platforms = tuple(platform for platform in PLATFORMS if platform not in skipped)
+    if not platforms:
+        parser.error("--skip excludes all engines; at least one engine must remain enabled")
+    return platforms
 
 
 def ensure_runtime_dependencies() -> None:
@@ -251,53 +289,61 @@ def ensure_artifacts(
     shacl_ir_file: Path,
     compiled_out_dir: Path,
     compiled_bin_name: str,
+    platforms: Tuple[str, ...],
     skip_build: bool,
     timeout_seconds: float | None,
-) -> Path:
+) -> Path | None:
+    needs_pre = "shifty+pre" in platforms
+    needs_compile = "shifty+compile" in platforms
+
     if not skip_build:
         run_checked(["cargo", "build", "-r"], "cargo build -r", timeout_seconds)
-        run_checked(
-            [
-                "./target/release/shifty",
-                "generate-ir",
-                "--shapes-file",
-                str(shapes_file),
-                "--output-file",
-                str(shacl_ir_file),
-            ],
-            "shifty generate-ir",
-            timeout_seconds,
-        )
-        run_checked(
-            [
-                "cargo",
-                "run",
-                "-p",
-                "cli",
-                "--features",
-                "srcgen-compiler",
-                "--",
-                "compile",
-                "--shapes-file",
-                str(shapes_file),
-                "--out-dir",
-                str(compiled_out_dir),
-                "--bin-name",
-                compiled_bin_name,
-                "--release",
-                "--shifty-path",
-                str(REPO_ROOT / "lib"),
-            ],
-            "shifty compile",
-            timeout_seconds,
-        )
+        if needs_pre:
+            run_checked(
+                [
+                    "./target/release/shifty",
+                    "generate-ir",
+                    "--shapes-file",
+                    str(shapes_file),
+                    "--output-file",
+                    str(shacl_ir_file),
+                ],
+                "shifty generate-ir",
+                timeout_seconds,
+            )
+        if needs_compile:
+            run_checked(
+                [
+                    "cargo",
+                    "run",
+                    "-p",
+                    "cli",
+                    "--features",
+                    "srcgen-compiler",
+                    "--",
+                    "compile",
+                    "--shapes-file",
+                    str(shapes_file),
+                    "--out-dir",
+                    str(compiled_out_dir),
+                    "--bin-name",
+                    compiled_bin_name,
+                    "--release",
+                    "--shifty-path",
+                    str(REPO_ROOT / "lib"),
+                ],
+                "shifty compile",
+                timeout_seconds,
+            )
 
-    if not shacl_ir_file.exists():
+    if needs_pre and not shacl_ir_file.exists():
         raise FileNotFoundError(
             f"Missing SHACL-IR file for shifty+pre: {shacl_ir_file} "
             "(run without --skip-build or pre-generate this file)"
         )
-    return resolve_compiled_binary(compiled_out_dir, compiled_bin_name)
+    if needs_compile:
+        return resolve_compiled_binary(compiled_out_dir, compiled_bin_name)
+    return None
 
 
 def run_shifty_report(
@@ -618,7 +664,8 @@ def run_model(
     shapes_file: Path,
     data_file: Path,
     shacl_ir_file: Path,
-    compiled_binary: Path,
+    compiled_binary: Path | None,
+    platforms: Tuple[str, ...],
     follow_bnodes: bool,
     timeout_seconds: float | None,
     model_out_dir: Path,
@@ -629,30 +676,37 @@ def run_model(
     diffs_dir.mkdir(parents=True, exist_ok=True)
 
     reports: Dict[str, rdflib.Graph] = {}
-    reports["pyshacl"] = run_pyshacl_report(shapes_file=shapes_file, data_file=data_file)
-    reports["topquadrant"] = run_topquadrant_report(
-        shapes_file=shapes_file, data_file=data_file
-    )
-    reports["shifty"] = run_shifty_report(
-        shapes_file=shapes_file,
-        data_file=data_file,
-        follow_bnodes=follow_bnodes,
-        timeout_seconds=timeout_seconds,
-    )
-    reports["shifty+pre"] = run_shifty_pre_report(
-        shacl_ir_file=shacl_ir_file,
-        data_file=data_file,
-        follow_bnodes=follow_bnodes,
-        timeout_seconds=timeout_seconds,
-    )
-    reports["shifty+compile"] = run_shifty_compile_report(
-        compiled_binary=compiled_binary,
-        data_file=data_file,
-        follow_bnodes=follow_bnodes,
-        timeout_seconds=timeout_seconds,
-    )
+    if "pyshacl" in platforms:
+        reports["pyshacl"] = run_pyshacl_report(shapes_file=shapes_file, data_file=data_file)
+    if "topquadrant" in platforms:
+        reports["topquadrant"] = run_topquadrant_report(
+            shapes_file=shapes_file, data_file=data_file
+        )
+    if "shifty" in platforms:
+        reports["shifty"] = run_shifty_report(
+            shapes_file=shapes_file,
+            data_file=data_file,
+            follow_bnodes=follow_bnodes,
+            timeout_seconds=timeout_seconds,
+        )
+    if "shifty+pre" in platforms:
+        reports["shifty+pre"] = run_shifty_pre_report(
+            shacl_ir_file=shacl_ir_file,
+            data_file=data_file,
+            follow_bnodes=follow_bnodes,
+            timeout_seconds=timeout_seconds,
+        )
+    if "shifty+compile" in platforms:
+        if compiled_binary is None:
+            raise RuntimeError("compiled_binary is required when shifty+compile is enabled")
+        reports["shifty+compile"] = run_shifty_compile_report(
+            compiled_binary=compiled_binary,
+            data_file=data_file,
+            follow_bnodes=follow_bnodes,
+            timeout_seconds=timeout_seconds,
+        )
 
-    for platform in PLATFORMS:
+    for platform in platforms:
         report_path = reports_dir / f"{sanitize_name(platform)}.ttl"
         write_graph(reports[platform], report_path)
 
@@ -687,15 +741,18 @@ def main() -> int:
         shacl_ir_file=shacl_ir_file,
         compiled_out_dir=compiled_out_dir,
         compiled_bin_name=args.compiled_bin_name,
+        platforms=args.platforms,
         skip_build=args.skip_build,
         timeout_seconds=args.timeout_seconds,
     )
-    LOGGER.info("Using compiled binary: %s", compiled_binary)
+    if compiled_binary is not None:
+        LOGGER.info("Using compiled binary: %s", compiled_binary)
 
     summary: Dict[str, object] = {
         "shapes_file": str(shapes_file),
         "data_file": str(data_file),
-        "compiled_binary": str(compiled_binary),
+        "compiled_binary": str(compiled_binary) if compiled_binary is not None else None,
+        "platforms": list(args.platforms),
     }
 
     all_equal, matrix = run_model(
@@ -703,6 +760,7 @@ def main() -> int:
         data_file=data_file,
         shacl_ir_file=shacl_ir_file,
         compiled_binary=compiled_binary,
+        platforms=args.platforms,
         follow_bnodes=args.follow_bnodes,
         timeout_seconds=args.timeout_seconds,
         model_out_dir=out_dir,

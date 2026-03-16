@@ -76,7 +76,7 @@ fn term_is_class_like(
         .quads_for_pattern(Some(subject), Some(rdfs.sub_class_of), None, None)
         .flatten()
     {
-        let parent: Term = quad.object.into();
+        let parent: Term = quad.object;
         if term_is_class_like(&parent, context, visited)? {
             return Ok(true);
         }
@@ -421,7 +421,7 @@ pub(crate) fn parse_node_shape(
         )
         .flatten()
     {
-        let direct_type: Term = quad.object.into();
+        let direct_type: Term = quad.object;
         if term_is_class_like(&direct_type, context, &mut HashSet::new())? {
             is_class = true;
             break;

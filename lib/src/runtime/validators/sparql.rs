@@ -10,7 +10,8 @@ use crate::runtime::{
 };
 use crate::sparql::{
     ensure_pre_binding_semantics, format_term_with_topquadrant_prefixes, parse_prefix_lines,
-    validate_prebound_variable_usage, MessageTemplater, SparqlExecutor,
+    required_this_predicates, validate_prebound_variable_usage, MessageTemplater, SparqlExecutor,
+    ThisPredicateDirection,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
@@ -517,6 +518,29 @@ impl ValidateComponent for SPARQLConstraintComponent {
             &prebound_vars,
             &optional_prebound_vars,
         )?;
+
+        let required_predicates = required_this_predicates(&algebra_query);
+        if !required_predicates.is_empty() {
+            let mut can_match = true;
+            for requirement in &required_predicates {
+                let predicate_term = Term::NamedNode(requirement.predicate.clone());
+                let count =
+                    match requirement.direction {
+                        ThisPredicateDirection::Outgoing => context
+                            .focus_outgoing_predicate_count(c.focus_node(), &predicate_term)?,
+                        ThisPredicateDirection::Incoming => context
+                            .focus_incoming_predicate_count(c.focus_node(), &predicate_term)?,
+                    };
+                if count == 0 {
+                    can_match = false;
+                    break;
+                }
+            }
+
+            if !can_match {
+                return Ok(vec![]);
+            }
+        }
 
         let prepared_query = context
             .prepare_query(&full_query_str)

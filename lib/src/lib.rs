@@ -2044,7 +2044,7 @@ mod tests {
     use crate::sparql::validate_prebound_variable_usage;
     use oxigraph::model::vocab::rdf;
     use oxigraph::model::{
-        Graph, GraphName, GraphNameRef, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
+        Graph, GraphName, GraphNameRef, Literal, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
     };
     use std::error::Error;
     use std::fs;
@@ -3137,5 +3137,405 @@ ex:Alice a ex:Person ;
             true,
         )
         .is_ok());
+    }
+
+    #[test]
+    fn optimizer_prunes_target_subjects_of_when_predicate_absent() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_target_subjects_of")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:SubjectsShape
+    a sh:NodeShape ;
+    sh:targetSubjectsOf ex:missing ;
+    sh:class ex:Thing .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term = Term::NamedNode(NamedNode::new("http://example.com/ns#SubjectsShape")?);
+
+        let shape = validator
+            .context
+            .model
+            .node_shapes
+            .values()
+            .find(|shape| {
+                validator
+                    .context
+                    .model
+                    .nodeshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("shape should exist");
+        assert!(
+            shape.targets.is_empty(),
+            "targetSubjectsOf target should be pruned when its predicate is absent"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_prunes_target_objects_of_when_predicate_absent() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_target_objects_of")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ObjectsShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf ex:missing ;
+    sh:class ex:Thing .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other ex:Bob .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term = Term::NamedNode(NamedNode::new("http://example.com/ns#ObjectsShape")?);
+
+        let shape = validator
+            .context
+            .model
+            .node_shapes
+            .values()
+            .find(|shape| {
+                validator
+                    .context
+                    .model
+                    .nodeshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("shape should exist");
+        assert!(
+            shape.targets.is_empty(),
+            "targetObjectsOf target should be pruned when its predicate is absent"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_prunes_safe_top_level_property_shape_when_path_absent(
+    ) -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_property_safe_absent_path")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:LoosePropertyShape
+    a sh:PropertyShape ;
+    sh:targetClass ex:Thing ;
+    sh:path ex:missing ;
+    sh:datatype xsd:string .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term =
+            Term::NamedNode(NamedNode::new("http://example.com/ns#LoosePropertyShape")?);
+
+        let shape = validator
+            .context
+            .model
+            .prop_shapes
+            .values()
+            .find(|shape: &&crate::model::shapes::PropertyShape| {
+                validator
+                    .context
+                    .model
+                    .propshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("property shape should exist");
+        assert!(
+            shape.targets.is_empty(),
+            "top-level property shape should be pruned when its simple path is absent and all constraints are value-only"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_keeps_min_count_property_shape_when_path_absent() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_property_min_count_absent_path")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:RequiredPropertyShape
+    a sh:PropertyShape ;
+    sh:targetClass ex:Thing ;
+    sh:path ex:missing ;
+    sh:minCount 1 .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term = Term::NamedNode(NamedNode::new(
+            "http://example.com/ns#RequiredPropertyShape",
+        )?);
+
+        let shape = validator
+            .context
+            .model
+            .prop_shapes
+            .values()
+            .find(|shape: &&crate::model::shapes::PropertyShape| {
+                validator
+                    .context
+                    .model
+                    .propshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("property shape should exist");
+        assert_eq!(
+            shape.targets.len(),
+            1,
+            "minCount property shape must not be pruned when the path is absent"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn focus_predicate_summary_detects_present_and_absent_outgoing_predicates(
+    ) -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_focus_predicate_summary")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:present ex:Bob, "label" .
+
+ex:Carol a ex:Thing .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let alice = Term::NamedNode(NamedNode::new("http://example.com/ns#Alice")?);
+        let bob = Term::NamedNode(NamedNode::new("http://example.com/ns#Bob")?);
+        let label = Term::from(Literal::new_simple_literal("label"));
+        let carol = Term::NamedNode(NamedNode::new("http://example.com/ns#Carol")?);
+        let present = Term::NamedNode(NamedNode::new("http://example.com/ns#present")?);
+        let missing = Term::NamedNode(NamedNode::new("http://example.com/ns#missing")?);
+
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&alice, &present)?,
+            2
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&alice, &missing)?,
+            0
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&carol, &present)?,
+            0
+        );
+        assert!(validator
+            .context
+            .focus_has_incoming_predicate(&bob, &present)?);
+        assert!(validator
+            .context
+            .focus_has_incoming_predicate(&label, &present)?);
+        assert_eq!(
+            validator
+                .context
+                .focus_incoming_predicate_count(&bob, &present)?,
+            1
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_incoming_predicate_count(&carol, &present)?,
+            0
+        );
+        assert_eq!(
+            validator
+                .context
+                .target_subjects_of(&present)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([alice.clone()])
+        );
+        assert_eq!(
+            validator
+                .context
+                .target_objects_of(&present)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([bob, label])
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_objects_for_predicate(&alice, &present)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([
+                Term::NamedNode(NamedNode::new("http://example.com/ns#Bob")?),
+                Term::from(Literal::new_simple_literal("label")),
+            ])
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_subjects_for_inverse_predicate(
+                    &Term::NamedNode(NamedNode::new("http://example.com/ns#Bob")?),
+                    &present,
+                )?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([alice])
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn sparql_constraints_skip_execution_when_required_this_predicate_is_absent(
+    ) -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_sparql_prefilter")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this <http://example.com/ns#required> ?value .
+                FILTER(?value = \"boom\")
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(report.conforms());
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "required-predicate prefilter should skip impossible SPARQL execution"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
     }
 }

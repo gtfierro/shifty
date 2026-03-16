@@ -11,7 +11,7 @@ use crate::report::ValidationReportBuilder;
 use crate::runtime::{ComponentValidationResult, ToSubjectRef};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::trace::TraceEvent;
-use crate::types::{PropShapeID, TargetEvalExt, TraceItem};
+use crate::types::{Path, PropShapeID, TargetEvalExt, TraceItem};
 use log::{debug, info};
 use oxigraph::model::{Literal, Term};
 use oxigraph::sparql::{QueryResults, Variable};
@@ -174,6 +174,128 @@ fn lookup_by_signature(
         }
     }
     None
+}
+
+fn path_is_definitely_absent_for_focus(
+    context: &ValidationContext,
+    shape: &PropertyShape,
+    focus_node: &Term,
+) -> Result<bool, String> {
+    match shape.path() {
+        Path::Simple(Term::NamedNode(predicate)) => Ok(context
+            .focus_outgoing_predicate_count(focus_node, &Term::NamedNode(predicate.clone()))?
+            == 0),
+        Path::Inverse(inner) => match inner.as_ref() {
+            Path::Simple(Term::NamedNode(predicate)) => Ok(!context
+                .focus_has_incoming_predicate(focus_node, &Term::NamedNode(predicate.clone()))?),
+            _ => Ok(false),
+        },
+        _ => Ok(false),
+    }
+}
+
+fn summary_value_nodes_for_focus(
+    context: &ValidationContext,
+    shape: &PropertyShape,
+    focus_node: &Term,
+) -> Result<Option<Vec<Term>>, String> {
+    match shape.path() {
+        Path::Simple(Term::NamedNode(predicate)) => context
+            .focus_objects_for_predicate(focus_node, &Term::NamedNode(predicate.clone()))
+            .map(Some),
+        Path::Inverse(inner) => match inner.as_ref() {
+            Path::Simple(Term::NamedNode(predicate)) => context
+                .focus_subjects_for_inverse_predicate(
+                    focus_node,
+                    &Term::NamedNode(predicate.clone()),
+                )
+                .map(Some),
+            _ => Ok(None),
+        },
+        _ => Ok(None),
+    }
+}
+
+fn summary_value_count_for_focus(
+    context: &ValidationContext,
+    shape: &PropertyShape,
+    focus_node: &Term,
+) -> Result<Option<usize>, String> {
+    match shape.path() {
+        Path::Simple(Term::NamedNode(predicate)) => context
+            .focus_outgoing_predicate_count(focus_node, &Term::NamedNode(predicate.clone()))
+            .map(Some),
+        Path::Inverse(inner) => match inner.as_ref() {
+            Path::Simple(Term::NamedNode(predicate)) => context
+                .focus_incoming_predicate_count(focus_node, &Term::NamedNode(predicate.clone()))
+                .map(Some),
+            _ => Ok(None),
+        },
+        _ => Ok(None),
+    }
+}
+
+fn constraints_are_cardinality_only(
+    context: &ValidationContext,
+    constraints: &[crate::types::ComponentID],
+) -> bool {
+    constraints.iter().all(|id| {
+        matches!(
+            context
+                .shape_ir()
+                .components
+                .get(id)
+                .or_else(|| context.model.get_component_descriptor(id)),
+            Some(ComponentDescriptor::MinCount { .. } | ComponentDescriptor::MaxCount { .. })
+        )
+    })
+}
+
+fn constraint_can_use_count_without_values(
+    context: &ValidationContext,
+    constraint_id: crate::types::ComponentID,
+) -> bool {
+    matches!(
+        context
+            .shape_ir()
+            .components
+            .get(&constraint_id)
+            .or_else(|| context.model.get_component_descriptor(&constraint_id)),
+        Some(ComponentDescriptor::MinCount { .. } | ComponentDescriptor::MaxCount { .. })
+    )
+}
+
+fn constraint_is_vacuous_when_value_count_is_zero(
+    context: &ValidationContext,
+    constraint_id: crate::types::ComponentID,
+) -> bool {
+    match context
+        .shape_ir()
+        .components
+        .get(&constraint_id)
+        .or_else(|| context.model.get_component_descriptor(&constraint_id))
+    {
+        Some(
+            ComponentDescriptor::Class { .. }
+            | ComponentDescriptor::Datatype { .. }
+            | ComponentDescriptor::NodeKind { .. }
+            | ComponentDescriptor::In { .. }
+            | ComponentDescriptor::LanguageIn { .. }
+            | ComponentDescriptor::UniqueLang { .. }
+            | ComponentDescriptor::MinLength { .. }
+            | ComponentDescriptor::MaxLength { .. }
+            | ComponentDescriptor::Pattern { .. }
+            | ComponentDescriptor::Node { .. }
+            | ComponentDescriptor::Not { .. }
+            | ComponentDescriptor::And { .. }
+            | ComponentDescriptor::Or { .. }
+            | ComponentDescriptor::Xone { .. },
+        ) => true,
+        Some(ComponentDescriptor::QualifiedValueShape { min_count, .. }) => {
+            min_count.is_none_or(|min| min == 0)
+        }
+        _ => false,
+    }
 }
 
 impl ValidateShape for NodeShape {
@@ -516,6 +638,7 @@ impl PropertyShape {
 
         let mut value_node_map: HashMap<Term, Vec<Term>> = HashMap::new();
         let constraints = context.order_constraints(self.constraints());
+        let cardinality_only = constraints_are_cardinality_only(context, &constraints);
         let value_node_var = Variable::new("valueNode")
             .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
         let focus_var = Variable::new("focus")
@@ -578,153 +701,43 @@ impl PropertyShape {
             }
         };
 
-        // Fast path: batch query when all focus nodes are IRIs and the path is simple.
-        if focus_nodes_for_this_shape.len() > 1 && self.path().is_simple_predicate() {
-            let predicate_term = self.path_term();
-            if let Term::NamedNode(pred) = predicate_term {
-                // Only IRIs allowed in VALUES; if any focus node is blank, skip batching.
-                if focus_nodes_for_this_shape
-                    .iter()
-                    .all(|f| matches!(f, Term::NamedNode(_)))
-                {
-                    let values_clause = focus_nodes_for_this_shape
-                        .iter()
-                        .map(|t| t.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    let query_str = format!(
-                        "SELECT DISTINCT ?focus ?valueNode WHERE {{ VALUES ?focus {{ {} }} ?focus <{}> ?valueNode . }}",
-                        values_clause,
-                        pred.as_str()
-                    );
-
-                    let prepared = context.prepare_query(&query_str).map_err(|e| {
-                        format!(
-                            "Failed to prepare batch query for PropertyShape {}: {}",
-                            self.identifier(),
-                            e
-                        )
-                    })?;
-                    let results = context
-                        .execute_prepared(&query_str, &prepared, &[], false)
-                        .map_err(|e| {
-                            format!(
-                                "Failed to execute batch query for PropertyShape {}: {}",
-                                self.identifier(),
-                                e
-                            )
-                        })?;
-                    let focus_var = Variable::new("focus")
-                        .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
-                    let value_var = Variable::new("valueNode")
-                        .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
-
-                    match results {
-                        QueryResults::Solutions(solutions) => {
-                            for solution_res in solutions {
-                                let solution = solution_res.map_err(|e| e.to_string())?;
-                                let Some(focus_term) = solution.get(&focus_var) else {
-                                    continue;
-                                };
-                                let Some(val_term) = solution.get(&value_var) else {
-                                    continue;
-                                };
-                                value_node_map
-                                    .entry(focus_term.clone())
-                                    .or_default()
-                                    .push(val_term.clone());
-                            }
-                        }
-                        QueryResults::Boolean(_) => {
-                            return Err(format!(
-                                "Unexpected boolean result for PropertyShape {} batch query",
-                                self.identifier()
-                            ));
-                        }
-                        QueryResults::Graph(_) => {
-                            return Err(format!(
-                                "Unexpected graph result for PropertyShape {} batch query",
-                                self.identifier()
-                            ));
-                        }
-                    }
-                }
+        // Fast path: resolve simple and inverse-simple paths directly from the cached
+        // focus-predicate summary instead of issuing SPARQL queries.
+        for focus_node in &focus_nodes_for_this_shape {
+            if let Some(value_nodes) = summary_value_nodes_for_focus(context, self, focus_node)? {
+                value_node_map.insert(focus_node.clone(), value_nodes);
             }
         }
 
         for focus_node in focus_nodes_for_this_shape {
             let value_selection_started = Instant::now();
-            let raw_values = if let Some(values) = value_node_map.remove(&focus_node) {
-                values
-            } else {
-                let substitutions = [(focus_var.clone(), focus_node.clone())];
-
-                let results = context
-                    .execute_prepared(
-                        &fallback_query_str,
-                        &fallback_prepared,
-                        &substitutions,
-                        false,
-                    )
-                    .map_err(|e| {
-                        format!(
-                            "Failed to execute parameterized query for PropertyShape {}: {}",
-                            self.identifier(),
-                            e
-                        )
-                    })?;
-
-                match results {
-                    QueryResults::Solutions(solutions) => {
-                        let mut nodes = Vec::new();
-                        for solution_res in solutions {
-                            let solution = solution_res.map_err(|e| e.to_string())?;
-                            if let Some(term) = solution.get(&value_node_var) {
-                                nodes.push(term.clone());
-                            } else {
-                                return Err(format!(
-                                    "Missing valueNode in solution for PropertyShape {}",
-                                    self.identifier()
-                                ));
-                            }
-                        }
-                        nodes
-                    }
-                    QueryResults::Boolean(_) => {
-                        return Err(format!(
-                            "Unexpected boolean result for PropertyShape {} query",
-                            self.identifier()
-                        ));
-                    }
-                    QueryResults::Graph(_) => {
-                        return Err(format!(
-                            "Unexpected graph result for PropertyShape {} query",
-                            self.identifier()
-                        ));
-                    }
-                }
-            };
-
-            let value_nodes_vec = canonicalize_value_nodes(context, self, &focus_node, raw_values);
+            let path_is_definitely_absent =
+                path_is_definitely_absent_for_focus(context, self, &focus_node)?;
+            let summary_value_count = summary_value_count_for_focus(context, self, &focus_node)?;
             context.record_shape_phase_duration(
                 SourceShape::PropertyShape(*self.identifier()),
                 ShapeTimingPhase::PropertyValue,
                 value_selection_started.elapsed(),
             );
 
-            let value_nodes_opt = if value_nodes_vec.is_empty() {
-                None
-            } else {
-                Some(value_nodes_vec)
-            };
-
             let mut constraint_validation_context = Context::new(
                 focus_node.clone(),
                 Some(self.path().clone()),
-                value_nodes_opt,
+                None,
                 SourceShape::PropertyShape(PropShapeID(self.identifier().0)),
                 focus_context.trace_index(),
             );
+            if let Some(value_count) = summary_value_count {
+                constraint_validation_context.set_value_count(value_count);
+            }
+
+            let mut materialized_value_nodes: Option<Option<Vec<Term>>> =
+                if path_is_definitely_absent || (cardinality_only && summary_value_count.is_some())
+                {
+                    Some(None)
+                } else {
+                    None
+                };
 
             debug!(
                 "Property shape {} has {} constraints",
@@ -741,6 +754,84 @@ impl PropertyShape {
                 let component = context
                     .get_component(&constraint_id)
                     .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
+
+                if summary_value_count == Some(0)
+                    && constraint_is_vacuous_when_value_count_is_zero(context, constraint_id)
+                {
+                    continue;
+                }
+
+                if materialized_value_nodes.is_none() {
+                    let can_use_summary_count =
+                        constraint_can_use_count_without_values(context, constraint_id)
+                            && summary_value_count.is_some();
+                    let can_skip_for_empty = summary_value_count == Some(0);
+
+                    if !can_use_summary_count && !can_skip_for_empty {
+                        let raw_values = if let Some(values) = value_node_map.remove(&focus_node) {
+                            values
+                        } else {
+                            let substitutions = [(focus_var.clone(), focus_node.clone())];
+
+                            let results = context
+                            .execute_prepared(
+                                &fallback_query_str,
+                                &fallback_prepared,
+                                &substitutions,
+                                false,
+                            )
+                            .map_err(|e| {
+                                format!(
+                                    "Failed to execute parameterized query for PropertyShape {}: {}",
+                                    self.identifier(),
+                                    e
+                                )
+                            })?;
+
+                            match results {
+                                QueryResults::Solutions(solutions) => {
+                                    let mut nodes = Vec::new();
+                                    for solution_res in solutions {
+                                        let solution = solution_res.map_err(|e| e.to_string())?;
+                                        if let Some(term) = solution.get(&value_node_var) {
+                                            nodes.push(term.clone());
+                                        } else {
+                                            return Err(format!(
+                                            "Missing valueNode in solution for PropertyShape {}",
+                                            self.identifier()
+                                        ));
+                                        }
+                                    }
+                                    nodes
+                                }
+                                QueryResults::Boolean(_) => {
+                                    return Err(format!(
+                                        "Unexpected boolean result for PropertyShape {} query",
+                                        self.identifier()
+                                    ));
+                                }
+                                QueryResults::Graph(_) => {
+                                    return Err(format!(
+                                        "Unexpected graph result for PropertyShape {} query",
+                                        self.identifier()
+                                    ));
+                                }
+                            }
+                        };
+
+                        let value_nodes_vec =
+                            canonicalize_value_nodes(context, self, &focus_node, raw_values);
+                        materialized_value_nodes = Some(if value_nodes_vec.is_empty() {
+                            None
+                        } else {
+                            Some(value_nodes_vec)
+                        });
+                    }
+                }
+
+                if let Some(value_nodes) = &materialized_value_nodes {
+                    constraint_validation_context.set_value_nodes(value_nodes.clone());
+                }
 
                 match component.validate(
                     constraint_id,

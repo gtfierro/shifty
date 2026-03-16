@@ -43,90 +43,26 @@ impl TargetEvalExt for Target {
             }
             Target::SubjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
-                    let query_str = format!(
-                        "SELECT DISTINCT ?s WHERE {{ ?s <{}> ?any . }}",
-                        predicate_node.as_str()
-                    );
-                    let prepared = context.prepare_query(&query_str).map_err(|e| {
-                        format!(
-                            "SPARQL parse error for Target::SubjectsOf: {} {:?}",
-                            query_str, e
-                        )
-                    })?;
-
-                    let results = context
-                        .execute_prepared(&query_str, &prepared, &[], false)
-                        .map_err(|e| e.to_string())?;
-
-                    match results {
-                        QueryResults::Solutions(solutions) => solutions
-                            .map(|solution_result| {
-                                let solution = solution_result.map_err(|e| e.to_string())?;
-                                solution
-                                    .get("s")
-                                    .map(|term_ref| {
-                                        build_context(
-                                            context,
-                                            term_ref.to_owned(),
-                                            source_shape.clone(),
-                                        )
-                                    })
-                                    .ok_or_else(|| {
-                                        "Variable 's' not found in Target::SubjectsOf query solution"
-                                            .to_string()
-                                    })
-                            })
-                            .collect(),
-                        _ => Err(format!(
-                            "Unexpected result type for Target::SubjectsOf: {}",
-                            query_str
-                        )),
-                    }
+                    Ok(contexts_from_terms(
+                        context,
+                        context
+                            .target_subjects_of(&Term::NamedNode(predicate_node.clone()))?
+                            .into_iter(),
+                        source_shape,
+                    ))
                 } else {
                     Err(format!("SubjectsOf target requires NamedNode, got {:?}", p))
                 }
             }
             Target::ObjectsOf(p) => {
                 if let Term::NamedNode(predicate_node) = p {
-                    let query_str = format!(
-                        "SELECT DISTINCT ?o WHERE {{ ?any <{}> ?o . }}",
-                        predicate_node.as_str()
-                    );
-                    let prepared = context.prepare_query(&query_str).map_err(|e| {
-                        format!(
-                            "SPARQL parse error for Target::ObjectsOf: {} {:?}",
-                            query_str, e
-                        )
-                    })?;
-
-                    let results = context
-                        .execute_prepared(&query_str, &prepared, &[], false)
-                        .map_err(|e| e.to_string())?;
-
-                    match results {
-                        QueryResults::Solutions(solutions) => solutions
-                            .map(|solution_result| {
-                                let solution = solution_result.map_err(|e| e.to_string())?;
-                                solution
-                                    .get("o")
-                                    .map(|term_ref| {
-                                        build_context(
-                                            context,
-                                            term_ref.to_owned(),
-                                            source_shape.clone(),
-                                        )
-                                    })
-                                    .ok_or_else(|| {
-                                        "Variable 'o' not found in Target::ObjectsOf query solution"
-                                            .to_string()
-                                    })
-                            })
-                            .collect(),
-                        _ => Err(format!(
-                            "Unexpected result type for Target::ObjectsOf: {}",
-                            query_str
-                        )),
-                    }
+                    Ok(contexts_from_terms(
+                        context,
+                        context
+                            .target_objects_of(&Term::NamedNode(predicate_node.clone()))?
+                            .into_iter(),
+                        source_shape,
+                    ))
                 } else {
                     Err(format!("ObjectsOf target requires NamedNode, got {:?}", p))
                 }

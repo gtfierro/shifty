@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=/usr/lib/x86_64-linux-gnu
+includedir=/usr/include
+
+Name: rocksdb
+Description: RocksDB key/value store
+Version: 8.0.0
+Libs: -L${libdir} -lrocksdb
+Cflags: -I${includedir}

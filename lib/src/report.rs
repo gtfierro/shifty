@@ -183,30 +183,38 @@ impl ValidationReportBuilder {
         validation_context: &ValidationContext,
     ) -> Severity {
         if let Some(severity) = &failure.severity {
-            return severity.clone();
+            severity.clone()
+        } else {
+            match context.source_shape() {
+                SourceShape::NodeShape(id) => validation_context
+                    .model
+                    .get_node_shape_by_id(&id)
+                    .map(|s| s.severity().clone())
+                    .unwrap_or(Severity::Violation),
+                SourceShape::PropertyShape(id) => validation_context
+                    .model
+                    .get_prop_shape_by_id(&id)
+                    .map(|s| s.severity().clone())
+                    .unwrap_or(Severity::Violation),
+            }
         }
+    }
 
-        match context.source_shape() {
-            SourceShape::NodeShape(id) => validation_context
-                .model
-                .get_node_shape_by_id(&id)
-                .map(|s| s.severity().clone())
-                .unwrap_or(Severity::Violation),
-            SourceShape::PropertyShape(id) => validation_context
-                .model
-                .get_prop_shape_by_id(&id)
-                .map(|s| s.severity().clone())
-                .unwrap_or(Severity::Violation),
+    fn causes_nonconformance(
+        context: &Context,
+        failure: &ValidationFailure,
+        validation_context: &ValidationContext,
+    ) -> bool {
+        match Self::effective_severity(context, failure, validation_context) {
+            Severity::Info | Severity::Warning => validation_context.warnings_are_errors(),
+            _ => true,
         }
     }
 
     pub(crate) fn conforms(&self, validation_context: &ValidationContext) -> bool {
-        if self.results.is_empty() {
-            return true;
-        }
-
-        let _ = validation_context;
-        false
+        !self.results.iter().any(|(context, failure)| {
+            Self::causes_nonconformance(context, failure, validation_context)
+        })
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -272,24 +280,7 @@ impl ValidationReportBuilder {
         vc: &ValidationContext,
     ) -> Term {
         let sh = SHACL::new();
-        let default_violation = Term::from(sh.violation);
-
-        if let Some(severity) = &failure.severity {
-            return severity_to_term(severity, &sh);
-        }
-
-        match context.source_shape() {
-            SourceShape::PropertyShape(prop_id) => vc
-                .model
-                .get_prop_shape_by_id(&prop_id)
-                .map(|ps| severity_to_term(ps.severity(), &sh))
-                .unwrap_or(default_violation),
-            SourceShape::NodeShape(node_id) => vc
-                .model
-                .get_node_shape_by_id(&node_id)
-                .map(|ns| severity_to_term(ns.severity(), &sh))
-                .unwrap_or(default_violation),
-        }
+        severity_to_term(&Self::effective_severity(context, failure, vc), &sh)
     }
 
     /// Constructs an `oxigraph::model::Graph` representing the validation report.
@@ -331,7 +322,7 @@ impl ValidationReportBuilder {
             Term::from(Literal::from(conforms)),
         ));
 
-        if !conforms {
+        if !self.results.is_empty() {
             for (context, failure) in &self.results {
                 let result_node: Subject = BlankNode::default().into();
                 graph.insert(&Triple::new(

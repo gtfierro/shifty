@@ -249,6 +249,14 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             }
         }
 
+        fn sort_and_dedup_terms(
+            mut terms: Vec<oxigraph::model::Term>,
+        ) -> Vec<oxigraph::model::Term> {
+            terms.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            terms.dedup();
+            terms
+        }
+
         #[derive(Hash, Eq, PartialEq, Clone)]
         struct LiteralKey {
             lexical: String,
