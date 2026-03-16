@@ -51,14 +51,17 @@ class Measurement:
     run: int
     seconds: float
     timed_out: bool = False
+    failed: bool = False
 
     # log post-init
     def __post_init__(self) -> None:
         timeout_suffix = " (timeout)" if self.timed_out else ""
+        failure_suffix = " (failed)" if self.failed else ""
         LOGGER.info(
             f"[{self.platform}] {self.data_file.name} | "
             f"{self.triples} triples | run {self.run} | {self.seconds:.3f} s"
             f"{timeout_suffix}"
+            f"{failure_suffix}"
         )
 
 
@@ -231,17 +234,21 @@ def run_checked(
 
 def time_command(
     command: List[str], timeout_seconds: float | None = None
-) -> tuple[float, bool]:
+) -> tuple[float, bool, bool]:
     """Measure wall-clock runtime of a command.
 
     Returns:
-        (duration_seconds, timed_out)
+        (duration_seconds, timed_out, failed)
     """
     start = time.perf_counter()
     try:
         proc, stdout, stderr = _run_command(command, timeout_seconds=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
-        duration = time.perf_counter() - start
+        duration = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else time.perf_counter() - start
+        )
         timeout_display = f"{timeout_seconds:g}" if timeout_seconds is not None else "?"
         LOGGER.warning(
             "Command timed out after %s s; subprocess terminated; recording %.3f s and continuing: %s",
@@ -253,22 +260,23 @@ def time_command(
             LOGGER.debug("stdout:\n%s", exc.stdout)
         if exc.stderr:
             LOGGER.debug("stderr:\n%s", exc.stderr)
-        return duration, True
+        return duration, True, False
 
     duration = time.perf_counter() - start
     if proc.returncode != 0:
+        recorded_duration = timeout_seconds if timeout_seconds is not None else duration
         LOGGER.error("Command failed: %s", " ".join(command))
         if stdout:
-            LOGGER.debug("stdout:\n%s", stdout)
+            LOGGER.error("stdout:\n%s", stdout)
         if stderr:
-            LOGGER.debug("stderr:\n%s", stderr)
-        raise subprocess.CalledProcessError(
+            LOGGER.error("stderr:\n%s", stderr)
+        LOGGER.warning(
+            "Recording %.3f s and continuing despite non-zero exit code %s",
+            recorded_duration,
             proc.returncode,
-            command,
-            output=stdout,
-            stderr=stderr,
         )
-    return duration, False
+        return recorded_duration, False, True
+    return duration, False, False
 
 
 def count_triples(path: Path) -> int:
@@ -417,7 +425,7 @@ def benchmark_platforms(
                     runs,
                     triples,
                 )
-                seconds, timed_out = time_command(
+                seconds, timed_out, failed = time_command(
                     command_builder(data_file),
                     timeout_seconds=timeout_seconds,
                 )
@@ -429,13 +437,15 @@ def benchmark_platforms(
                         run=run_index,
                         seconds=seconds,
                         timed_out=timed_out,
+                        failed=failed,
                     )
                 )
-                if timed_out and run_index < runs:
+                if (timed_out or failed) and run_index < runs:
                     LOGGER.warning(
-                        "[%s] %s timed out on run %s/%s; skipping remaining runs for this benchmark",
+                        "[%s] %s %s on run %s/%s; skipping remaining runs for this benchmark",
                         platform,
                         data_file.name,
+                        "timed out" if timed_out else "failed",
                         run_index,
                         runs,
                     )
@@ -453,6 +463,7 @@ def save_results(measurements: List[Measurement], csv_path: Path) -> pd.DataFram
                 "run": m.run,
                 "seconds": m.seconds,
                 "timed_out": m.timed_out,
+                "failed": m.failed,
             }
             for m in measurements
         ]
@@ -517,6 +528,7 @@ def print_summary(df: pd.DataFrame) -> None:
             mean=("seconds", "mean"),
             std=("seconds", "std"),
             timeouts=("timed_out", "sum"),
+            failures=("failed", "sum"),
             runs=("timed_out", "count"),
         )
         .sort_values("mean")
@@ -527,12 +539,13 @@ def print_summary(df: pd.DataFrame) -> None:
         std = row["std"]
         std_val = 0.0 if pd.isna(std) else std
         LOGGER.info(
-            "  %-12s mean=%.3f std=%.3f timeouts=%d/%d",
+            "  %-12s mean=%.3f std=%.3f timeouts=%d/%d failures=%d",
             row["platform"],
             row["mean"],
             std_val,
             int(row["timeouts"]),
             int(row["runs"]),
+            int(row["failures"]),
         )
 
 
