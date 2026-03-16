@@ -1,5 +1,8 @@
 # Repository Guidelines
 
+- create git commits as you work
+- commit source, script, and config changes -- not large artifacts
+
 ## Project Structure & Module Organization
 This workspace hosts two Rust crates: `lib/` (the SHACL validation engine under `lib/src/`) and `cli/` (the end-user binary in `cli/src/main.rs`). Shared fixtures live under `lib/tests/test-suite/` and mirror the W3C test manifests; auxiliary Turtle samples sit in the repository root for quick experiments. Cargo generates build artefacts in `target/`; keep large generated files and benchmarking artefacts out of version control.
 
