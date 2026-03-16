@@ -3145,9 +3145,11 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
+ "regex",
  "serde",
  "serde_json",
  "shifty-shacl",
+ "spargebra",
  "syn 2.0.117",
 ]
 

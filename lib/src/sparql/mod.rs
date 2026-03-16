@@ -14,8 +14,10 @@ use oxigraph::model::{
 };
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator, Variable};
 use oxigraph::store::Store;
-use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression};
-use spargebra::term::GroundTerm;
+use spargebra::algebra::{
+    AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
+};
+use spargebra::term::{GroundTerm, TermPattern};
 use spargebra::{Query as AlgebraQuery, SparqlParser};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -66,6 +68,18 @@ pub trait MessageTemplater {
         templates: &[Term],
         substitutions: &[(String, String)],
     ) -> (Option<String>, Vec<Term>);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ThisPredicateDirection {
+    Outgoing,
+    Incoming,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ThisPredicateRequirement {
+    pub(crate) predicate: NamedNode,
+    pub(crate) direction: ThisPredicateDirection,
 }
 
 #[derive(Default)]
@@ -621,6 +635,132 @@ pub fn ensure_pre_binding_semantics(
             check_graph_pattern(pattern, context_label, prebound, optional, true)
         }
     }
+}
+
+pub(crate) fn required_this_predicates(query: &AlgebraQuery) -> HashSet<ThisPredicateRequirement> {
+    match query {
+        AlgebraQuery::Select { pattern, .. }
+        | AlgebraQuery::Ask { pattern, .. }
+        | AlgebraQuery::Construct { pattern, .. }
+        | AlgebraQuery::Describe { pattern, .. } => {
+            required_this_predicates_in_graph_pattern(pattern)
+        }
+    }
+}
+
+fn required_this_predicates_in_graph_pattern(
+    pattern: &GraphPattern,
+) -> HashSet<ThisPredicateRequirement> {
+    match pattern {
+        GraphPattern::Bgp { patterns } => patterns
+            .iter()
+            .filter_map(required_this_predicate_in_triple_pattern)
+            .collect(),
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } => required_this_predicate_in_path_pattern(subject, path, object)
+            .into_iter()
+            .collect(),
+        GraphPattern::Join { left, right } => {
+            let mut requirements = required_this_predicates_in_graph_pattern(left);
+            requirements.extend(required_this_predicates_in_graph_pattern(right));
+            requirements
+        }
+        GraphPattern::Union { left, right } => {
+            let left_requirements = required_this_predicates_in_graph_pattern(left);
+            let right_requirements = required_this_predicates_in_graph_pattern(right);
+            left_requirements
+                .intersection(&right_requirements)
+                .cloned()
+                .collect()
+        }
+        GraphPattern::LeftJoin { left, .. } | GraphPattern::Minus { left, .. } => {
+            required_this_predicates_in_graph_pattern(left)
+        }
+        GraphPattern::Graph { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. }
+        | GraphPattern::Filter { inner, .. }
+        | GraphPattern::Extend { inner, .. }
+        | GraphPattern::OrderBy { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Group { inner, .. }
+        | GraphPattern::Service { inner, .. } => required_this_predicates_in_graph_pattern(inner),
+        GraphPattern::Lateral { left, right } => {
+            let mut requirements = required_this_predicates_in_graph_pattern(left);
+            requirements.extend(required_this_predicates_in_graph_pattern(right));
+            requirements
+        }
+        GraphPattern::Values { .. } => HashSet::new(),
+    }
+}
+
+fn required_this_predicate_in_triple_pattern(
+    pattern: &spargebra::term::TriplePattern,
+) -> Option<ThisPredicateRequirement> {
+    let predicate = match &pattern.predicate {
+        spargebra::term::NamedNodePattern::NamedNode(predicate) => predicate.clone(),
+        spargebra::term::NamedNodePattern::Variable(_) => return None,
+    };
+
+    if term_pattern_is_this(&pattern.subject) {
+        return Some(ThisPredicateRequirement {
+            predicate,
+            direction: ThisPredicateDirection::Outgoing,
+        });
+    }
+
+    if term_pattern_is_this(&pattern.object) {
+        return Some(ThisPredicateRequirement {
+            predicate,
+            direction: ThisPredicateDirection::Incoming,
+        });
+    }
+
+    None
+}
+
+fn required_this_predicate_in_path_pattern(
+    subject: &TermPattern,
+    path: &PropertyPathExpression,
+    object: &TermPattern,
+) -> Option<ThisPredicateRequirement> {
+    match (
+        term_pattern_is_this(subject),
+        path,
+        term_pattern_is_this(object),
+    ) {
+        (true, PropertyPathExpression::NamedNode(predicate), _) => Some(ThisPredicateRequirement {
+            predicate: predicate.clone(),
+            direction: ThisPredicateDirection::Outgoing,
+        }),
+        (true, PropertyPathExpression::Reverse(inner), _) => match inner.as_ref() {
+            PropertyPathExpression::NamedNode(predicate) => Some(ThisPredicateRequirement {
+                predicate: predicate.clone(),
+                direction: ThisPredicateDirection::Incoming,
+            }),
+            _ => None,
+        },
+        (_, PropertyPathExpression::NamedNode(predicate), true) => Some(ThisPredicateRequirement {
+            predicate: predicate.clone(),
+            direction: ThisPredicateDirection::Incoming,
+        }),
+        (_, PropertyPathExpression::Reverse(inner), true) => match inner.as_ref() {
+            PropertyPathExpression::NamedNode(predicate) => Some(ThisPredicateRequirement {
+                predicate: predicate.clone(),
+                direction: ThisPredicateDirection::Outgoing,
+            }),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn term_pattern_is_this(term: &TermPattern) -> bool {
+    matches!(term, TermPattern::Variable(variable) if variable.as_str() == "this")
 }
 
 fn check_graph_pattern(
@@ -1393,6 +1533,11 @@ pub fn instantiate_message_terms(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spargebra::SparqlParser;
+
+    fn parse_query(query: &str) -> AlgebraQuery {
+        SparqlParser::new().parse_query(query).unwrap()
+    }
 
     #[test]
     fn message_instantiation_handles_multiple_templates() {
@@ -1477,5 +1622,57 @@ mod tests {
             format_term_with_topquadrant_prefixes(&term, &[]),
             "<urn:nrel_example/nrel00000000>"
         );
+    }
+
+    #[test]
+    fn required_this_predicates_collects_direct_requirements() {
+        let query = parse_query(
+            "SELECT ?this WHERE { ?this <http://example.com/p> ?value . ?subject <http://example.com/q> ?this . }",
+        );
+
+        let requirements = required_this_predicates(&query);
+        assert!(requirements.contains(&ThisPredicateRequirement {
+            predicate: NamedNode::new_unchecked("http://example.com/p"),
+            direction: ThisPredicateDirection::Outgoing,
+        }));
+        assert!(requirements.contains(&ThisPredicateRequirement {
+            predicate: NamedNode::new_unchecked("http://example.com/q"),
+            direction: ThisPredicateDirection::Incoming,
+        }));
+    }
+
+    #[test]
+    fn required_this_predicates_intersects_union_branches() {
+        let query = parse_query(
+            "SELECT ?this WHERE {
+                { ?this <http://example.com/p> ?value . }
+                UNION
+                { ?this <http://example.com/p> ?other ; <http://example.com/q> ?extra . }
+            }",
+        );
+
+        let requirements = required_this_predicates(&query);
+        assert_eq!(requirements.len(), 1);
+        assert!(requirements.contains(&ThisPredicateRequirement {
+            predicate: NamedNode::new_unchecked("http://example.com/p"),
+            direction: ThisPredicateDirection::Outgoing,
+        }));
+    }
+
+    #[test]
+    fn required_this_predicates_ignore_optional_branch_only_requirements() {
+        let query = parse_query(
+            "SELECT ?this WHERE {
+                ?this <http://example.com/p> ?value .
+                OPTIONAL { ?this <http://example.com/q> ?extra . }
+            }",
+        );
+
+        let requirements = required_this_predicates(&query);
+        assert_eq!(requirements.len(), 1);
+        assert!(requirements.contains(&ThisPredicateRequirement {
+            predicate: NamedNode::new_unchecked("http://example.com/p"),
+            direction: ThisPredicateDirection::Outgoing,
+        }));
     }
 }

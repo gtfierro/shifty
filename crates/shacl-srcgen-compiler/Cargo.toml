@@ -14,4 +14,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 bincode = { workspace = true }
 shifty = { workspace = true }
+spargebra = "0.4.5"
 syn = { version = "2", features = ["full", "parsing"] }
+regex = { workspace = true }

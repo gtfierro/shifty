@@ -235,10 +235,17 @@ fn validators_use_expected_graph_scope() {
     assert!(validators_property.contains("fn validation_graphs("));
     assert!(validators_property.contains("NamedNode::new(SHAPE_GRAPH)"));
     assert!(validators_property.contains("for graph in validation_graphs(data_graph)?"));
-    assert!(validators_property.contains("fn sort_and_dedup_terms("));
     assert!(validators_property.contains("Some(subject_ref)"));
     assert!(validators_property.contains("Some(oxigraph::model::vocab::rdf::TYPE)"));
     assert!(validators_property.contains("None,"));
+
+    let prelude = generated
+        .files
+        .iter()
+        .find(|(name, _)| name == "prelude.rs")
+        .map(|(_, content)| content.as_str())
+        .expect("prelude module must exist");
+    assert!(prelude.contains("fn sort_and_dedup_terms("));
 
     let validators_node = generated
         .files
@@ -287,4 +294,8 @@ fn inference_module_contains_strict_full_aot_fallback_guard() {
 
     assert!(inference.contains("SHFTY_SRCGEN_FULL_AOT_STRICT"));
     assert!(inference.contains("unsupported inference rule(s) require runtime fallback"));
+    assert!(inference.contains("struct DeltaIndex"));
+    assert!(inference.contains("enum NativeSparqlRule"));
+    assert!(inference.contains("build_dependency_index"));
+    assert!(inference.contains("scheduled_rule_indices"));
 }

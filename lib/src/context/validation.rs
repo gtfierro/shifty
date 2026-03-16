@@ -176,6 +176,16 @@ struct ClassConstraintIndex {
     subject_type_bits: HashMap<Term, FixedBitSet>,
 }
 
+#[derive(Debug, Default)]
+struct FocusPredicateSummary {
+    incoming_by_focus: HashMap<Term, HashSet<Term>>,
+    outgoing_counts_by_focus: HashMap<Term, HashMap<Term, usize>>,
+    outgoing_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>>,
+    subjects_by_predicate: HashMap<Term, HashSet<Term>>,
+    objects_by_predicate: HashMap<Term, HashSet<Term>>,
+}
+
 impl ClassConstraintIndex {
     fn class_bitset(&self, class: &Term) -> Option<&FixedBitSet> {
         let class_id = self.term_to_id.get(class).copied()?;
@@ -223,6 +233,7 @@ pub struct ValidationContext {
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
+    focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
 }
 
 impl ValidationContext {
@@ -288,6 +299,7 @@ impl ValidationContext {
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
             node_conformance_cache: RwLock::new(HashMap::new()),
+            focus_predicate_summary: RwLock::new(None),
         }
     }
 
@@ -418,8 +430,111 @@ impl ValidationContext {
         self.backend.insert_quads(quads)?;
         if !quads.is_empty() {
             self.node_conformance_cache.write().unwrap().clear();
+            *self.focus_predicate_summary.write().unwrap() = None;
+            self.class_constraint_memo.write().unwrap().clear();
+            *self.class_constraint_index.write().unwrap() = None;
+            self.advanced_target_cache.write().unwrap().clear();
+            self.node_target_cache.write().unwrap().clear();
+            self.prop_target_cache.write().unwrap().clear();
         }
         Ok(())
+    }
+
+    pub(crate) fn focus_has_incoming_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<bool, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(false);
+        };
+
+        Ok(summary
+            .incoming_by_focus
+            .get(focus_node)
+            .is_some_and(|predicates| predicates.contains(predicate)))
+    }
+
+    pub(crate) fn focus_outgoing_predicate_count(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<usize, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(0);
+        };
+
+        Ok(summary
+            .outgoing_counts_by_focus
+            .get(focus_node)
+            .and_then(|counts| counts.get(predicate).copied())
+            .unwrap_or(0))
+    }
+
+    pub(crate) fn focus_incoming_predicate_count(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<usize, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(0);
+        };
+
+        Ok(summary
+            .incoming_values_by_focus
+            .get(focus_node)
+            .and_then(|counts| counts.get(predicate))
+            .map_or(0, HashSet::len))
+    }
+
+    pub(crate) fn target_subjects_of(&self, predicate: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .subjects_by_predicate
+            .get(predicate)
+            .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()))
+    }
+
+    pub(crate) fn target_objects_of(&self, predicate: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .objects_by_predicate
+            .get(predicate)
+            .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()))
+    }
+
+    pub(crate) fn focus_objects_for_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .outgoing_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+    }
+
+    pub(crate) fn focus_subjects_for_inverse_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .incoming_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
     }
 
     pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
@@ -496,6 +611,7 @@ impl ValidationContext {
         self.class_constraint_memo.write().unwrap().clear();
         *self.class_constraint_index.write().unwrap() = None;
         self.node_conformance_cache.write().unwrap().clear();
+        *self.focus_predicate_summary.write().unwrap() = None;
     }
 
     pub(crate) fn cached_node_conformance(
@@ -530,6 +646,80 @@ impl ValidationContext {
             },
             report,
         );
+    }
+
+    fn focus_predicate_summary(&self) -> Result<Option<Arc<FocusPredicateSummary>>, String> {
+        if let Some(summary) = self.focus_predicate_summary.read().unwrap().clone() {
+            return Ok(Some(summary));
+        }
+
+        let mut incoming_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut outgoing_counts_by_focus: HashMap<Term, HashMap<Term, usize>> = HashMap::new();
+        let mut outgoing_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>> =
+            HashMap::new();
+        let mut incoming_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>> =
+            HashMap::new();
+        let mut subjects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut objects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
+        self.backend.for_each_quad_for_pattern(
+            None,
+            None,
+            None,
+            Some(self.data_graph_iri_ref()),
+            |quad| {
+                let subject = match quad.subject {
+                    NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                    NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+                };
+                let predicate = Term::NamedNode(quad.predicate);
+                outgoing_counts_by_focus
+                    .entry(subject.clone())
+                    .or_default()
+                    .entry(predicate.clone())
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                outgoing_values_by_focus
+                    .entry(subject.clone())
+                    .or_default()
+                    .entry(predicate.clone())
+                    .or_default()
+                    .insert(quad.object.clone());
+                subjects_by_predicate
+                    .entry(predicate.clone())
+                    .or_default()
+                    .insert(subject.clone());
+                incoming_by_focus
+                    .entry(quad.object.clone())
+                    .or_default()
+                    .insert(predicate.clone());
+                incoming_values_by_focus
+                    .entry(quad.object.clone())
+                    .or_default()
+                    .entry(predicate.clone())
+                    .or_default()
+                    .insert(subject.clone());
+                objects_by_predicate
+                    .entry(predicate)
+                    .or_default()
+                    .insert(quad.object);
+                Ok(())
+            },
+        )?;
+
+        let summary = if outgoing_counts_by_focus.is_empty() {
+            None
+        } else {
+            Some(Arc::new(FocusPredicateSummary {
+                incoming_by_focus,
+                outgoing_counts_by_focus,
+                outgoing_values_by_focus,
+                incoming_values_by_focus,
+                subjects_by_predicate,
+                objects_by_predicate,
+            }))
+        };
+        *self.focus_predicate_summary.write().unwrap() = summary.clone();
+        Ok(summary)
     }
 
     pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
@@ -1064,6 +1254,7 @@ pub(crate) struct Context {
     focus_node: Term,
     pub(crate) result_path: Option<PShapePath>,
     value_nodes: Option<Vec<Term>>,
+    value_count: Option<usize>,
     value: Option<Term>,
     source_shape: SourceShape,
     trace_index: usize,
@@ -1075,6 +1266,7 @@ impl PartialEq for Context {
         self.focus_node == other.focus_node
             && self.result_path == other.result_path
             && self.value_nodes == other.value_nodes
+            && self.value_count == other.value_count
             && self.value == other.value
             && self.source_shape == other.source_shape
             && self.source_constraint == other.source_constraint
@@ -1088,6 +1280,7 @@ impl Hash for Context {
         self.focus_node.hash(state);
         self.result_path.hash(state);
         self.value_nodes.hash(state);
+        self.value_count.hash(state);
         self.value.hash(state);
         self.source_shape.hash(state);
         self.source_constraint.hash(state);
@@ -1106,6 +1299,7 @@ impl Context {
             focus_node,
             result_path,
             value_nodes,
+            value_count: None,
             source_shape,
             value: None,
             trace_index,
@@ -1137,6 +1331,19 @@ impl Context {
         self.value_nodes.as_ref()
     }
 
+    pub(crate) fn set_value_nodes(&mut self, value_nodes: Option<Vec<Term>>) {
+        self.value_nodes = value_nodes;
+    }
+
+    pub(crate) fn set_value_count(&mut self, value_count: usize) {
+        self.value_count = Some(value_count);
+    }
+
+    pub(crate) fn value_count(&self) -> usize {
+        self.value_count
+            .unwrap_or_else(|| self.value_nodes.as_ref().map_or(0, |v| v.len()))
+    }
+
     pub(crate) fn value_nodes_mut(&mut self) -> Option<&mut Vec<Term>> {
         self.value_nodes.as_mut()
     }
@@ -1154,6 +1361,7 @@ impl Context {
             focus_node: self.focus_node.clone(),
             result_path: self.result_path.clone(),
             value_nodes: Some(vec![value_node.clone()]),
+            value_count: Some(1),
             value: None,
             source_shape: self.source_shape.clone(),
             trace_index: self.trace_index,
