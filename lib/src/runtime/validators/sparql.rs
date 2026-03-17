@@ -1,7 +1,7 @@
 #![allow(deprecated)]
 use crate::context::{
-    format_term_for_label, ClosedWorldBatchResult, ClosedWorldConstraintMode, ClosedWorldViolation,
-    Context, ValidationContext,
+    format_term_for_label, sanitize_graphviz_string, ClosedWorldBatchResult,
+    ClosedWorldConstraintMode, ClosedWorldViolation, Context, ValidationContext,
 };
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::named_nodes::SHACL;
@@ -393,7 +393,7 @@ impl GraphvizOutput for SPARQLConstraintComponent {
         format!(
             "{} [label=\"{}\"];",
             component_id.to_graphviz_id(),
-            label_str
+            sanitize_graphviz_string(&label_str)
         )
     }
 }
@@ -904,7 +904,7 @@ impl GraphvizOutput for CustomConstraintComponent {
         format!(
             "  {} [label=\"{}\", shape=box];",
             component_id.to_graphviz_id(),
-            label
+            sanitize_graphviz_string(&label)
         )
     }
 

@@ -1,4 +1,4 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{format_term_for_label, sanitize_graphviz_string, Context, ValidationContext};
 use crate::runtime::Component;
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
@@ -115,7 +115,7 @@ impl GraphvizOutput for ClosedConstraintComponent {
         format!(
             "{} [label=\"{}\"];",
             component_id.to_graphviz_id(),
-            label_parts.join("\\n")
+            sanitize_graphviz_string(&label_parts.join("\\n"))
         )
     }
 }

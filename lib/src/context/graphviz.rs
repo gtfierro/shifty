@@ -7,7 +7,11 @@ use oxigraph::model::Term;
 use std::collections::HashMap;
 
 pub(crate) fn sanitize_graphviz_string(input: &str) -> String {
-    input.chars().filter(|c| c.is_alphanumeric()).collect()
+    input
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "")
 }
 
 pub(crate) fn format_term_for_label(term: &Term) -> String {
@@ -48,7 +52,7 @@ pub(crate) fn render_shapes_graphviz(model: &ShapesModel) -> Result<String, Stri
             .get_term(*shape.identifier())
             .ok_or_else(|| format!("Missing term for nodeshape ID: {:?}", shape.identifier()))?
             .clone();
-        let name_label = format_term_for_label(&name);
+        let name_label = sanitize_graphviz_string(&format_term_for_label(&name));
         dot_string.push_str(&format!(
             "  {} [label=\"NodeShape\\n{}\"];\n",
             shape.identifier().to_graphviz_id(),
@@ -82,7 +86,7 @@ pub(crate) fn render_shapes_graphviz(model: &ShapesModel) -> Result<String, Stri
             .get_term(*pshape.identifier())
             .ok_or_else(|| format!("Missing term for propshape ID: {:?}", pshape.identifier()))?;
 
-        let path_label = pshape.sparql_path();
+        let path_label = sanitize_graphviz_string(&pshape.sparql_path());
         dot_string.push_str(&format!(
             "  {} [label=\"PropertyShape\\nPath: {}\"];\n",
             pshape.identifier().to_graphviz_id(),
@@ -123,7 +127,7 @@ pub(crate) fn render_shapes_graphviz(model: &ShapesModel) -> Result<String, Stri
         dot_string.push_str(&format!(
             "  {} [label=\"{}\"];\n",
             ident.to_graphviz_id(),
-            component.label()
+            sanitize_graphviz_string(&component.label())
         ));
     }
     dot_string.push_str("}\n");
@@ -182,7 +186,7 @@ pub(crate) fn render_heatmap_graphviz(
             .get_term(*shape.identifier())
             .ok_or_else(|| format!("Missing term for nodeshape ID: {:?}", shape.identifier()))?
             .clone();
-        let name_label = format_term_for_label(&name);
+        let name_label = sanitize_graphviz_string(&format_term_for_label(&name));
         dot_string.push_str(&format!(
             "  {} [label=\"NodeShape\\n{}\\n({:.2}%) ({}/{})\", fillcolor=\"{}\"];\n",
             shape.identifier().to_graphviz_id(),
@@ -229,7 +233,7 @@ pub(crate) fn render_heatmap_graphviz(
             .get_term(*pshape.identifier())
             .ok_or_else(|| format!("Missing term for propshape ID: {:?}", pshape.identifier()))?;
 
-        let path_label = pshape.sparql_path();
+        let path_label = sanitize_graphviz_string(&pshape.sparql_path());
         dot_string.push_str(&format!(
             "  {} [label=\"PropertyShape\\nPath: {}\\n({:.2}%) ({}/{})\", fillcolor=\"{}\"];\n",
             pshape.identifier().to_graphviz_id(),
