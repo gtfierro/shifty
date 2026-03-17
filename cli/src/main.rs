@@ -23,6 +23,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "srcgen-compiler")]
 use std::process::Command;
+use std::time::Instant;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
     let is_ir = path
@@ -59,6 +60,10 @@ struct Cli {
     /// Decrease logging verbosity (can be used multiple times)
     #[arg(short, long, action = ArgAction::Count, global = true)]
     quiet: u8,
+
+    /// Write benchmark-oriented execution metadata as a JSON object to a file ("-" for stdout)
+    #[arg(long, global = true, value_name = "FILE")]
+    benchmark_json: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -517,6 +522,22 @@ enum Commands {
     Trace(TraceCmdArgs),
 }
 
+impl Commands {
+    fn name(&self) -> &'static str {
+        match self {
+            Commands::Visualize(_) => "visualize",
+            Commands::Validate(_) => "validate",
+            Commands::Infer(_) => "infer",
+            #[cfg(feature = "srcgen-compiler")]
+            Commands::Compile(_) => "compile",
+            Commands::Heat(_) => "heat",
+            Commands::VisualizeHeatmap(_) => "visualize-heatmap",
+            Commands::GenerateIr(_) => "generate-ir",
+            Commands::Trace(_) => "trace",
+        }
+    }
+}
+
 fn get_validator(
     common: &CommonArgs,
     shacl_ir_path: Option<&PathBuf>,
@@ -796,21 +817,122 @@ fn emit_validator_traces(validator: &Validator, args: &TraceOutputArgs) -> Resul
     emit_trace_outputs(&events, args).map_err(|e| format!("Failed to emit trace outputs: {}", e))
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-    init_logging(cli.log_level, cli.verbose, cli.quiet);
+fn elapsed_ms(start: Instant) -> f64 {
+    start.elapsed().as_secs_f64() * 1000.0
+}
 
-    match cli.command {
+fn emit_benchmark_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
+    let payload = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialise benchmark JSON: {}", e))?;
+    if path.as_os_str() == "-" {
+        println!("{}", payload);
+        return Ok(());
+    }
+    fs::write(path, format!("{payload}\n"))
+        .map_err(|e| format!("Failed to write benchmark JSON {}: {}", path.display(), e))
+}
+
+fn validator_stats_json(validator: &Validator) -> serde_json::Value {
+    let component_graph_call_stats = validator
+        .component_graph_call_stats()
+        .into_iter()
+        .map(|stat| {
+            json!({
+                "component_id": stat.component_id.0,
+                "source_shape": stat.source_shape,
+                "component_label": stat.component_label,
+                "quads_for_pattern_calls": stat.quads_for_pattern_calls,
+                "execute_prepared_calls": stat.execute_prepared_calls,
+                "component_invocations": stat.component_invocations,
+                "runtime_total_ms": stat.runtime_total_ms,
+                "runtime_min_ms": stat.runtime_min_ms,
+                "runtime_max_ms": stat.runtime_max_ms,
+                "runtime_mean_ms": stat.runtime_mean_ms,
+                "runtime_stddev_ms": stat.runtime_stddev_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let shape_phase_timing_stats = validator
+        .shape_phase_timing_stats()
+        .into_iter()
+        .map(|stat| {
+            json!({
+                "source_shape": stat.source_shape,
+                "phase": stat.phase,
+                "invocations": stat.invocations,
+                "runtime_total_ms": stat.runtime_total_ms,
+                "runtime_min_ms": stat.runtime_min_ms,
+                "runtime_max_ms": stat.runtime_max_ms,
+                "runtime_mean_ms": stat.runtime_mean_ms,
+                "runtime_stddev_ms": stat.runtime_stddev_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let sparql_query_call_stats = validator
+        .sparql_query_call_stats()
+        .into_iter()
+        .map(|stat| {
+            json!({
+                "source_shape": stat.source_shape,
+                "component_id": stat.component_id.0,
+                "constraint_term": stat.constraint_term,
+                "query_hash": stat.query_hash,
+                "invocations": stat.invocations,
+                "rows_returned_total": stat.rows_returned_total,
+                "rows_returned_min": stat.rows_returned_min,
+                "rows_returned_max": stat.rows_returned_max,
+                "rows_returned_mean": stat.rows_returned_mean,
+                "runtime_total_ms": stat.runtime_total_ms,
+                "runtime_min_ms": stat.runtime_min_ms,
+                "runtime_max_ms": stat.runtime_max_ms,
+                "runtime_mean_ms": stat.runtime_mean_ms,
+                "runtime_stddev_ms": stat.runtime_stddev_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let trace_event_count = validator
+        .context()
+        .trace_events()
+        .lock()
+        .ok()
+        .map(|events| events.len())
+        .unwrap_or(0);
+
+    json!({
+        "component_graph_call_stats": component_graph_call_stats,
+        "shape_phase_timing_stats": shape_phase_timing_stats,
+        "sparql_query_call_stats": sparql_query_call_stats,
+        "trace_event_count": trace_event_count,
+    })
+}
+
+fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    match command {
         Commands::Visualize(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let dot_string = validator.to_graphviz()?;
             let wants_graphviz = args.graphviz || args.pdf.is_none();
 
             if wants_graphviz {
                 println!("{}", dot_string);
-            } else if let Some(pdf_path) = args.pdf {
+            } else if let Some(pdf_path) = args.pdf.as_ref() {
                 write_pdf_from_dot(dot_string, &pdf_path, "PDF")?;
             }
+
+            Ok(json!({
+                "subcommand": "visualize",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "emitted_graphviz": wants_graphviz,
+                "pdf_output": args.pdf.as_ref().map(|p| p.display().to_string()),
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::Validate(args) => {
             if !args.run_inference
@@ -824,8 +946,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "inference tuning flags require --run-inference=true (default true)".into(),
                 );
             }
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
-            let (report, inference_outcome) = if args.run_inference {
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let inference_outcome = if args.run_inference {
                 let config = build_inference_config(
                     args.inference_min_iterations,
                     args.inference_max_iterations,
@@ -833,15 +957,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     args.inference_error_on_blank_nodes,
                     args.inference_debug,
                 );
-                match validator.validate_with_inference(config) {
-                    Ok((outcome, report)) => (report, Some(outcome)),
-                    Err(err) => return Err(format!("Inference failed: {}", err).into()),
-                }
+                let inference_start = Instant::now();
+                let outcome = validator
+                    .run_inference_with_config(config)
+                    .map_err(|err| format!("Inference failed: {}", err))?;
+                let inference_ms = elapsed_ms(inference_start);
+                Some((outcome, inference_ms))
             } else {
-                (validator.validate(), None)
+                None
             };
+            let validate_start = Instant::now();
+            let report = validator.validate();
+            let validate_ms = elapsed_ms(validate_start);
 
-            if let Some(outcome) = inference_outcome {
+            if let Some((outcome, _)) = &inference_outcome {
                 info!(
                     "Inference added {} triple(s) in {} iteration(s); converged={}",
                     outcome.triples_added, outcome.iterations_executed, outcome.converged
@@ -852,6 +981,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 follow_bnodes: args.follow_bnodes,
             };
 
+            let report_assembly_start = Instant::now();
             match args.format {
                 ValidateOutputFormat::Turtle => {
                     let report_str = report.to_turtle_with_options(report_options)?;
@@ -871,6 +1001,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", report_str);
                 }
             }
+            let report_assembly_ms = elapsed_ms(report_assembly_start);
 
             if args.graphviz {
                 let dot_string = validator.to_graphviz()?;
@@ -946,9 +1077,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             emit_validator_traces(&validator, &args.trace)?;
+
+            Ok(json!({
+                "subcommand": "validate",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": inference_outcome.as_ref().map(|(_, ms)| *ms),
+                    "report_assembly": report_assembly_ms,
+                },
+                "report": {
+                    "conforms": report.conforms(),
+                    "component_frequency_entries": report.get_component_frequencies().len(),
+                    "format": match args.format {
+                        ValidateOutputFormat::Turtle => "turtle",
+                        ValidateOutputFormat::Dump => "dump",
+                        ValidateOutputFormat::RdfXml => "rdfxml",
+                        ValidateOutputFormat::NTriples => "ntriples",
+                    },
+                    "follow_bnodes": args.follow_bnodes,
+                },
+                "inference": inference_outcome.as_ref().map(|(outcome, _)| {
+                    json!({
+                        "iterations_executed": outcome.iterations_executed,
+                        "triples_added": outcome.triples_added,
+                        "converged": outcome.converged,
+                        "inferred_quad_count": outcome.inferred_quads.len(),
+                    })
+                }),
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::Infer(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let config = build_inference_config(
                 args.min_iterations,
                 args.max_iterations,
@@ -956,9 +1119,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.error_on_blank_nodes,
                 args.debug,
             );
+            let inference_start = Instant::now();
             let outcome = validator
                 .run_inference_with_config(config)
                 .map_err(|e| format!("Inference failed: {}", e))?;
+            let inference_ms = elapsed_ms(inference_start);
             info!(
                 "Inference added {} triple(s) in {} iteration(s); converged={}",
                 outcome.triples_added, outcome.iterations_executed, outcome.converged
@@ -969,13 +1134,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .data_graph_quads()
                     .map_err(|e| format!("Failed to read data graph: {}", e))?
             } else {
-                outcome.inferred_quads
+                outcome.inferred_quads.clone()
             };
 
+            let report_assembly_start = Instant::now();
             let turtle_bytes = serialize_quads_to_turtle(&quads_to_emit)?;
 
-            if let Some(path) = args.output_file {
-                fs::write(&path, &turtle_bytes)
+            if let Some(path) = args.output_file.as_ref() {
+                fs::write(path, &turtle_bytes)
                     .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
                 info!(
                     "Wrote {} triple(s) to {}",
@@ -985,6 +1151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 io::stdout().write_all(&turtle_bytes)?;
             }
+            let report_assembly_ms = elapsed_ms(report_assembly_start);
 
             if args.graphviz {
                 let dot_string = validator.to_graphviz()?;
@@ -998,10 +1165,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             emit_validator_traces(&validator, &args.trace)?;
+
+            Ok(json!({
+                "subcommand": "infer",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": inference_ms,
+                    "report_assembly": report_assembly_ms,
+                },
+                "inference": {
+                    "iterations_executed": outcome.iterations_executed,
+                    "triples_added": outcome.triples_added,
+                    "converged": outcome.converged,
+                    "inferred_quad_count": outcome.inferred_quads.len(),
+                    "emitted_quad_count": quads_to_emit.len(),
+                    "union_output": args.union,
+                    "output_file": args.output_file.as_ref().map(|p| p.display().to_string()),
+                },
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         #[cfg(feature = "srcgen-compiler")]
         Commands::Compile(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator_shapes_only_for_compile(&args)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let shapes_file_is_ir = args
                 .shapes
                 .shapes_file
@@ -1016,7 +1205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .shape_ir_with_imports(args.import_depth)
                     .map_err(|e| e.to_string())?
             };
-            let (generated_root, generated_files, generated_binary_files) =
+            let (generated_root, generated_files, generated_binary_files, backend_name) =
                 match args.resolve_backend()? {
                     ResolvedCompileBackend::Srcgen(backend) => {
                         let srcgen_ir =
@@ -1024,16 +1213,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(plan_out) = &args.plan_out {
                             fs::write(plan_out, srcgen_ir.to_json_pretty()?)?;
                         }
-                        info!(
-                            "Using compiler track=srcgen backend={}",
-                            match backend {
-                                SrcGenBackend::Specialized => "specialized",
-                                SrcGenBackend::Tables => "tables",
-                            }
-                        );
+                        let backend_name = match backend {
+                            SrcGenBackend::Specialized => "specialized",
+                            SrcGenBackend::Tables => "tables",
+                        };
+                        info!("Using compiler track=srcgen backend={backend_name}");
                         let generated =
                             generate_srcgen_modules_from_ir_with_backend(&srcgen_ir, backend)?;
-                        (generated.root, generated.files, generated.binary_files)
+                        (
+                            generated.root,
+                            generated.files,
+                            generated.binary_files,
+                            backend_name,
+                        )
                     }
                 };
 
@@ -1134,8 +1326,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cmd.arg("--release");
             }
             cmd.arg("--manifest-path").arg(out_dir.join("Cargo.toml"));
-            // Ensure ccache (if configured via workspace env) uses a writable temp dir
-            // when compiling the generated crate in restricted environments.
             let ccache_tmp = workspace_root.join(out_dir).join("ccache-tmp");
             let ccache_dir = workspace_root.join(out_dir).join("ccache");
             fs::create_dir_all(&ccache_tmp)?;
@@ -1152,10 +1342,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .join(if args.release { "release" } else { "debug" })
                 .join(&args.bin_name);
             println!("Built executable: {}", target_dir.display());
+
+            Ok(json!({
+                "subcommand": "compile",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "backend": backend_name,
+                "out_dir": out_dir.display().to_string(),
+                "bin_name": args.bin_name,
+                "release": args.release,
+                "binary_path": target_dir.display().to_string(),
+                "plan_out": args.plan_out.as_ref().map(|p| p.display().to_string()),
+                "shape_ir": {
+                    "node_shapes": shape_ir.node_shapes.len(),
+                    "property_shapes": shape_ir.property_shapes.len(),
+                    "components": shape_ir.components.len(),
+                    "rules": shape_ir.rules.len(),
+                }
+            }))
         }
         Commands::Heat(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let validate_start = Instant::now();
             let report = validator.validate();
+            let validate_ms = elapsed_ms(validate_start);
 
             let frequencies: HashMap<(String, String, String), usize> =
                 report.get_component_frequencies();
@@ -1164,38 +1380,137 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sorted_frequencies.sort_by(|a, b| b.1.cmp(&a.1));
 
             println!("ID\tLabel\tType\tInvocations");
-            for ((id, label, item_type), count) in sorted_frequencies {
+            for ((id, label, item_type), count) in &sorted_frequencies {
                 println!("{}\t{}\t{}\t{}", id, label, item_type, count);
             }
+
+            Ok(json!({
+                "subcommand": "heat",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "report": {
+                    "conforms": report.conforms(),
+                    "frequency_rows": sorted_frequencies.len(),
+                },
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::VisualizeHeatmap(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let validate_start = Instant::now();
             let dot_string = run_validation_then_get_heatmap_dot(&validator, args.all)?;
+            let validate_ms = elapsed_ms(validate_start);
             let wants_graphviz = args.graphviz || args.pdf.is_none();
 
             if wants_graphviz {
                 println!("{}", dot_string);
-            } else if let Some(pdf_path) = args.pdf {
+            } else if let Some(pdf_path) = args.pdf.as_ref() {
                 write_pdf_from_dot(dot_string, &pdf_path, "PDF heatmap")?;
             }
+
+            Ok(json!({
+                "subcommand": "visualize-heatmap",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "emitted_graphviz": wants_graphviz,
+                "pdf_output": args.pdf.as_ref().map(|p| p.display().to_string()),
+                "include_all_nodes": args.all,
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::GenerateIr(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator_shapes_only(&args)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let mut shape_ir = validator.context().shape_ir().clone();
             shape_ir.data_graph = None;
+            let report_assembly_start = Instant::now();
             ir_cache::write_shape_ir(&args.output_file, &shape_ir)
                 .map_err(|e| format!("Failed to write SHACL-IR cache: {}", e))?;
+            let report_assembly_ms = elapsed_ms(report_assembly_start);
             println!("Wrote SHACL-IR cache to {}", args.output_file.display());
+
+            Ok(json!({
+                "subcommand": "generate-ir",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": report_assembly_ms,
+                },
+                "output_file": args.output_file.display().to_string(),
+                "shape_ir": {
+                    "node_shapes": shape_ir.node_shapes.len(),
+                    "property_shapes": shape_ir.property_shapes.len(),
+                    "components": shape_ir.components.len(),
+                    "rules": shape_ir.rules.len(),
+                }
+            }))
         }
         Commands::Trace(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
-            // Run validation to populate execution traces
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let validate_start = Instant::now();
             let report = validator.validate();
-
+            let validate_ms = elapsed_ms(validate_start);
             report.print_traces();
+
+            Ok(json!({
+                "subcommand": "trace",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "report": {
+                    "conforms": report.conforms(),
+                },
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
     }
-    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+    init_logging(cli.log_level, cli.verbose, cli.quiet);
+    let command_name = cli.command.name();
+    let benchmark_json_path = cli.benchmark_json.clone();
+    let start = Instant::now();
+    let result = run_command(cli.command);
+    let wall_time_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    if let Some(path) = benchmark_json_path.as_ref() {
+        let benchmark = match &result {
+            Ok(metrics) => json!({
+                "command": command_name,
+                "success": true,
+                "wall_time_ms": wall_time_ms,
+                "metrics": metrics,
+            }),
+            Err(err) => json!({
+                "command": command_name,
+                "success": false,
+                "wall_time_ms": wall_time_ms,
+                "error": err.to_string(),
+            }),
+        };
+        emit_benchmark_json(path, &benchmark)?;
+    }
+
+    result.map(|_| ())
 }
 #[derive(Parser, Debug, Clone, Default)]
 struct TraceOutputArgs {
