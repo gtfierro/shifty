@@ -419,7 +419,7 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "cli"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "clap",
  "env_logger",
@@ -2519,7 +2519,7 @@ dependencies = [
 
 [[package]]
 name = "python"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "env_logger",
  "ontoenv",
@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-shacl"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "fixedbitset",
  "log",
