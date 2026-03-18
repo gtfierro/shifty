@@ -8,6 +8,7 @@ pub mod inference;
 pub mod ir;
 pub mod ir_cache;
 pub mod model;
+pub mod optimize;
 pub mod shacl_ir;
 pub mod shape;
 pub(crate) mod skolem;
@@ -15,6 +16,7 @@ pub mod trace;
 pub mod types;
 
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
+pub use optimize::InferenceOptimizationConfig;
 pub use report::{ValidationReport, ValidationReportOptions};
 pub use types::ComponentID;
 
@@ -22,7 +24,6 @@ pub use types::ComponentID;
 pub mod canonicalization;
 pub(crate) mod context;
 pub(crate) mod named_nodes;
-pub(crate) mod optimize;
 pub(crate) mod parser;
 pub(crate) mod planning;
 pub(crate) mod report;
@@ -3823,8 +3824,7 @@ ex:Mid ex:link ex:Reachable .
     }
 
     #[test]
-    fn lowered_missing_related_node_skips_generic_sparql_execution(
-    ) -> Result<(), Box<dyn Error>> {
+    fn lowered_missing_related_node_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_lowered_missing_related_node")?;
 

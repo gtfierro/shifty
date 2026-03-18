@@ -6,6 +6,7 @@
 use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
+use crate::optimize::InferenceOptimizationConfig;
 use crate::runtime::component::{check_conformance_for_node, ConformanceReport};
 use crate::trace::TraceEvent;
 use crate::types::{ComponentID, PropShapeID, RuleID, TargetEvalExt, TraceItem, ID};
@@ -30,6 +31,7 @@ pub struct InferenceConfig {
     pub run_until_converged: bool,
     pub error_on_blank_nodes: bool,
     pub trace: bool,
+    pub optimize: InferenceOptimizationConfig,
 }
 
 impl Default for InferenceConfig {
@@ -40,6 +42,7 @@ impl Default for InferenceConfig {
             run_until_converged: true,
             error_on_blank_nodes: false,
             trace: false,
+            optimize: InferenceOptimizationConfig::default(),
         }
     }
 }
@@ -173,8 +176,8 @@ pub struct InferenceEngine<'a> {
     config: InferenceConfig,
     graph: InferenceGraph,
     plans: Vec<RulePlan>,
-    dependency_index: HashMap<FocusDependency, Vec<usize>>,
-    always_run_plans: Vec<usize>,
+    dependency_graph: RuleDependencyGraph,
+    active_plan_indices: Vec<usize>,
 }
 
 impl<'a> InferenceEngine<'a> {
@@ -187,15 +190,16 @@ impl<'a> InferenceEngine<'a> {
             config,
             graph: InferenceGraph::from_context(context),
             plans: Vec::new(),
-            dependency_index: HashMap::new(),
-            always_run_plans: Vec::new(),
+            dependency_graph: RuleDependencyGraph::default(),
+            active_plan_indices: Vec::new(),
         };
         let plans = engine.build_rule_plans()?;
-        let (dependency_index, always_run_plans) = build_dependency_index(&plans);
+        let dependency_graph = RuleDependencyGraph::from_plans(context, &plans, &engine.config);
+        let active_plan_indices = dependency_graph.active_plan_indices();
         let engine = Self {
             plans,
-            dependency_index,
-            always_run_plans,
+            dependency_graph,
+            active_plan_indices,
             ..engine
         };
         engine.validate_config()?;
@@ -229,7 +233,8 @@ impl<'a> InferenceEngine<'a> {
 
         for iteration in 1..=self.config.max_iterations {
             iterations_executed = iteration;
-            let added_this_round = self.apply_rules_for_delta(&delta, &mut inferred_quads)?;
+            let (added_this_round, producer_plan_indices) =
+                self.apply_rules_for_delta(&delta, &mut inferred_quads)?;
             total_added += added_this_round;
             if self.config.trace {
                 info!(
@@ -237,8 +242,10 @@ impl<'a> InferenceEngine<'a> {
                     iteration, added_this_round
                 );
             }
-            delta =
-                DeltaIndex::from_quads(&inferred_quads[inferred_quads.len() - added_this_round..]);
+            delta = DeltaIndex::from_quads(
+                &inferred_quads[inferred_quads.len() - added_this_round..],
+                producer_plan_indices,
+            );
 
             let reached_min = iteration >= self.config.min_iterations;
             if added_this_round == 0 {
@@ -356,8 +363,9 @@ impl<'a> InferenceEngine<'a> {
         &self,
         delta: &DeltaIndex,
         collected: &mut Vec<Quad>,
-    ) -> Result<usize, InferenceError> {
+    ) -> Result<(usize, HashSet<usize>), InferenceError> {
         let mut iteration_added = 0usize;
+        let mut producer_plan_indices = HashSet::new();
         let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
         let scheduled = self.scheduled_plan_indices(delta);
 
@@ -395,6 +403,9 @@ impl<'a> InferenceEngine<'a> {
                 )?,
             };
             iteration_added += added;
+            if added > 0 {
+                producer_plan_indices.insert(plan_index);
+            }
 
             if added > 0 {
                 self.context.trace_sink.record(TraceEvent::RuleApplied {
@@ -413,25 +424,14 @@ impl<'a> InferenceEngine<'a> {
             }
         }
 
-        Ok(iteration_added)
+        Ok((iteration_added, producer_plan_indices))
     }
 
     fn scheduled_plan_indices(&self, delta: &DeltaIndex) -> Vec<usize> {
         if delta.is_initial {
-            return (0..self.plans.len()).collect();
+            return self.active_plan_indices.clone();
         }
-
-        let mut scheduled = HashSet::new();
-        scheduled.extend(self.always_run_plans.iter().copied());
-        for key in delta.dependency_keys() {
-            if let Some(plan_indices) = self.dependency_index.get(&key) {
-                scheduled.extend(plan_indices.iter().copied());
-            }
-        }
-
-        let mut ordered: Vec<usize> = scheduled.into_iter().collect();
-        ordered.sort_unstable();
-        ordered
+        self.dependency_graph.scheduled_plan_indices(delta)
     }
 
     fn focus_nodes_for_plan(
@@ -1116,35 +1116,31 @@ enum FocusDependency {
 struct RulePlan {
     owner: RuleOwner,
     rule: Rule,
-    dependencies: Vec<FocusDependency>,
+    signature: RuleSignature,
     sparql_prefilter: Option<SparqlPrefilter>,
     native_sparql: Option<NativeSparqlRule>,
 }
 
 impl RulePlan {
     fn for_node_shape(shape: &crate::types::NodeShapeIR, rule: Rule) -> Self {
-        let mut dependencies = dependencies_for_targets(&shape.targets);
-        dependencies.extend(dependencies_for_rule(&rule));
-        dedup_preserve_order(&mut dependencies);
+        let signature = RuleSignature::for_targets_and_rule(&shape.targets, &rule);
         Self {
             owner: RuleOwner::NodeShape(shape.id),
             sparql_prefilter: sparql_prefilter_for_rule(&rule),
             native_sparql: native_sparql_rule(&rule),
             rule,
-            dependencies,
+            signature,
         }
     }
 
     fn for_property_shape(shape: &crate::types::PropertyShapeIR, rule: Rule) -> Self {
-        let mut dependencies = dependencies_for_targets(&shape.targets);
-        dependencies.extend(dependencies_for_rule(&rule));
-        dedup_preserve_order(&mut dependencies);
+        let signature = RuleSignature::for_targets_and_rule(&shape.targets, &rule);
         Self {
             owner: RuleOwner::PropertyShape(shape.id),
             sparql_prefilter: sparql_prefilter_for_rule(&rule),
             native_sparql: native_sparql_rule(&rule),
             rule,
-            dependencies,
+            signature,
         }
     }
 
@@ -1154,7 +1150,7 @@ impl RulePlan {
         }
 
         let mut focus_nodes = HashSet::new();
-        for dependency in &self.dependencies {
+        for dependency in &self.signature.reads {
             match dependency {
                 FocusDependency::All => return TriggerSet::All,
                 FocusDependency::TargetClass(class) => {
@@ -1183,6 +1179,207 @@ impl RulePlan {
         }
 
         TriggerSet::Nodes(focus_nodes)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignaturePrecision {
+    Exact,
+    Conservative,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RuleWrite {
+    Predicate(NamedNode),
+    Class(Term),
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+struct RuleSignature {
+    #[allow(dead_code)]
+    target_reads: Vec<FocusDependency>,
+    #[allow(dead_code)]
+    body_reads: Vec<FocusDependency>,
+    reads: Vec<FocusDependency>,
+    writes: Vec<RuleWrite>,
+    read_precision: SignaturePrecision,
+    write_precision: SignaturePrecision,
+}
+
+impl RuleSignature {
+    fn for_targets_and_rule(targets: &[crate::types::Target], rule: &Rule) -> Self {
+        let mut target_reads = dependencies_for_targets(targets);
+        dedup_preserve_order(&mut target_reads);
+
+        let (mut body_reads, read_precision) = dependencies_for_rule(rule);
+        dedup_preserve_order(&mut body_reads);
+
+        let (mut writes, write_precision) = writes_for_rule(rule);
+        dedup_preserve_order(&mut writes);
+
+        let mut reads = target_reads.clone();
+        reads.extend(body_reads.clone());
+        dedup_preserve_order(&mut reads);
+
+        Self {
+            target_reads,
+            body_reads,
+            reads,
+            writes,
+            read_precision,
+            write_precision,
+        }
+    }
+
+    fn needs_always_run(&self) -> bool {
+        self.reads.contains(&FocusDependency::All)
+            || self.read_precision == SignaturePrecision::Unknown
+            || self.write_precision == SignaturePrecision::Unknown
+            || self.writes.contains(&RuleWrite::Unknown)
+    }
+
+    fn family_keys(&self) -> Vec<RuleDependencyKey> {
+        let mut keys = Vec::new();
+        keys.extend(
+            self.reads
+                .iter()
+                .filter_map(RuleDependencyKey::from_focus_dependency),
+        );
+        keys.extend(
+            self.writes
+                .iter()
+                .filter_map(RuleDependencyKey::from_rule_write),
+        );
+        dedup_preserve_order(&mut keys);
+        keys
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RuleDependencyKey {
+    Predicate(NamedNode),
+    Class(Term),
+}
+
+impl RuleDependencyKey {
+    fn from_focus_dependency(dependency: &FocusDependency) -> Option<Self> {
+        match dependency {
+            FocusDependency::TargetClass(class) => Some(Self::Class(class.clone())),
+            FocusDependency::TargetSubjectsOf(predicate)
+            | FocusDependency::TargetObjectsOf(predicate)
+            | FocusDependency::OutgoingPredicate(predicate)
+            | FocusDependency::IncomingPredicate(predicate)
+            | FocusDependency::AnyPredicateParticipant(predicate) => {
+                Some(Self::Predicate(predicate.clone()))
+            }
+            FocusDependency::All => None,
+        }
+    }
+
+    fn from_rule_write(write: &RuleWrite) -> Option<Self> {
+        match write {
+            RuleWrite::Predicate(predicate) => Some(Self::Predicate(predicate.clone())),
+            RuleWrite::Class(class) => Some(Self::Class(class.clone())),
+            RuleWrite::Unknown => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct RuleDependencyGraph {
+    downstream: HashMap<usize, Vec<usize>>,
+    always_run_plans: Vec<usize>,
+    active_plan_indices: Vec<usize>,
+}
+
+impl RuleDependencyGraph {
+    fn from_plans(
+        context: &ValidationContext,
+        plans: &[RulePlan],
+        config: &InferenceConfig,
+    ) -> Self {
+        let mut downstream: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut producers_by_key: HashMap<RuleDependencyKey, Vec<usize>> = HashMap::new();
+        let mut always_run_plans = Vec::new();
+
+        for (index, plan) in plans.iter().enumerate() {
+            if plan.signature.needs_always_run() || !config.optimize.explicit_rule_dependency_graph
+            {
+                always_run_plans.push(index);
+            }
+            for key in plan
+                .signature
+                .writes
+                .iter()
+                .filter_map(RuleDependencyKey::from_rule_write)
+            {
+                producers_by_key.entry(key).or_default().push(index);
+            }
+        }
+
+        if config.optimize.explicit_rule_dependency_graph {
+            for (consumer_index, plan) in plans.iter().enumerate() {
+                for key in plan
+                    .signature
+                    .reads
+                    .iter()
+                    .filter_map(RuleDependencyKey::from_focus_dependency)
+                {
+                    if let Some(producers) = producers_by_key.get(&key) {
+                        for &producer in producers {
+                            if producer != consumer_index {
+                                downstream.entry(producer).or_default().push(consumer_index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for consumers in downstream.values_mut() {
+            consumers.sort_unstable();
+            consumers.dedup();
+        }
+        always_run_plans.sort_unstable();
+        always_run_plans.dedup();
+
+        let active_plan_indices = if config.optimize.prune_rule_families_by_dataset
+            && config.optimize.explicit_rule_dependency_graph
+        {
+            active_rule_family_indices(context, plans, &downstream, &always_run_plans)
+        } else {
+            (0..plans.len()).collect()
+        };
+
+        Self {
+            downstream,
+            always_run_plans,
+            active_plan_indices,
+        }
+    }
+
+    fn active_plan_indices(&self) -> Vec<usize> {
+        self.active_plan_indices.clone()
+    }
+
+    fn scheduled_plan_indices(&self, delta: &DeltaIndex) -> Vec<usize> {
+        let mut scheduled = HashSet::new();
+        scheduled.extend(self.always_run_plans.iter().copied());
+        for producer in delta.producer_plan_indices() {
+            if let Some(consumers) = self.downstream.get(&producer) {
+                scheduled.extend(consumers.iter().copied());
+            }
+        }
+
+        let active: HashSet<usize> = self.active_plan_indices.iter().copied().collect();
+        let mut ordered: Vec<usize> = scheduled
+            .into_iter()
+            .filter(|plan_index| active.contains(plan_index))
+            .collect();
+        ordered.sort_unstable();
+        ordered
     }
 }
 
@@ -1253,6 +1450,7 @@ impl TriggerSet {
 #[derive(Debug, Default, Clone)]
 struct DeltaIndex {
     is_initial: bool,
+    producer_plan_indices: HashSet<usize>,
     subjects_by_predicate: HashMap<NamedNode, HashSet<Term>>,
     objects_by_predicate: HashMap<NamedNode, HashSet<Term>>,
     participants_by_predicate: HashMap<NamedNode, HashSet<Term>>,
@@ -1269,8 +1467,9 @@ impl DeltaIndex {
         }
     }
 
-    fn from_quads(quads: &[Quad]) -> Self {
+    fn from_quads(quads: &[Quad], producer_plan_indices: HashSet<usize>) -> Self {
         let mut index = Self::default();
+        index.producer_plan_indices = producer_plan_indices;
         for quad in quads {
             let Ok(subject_term) = named_or_blank_to_term(quad.subject.clone()) else {
                 continue;
@@ -1319,23 +1518,8 @@ impl DeltaIndex {
         index
     }
 
-    fn dependency_keys(&self) -> Vec<FocusDependency> {
-        let mut keys = Vec::new();
-        for predicate in self.subjects_by_predicate.keys() {
-            keys.push(FocusDependency::TargetSubjectsOf(predicate.clone()));
-            keys.push(FocusDependency::OutgoingPredicate(predicate.clone()));
-        }
-        for predicate in self.objects_by_predicate.keys() {
-            keys.push(FocusDependency::TargetObjectsOf(predicate.clone()));
-            keys.push(FocusDependency::IncomingPredicate(predicate.clone()));
-        }
-        for predicate in self.participants_by_predicate.keys() {
-            keys.push(FocusDependency::AnyPredicateParticipant(predicate.clone()));
-        }
-        for class in self.typed_subjects_by_class.keys() {
-            keys.push(FocusDependency::TargetClass(class.clone()));
-        }
-        keys
+    fn producer_plan_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.producer_plan_indices.iter().copied()
     }
 
     fn outgoing_values_for_focus(&self, focus: &Term, predicate: &NamedNode) -> Option<Vec<Term>> {
@@ -1393,21 +1577,26 @@ fn dependencies_for_targets(targets: &[crate::types::Target]) -> Vec<FocusDepend
     dependencies
 }
 
-fn dependencies_for_rule(rule: &Rule) -> Vec<FocusDependency> {
+fn dependencies_for_rule(rule: &Rule) -> (Vec<FocusDependency>, SignaturePrecision) {
     match rule {
         Rule::Triple(rule) => dependencies_for_triple_rule(rule),
         Rule::Sparql(rule) => dependencies_for_sparql_rule(rule),
     }
 }
 
-fn dependencies_for_triple_rule(rule: &TripleRule) -> Vec<FocusDependency> {
+fn dependencies_for_triple_rule(rule: &TripleRule) -> (Vec<FocusDependency>, SignaturePrecision) {
     let mut dependencies = Vec::new();
     dependencies.extend(dependencies_for_template(&rule.subject));
     dependencies.extend(dependencies_for_template(&rule.object));
     if !rule.condition_shapes.is_empty() {
         dependencies.push(FocusDependency::All);
     }
-    dependencies
+    let precision = if dependencies.contains(&FocusDependency::All) {
+        SignaturePrecision::Conservative
+    } else {
+        SignaturePrecision::Exact
+    };
+    (dependencies, precision)
 }
 
 fn dependencies_for_template(template: &TriplePatternTerm) -> Vec<FocusDependency> {
@@ -1443,42 +1632,163 @@ fn dependencies_for_path(path: &crate::types::Path, any_participant: bool) -> Ve
     }
 }
 
-fn dependencies_for_sparql_rule(rule: &SparqlRule) -> Vec<FocusDependency> {
+fn dependencies_for_sparql_rule(rule: &SparqlRule) -> (Vec<FocusDependency>, SignaturePrecision) {
     let where_body = rule
         .query
         .split_once("WHERE")
         .map(|(_, tail)| tail)
         .unwrap_or(rule.query.as_str());
     let mut dependencies = extract_sparql_dependencies(where_body);
+    let mut precision = SignaturePrecision::Conservative;
     if !rule.condition_shapes.is_empty() {
         dependencies.push(FocusDependency::All);
     }
     if dependencies.is_empty() {
         dependencies.push(FocusDependency::All);
+        precision = SignaturePrecision::Unknown;
+    } else if dependencies.contains(&FocusDependency::All) {
+        precision = SignaturePrecision::Unknown;
     }
-    dependencies
+    (dependencies, precision)
 }
 
-fn build_dependency_index(
-    plans: &[RulePlan],
-) -> (HashMap<FocusDependency, Vec<usize>>, Vec<usize>) {
-    let mut index: HashMap<FocusDependency, Vec<usize>> = HashMap::new();
-    let mut always_run = Vec::new();
+fn writes_for_rule(rule: &Rule) -> (Vec<RuleWrite>, SignaturePrecision) {
+    match rule {
+        Rule::Triple(rule) => writes_for_triple_rule(rule),
+        Rule::Sparql(rule) => writes_for_sparql_rule(rule),
+    }
+}
 
-    for (plan_index, plan) in plans.iter().enumerate() {
-        for dependency in &plan.dependencies {
-            if *dependency == FocusDependency::All {
-                always_run.push(plan_index);
-            } else {
-                index
-                    .entry(dependency.clone())
-                    .or_default()
-                    .push(plan_index);
-            }
+fn writes_for_triple_rule(rule: &TripleRule) -> (Vec<RuleWrite>, SignaturePrecision) {
+    let mut writes = vec![RuleWrite::Predicate(rule.predicate.clone())];
+    if rule.predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" {
+        if let TriplePatternTerm::Constant(Term::NamedNode(class)) = &rule.object {
+            writes.push(RuleWrite::Class(Term::NamedNode(class.clone())));
+        }
+    }
+    (writes, SignaturePrecision::Exact)
+}
+
+fn writes_for_sparql_rule(rule: &SparqlRule) -> (Vec<RuleWrite>, SignaturePrecision) {
+    let Some(native_rule) = native_sparql_rule(&Rule::Sparql(rule.clone())) else {
+        return (vec![RuleWrite::Unknown], SignaturePrecision::Unknown);
+    };
+
+    let mut writes = match &native_rule {
+        NativeSparqlRule::DirectCopy {
+            construct_predicate,
+            ..
+        }
+        | NativeSparqlRule::TwoHopCopy {
+            construct_predicate,
+            ..
+        }
+        | NativeSparqlRule::EqualityConstant {
+            construct_predicate,
+            ..
+        } => vec![RuleWrite::Predicate(construct_predicate.clone())],
+    };
+
+    if let NativeSparqlRule::EqualityConstant {
+        ref construct_predicate,
+        ref object,
+        ..
+    } = &native_rule
+    {
+        if construct_predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+            && matches!(object, Term::NamedNode(_))
+        {
+            writes.push(RuleWrite::Class(object.clone()));
         }
     }
 
-    (index, always_run)
+    (writes, SignaturePrecision::Conservative)
+}
+
+fn active_rule_family_indices(
+    context: &ValidationContext,
+    plans: &[RulePlan],
+    downstream: &HashMap<usize, Vec<usize>>,
+    always_run_plans: &[usize],
+) -> Vec<usize> {
+    let active_keys = dataset_dependency_keys(context);
+    let plan_families = rule_plan_families(plans.len(), downstream);
+    let always_run: HashSet<usize> = always_run_plans.iter().copied().collect();
+    let mut active_indices = Vec::new();
+
+    for family in plan_families {
+        let mut family_keys = Vec::new();
+        let mut family_has_unknown = false;
+        for plan_index in &family {
+            let signature = &plans[*plan_index].signature;
+            family_keys.extend(signature.family_keys());
+            family_has_unknown |= signature.needs_always_run() || always_run.contains(plan_index);
+        }
+        dedup_preserve_order(&mut family_keys);
+        if family_has_unknown
+            || family_keys.is_empty()
+            || family_keys.iter().any(|key| active_keys.contains(key))
+        {
+            active_indices.extend(family);
+        }
+    }
+
+    active_indices.sort_unstable();
+    active_indices.dedup();
+    active_indices
+}
+
+fn rule_plan_families(
+    plan_count: usize,
+    downstream: &HashMap<usize, Vec<usize>>,
+) -> Vec<Vec<usize>> {
+    let mut undirected: Vec<Vec<usize>> = vec![Vec::new(); plan_count];
+    for (&producer, consumers) in downstream {
+        for &consumer in consumers {
+            undirected[producer].push(consumer);
+            undirected[consumer].push(producer);
+        }
+    }
+
+    let mut visited = vec![false; plan_count];
+    let mut families = Vec::new();
+    for start in 0..plan_count {
+        if visited[start] {
+            continue;
+        }
+        let mut family = Vec::new();
+        let mut stack = vec![start];
+        visited[start] = true;
+        while let Some(plan_index) = stack.pop() {
+            family.push(plan_index);
+            for &next in &undirected[plan_index] {
+                if !visited[next] {
+                    visited[next] = true;
+                    stack.push(next);
+                }
+            }
+        }
+        family.sort_unstable();
+        families.push(family);
+    }
+    families
+}
+
+fn dataset_dependency_keys(context: &ValidationContext) -> HashSet<RuleDependencyKey> {
+    let mut keys = HashSet::new();
+    let graph = GraphName::NamedNode(context.data_graph_iri.clone());
+    for quad in context
+        .model
+        .store
+        .quads_for_pattern(None, None, None, Some(graph.as_ref()))
+        .flatten()
+    {
+        keys.insert(RuleDependencyKey::Predicate(quad.predicate.clone()));
+        if quad.predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" {
+            keys.insert(RuleDependencyKey::Class(quad.object.clone()));
+        }
+    }
+    keys
 }
 
 fn dedup_preserve_order<T: Eq + std::hash::Hash + Clone>(items: &mut Vec<T>) {
@@ -1781,6 +2091,113 @@ mod tests {
             .with_data_source(Source::File(data_path))
             .build()
             .expect("validator should build")
+    }
+
+    #[test]
+    fn rule_signatures_capture_read_and_write_metadata() {
+        let shape = crate::types::NodeShapeIR {
+            id: ID(1),
+            targets: vec![crate::types::Target::Class(Term::NamedNode(
+                NamedNode::new("http://example.com/ns#Base").unwrap(),
+            ))],
+            constraints: Vec::new(),
+            property_shapes: Vec::new(),
+            severity: crate::types::Severity::Violation,
+            deactivated: false,
+        };
+        let plans = vec![
+            RulePlan::for_node_shape(
+                &shape,
+                Rule::Triple(TripleRule {
+                    id: RuleID(1),
+                    subject: TriplePatternTerm::This,
+                    predicate: NamedNode::new("http://example.com/ns#marker").unwrap(),
+                    object: TriplePatternTerm::Constant(Term::Literal(
+                        Literal::new_simple_literal("seeded"),
+                    )),
+                    condition_shapes: Vec::new(),
+                    deactivated: false,
+                    order: None,
+                    source_term: Term::NamedNode(
+                        NamedNode::new("http://example.com/ns#producer").unwrap(),
+                    ),
+                }),
+            ),
+            RulePlan::for_node_shape(
+                &shape,
+                Rule::Sparql(SparqlRule {
+                    id: RuleID(2),
+                    query: "PREFIX ex: <http://example.com/ns#> CONSTRUCT { $this <http://example.com/ns#flag> ?value . } WHERE { $this <http://example.com/ns#marker> ?value . }".to_string(),
+                    source_term: Term::NamedNode(
+                        NamedNode::new("http://example.com/ns#consumer").unwrap(),
+                    ),
+                    condition_shapes: Vec::new(),
+                    deactivated: false,
+                    order: None,
+                }),
+            ),
+        ];
+
+        assert!(plans[0]
+            .signature
+            .target_reads
+            .contains(&FocusDependency::TargetClass(Term::NamedNode(
+                NamedNode::new("http://example.com/ns#Base").unwrap()
+            ),)));
+        assert!(plans[0].signature.writes.contains(&RuleWrite::Predicate(
+            NamedNode::new("http://example.com/ns#marker").unwrap()
+        )));
+        assert!(plans[1].signature.writes.contains(&RuleWrite::Predicate(
+            NamedNode::new("http://example.com/ns#flag").unwrap()
+        )));
+        assert!(!plans[1].signature.reads.is_empty());
+        assert_eq!(
+            plans[1].signature.write_precision,
+            SignaturePrecision::Conservative
+        );
+    }
+
+    #[test]
+    fn dependency_graph_prunes_rule_families_for_unrelated_datasets() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:WantedShape a sh:NodeShape ;
+    sh:targetClass ex:Wanted ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:wantedFlag ;
+        sh:object "wanted" ;
+    ] .
+
+ex:OtherShape a sh:NodeShape ;
+    sh:targetClass ex:Other ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:otherFlag ;
+        sh:object "other" ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Wanted .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let engine =
+            InferenceEngine::new(validator.context(), InferenceConfig::default()).expect("engine");
+
+        assert_eq!(engine.active_plan_indices.len(), 1);
+        let active_plan = &engine.plans[engine.active_plan_indices[0]];
+        assert!(active_plan
+            .signature
+            .target_reads
+            .contains(&FocusDependency::TargetClass(Term::NamedNode(
+                NamedNode::new("http://example.com/ns#Wanted").unwrap()
+            ),)));
     }
 
     #[test]

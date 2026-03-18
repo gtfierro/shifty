@@ -3,6 +3,24 @@ use crate::types::{ComponentDescriptor, Target};
 use oxigraph::model::{vocab::rdf, vocab::rdfs, NamedOrBlankNode, Term};
 use std::collections::{HashMap, HashSet};
 
+/// Configuration for inference-time optimization passes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InferenceOptimizationConfig {
+    /// Build and use an explicit rule dependency graph derived from rule read/write signatures.
+    pub explicit_rule_dependency_graph: bool,
+    /// Skip disconnected rule families whose read/target signatures cannot match the current dataset.
+    pub prune_rule_families_by_dataset: bool,
+}
+
+impl Default for InferenceOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            explicit_rule_dependency_graph: true,
+            prune_rule_families_by_dataset: true,
+        }
+    }
+}
+
 /// A struct to hold statistics about the optimizations performed.
 #[derive(Default, Debug)]
 pub(crate) struct OptimizerStats {
