@@ -59,6 +59,17 @@ pub trait SparqlExecutor {
         substitutions: &[(Variable, Term)],
         enforce_values_clause: bool,
     ) -> Result<QueryResults<'a>, String>;
+
+    /// Executes a prepared query with a batched VALUES clause for a single variable.
+    fn execute_with_value_rows<'a>(
+        &self,
+        query_str: &str,
+        prepared: &PreparedSparqlQuery,
+        store: &'a Store,
+        value_var: &Variable,
+        values: &[Term],
+        substitutions: &[(Variable, Term)],
+    ) -> Result<QueryResults<'a>, String>;
 }
 
 /// Instantiates localized message templates.
@@ -71,15 +82,35 @@ pub trait MessageTemplater {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ThisPredicateDirection {
+pub enum ThisPredicateDirection {
     Outgoing,
     Incoming,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ThisPredicateRequirement {
-    pub(crate) predicate: NamedNode,
-    pub(crate) direction: ThisPredicateDirection,
+pub struct ThisPredicateRequirement {
+    pub predicate: NamedNode,
+    pub direction: ThisPredicateDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoweredSparqlQueryKind {
+    AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdjacentPredicateWhitelistPlan {
+    pub anchor_path: LoweredPropertyPath,
+    pub allowed_predicates: Vec<NamedNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoweredPropertyPath {
+    NamedNode(NamedNode),
+    ReverseNamedNode(NamedNode),
+    ZeroOrOne(Box<LoweredPropertyPath>),
+    Sequence(Vec<LoweredPropertyPath>),
+    Alternative(Vec<LoweredPropertyPath>),
 }
 
 #[derive(Default)]
@@ -300,6 +331,25 @@ impl SparqlExecutor for SparqlServices {
             }
         }
     }
+
+    fn execute_with_value_rows<'a>(
+        &self,
+        query_str: &str,
+        prepared: &PreparedSparqlQuery,
+        store: &'a Store,
+        value_var: &Variable,
+        values: &[Term],
+        substitutions: &[(Variable, Term)],
+    ) -> Result<QueryResults<'a>, String> {
+        execute_with_values_rows_clause(
+            query_str,
+            prepared,
+            store,
+            value_var,
+            values,
+            substitutions,
+        )
+    }
 }
 
 impl MessageTemplater for SparqlServices {
@@ -460,6 +510,49 @@ fn execute_with_values_clause<'a>(
     bound.execute().map_err(|e| e.to_string())
 }
 
+fn execute_with_values_rows_clause<'a>(
+    query_str: &str,
+    prepared: &PreparedSparqlQuery,
+    store: &'a Store,
+    value_var: &Variable,
+    values: &[Term],
+    substitutions: &[(Variable, Term)],
+) -> Result<QueryResults<'a>, String> {
+    if values.is_empty() {
+        return Err("No VALUES rows available".to_string());
+    }
+
+    let mut bindings = Vec::with_capacity(values.len());
+    for term in values {
+        let ground = GroundTerm::try_from(term.clone())
+            .map_err(|_| format!("VALUES batching requires a ground term for ?{}", value_var))?;
+        bindings.push(vec![Some(ground)]);
+    }
+
+    let mut query = SparqlParser::new()
+        .parse_query(query_str)
+        .map_err(|e| format!("Failed to reparse batched SPARQL query: {}", e))?;
+
+    let values_pattern = GraphPattern::Values {
+        variables: vec![value_var.clone()],
+        bindings,
+    };
+
+    query = wrap_with_values(query, values_pattern);
+    query = ensure_projected_variable(query, value_var);
+
+    let dataset_snapshot = prepared.dataset().clone();
+    let mut fallback_prepared = SparqlEvaluator::new().for_query(query);
+    *fallback_prepared.dataset_mut() = dataset_snapshot;
+
+    let mut bound = fallback_prepared.on_store(store);
+    for (var, term) in substitutions {
+        bound = bound.substitute_variable(var.clone(), term.clone());
+    }
+
+    bound.execute().map_err(|e| e.to_string())
+}
+
 fn wrap_with_values(query: spargebra::Query, values: GraphPattern) -> spargebra::Query {
     match query {
         spargebra::Query::Select {
@@ -499,6 +592,89 @@ fn wrap_with_values(query: spargebra::Query, values: GraphPattern) -> spargebra:
             dataset,
             base_iri,
             pattern: prepend_values(pattern, &values),
+        },
+    }
+}
+
+fn ensure_projected_variable(query: spargebra::Query, variable: &Variable) -> spargebra::Query {
+    match query {
+        spargebra::Query::Select {
+            dataset,
+            pattern,
+            base_iri,
+        } => spargebra::Query::Select {
+            dataset,
+            base_iri,
+            pattern: ensure_projected_variable_in_pattern(pattern, variable),
+        },
+        spargebra::Query::Construct {
+            template,
+            dataset,
+            pattern,
+            base_iri,
+        } => spargebra::Query::Construct {
+            template,
+            dataset,
+            base_iri,
+            pattern,
+        },
+        spargebra::Query::Describe {
+            dataset,
+            pattern,
+            base_iri,
+        } => spargebra::Query::Describe {
+            dataset,
+            base_iri,
+            pattern,
+        },
+        spargebra::Query::Ask {
+            dataset,
+            pattern,
+            base_iri,
+        } => spargebra::Query::Ask {
+            dataset,
+            base_iri,
+            pattern,
+        },
+    }
+}
+
+fn ensure_projected_variable_in_pattern(
+    pattern: GraphPattern,
+    variable: &Variable,
+) -> GraphPattern {
+    match pattern {
+        GraphPattern::Project {
+            inner,
+            mut variables,
+        } => {
+            if !variables.iter().any(|candidate| candidate == variable) {
+                variables.push(variable.clone());
+            }
+            GraphPattern::Project { inner, variables }
+        }
+        GraphPattern::Distinct { inner } => GraphPattern::Distinct {
+            inner: Box::new(ensure_projected_variable_in_pattern(*inner, variable)),
+        },
+        GraphPattern::Reduced { inner } => GraphPattern::Reduced {
+            inner: Box::new(ensure_projected_variable_in_pattern(*inner, variable)),
+        },
+        GraphPattern::Slice {
+            inner,
+            start,
+            length,
+        } => GraphPattern::Slice {
+            inner: Box::new(ensure_projected_variable_in_pattern(*inner, variable)),
+            start,
+            length,
+        },
+        GraphPattern::OrderBy { inner, expression } => GraphPattern::OrderBy {
+            inner: Box::new(ensure_projected_variable_in_pattern(*inner, variable)),
+            expression,
+        },
+        other => GraphPattern::Project {
+            inner: Box::new(other),
+            variables: vec![variable.clone()],
         },
     }
 }
@@ -637,13 +813,259 @@ pub fn ensure_pre_binding_semantics(
     }
 }
 
-pub(crate) fn required_this_predicates(query: &AlgebraQuery) -> HashSet<ThisPredicateRequirement> {
+pub fn required_this_predicates(query: &AlgebraQuery) -> HashSet<ThisPredicateRequirement> {
     match query {
         AlgebraQuery::Select { pattern, .. }
         | AlgebraQuery::Ask { pattern, .. }
         | AlgebraQuery::Construct { pattern, .. }
         | AlgebraQuery::Describe { pattern, .. } => {
             required_this_predicates_in_graph_pattern(pattern)
+        }
+    }
+}
+
+pub fn lowered_sparql_query_kind(query: &AlgebraQuery) -> Option<LoweredSparqlQueryKind> {
+    match query {
+        AlgebraQuery::Select { pattern, .. }
+        | AlgebraQuery::Ask { pattern, .. }
+        | AlgebraQuery::Construct { pattern, .. }
+        | AlgebraQuery::Describe { pattern, .. } => {
+            lowered_sparql_query_kind_in_graph_pattern(pattern)
+        }
+    }
+}
+
+fn lowered_sparql_query_kind_in_graph_pattern(
+    pattern: &GraphPattern,
+) -> Option<LoweredSparqlQueryKind> {
+    let pattern = unwrap_projection_like_pattern(pattern);
+    let GraphPattern::Filter { expr, inner } = pattern else {
+        return None;
+    };
+
+    let anchor_path = match unwrap_projection_like_pattern(inner.as_ref()) {
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } if term_pattern_is_this(subject) => {
+            let TermPattern::Variable(anchor_var) = object else {
+                return None;
+            };
+            lowered_adjacent_whitelist(anchor_var.as_str(), path, expr)?
+        }
+        GraphPattern::Bgp { patterns } if patterns.len() == 1 => {
+            let triple = &patterns[0];
+            if !term_pattern_is_this(&triple.subject) {
+                return None;
+            }
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &triple.predicate else {
+                return None;
+            };
+            let TermPattern::Variable(anchor_var) = &triple.object else {
+                return None;
+            };
+            lowered_adjacent_whitelist(
+                anchor_var.as_str(),
+                &PropertyPathExpression::NamedNode(predicate.clone()),
+                expr,
+            )?
+        }
+        _ => return None,
+    };
+
+    Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(
+        anchor_path,
+    ))
+}
+
+fn lowered_adjacent_whitelist(
+    anchor_var: &str,
+    anchor_path: &PropertyPathExpression,
+    expr: &Expression,
+) -> Option<AdjacentPredicateWhitelistPlan> {
+    Some(AdjacentPredicateWhitelistPlan {
+        anchor_path: lower_property_path(anchor_path)?,
+        allowed_predicates: match_adjacent_whitelist_expr(expr, anchor_var)?,
+    })
+}
+
+fn match_adjacent_whitelist_expr(expr: &Expression, anchor_var: &str) -> Option<Vec<NamedNode>> {
+    let Expression::Not(inner) = expr else {
+        return None;
+    };
+    let Expression::Exists(pattern) = inner.as_ref() else {
+        return None;
+    };
+    match_adjacent_whitelist_exists(pattern, anchor_var)
+}
+
+fn match_adjacent_whitelist_exists(
+    pattern: &GraphPattern,
+    anchor_var: &str,
+) -> Option<Vec<NamedNode>> {
+    let GraphPattern::Filter { expr, inner } = unwrap_projection_like_pattern(pattern) else {
+        return None;
+    };
+    let predicate_var = match_not_in_namednode_filter(expr)?;
+    let union = unwrap_projection_like_pattern(inner.as_ref());
+    let GraphPattern::Union { left, right } = union else {
+        return None;
+    };
+    let outgoing_ok = branch_matches_adjacent_union(left, anchor_var, &predicate_var, true);
+    let incoming_ok = branch_matches_adjacent_union(right, anchor_var, &predicate_var, false);
+    let swapped_outgoing = branch_matches_adjacent_union(right, anchor_var, &predicate_var, true);
+    let swapped_incoming = branch_matches_adjacent_union(left, anchor_var, &predicate_var, false);
+    if !(outgoing_ok && incoming_ok || swapped_outgoing && swapped_incoming) {
+        return None;
+    }
+    named_nodes_from_not_in_filter(expr)
+}
+
+fn branch_matches_adjacent_union(
+    pattern: &GraphPattern,
+    anchor_var: &str,
+    predicate_var: &str,
+    outgoing: bool,
+) -> bool {
+    let GraphPattern::Bgp { patterns } = unwrap_projection_like_pattern(pattern) else {
+        return false;
+    };
+    if patterns.len() != 1 {
+        return false;
+    }
+    let triple = &patterns[0];
+    let spargebra::term::NamedNodePattern::Variable(var) = &triple.predicate else {
+        return false;
+    };
+    if var.as_str() != predicate_var {
+        return false;
+    }
+    if outgoing {
+        term_pattern_matches_var(&triple.subject, anchor_var)
+            && matches!(triple.object, TermPattern::Variable(_))
+    } else {
+        term_pattern_matches_var(&triple.object, anchor_var)
+            && matches!(triple.subject, TermPattern::Variable(_))
+    }
+}
+
+fn match_not_in_namednode_filter(expr: &Expression) -> Option<String> {
+    let Expression::Not(inner) = expr else {
+        return None;
+    };
+    let Expression::In(item, items) = inner.as_ref() else {
+        return None;
+    };
+    let Expression::Variable(variable) = item.as_ref() else {
+        return None;
+    };
+    if items
+        .iter()
+        .all(|expr| matches!(expr, Expression::NamedNode(_)))
+    {
+        Some(variable.as_str().to_string())
+    } else {
+        None
+    }
+}
+
+fn named_nodes_from_not_in_filter(expr: &Expression) -> Option<Vec<NamedNode>> {
+    let Expression::Not(inner) = expr else {
+        return None;
+    };
+    let Expression::In(_, items) = inner.as_ref() else {
+        return None;
+    };
+    let mut predicates = Vec::with_capacity(items.len());
+    for item in items {
+        let Expression::NamedNode(node) = item else {
+            return None;
+        };
+        predicates.push(node.clone());
+    }
+    predicates.sort();
+    predicates.dedup();
+    Some(predicates)
+}
+
+fn term_pattern_matches_var(term: &TermPattern, var_name: &str) -> bool {
+    matches!(term, TermPattern::Variable(variable) if variable.as_str() == var_name)
+}
+
+fn unwrap_projection_like_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
+    loop {
+        pattern = match pattern {
+            GraphPattern::Project { inner, .. }
+            | GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Group { inner, .. }
+            | GraphPattern::Extend { inner, .. } => inner.as_ref(),
+            other => return other,
+        };
+    }
+}
+
+fn lower_property_path(path: &PropertyPathExpression) -> Option<LoweredPropertyPath> {
+    match path {
+        PropertyPathExpression::NamedNode(predicate) => {
+            Some(LoweredPropertyPath::NamedNode(predicate.clone()))
+        }
+        PropertyPathExpression::Reverse(inner) => match inner.as_ref() {
+            PropertyPathExpression::NamedNode(predicate) => {
+                Some(LoweredPropertyPath::ReverseNamedNode(predicate.clone()))
+            }
+            _ => None,
+        },
+        PropertyPathExpression::ZeroOrOne(inner) => Some(LoweredPropertyPath::ZeroOrOne(Box::new(
+            lower_property_path(inner.as_ref())?,
+        ))),
+        PropertyPathExpression::Sequence(left, right) => {
+            let mut segments = Vec::new();
+            flatten_sequence(left.as_ref(), &mut segments)?;
+            flatten_sequence(right.as_ref(), &mut segments)?;
+            Some(LoweredPropertyPath::Sequence(segments))
+        }
+        PropertyPathExpression::Alternative(left, right) => {
+            let mut alternatives = Vec::new();
+            flatten_alternative(left.as_ref(), &mut alternatives)?;
+            flatten_alternative(right.as_ref(), &mut alternatives)?;
+            Some(LoweredPropertyPath::Alternative(alternatives))
+        }
+        _ => None,
+    }
+}
+
+fn flatten_sequence(
+    path: &PropertyPathExpression,
+    segments: &mut Vec<LoweredPropertyPath>,
+) -> Option<()> {
+    match path {
+        PropertyPathExpression::Sequence(left, right) => {
+            flatten_sequence(left.as_ref(), segments)?;
+            flatten_sequence(right.as_ref(), segments)
+        }
+        other => {
+            segments.push(lower_property_path(other)?);
+            Some(())
+        }
+    }
+}
+
+fn flatten_alternative(
+    path: &PropertyPathExpression,
+    alternatives: &mut Vec<LoweredPropertyPath>,
+) -> Option<()> {
+    match path {
+        PropertyPathExpression::Alternative(left, right) => {
+            flatten_alternative(left.as_ref(), alternatives)?;
+            flatten_alternative(right.as_ref(), alternatives)
+        }
+        other => {
+            alternatives.push(lower_property_path(other)?);
+            Some(())
         }
     }
 }
@@ -944,7 +1366,7 @@ fn check_expression(
     }
 }
 
-pub fn parse_custom_constraint_components<E: SparqlExecutor>(
+pub(crate) fn parse_custom_constraint_components<E: SparqlExecutor>(
     context: &ParsingContext,
     services: &E,
 ) -> Result<CustomComponentMaps, String> {
@@ -1421,12 +1843,8 @@ pub(crate) fn parse_prefix_lines(prefixes: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn topquadrant_namespace_aliases(prefixes: &[(String, String)]) -> Vec<(String, String)> {
+fn namespace_aliases(prefixes: &[(String, String)]) -> Vec<(String, String)> {
     const STANDARD_PREFIXES: &[&str] = &["rdf", "rdfs", "xsd", "owl", "sh"];
-    const PREFERRED_NAMESPACES: &[&str] = &[
-        "http://data.ashrae.org/standard223#",
-        "http://qudt.org/schema/qudt/",
-    ];
 
     let mut namespaces: Vec<String> = prefixes
         .iter()
@@ -1434,26 +1852,15 @@ fn topquadrant_namespace_aliases(prefixes: &[(String, String)]) -> Vec<(String, 
         .map(|(_, namespace)| namespace.clone())
         .collect();
     namespaces.dedup();
-    let mut ordered = Vec::new();
-    for namespace in PREFERRED_NAMESPACES {
-        if namespaces.iter().any(|candidate| candidate == namespace) {
-            ordered.push((*namespace).to_string());
-        }
-    }
     namespaces.sort();
-    for namespace in namespaces {
-        if !ordered.iter().any(|existing| existing == &namespace) {
-            ordered.push(namespace);
-        }
-    }
-    ordered
+    namespaces
         .into_iter()
         .enumerate()
         .map(|(idx, namespace)| (format!("ns{}", idx + 1), namespace))
         .collect()
 }
 
-pub(crate) fn format_term_with_topquadrant_prefixes(
+pub(crate) fn format_term_with_namespace_aliases(
     term: &Term,
     prefixes: &[(String, String)],
 ) -> String {
@@ -1461,7 +1868,7 @@ pub(crate) fn format_term_with_topquadrant_prefixes(
         Term::NamedNode(nn) => {
             let iri = nn.as_str();
             let mut best_match: Option<(String, String)> = None;
-            for (prefix, namespace) in topquadrant_namespace_aliases(prefixes) {
+            for (prefix, namespace) in namespace_aliases(prefixes) {
                 if iri.starts_with(&namespace) {
                     match best_match {
                         Some((_, ref best_ns)) if best_ns.len() >= namespace.len() => {}
@@ -1564,62 +1971,41 @@ mod tests {
     }
 
     #[test]
-    fn format_term_with_topquadrant_prefixes_uses_ns_aliases() {
-        let term = Term::NamedNode(NamedNode::new_unchecked(
-            "http://data.ashrae.org/standard223#EnumerationKind-AlarmStatus",
-        ));
+    fn format_term_with_namespace_aliases_uses_ns_aliases() {
+        let term = Term::NamedNode(NamedNode::new_unchecked("http://example.com/a#Value"));
         let prefixes = vec![
             (
                 "rdf".to_string(),
                 "http://www.w3.org/1999/02/22-rdf-syntax-ns#".to_string(),
             ),
-            (
-                "s223".to_string(),
-                "http://data.ashrae.org/standard223#".to_string(),
-            ),
-            (
-                "qudt".to_string(),
-                "http://qudt.org/schema/qudt/".to_string(),
-            ),
+            ("a".to_string(), "http://example.com/a#".to_string()),
+            ("b".to_string(), "http://example.com/b#".to_string()),
         ];
         assert_eq!(
-            format_term_with_topquadrant_prefixes(&term, &prefixes),
-            "ns1:EnumerationKind-AlarmStatus"
+            format_term_with_namespace_aliases(&term, &prefixes),
+            "ns1:Value"
         );
     }
 
     #[test]
-    fn format_term_with_topquadrant_prefixes_prefers_s223_then_qudt_schema() {
-        let term = Term::NamedNode(NamedNode::new_unchecked("http://qudt.org/schema/qudt/Unit"));
+    fn format_term_with_namespace_aliases_uses_sorted_namespaces() {
+        let term = Term::NamedNode(NamedNode::new_unchecked("http://example.com/c#Unit"));
         let prefixes = vec![
-            (
-                "quantitykind".to_string(),
-                "http://qudt.org/vocab/quantitykind/".to_string(),
-            ),
-            (
-                "s223".to_string(),
-                "http://data.ashrae.org/standard223#".to_string(),
-            ),
-            (
-                "unit".to_string(),
-                "http://qudt.org/vocab/unit/".to_string(),
-            ),
-            (
-                "qudt".to_string(),
-                "http://qudt.org/schema/qudt/".to_string(),
-            ),
+            ("b".to_string(), "http://example.com/b#".to_string()),
+            ("c".to_string(), "http://example.com/c#".to_string()),
+            ("a".to_string(), "http://example.com/a#".to_string()),
         ];
         assert_eq!(
-            format_term_with_topquadrant_prefixes(&term, &prefixes),
-            "ns2:Unit"
+            format_term_with_namespace_aliases(&term, &prefixes),
+            "ns3:Unit"
         );
     }
 
     #[test]
-    fn format_term_with_topquadrant_prefixes_falls_back_to_iri() {
+    fn format_term_with_namespace_aliases_falls_back_to_iri() {
         let term = Term::NamedNode(NamedNode::new_unchecked("urn:nrel_example/nrel00000000"));
         assert_eq!(
-            format_term_with_topquadrant_prefixes(&term, &[]),
+            format_term_with_namespace_aliases(&term, &[]),
             "<urn:nrel_example/nrel00000000>"
         );
     }
@@ -1674,5 +2060,44 @@ mod tests {
             predicate: NamedNode::new_unchecked("http://example.com/p"),
             direction: ThisPredicateDirection::Outgoing,
         }));
+    }
+
+    #[test]
+    fn lowers_adjacent_predicate_whitelist_query() {
+        let query = parse_query(
+            "SELECT ?this WHERE {
+                ?this (<http://example.com/hasPart>?|<http://example.com/connectedThrough>?) ?anchor .
+                FILTER NOT EXISTS {
+                    { ?anchor ?p ?o . }
+                    UNION
+                    { ?o ?p ?anchor . }
+                    FILTER (?p NOT IN (
+                        <http://example.com/allowed1>,
+                        <http://example.com/allowed2>
+                    ))
+                }
+            }",
+        );
+
+        let lowered = lowered_sparql_query_kind(&query);
+        assert_eq!(
+            lowered,
+            Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(
+                AdjacentPredicateWhitelistPlan {
+                    anchor_path: LoweredPropertyPath::Alternative(vec![
+                        LoweredPropertyPath::ZeroOrOne(Box::new(LoweredPropertyPath::NamedNode(
+                            NamedNode::new_unchecked("http://example.com/hasPart",)
+                        ),)),
+                        LoweredPropertyPath::ZeroOrOne(Box::new(LoweredPropertyPath::NamedNode(
+                            NamedNode::new_unchecked("http://example.com/connectedThrough",)
+                        ),)),
+                    ]),
+                    allowed_predicates: vec![
+                        NamedNode::new_unchecked("http://example.com/allowed1"),
+                        NamedNode::new_unchecked("http://example.com/allowed2"),
+                    ],
+                }
+            ))
+        );
     }
 }

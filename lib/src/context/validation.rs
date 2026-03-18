@@ -17,7 +17,7 @@ use oxigraph::model::{
     vocab::rdf, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
     Term, TermRef,
 };
-use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
+use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, Variable};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -59,19 +59,23 @@ struct SparqlQueryCallKey {
     query_hash: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ClosedWorldConstraintMode {
-    S223Relation,
-    QudtPredicate,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ClosedWorldBatchCacheKey {
+struct SparqlBatchCacheKey {
     component_id: ComponentID,
     source_shape: SourceShape,
     query_hash: u64,
-    mode: ClosedWorldConstraintMode,
 }
+
+type SparqlBatchCacheValue = Arc<Result<Option<BatchedSparqlResult>, String>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PropertyShapeBatchCacheKey {
+    property_shape_id: PropShapeID,
+    parent_shape: SourceShape,
+}
+
+type PropertyShapeBatchFailures = HashMap<ComponentID, BatchedSparqlResult>;
+type PropertyShapeBatchCacheValue = Arc<Result<PropertyShapeBatchFailures, String>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct NodeConformanceCacheKey {
@@ -81,14 +85,16 @@ struct NodeConformanceCacheKey {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ClosedWorldViolation {
-    pub(crate) predicate: NamedNode,
-    pub(crate) object: Term,
+pub(crate) struct BatchedSparqlViolation {
+    pub(crate) failed_value_node: Option<Term>,
+    pub(crate) message: String,
+    pub(crate) result_path: Option<PShapePath>,
+    pub(crate) message_terms: Vec<Term>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ClosedWorldBatchResult {
-    pub(crate) violations_by_focus: HashMap<Term, Vec<ClosedWorldViolation>>,
+pub(crate) struct BatchedSparqlResult {
+    pub(crate) violations_by_focus: HashMap<Term, Vec<BatchedSparqlViolation>>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -227,8 +233,9 @@ pub struct ValidationContext {
     pub(crate) shape_ir: Arc<ShapeIR>,
     graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
     sparql_query_stats: Mutex<HashMap<SparqlQueryCallKey, SparqlQueryStats>>,
-    closed_world_batch_cache:
-        Mutex<HashMap<ClosedWorldBatchCacheKey, Arc<Result<ClosedWorldBatchResult, String>>>>,
+    sparql_batch_cache: Mutex<HashMap<SparqlBatchCacheKey, SparqlBatchCacheValue>>,
+    property_shape_batch_cache:
+        Mutex<HashMap<PropertyShapeBatchCacheKey, PropertyShapeBatchCacheValue>>,
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
@@ -294,7 +301,8 @@ impl ValidationContext {
             shape_ir,
             graph_call_stats: Mutex::new(HashMap::new()),
             sparql_query_stats: Mutex::new(HashMap::new()),
-            closed_world_batch_cache: Mutex::new(HashMap::new()),
+            sparql_batch_cache: Mutex::new(HashMap::new()),
+            property_shape_batch_cache: Mutex::new(HashMap::new()),
             shape_timing_stats: Mutex::new(HashMap::new()),
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
@@ -394,6 +402,25 @@ impl ValidationContext {
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
     }
 
+    pub(crate) fn execute_with_value_rows<'a>(
+        &'a self,
+        query_str: &str,
+        prepared: &'a PreparedSparqlQuery,
+        value_var: &Variable,
+        values: &[Term],
+        substitutions: &[Binding],
+    ) -> Result<QueryResults<'a>, String> {
+        self.record_graph_call(GraphCallKind::ExecutePrepared);
+        self.model.sparql.execute_with_value_rows(
+            query_str,
+            prepared,
+            self.backend.store(),
+            value_var,
+            values,
+            substitutions,
+        )
+    }
+
     pub(crate) fn contains_quad(&self, quad: &Quad) -> Result<bool, String> {
         self.backend.contains(quad)
     }
@@ -436,6 +463,8 @@ impl ValidationContext {
             self.advanced_target_cache.write().unwrap().clear();
             self.node_target_cache.write().unwrap().clear();
             self.prop_target_cache.write().unwrap().clear();
+            self.sparql_batch_cache.lock().unwrap().clear();
+            self.property_shape_batch_cache.lock().unwrap().clear();
         }
         Ok(())
     }
@@ -537,6 +566,30 @@ impl ValidationContext {
             .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
     }
 
+    pub(crate) fn focus_outgoing_predicates(&self, focus_node: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .outgoing_values_by_focus
+            .get(focus_node)
+            .map_or_else(Vec::new, |by_predicate| {
+                by_predicate.keys().cloned().collect()
+            }))
+    }
+
+    pub(crate) fn focus_incoming_predicates(&self, focus_node: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .incoming_values_by_focus
+            .get(focus_node)
+            .map_or_else(Vec::new, |by_predicate| {
+                by_predicate.keys().cloned().collect()
+            }))
+    }
+
     pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
         self.model.sparql.prefixes_for_node(
             node,
@@ -606,7 +659,6 @@ impl ValidationContext {
     pub(crate) fn reset_validation_run_state(&self) {
         self.reset_component_graph_call_stats();
         self.sparql_query_stats.lock().unwrap().clear();
-        self.closed_world_batch_cache.lock().unwrap().clear();
         self.shape_timing_stats.lock().unwrap().clear();
         self.class_constraint_memo.write().unwrap().clear();
         *self.class_constraint_index.write().unwrap() = None;
@@ -918,31 +970,51 @@ impl ValidationContext {
         rows
     }
 
-    pub(crate) fn get_or_compute_closed_world_batch<F>(
+    pub(crate) fn get_or_compute_sparql_batch<F>(
         &self,
         source_shape: SourceShape,
         component_id: ComponentID,
         query_hash: u64,
-        mode: ClosedWorldConstraintMode,
         compute: F,
-    ) -> Arc<Result<ClosedWorldBatchResult, String>>
+    ) -> SparqlBatchCacheValue
     where
-        F: FnOnce() -> Result<ClosedWorldBatchResult, String>,
+        F: FnOnce() -> Result<Option<BatchedSparqlResult>, String>,
     {
-        let key = ClosedWorldBatchCacheKey {
+        let key = SparqlBatchCacheKey {
             component_id,
             source_shape,
             query_hash,
-            mode,
         };
 
-        let mut cache = self.closed_world_batch_cache.lock().unwrap();
+        let mut cache = self.sparql_batch_cache.lock().unwrap();
         if let Some(cached) = cache.get(&key).cloned() {
             return cached;
         }
 
-        // Compute while holding this lock to prevent parallel focus-node
-        // threads from recomputing the same batch query.
+        let computed = Arc::new(compute());
+        cache.insert(key, Arc::clone(&computed));
+        computed
+    }
+
+    pub(crate) fn get_or_compute_property_shape_batch<F>(
+        &self,
+        property_shape_id: PropShapeID,
+        parent_shape: SourceShape,
+        compute: F,
+    ) -> PropertyShapeBatchCacheValue
+    where
+        F: FnOnce() -> Result<PropertyShapeBatchFailures, String>,
+    {
+        let key = PropertyShapeBatchCacheKey {
+            property_shape_id,
+            parent_shape,
+        };
+
+        let mut cache = self.property_shape_batch_cache.lock().unwrap();
+        if let Some(cached) = cache.get(&key).cloned() {
+            return cached;
+        }
+
         let computed = Arc::new(compute());
         cache.insert(key, Arc::clone(&computed));
         computed
