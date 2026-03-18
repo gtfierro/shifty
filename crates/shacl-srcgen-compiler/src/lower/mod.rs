@@ -1,8 +1,8 @@
 use crate::ir::{
-    FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
-    SrcGenLoweredPropertyPath, SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape,
-    SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
-    SrcGenRuleSubject, SrcGenSparqlBinding,
+    FallbackAnnotation, RuleFallbackAnnotation, SrcGenCompatibilitySide, SrcGenComponent,
+    SrcGenComponentKind, SrcGenIR, SrcGenLocalSetCompatibilityMode, SrcGenLoweredPropertyPath,
+    SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape, SrcGenPath, SrcGenPropertyShape,
+    SrcGenRule, SrcGenRuleKind, SrcGenRuleObject, SrcGenRuleSubject, SrcGenSparqlBinding,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
@@ -10,13 +10,15 @@ use shifty::shacl_ir::{
     RuleCondition, RuleID, SPARQLValidator, ShapeIR, Target, TriplePatternTerm, ID,
 };
 use shifty::sparql::{
-    lowered_sparql_query_kind, AdjacentPredicateWhitelistPlan, LoweredPropertyPath,
-    LoweredSparqlQueryKind, RequiredPathSupportPlan, SparqlExecutor,
+    lowered_sparql_query_kind, AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode,
+    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind,
+    RequiredPathSupportPlan, SparqlExecutor,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 fn srcgen_lowered_path(path: &LoweredPropertyPath) -> SrcGenLoweredPropertyPath {
     match path {
+        LoweredPropertyPath::SelfNode => SrcGenLoweredPropertyPath::SelfNode,
         LoweredPropertyPath::NamedNode(predicate) => SrcGenLoweredPropertyPath::NamedNode {
             predicate_iri: predicate.as_str().to_string(),
         },
@@ -40,6 +42,25 @@ fn srcgen_lowered_path(path: &LoweredPropertyPath) -> SrcGenLoweredPropertyPath 
         LoweredPropertyPath::Alternative(items) => SrcGenLoweredPropertyPath::Alternative {
             items: items.iter().map(srcgen_lowered_path).collect(),
         },
+    }
+}
+
+fn srcgen_local_set_compatibility_mode(
+    mode: &LocalSetCompatibilityMode,
+) -> SrcGenLocalSetCompatibilityMode {
+    match mode {
+        LocalSetCompatibilityMode::PurePure => SrcGenLocalSetCompatibilityMode::PurePure,
+        LocalSetCompatibilityMode::CompositeVsPure { composite_side } => {
+            SrcGenLocalSetCompatibilityMode::CompositeVsPure {
+                composite_side: match composite_side {
+                    shifty::sparql::CompatibilitySide::Left => SrcGenCompatibilitySide::Left,
+                    shifty::sparql::CompatibilitySide::Right => SrcGenCompatibilitySide::Right,
+                },
+            }
+        }
+        LocalSetCompatibilityMode::CompositeVsComposite => {
+            SrcGenLocalSetCompatibilityMode::CompositeVsComposite
+        }
     }
 }
 
@@ -78,6 +99,37 @@ fn srcgen_lowered_query_kind(query: &str, prefixes: &str) -> Option<SrcGenLowere
                 required_path: srcgen_lowered_path(&support_path),
             })
         }
+        LoweredSparqlQueryKind::LocalSetCompatibility(LocalSetCompatibilityPlan {
+            left_anchor_path,
+            right_anchor_path,
+            left_anchor_var,
+            right_anchor_var,
+            left_class,
+            right_class,
+            left_value_path,
+            right_value_path,
+            left_value_var,
+            right_value_var,
+            distinct_anchors,
+            composed_of_predicate,
+            constituent_path,
+            mode,
+        }) => Some(SrcGenLoweredSparqlQueryKind::LocalSetCompatibility {
+            left_anchor_path: srcgen_lowered_path(&left_anchor_path),
+            right_anchor_path: srcgen_lowered_path(&right_anchor_path),
+            left_anchor_var,
+            right_anchor_var,
+            left_class,
+            right_class,
+            left_value_path: srcgen_lowered_path(&left_value_path),
+            right_value_path: srcgen_lowered_path(&right_value_path),
+            left_value_var,
+            right_value_var,
+            distinct_anchors,
+            composed_of_predicate_iri: composed_of_predicate.as_str().to_string(),
+            constituent_path: srcgen_lowered_path(&constituent_path),
+            mode: srcgen_local_set_compatibility_mode(&mode),
+        }),
     }
 }
 
@@ -2957,6 +3009,137 @@ WHERE {
                 ));
             }
             other => panic!("expected lowered required-path-support query, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sparql_local_set_compatibility_query_is_lowered_generically() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:sparql:local-set-compatibility",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:local-set-compatibility",
+            )),
+        );
+
+        let shape_graph = oxigraph::model::NamedNode::new_unchecked("urn:shape-graph");
+        let shape_ir = ShapeIR {
+            shape_graph: shape_graph.clone(),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Junction"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:sparql:local-set-compatibility"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_typed_literal(
+                    r#"SELECT $this ?m2 ?cp ?m1
+WHERE {
+  $this <urn:cnx> ?cp .
+  ?cp a/rdfs:subClassOf* <urn:ConnectionPoint> .
+  ?cp <urn:hasMedium> ?m1 .
+  $this <urn:hasMedium> ?m2 .
+  ?m2 <urn:composedOf>/<urn:ofConstituent> ?s2 .
+  FILTER NOT EXISTS { ?m1 <urn:composedOf> ?c1 . }
+  FILTER NOT EXISTS {
+    ?m2 <urn:composedOf>/<urn:ofConstituent> ?s12 .
+    { ?s12 rdfs:subClassOf* ?m1 } UNION { ?m1 rdfs:subClassOf* ?s12 } .
+  }
+}"#,
+                    oxigraph::model::vocab::xsd::STRING,
+                ),
+                oxigraph::model::GraphName::NamedNode(shape_graph),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        match &lowered.components[0].kind {
+            SrcGenComponentKind::Sparql {
+                lowered_query:
+                    Some(SrcGenLoweredSparqlQueryKind::LocalSetCompatibility {
+                        left_anchor_path,
+                        right_anchor_path,
+                        left_class,
+                        right_class,
+                        left_value_path,
+                        right_value_path,
+                        distinct_anchors,
+                        composed_of_predicate_iri,
+                        constituent_path,
+                        mode,
+                        ..
+                    }),
+                ..
+            } => {
+                assert!(matches!(
+                    left_anchor_path,
+                    SrcGenLoweredPropertyPath::SelfNode
+                ));
+                assert!(matches!(
+                    right_anchor_path,
+                    SrcGenLoweredPropertyPath::NamedNode { predicate_iri }
+                        if predicate_iri == "urn:cnx"
+                ));
+                assert_eq!(left_class, &None,);
+                assert_eq!(
+                    right_class,
+                    &Some(Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                        "urn:ConnectionPoint"
+                    )))
+                );
+                assert!(matches!(
+                    left_value_path,
+                    SrcGenLoweredPropertyPath::NamedNode { predicate_iri }
+                        if predicate_iri == "urn:hasMedium"
+                ));
+                assert!(matches!(
+                    right_value_path,
+                    SrcGenLoweredPropertyPath::NamedNode { predicate_iri }
+                        if predicate_iri == "urn:hasMedium"
+                ));
+                assert!(!distinct_anchors);
+                assert_eq!(composed_of_predicate_iri, "urn:composedOf");
+                assert!(matches!(
+                    constituent_path,
+                    SrcGenLoweredPropertyPath::Sequence { items }
+                        if items.len() == 2
+                ));
+                assert!(matches!(
+                    mode,
+                    SrcGenLocalSetCompatibilityMode::CompositeVsPure {
+                        composite_side: SrcGenCompatibilitySide::Left
+                    }
+                ));
+            }
+            other => panic!("expected lowered local-set-compatibility query, got {other:?}"),
         }
     }
 

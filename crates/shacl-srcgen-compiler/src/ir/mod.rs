@@ -114,10 +114,27 @@ pub enum SrcGenLoweredSparqlQueryKind {
         source_predicate_iri: String,
         required_path: SrcGenLoweredPropertyPath,
     },
+    LocalSetCompatibility {
+        left_anchor_path: SrcGenLoweredPropertyPath,
+        right_anchor_path: SrcGenLoweredPropertyPath,
+        left_anchor_var: String,
+        right_anchor_var: String,
+        left_class: Option<Term>,
+        right_class: Option<Term>,
+        left_value_path: SrcGenLoweredPropertyPath,
+        right_value_path: SrcGenLoweredPropertyPath,
+        left_value_var: String,
+        right_value_var: String,
+        distinct_anchors: bool,
+        composed_of_predicate_iri: String,
+        constituent_path: SrcGenLoweredPropertyPath,
+        mode: SrcGenLocalSetCompatibilityMode,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SrcGenLoweredPropertyPath {
+    SelfNode,
     NamedNode {
         predicate_iri: String,
     },
@@ -139,6 +156,21 @@ pub enum SrcGenLoweredPropertyPath {
     OneOrMore {
         inner: Box<SrcGenLoweredPropertyPath>,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum SrcGenCompatibilitySide {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenLocalSetCompatibilityMode {
+    PurePure,
+    CompositeVsPure {
+        composite_side: SrcGenCompatibilitySide,
+    },
+    CompositeVsComposite,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

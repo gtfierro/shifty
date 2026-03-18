@@ -71,6 +71,7 @@ fn term_expr(term: &Term) -> TokenStream {
 
 fn lowered_property_path_expr(path: &SrcGenLoweredPropertyPath) -> TokenStream {
     match path {
+        SrcGenLoweredPropertyPath::SelfNode => quote! { LoweredPropertyPathRuntime::SelfNode },
         SrcGenLoweredPropertyPath::NamedNode { predicate_iri } => {
             let iri = LitStr::new(predicate_iri, Span::call_site());
             quote! { LoweredPropertyPathRuntime::NamedNode(#iri) }
@@ -737,6 +738,98 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     focus,
                                     #source_predicate_lit,
                                     &#required_path_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: None,
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                        Some(SrcGenLoweredSparqlQueryKind::LocalSetCompatibility {
+                            left_anchor_path,
+                            right_anchor_path,
+                            left_class,
+                            right_class,
+                            left_value_path,
+                            right_value_path,
+                            distinct_anchors,
+                            composed_of_predicate_iri,
+                            constituent_path,
+                            mode,
+                            ..
+                        }) => {
+                            let left_anchor_path_expr =
+                                lowered_property_path_expr(left_anchor_path);
+                            let right_anchor_path_expr =
+                                lowered_property_path_expr(right_anchor_path);
+                            let left_class_expr = left_class.as_ref().map(term_expr);
+                            let right_class_expr = right_class.as_ref().map(term_expr);
+                            let left_value_path_expr = lowered_property_path_expr(left_value_path);
+                            let right_value_path_expr =
+                                lowered_property_path_expr(right_value_path);
+                            let distinct_anchors_lit =
+                                syn::LitBool::new(*distinct_anchors, Span::call_site());
+                            let composed_of_predicate_lit =
+                                LitStr::new(composed_of_predicate_iri, Span::call_site());
+                            let constituent_path_expr =
+                                lowered_property_path_expr(constituent_path);
+                            let (mode_lit, composite_side_expr) = match mode {
+                                crate::ir::SrcGenLocalSetCompatibilityMode::PurePure => (
+                                    LitStr::new("pure_pure", Span::call_site()),
+                                    quote! { None },
+                                ),
+                                crate::ir::SrcGenLocalSetCompatibilityMode::CompositeVsPure {
+                                    composite_side,
+                                } => {
+                                    let side = match composite_side {
+                                        crate::ir::SrcGenCompatibilitySide::Left => {
+                                            LitStr::new("left", Span::call_site())
+                                        }
+                                        crate::ir::SrcGenCompatibilitySide::Right => {
+                                            LitStr::new("right", Span::call_site())
+                                        }
+                                    };
+                                    (
+                                        LitStr::new("composite_vs_pure", Span::call_site()),
+                                        quote! { Some(#side) },
+                                    )
+                                }
+                                crate::ir::SrcGenLocalSetCompatibilityMode::CompositeVsComposite => (
+                                    LitStr::new("composite_vs_composite", Span::call_site()),
+                                    quote! { None },
+                                ),
+                            };
+                            let left_class_arg = if let Some(expr) = left_class_expr {
+                                quote! { Some(&#expr) }
+                            } else {
+                                quote! { None }
+                            };
+                            let right_class_arg = if let Some(expr) = right_class_expr {
+                                quote! { Some(&#expr) }
+                            } else {
+                                quote! { None }
+                            };
+                            quote! {
+                                if lowered_local_set_compatibility_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#left_anchor_path_expr,
+                                    &#right_anchor_path_expr,
+                                    #left_class_arg,
+                                    #right_class_arg,
+                                    &#left_value_path_expr,
+                                    &#right_value_path_expr,
+                                    #distinct_anchors_lit,
+                                    #composed_of_predicate_lit,
+                                    &#constituent_path_expr,
+                                    #mode_lit,
+                                    #composite_side_expr,
                                 )? {
                                     record_fast_path_hit();
                                     violations.push(Violation {

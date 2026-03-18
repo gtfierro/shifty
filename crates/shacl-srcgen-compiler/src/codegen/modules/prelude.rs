@@ -161,6 +161,7 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
 
         #[derive(Debug, Clone)]
         enum LoweredPropertyPathRuntime {
+            SelfNode,
             NamedNode(&'static str),
             ReverseNamedNode(&'static str),
             ZeroOrOne(Box<LoweredPropertyPathRuntime>),
@@ -195,6 +196,7 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             path: &LoweredPropertyPathRuntime,
         ) -> Result<Vec<oxigraph::model::Term>, String> {
             match path {
+                LoweredPropertyPathRuntime::SelfNode => Ok(vec![focus.clone()]),
                 LoweredPropertyPathRuntime::NamedNode(predicate_iri) => {
                     let predicate = oxigraph::model::NamedNode::new(predicate_iri.to_string())
                         .map_err(|err| format!("invalid lowered predicate IRI: {err}"))?;
@@ -436,6 +438,286 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                     return Ok(true);
                 }
             }
+            Ok(false)
+        }
+
+        fn lowered_subject_ref_from_term(
+            term: &oxigraph::model::Term,
+        ) -> Option<oxigraph::model::NamedOrBlankNodeRef<'_>> {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => Some(node.as_ref().into()),
+                oxigraph::model::Term::BlankNode(node) => Some(node.as_ref().into()),
+                _ => None,
+            }
+        }
+
+        fn lowered_term_has_direct_outgoing_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            term: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<bool, String> {
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri.to_string())
+                .map_err(|err| format!("invalid lowered predicate IRI: {err}"))?;
+            let Some(subject_ref) = lowered_subject_ref_from_term(term) else {
+                return Ok(false);
+            };
+            for graph in validation_graphs(data_graph)? {
+                if store
+                    .quads_for_pattern(
+                        Some(subject_ref),
+                        Some(predicate.as_ref()),
+                        None,
+                        Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                    )
+                    .next()
+                    .transpose()
+                    .map_err(|err| format!("failed to scan lowered direct predicate: {err}"))?
+                    .is_some()
+                {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        fn lowered_term_has_type_or_subclass(
+            store: &oxigraph::store::Store,
+            term: &oxigraph::model::Term,
+            class_term: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            if term == class_term {
+                return Ok(true);
+            }
+            let Some(subject_ref) = lowered_subject_ref_from_term(term) else {
+                return Ok(false);
+            };
+
+            let mut direct_types: Vec<oxigraph::model::Term> = Vec::new();
+            for quad in store.quads_for_pattern(
+                Some(subject_ref),
+                Some(oxigraph::model::vocab::rdf::TYPE),
+                None,
+                None,
+            ) {
+                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                let direct_type = quad.object;
+                if &direct_type == class_term {
+                    return Ok(true);
+                }
+                direct_types.push(direct_type);
+            }
+
+            let sub_class_of = oxigraph::model::NamedNodeRef::new_unchecked(
+                "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+            );
+            let mut queue: std::collections::VecDeque<oxigraph::model::Term> =
+                direct_types.into_iter().collect();
+            let mut visited: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+
+            while let Some(current) = queue.pop_front() {
+                if !visited.insert(current.clone()) {
+                    continue;
+                }
+                if &current == class_term {
+                    return Ok(true);
+                }
+                let Some(current_ref) = lowered_subject_ref_from_term(&current) else {
+                    continue;
+                };
+                for quad in store.quads_for_pattern(
+                    Some(current_ref),
+                    Some(sub_class_of),
+                    None,
+                    None,
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    queue.push_back(quad.object);
+                }
+            }
+
+            Ok(false)
+        }
+
+        fn lowered_terms_are_subclass_compatible(
+            store: &oxigraph::store::Store,
+            left: &oxigraph::model::Term,
+            right: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            Ok(
+                lowered_term_has_type_or_subclass(store, left, right)?
+                    || lowered_term_has_type_or_subclass(store, right, left)?,
+            )
+        }
+
+        fn lowered_local_set_compatibility_violation(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            left_anchor_path: &LoweredPropertyPathRuntime,
+            right_anchor_path: &LoweredPropertyPathRuntime,
+            left_class: Option<&oxigraph::model::Term>,
+            right_class: Option<&oxigraph::model::Term>,
+            left_value_path: &LoweredPropertyPathRuntime,
+            right_value_path: &LoweredPropertyPathRuntime,
+            distinct_anchors: bool,
+            composed_of_predicate_iri: &str,
+            constituent_path: &LoweredPropertyPathRuntime,
+            mode: &str,
+            composite_side: Option<&str>,
+        ) -> Result<bool, String> {
+            let mut left_anchors =
+                resolve_lowered_property_path_runtime(store, data_graph, focus, left_anchor_path)?;
+            let mut right_anchors = resolve_lowered_property_path_runtime(
+                store,
+                data_graph,
+                focus,
+                right_anchor_path,
+            )?;
+
+            if let Some(class_term) = left_class {
+                left_anchors = left_anchors
+                    .into_iter()
+                    .filter(|anchor| {
+                        lowered_term_has_type_or_subclass(store, anchor, class_term).unwrap_or(false)
+                    })
+                    .collect();
+            }
+            if let Some(class_term) = right_class {
+                right_anchors = right_anchors
+                    .into_iter()
+                    .filter(|anchor| {
+                        lowered_term_has_type_or_subclass(store, anchor, class_term).unwrap_or(false)
+                    })
+                    .collect();
+            }
+
+            for left_anchor in &left_anchors {
+                for right_anchor in &right_anchors {
+                    if distinct_anchors && left_anchor == right_anchor {
+                        continue;
+                    }
+
+                    let left_values = resolve_lowered_property_path_runtime(
+                        store,
+                        data_graph,
+                        left_anchor,
+                        left_value_path,
+                    )?;
+                    let right_values = resolve_lowered_property_path_runtime(
+                        store,
+                        data_graph,
+                        right_anchor,
+                        right_value_path,
+                    )?;
+
+                    for left_value in &left_values {
+                        for right_value in &right_values {
+                            let left_is_composite = lowered_term_has_direct_outgoing_predicate(
+                                store,
+                                data_graph,
+                                left_value,
+                                composed_of_predicate_iri,
+                            )?;
+                            let right_is_composite = lowered_term_has_direct_outgoing_predicate(
+                                store,
+                                data_graph,
+                                right_value,
+                                composed_of_predicate_iri,
+                            )?;
+
+                            match mode {
+                                "pure_pure" => {
+                                    if left_is_composite || right_is_composite {
+                                        continue;
+                                    }
+                                    if !lowered_terms_are_subclass_compatible(
+                                        store,
+                                        left_value,
+                                        right_value,
+                                    )? {
+                                        return Ok(true);
+                                    }
+                                }
+                                "composite_vs_pure" => {
+                                    let composite_is_left = composite_side == Some("left");
+                                    let (composite_value, composite_flag, pure_value, pure_flag) =
+                                        if composite_is_left {
+                                            (left_value, left_is_composite, right_value, right_is_composite)
+                                        } else {
+                                            (right_value, right_is_composite, left_value, left_is_composite)
+                                        };
+                                    if !composite_flag || pure_flag {
+                                        continue;
+                                    }
+                                    let constituents = resolve_lowered_property_path_runtime(
+                                        store,
+                                        data_graph,
+                                        composite_value,
+                                        constituent_path,
+                                    )?;
+                                    if constituents.is_empty() {
+                                        continue;
+                                    }
+                                    let mut compatible = false;
+                                    for constituent in &constituents {
+                                        if lowered_terms_are_subclass_compatible(
+                                            store,
+                                            constituent,
+                                            pure_value,
+                                        )? {
+                                            compatible = true;
+                                            break;
+                                        }
+                                    }
+                                    if !compatible {
+                                        return Ok(true);
+                                    }
+                                }
+                                "composite_vs_composite" => {
+                                    if !left_is_composite || !right_is_composite {
+                                        continue;
+                                    }
+                                    let left_constituents = resolve_lowered_property_path_runtime(
+                                        store,
+                                        data_graph,
+                                        left_value,
+                                        constituent_path,
+                                    )?;
+                                    let right_constituents = resolve_lowered_property_path_runtime(
+                                        store,
+                                        data_graph,
+                                        right_value,
+                                        constituent_path,
+                                    )?;
+                                    if left_constituents.is_empty() || right_constituents.is_empty() {
+                                        continue;
+                                    }
+                                    let mut compatible = false;
+                                    'outer: for left_constituent in &left_constituents {
+                                        for right_constituent in &right_constituents {
+                                            if lowered_terms_are_subclass_compatible(
+                                                store,
+                                                left_constituent,
+                                                right_constituent,
+                                            )? {
+                                                compatible = true;
+                                                break 'outer;
+                                            }
+                                        }
+                                    }
+                                    if !compatible {
+                                        return Ok(true);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
             Ok(false)
         }
 
