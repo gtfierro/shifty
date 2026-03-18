@@ -650,8 +650,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 syn::LitBool::new(*distinct_anchors, Span::call_site());
                             let composed_of_predicate_lit =
                                 LitStr::new(composed_of_predicate_iri, Span::call_site());
-                            let constituent_path_expr =
-                                lowered_property_path_expr(constituent_path);
+                            let constituent_path_arg =
+                                if let Some(constituent_path) = constituent_path.as_ref() {
+                                    let constituent_path_expr =
+                                        lowered_property_path_expr(constituent_path);
+                                    quote! { Some(&#constituent_path_expr) }
+                                } else {
+                                    quote! { None }
+                                };
                             let (mode_lit, composite_side_expr) = match mode {
                                 crate::ir::SrcGenLocalSetCompatibilityMode::PurePure => (
                                     LitStr::new("pure_pure", Span::call_site()),
@@ -701,7 +707,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     &#right_value_path_expr,
                                     #distinct_anchors_lit,
                                     #composed_of_predicate_lit,
-                                    &#constituent_path_expr,
+                                    #constituent_path_arg,
                                     #mode_lit,
                                     #composite_side_expr,
                                 )? {

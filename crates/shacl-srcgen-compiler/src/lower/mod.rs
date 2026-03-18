@@ -99,37 +99,40 @@ fn srcgen_lowered_query_kind(query: &str, prefixes: &str) -> Option<SrcGenLowere
                 required_path: srcgen_lowered_path(&support_path),
             })
         }
-        LoweredSparqlQueryKind::LocalSetCompatibility(LocalSetCompatibilityPlan {
-            left_anchor_path,
-            right_anchor_path,
-            left_anchor_var,
-            right_anchor_var,
-            left_class,
-            right_class,
-            left_value_path,
-            right_value_path,
-            left_value_var,
-            right_value_var,
-            distinct_anchors,
-            composed_of_predicate,
-            constituent_path,
-            mode,
-        }) => Some(SrcGenLoweredSparqlQueryKind::LocalSetCompatibility {
-            left_anchor_path: srcgen_lowered_path(&left_anchor_path),
-            right_anchor_path: srcgen_lowered_path(&right_anchor_path),
-            left_anchor_var,
-            right_anchor_var,
-            left_class,
-            right_class,
-            left_value_path: srcgen_lowered_path(&left_value_path),
-            right_value_path: srcgen_lowered_path(&right_value_path),
-            left_value_var,
-            right_value_var,
-            distinct_anchors,
-            composed_of_predicate_iri: composed_of_predicate.as_str().to_string(),
-            constituent_path: srcgen_lowered_path(&constituent_path),
-            mode: srcgen_local_set_compatibility_mode(&mode),
-        }),
+        LoweredSparqlQueryKind::LocalSetCompatibility(boxed_plan) => {
+            let LocalSetCompatibilityPlan {
+                left_anchor_path,
+                right_anchor_path,
+                left_anchor_var,
+                right_anchor_var,
+                left_class,
+                right_class,
+                left_value_path,
+                right_value_path,
+                left_value_var,
+                right_value_var,
+                distinct_anchors,
+                composed_of_predicate,
+                constituent_path,
+                mode,
+            } = *boxed_plan;
+            Some(SrcGenLoweredSparqlQueryKind::LocalSetCompatibility {
+                left_anchor_path: srcgen_lowered_path(&left_anchor_path),
+                right_anchor_path: srcgen_lowered_path(&right_anchor_path),
+                left_anchor_var,
+                right_anchor_var,
+                left_class,
+                right_class,
+                left_value_path: srcgen_lowered_path(&left_value_path),
+                right_value_path: srcgen_lowered_path(&right_value_path),
+                left_value_var,
+                right_value_var,
+                distinct_anchors,
+                composed_of_predicate_iri: composed_of_predicate.as_str().to_string(),
+                constituent_path: constituent_path.as_ref().map(srcgen_lowered_path),
+                mode: srcgen_local_set_compatibility_mode(&mode),
+            })
+        }
     }
 }
 
@@ -3057,7 +3060,9 @@ WHERE {
                 oxigraph::model::NamedNode::new_unchecked("urn:sparql:local-set-compatibility"),
                 oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
                 oxigraph::model::Literal::new_typed_literal(
-                    r#"SELECT $this ?m2 ?cp ?m1
+                    r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT $this ?m2 ?cp ?m1
 WHERE {
   $this <urn:cnx> ?cp .
   ?cp a/rdfs:subClassOf* <urn:ConnectionPoint> .
@@ -3129,7 +3134,7 @@ WHERE {
                 assert_eq!(composed_of_predicate_iri, "urn:composedOf");
                 assert!(matches!(
                     constituent_path,
-                    SrcGenLoweredPropertyPath::Sequence { items }
+                    Some(SrcGenLoweredPropertyPath::Sequence { items })
                         if items.len() == 2
                 ));
                 assert!(matches!(

@@ -563,7 +563,7 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             right_value_path: &LoweredPropertyPathRuntime,
             distinct_anchors: bool,
             composed_of_predicate_iri: &str,
-            constituent_path: &LoweredPropertyPathRuntime,
+            constituent_path: Option<&LoweredPropertyPathRuntime>,
             mode: &str,
             composite_side: Option<&str>,
         ) -> Result<bool, String> {
@@ -651,6 +651,9 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                                     if !composite_flag || pure_flag {
                                         continue;
                                     }
+                                    let Some(constituent_path) = constituent_path else {
+                                        continue;
+                                    };
                                     let constituents = resolve_lowered_property_path_runtime(
                                         store,
                                         data_graph,
@@ -679,6 +682,9 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                                     if !left_is_composite || !right_is_composite {
                                         continue;
                                     }
+                                    let Some(constituent_path) = constituent_path else {
+                                        continue;
+                                    };
                                     let left_constituents = resolve_lowered_property_path_runtime(
                                         store,
                                         data_graph,

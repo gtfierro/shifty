@@ -105,6 +105,7 @@ pub struct SrcGenSparqlBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum SrcGenLoweredSparqlQueryKind {
     AdjacentPredicateWhitelist {
         anchor_path: SrcGenLoweredPropertyPath,
@@ -127,7 +128,7 @@ pub enum SrcGenLoweredSparqlQueryKind {
         right_value_var: String,
         distinct_anchors: bool,
         composed_of_predicate_iri: String,
-        constituent_path: SrcGenLoweredPropertyPath,
+        constituent_path: Option<SrcGenLoweredPropertyPath>,
         mode: SrcGenLocalSetCompatibilityMode,
     },
 }
@@ -174,6 +175,7 @@ pub enum SrcGenLocalSetCompatibilityMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum SrcGenComponentKind {
     PropertyLink {
         property_shape_iri: String,
