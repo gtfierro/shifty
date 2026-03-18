@@ -11,6 +11,6 @@ pub(crate) use graphviz::{
 pub(crate) use ids::IDLookupTable;
 pub(crate) use model::{ParsingContext, ShapesModel};
 pub(crate) use validation::{
-    ClosedWorldBatchResult, ClosedWorldConstraintMode, ClosedWorldViolation, Context,
-    ShapeTimingPhase, SourceShape, ValidationContext,
+    BatchedSparqlResult, BatchedSparqlViolation, Context, ShapeTimingPhase, SourceShape,
+    ValidationContext,
 };

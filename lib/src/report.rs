@@ -150,25 +150,20 @@ impl ValidationReportBuilder {
     fn default_message_term(
         failure: &ValidationFailure,
         validation_context: &ValidationContext,
-        qudt_schema_alias: &str,
     ) -> Option<Term> {
         let component = validation_context.get_component(&failure.component_id)?;
         match component {
             Component::ClassConstraint(class_constraint) => {
-                let class_term = class_constraint.class_term();
-                let lexical = match class_term {
-                    Term::NamedNode(nn)
-                        if nn.as_str().starts_with("http://qudt.org/schema/qudt/") =>
-                    {
-                        format!(
-                            "Value must be an instance of {}:{}",
-                            qudt_schema_alias,
-                            nn.as_str().rsplit(['#', '/']).next().unwrap_or(nn.as_str())
-                        )
-                    }
-                    _ => failure.message.clone(),
-                };
-                Some(Term::from(Literal::new_simple_literal(lexical)))
+                if !failure.message.is_empty() {
+                    Some(Term::from(Literal::new_simple_literal(
+                        failure.message.clone(),
+                    )))
+                } else {
+                    Some(Term::from(Literal::new_simple_literal(format!(
+                        "Value must be an instance of {}",
+                        class_constraint.class_term()
+                    ))))
+                }
             }
             _ if !failure.message.is_empty() => Some(Term::from(Literal::new_simple_literal(
                 failure.message.clone(),
@@ -305,17 +300,6 @@ impl ValidationReportBuilder {
         ));
 
         let conforms = self.conforms(validation_context);
-        let qudt_schema_alias = if self.results.iter().any(|(_, failure)| {
-            failure.message.contains("ns1:")
-                || failure
-                    .message_terms
-                    .iter()
-                    .any(|term| matches!(term, Term::Literal(lit) if lit.value().contains("ns1:")))
-        }) {
-            "ns2"
-        } else {
-            "ns1"
-        };
         graph.insert(&Triple::new(
             report_node.clone(),
             sh.conforms,
@@ -364,7 +348,7 @@ impl ValidationReportBuilder {
 
                 if message_terms.is_empty() {
                     if let Some(default_message) =
-                        Self::default_message_term(failure, validation_context, qudt_schema_alias)
+                        Self::default_message_term(failure, validation_context)
                     {
                         message_terms.push(default_message);
                     }

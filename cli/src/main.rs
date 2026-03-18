@@ -918,7 +918,7 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
             if wants_graphviz {
                 println!("{}", dot_string);
             } else if let Some(pdf_path) = args.pdf.as_ref() {
-                write_pdf_from_dot(dot_string, &pdf_path, "PDF")?;
+                write_pdf_from_dot(dot_string, pdf_path, "PDF")?;
             }
 
             Ok(json!({
@@ -1411,7 +1411,7 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
             if wants_graphviz {
                 println!("{}", dot_string);
             } else if let Some(pdf_path) = args.pdf.as_ref() {
-                write_pdf_from_dot(dot_string, &pdf_path, "PDF heatmap")?;
+                write_pdf_from_dot(dot_string, pdf_path, "PDF heatmap")?;
             }
 
             Ok(json!({

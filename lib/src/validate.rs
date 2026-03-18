@@ -8,7 +8,7 @@ use crate::context::{Context, ShapeTimingPhase, SourceShape, ValidationContext};
 use crate::model::components::ComponentDescriptor;
 use crate::planning::{build_validation_plan, ShapeRef};
 use crate::report::ValidationReportBuilder;
-use crate::runtime::{ComponentValidationResult, ToSubjectRef};
+use crate::runtime::{Component, ComponentValidationResult, ToSubjectRef, ValidationFailure};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::trace::TraceEvent;
 use crate::types::{Path, PropShapeID, TargetEvalExt, TraceItem};
@@ -296,6 +296,37 @@ fn constraint_is_vacuous_when_value_count_is_zero(
         }
         _ => false,
     }
+}
+
+fn batched_property_sparql_failures_by_constraint(
+    shape: &PropertyShape,
+    focus_nodes: &[Term],
+    constraints: &[crate::types::ComponentID],
+    context: &ValidationContext,
+) -> Result<HashMap<crate::types::ComponentID, crate::context::BatchedSparqlResult>, String> {
+    if focus_nodes.len() < 2 {
+        return Ok(HashMap::new());
+    }
+
+    let mut batched = HashMap::new();
+    let path_substitution_value = shape.sparql_path();
+    let source_shape = SourceShape::PropertyShape(*shape.identifier());
+    for &constraint_id in constraints {
+        let Some(Component::SPARQLConstraint(component)) = context.get_component(&constraint_id)
+        else {
+            continue;
+        };
+        if let Some(result) = component.validate_batch_for_focuses(
+            constraint_id,
+            source_shape.clone(),
+            focus_nodes,
+            Some(&path_substitution_value),
+            context,
+        )? {
+            batched.insert(constraint_id, result);
+        }
+    }
+    Ok(batched)
 }
 
 impl ValidateShape for NodeShape {
@@ -601,6 +632,28 @@ impl ValidateShape for PropertyShape {
 }
 
 impl PropertyShape {
+    pub(crate) fn collect_batched_sparql_failures(
+        &self,
+        focus_nodes: &[Term],
+        context: &ValidationContext,
+    ) -> Result<HashMap<crate::types::ComponentID, crate::context::BatchedSparqlResult>, String>
+    {
+        let constraints = context.order_constraints(self.constraints());
+        batched_property_sparql_failures_by_constraint(self, focus_nodes, &constraints, context)
+    }
+
+    pub(crate) fn validate_with_batched_sparql(
+        &self,
+        focus_context: &mut Context,
+        context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
+        prebatched_sparql_failures: Option<
+            &HashMap<crate::types::ComponentID, crate::context::BatchedSparqlResult>,
+        >,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        self.validate_internal(focus_context, context, trace, prebatched_sparql_failures)
+    }
+
     /// Validates a context against this property shape.
     ///
     /// This involves finding the value nodes for the property shape's path from the
@@ -611,6 +664,18 @@ impl PropertyShape {
         focus_context: &mut Context,
         context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+    ) -> Result<Vec<ComponentValidationResult>, String> {
+        self.validate_internal(focus_context, context, trace, None)
+    }
+
+    fn validate_internal(
+        &self,
+        focus_context: &mut Context,
+        context: &ValidationContext,
+        trace: &mut Vec<TraceItem>,
+        prebatched_sparql_failures: Option<
+            &HashMap<crate::types::ComponentID, crate::context::BatchedSparqlResult>,
+        >,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if self.is_deactivated() {
             return Ok(vec![]);
@@ -638,6 +703,18 @@ impl PropertyShape {
 
         let mut value_node_map: HashMap<Term, Vec<Term>> = HashMap::new();
         let constraints = context.order_constraints(self.constraints());
+        let local_batched_sparql_failures;
+        let batched_sparql_failures = if let Some(prebatched) = prebatched_sparql_failures {
+            prebatched
+        } else {
+            local_batched_sparql_failures = batched_property_sparql_failures_by_constraint(
+                self,
+                &focus_nodes_for_this_shape,
+                &constraints,
+                context,
+            )?;
+            &local_batched_sparql_failures
+        };
         let cardinality_only = constraints_are_cardinality_only(context, &constraints);
         let value_node_var = Variable::new("valueNode")
             .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
@@ -754,6 +831,38 @@ impl PropertyShape {
                 let component = context
                     .get_component(&constraint_id)
                     .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
+
+                if let Some(batch) = batched_sparql_failures.get(&constraint_id) {
+                    for violation in batch
+                        .violations_by_focus
+                        .get(&focus_node)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        let failure = ValidationFailure::new(
+                            constraint_id,
+                            violation.failed_value_node,
+                            violation.message,
+                            violation.result_path,
+                            Some(match component {
+                                Component::SPARQLConstraint(comp) => comp.constraint_node.clone(),
+                                _ => unreachable!(),
+                            }),
+                        )
+                        .with_message_terms(violation.message_terms);
+                        context.trace_sink.record(TraceEvent::ComponentFailed {
+                            component: constraint_id,
+                            focus: focus_node.clone(),
+                            value: failure.failed_value_node.clone(),
+                            message: Some(failure.message.clone()),
+                        });
+                        all_results.push(ComponentValidationResult::Fail(
+                            constraint_validation_context.clone(),
+                            failure,
+                        ));
+                    }
+                    continue;
+                }
 
                 if summary_value_count == Some(0)
                     && constraint_is_vacuous_when_value_count_is_zero(context, constraint_id)
