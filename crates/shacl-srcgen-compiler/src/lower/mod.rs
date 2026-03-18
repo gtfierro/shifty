@@ -1,14 +1,64 @@
 use crate::ir::{
     FallbackAnnotation, RuleFallbackAnnotation, SrcGenComponent, SrcGenComponentKind, SrcGenIR,
-    SrcGenMeta, SrcGenNodeShape, SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind,
-    SrcGenRuleObject, SrcGenRuleSubject, SrcGenSparqlBinding,
+    SrcGenLoweredPropertyPath, SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape,
+    SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
+    SrcGenRuleSubject, SrcGenSparqlBinding,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
     ComponentDescriptor, CustomConstraintComponentDefinition, Path, PropShapeID, Rule,
     RuleCondition, RuleID, SPARQLValidator, ShapeIR, Target, TriplePatternTerm, ID,
 };
+use shifty::sparql::{
+    lowered_sparql_query_kind, AdjacentPredicateWhitelistPlan, LoweredPropertyPath,
+    LoweredSparqlQueryKind, SparqlExecutor,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
+
+fn srcgen_lowered_path(path: &LoweredPropertyPath) -> SrcGenLoweredPropertyPath {
+    match path {
+        LoweredPropertyPath::NamedNode(predicate) => SrcGenLoweredPropertyPath::NamedNode {
+            predicate_iri: predicate.as_str().to_string(),
+        },
+        LoweredPropertyPath::ReverseNamedNode(predicate) => {
+            SrcGenLoweredPropertyPath::ReverseNamedNode {
+                predicate_iri: predicate.as_str().to_string(),
+            }
+        }
+        LoweredPropertyPath::ZeroOrOne(inner) => SrcGenLoweredPropertyPath::ZeroOrOne {
+            inner: Box::new(srcgen_lowered_path(inner.as_ref())),
+        },
+        LoweredPropertyPath::Sequence(items) => SrcGenLoweredPropertyPath::Sequence {
+            items: items.iter().map(srcgen_lowered_path).collect(),
+        },
+        LoweredPropertyPath::Alternative(items) => SrcGenLoweredPropertyPath::Alternative {
+            items: items.iter().map(srcgen_lowered_path).collect(),
+        },
+    }
+}
+
+fn srcgen_lowered_query_kind(query: &str, prefixes: &str) -> Option<SrcGenLoweredSparqlQueryKind> {
+    let full_query = if prefixes.trim().is_empty() {
+        query.to_string()
+    } else {
+        format!("{prefixes}\n{query}")
+    };
+    let algebra = shifty::sparql::SparqlServices::new()
+        .algebra(&full_query)
+        .ok()?;
+    match lowered_sparql_query_kind(&algebra)? {
+        LoweredSparqlQueryKind::AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan {
+            anchor_path,
+            allowed_predicates,
+        }) => Some(SrcGenLoweredSparqlQueryKind::AdjacentPredicateWhitelist {
+            anchor_path: srcgen_lowered_path(&anchor_path),
+            allowed_predicate_iris: allowed_predicates
+                .iter()
+                .map(|predicate| predicate.as_str().to_string())
+                .collect(),
+        }),
+    }
+}
 
 pub fn lower_shape_ir(shape_ir: &ShapeIR) -> Result<SrcGenIR, String> {
     let mut component_ids: Vec<u64> = shape_ir.components.keys().map(|id| id.0).collect();
@@ -1723,12 +1773,14 @@ fn component_kind(
                 }
             };
             let requires_path = sparql_query_requires_path(&query);
+            let lowered_query = srcgen_lowered_query_kind(&query, &prefixes);
             (
                 SrcGenComponentKind::Sparql {
                     query,
                     prefixes,
                     requires_path,
                     constraint_term: constraint_node.to_string(),
+                    lowered_query,
                 },
                 None,
             )
@@ -2715,6 +2767,94 @@ mod tests {
     }
 
     #[test]
+    fn sparql_adjacent_whitelist_query_is_lowered_generically() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:sparql:adjacent-whitelist",
+                )),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:adjacent-whitelist",
+            )),
+        );
+
+        let shape_graph = oxigraph::model::NamedNode::new_unchecked("urn:shape-graph");
+        let shape_ir = ShapeIR {
+            shape_graph: shape_graph.clone(),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Thing"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:sparql:adjacent-whitelist"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_typed_literal(
+                    r#"SELECT $this WHERE {
+                        $this (<urn:hasPart>? | <urn:connectedThrough>?) ?anchor .
+                        FILTER NOT EXISTS {
+                            { ?anchor ?p ?o . } UNION { ?o ?p ?anchor . }
+                            FILTER (?p NOT IN (<urn:allowed>, <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>))
+                        }
+                    }"#,
+                    oxigraph::model::vocab::xsd::STRING,
+                ),
+                oxigraph::model::GraphName::NamedNode(shape_graph),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        match &lowered.components[0].kind {
+            SrcGenComponentKind::Sparql {
+                lowered_query:
+                    Some(SrcGenLoweredSparqlQueryKind::AdjacentPredicateWhitelist {
+                        anchor_path,
+                        allowed_predicate_iris,
+                    }),
+                ..
+            } => {
+                assert_eq!(
+                    allowed_predicate_iris,
+                    &vec![
+                        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_string(),
+                        "urn:allowed".to_string()
+                    ]
+                );
+                assert!(matches!(
+                    anchor_path,
+                    SrcGenLoweredPropertyPath::Alternative { items } if items.len() == 2
+                ));
+            }
+            other => panic!("expected lowered adjacent-whitelist query, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn sparql_relation_projection_pattern_is_specialized() {
         let mut components = HashMap::new();
         components.insert(
@@ -2759,7 +2899,7 @@ mod tests {
                 oxigraph::model::NamedNode::new_unchecked("urn:closed-world:sparql"),
                 oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
                 oxigraph::model::Literal::new_typed_literal(
-                    "SELECT $this WHERE { $this ?p ?o . ?p a/rdfs:subClassOf* s223:Relation . }",
+                    "SELECT $this WHERE { $this ?p ?o . ?p a/rdfs:subClassOf* <urn:Relation> . }",
                     oxigraph::model::vocab::xsd::STRING,
                 ),
                 oxigraph::model::GraphName::NamedNode(shape_graph),

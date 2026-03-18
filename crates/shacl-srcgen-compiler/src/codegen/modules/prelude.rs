@@ -160,6 +160,15 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
         }
 
         #[derive(Debug, Clone)]
+        enum LoweredPropertyPathRuntime {
+            NamedNode(&'static str),
+            ReverseNamedNode(&'static str),
+            ZeroOrOne(Box<LoweredPropertyPathRuntime>),
+            Sequence(Vec<LoweredPropertyPathRuntime>),
+            Alternative(Vec<LoweredPropertyPathRuntime>),
+        }
+
+        #[derive(Debug, Clone)]
         pub struct Violation {
             pub shape_id: u64,
             pub component_id: u64,
@@ -175,6 +184,173 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                 row.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
             signature.sort_by(|a, b| a.0.cmp(&b.0));
             signature
+        }
+
+        fn resolve_lowered_property_path_runtime(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            path: &LoweredPropertyPathRuntime,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            match path {
+                LoweredPropertyPathRuntime::NamedNode(predicate_iri) => {
+                    let predicate = oxigraph::model::NamedNode::new(predicate_iri.to_string())
+                        .map_err(|err| format!("invalid lowered predicate IRI: {err}"))?;
+                    let subject = match focus {
+                        oxigraph::model::Term::NamedNode(node) => node.as_ref().into(),
+                        oxigraph::model::Term::BlankNode(node) => node.as_ref().into(),
+                        _ => return Ok(Vec::new()),
+                    };
+                    let mut values = Vec::new();
+                    for graph in validation_graphs(data_graph)? {
+                        for quad in store.quads_for_pattern(
+                            Some(subject),
+                            Some(predicate.as_ref()),
+                            None,
+                            Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                        ) {
+                            let quad = quad.map_err(|err| {
+                                format!("failed to scan lowered outgoing path: {err}")
+                            })?;
+                            values.push(quad.object);
+                        }
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+                LoweredPropertyPathRuntime::ReverseNamedNode(predicate_iri) => {
+                    let predicate = oxigraph::model::NamedNode::new(predicate_iri.to_string())
+                        .map_err(|err| format!("invalid lowered predicate IRI: {err}"))?;
+                    let mut values = Vec::new();
+                    for graph in validation_graphs(data_graph)? {
+                        for quad in store.quads_for_pattern(
+                            None,
+                            Some(predicate.as_ref()),
+                            Some(focus.as_ref()),
+                            Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                        ) {
+                            let quad = quad.map_err(|err| {
+                                format!("failed to scan lowered incoming path: {err}")
+                            })?;
+                            let subject = match quad.subject {
+                                oxigraph::model::NamedOrBlankNodeRef::NamedNode(node) => {
+                                    oxigraph::model::Term::NamedNode(node.into_owned())
+                                }
+                                oxigraph::model::NamedOrBlankNodeRef::BlankNode(node) => {
+                                    oxigraph::model::Term::BlankNode(node.into_owned())
+                                }
+                            };
+                            values.push(subject);
+                        }
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+                LoweredPropertyPathRuntime::ZeroOrOne(inner) => {
+                    let mut values = vec![focus.clone()];
+                    values.extend(resolve_lowered_property_path_runtime(
+                        store,
+                        data_graph,
+                        focus,
+                        inner.as_ref(),
+                    )?);
+                    Ok(sort_and_dedup_terms(values))
+                }
+                LoweredPropertyPathRuntime::Sequence(items) => {
+                    let mut current = vec![focus.clone()];
+                    for item in items {
+                        let mut next = Vec::new();
+                        for node in &current {
+                            next.extend(resolve_lowered_property_path_runtime(
+                                store,
+                                data_graph,
+                                node,
+                                item,
+                            )?);
+                        }
+                        current = sort_and_dedup_terms(next);
+                        if current.is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(current)
+                }
+                LoweredPropertyPathRuntime::Alternative(items) => {
+                    let mut values = Vec::new();
+                    for item in items {
+                        values.extend(resolve_lowered_property_path_runtime(
+                            store,
+                            data_graph,
+                            focus,
+                            item,
+                        )?);
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+            }
+        }
+
+        fn adjacent_predicates_for_anchor(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            anchor: &oxigraph::model::Term,
+        ) -> Result<Vec<String>, String> {
+            let mut predicates = Vec::new();
+            let subject = match anchor {
+                oxigraph::model::Term::NamedNode(node) => Some(node.as_ref().into()),
+                oxigraph::model::Term::BlankNode(node) => Some(node.as_ref().into()),
+                _ => None,
+            };
+            for graph in validation_graphs(data_graph)? {
+                if let Some(subject) = subject {
+                    for quad in store.quads_for_pattern(
+                        Some(subject),
+                        None,
+                        None,
+                        Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                    ) {
+                        let quad = quad.map_err(|err| {
+                            format!("failed to scan lowered outgoing adjacency: {err}")
+                        })?;
+                        predicates.push(quad.predicate.as_str().to_string());
+                    }
+                }
+                for quad in store.quads_for_pattern(
+                    None,
+                    None,
+                    Some(anchor.as_ref()),
+                    Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                ) {
+                    let quad = quad.map_err(|err| {
+                        format!("failed to scan lowered incoming adjacency: {err}")
+                    })?;
+                    predicates.push(quad.predicate.as_str().to_string());
+                }
+            }
+            predicates.sort();
+            predicates.dedup();
+            Ok(predicates)
+        }
+
+        fn lowered_adjacent_predicate_whitelist_violation(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            anchor_path: &LoweredPropertyPathRuntime,
+            allowed_predicates: &[&str],
+        ) -> Result<bool, String> {
+            let anchors = resolve_lowered_property_path_runtime(store, data_graph, focus, anchor_path)?;
+            if anchors.is_empty() {
+                return Ok(false);
+            }
+            let allowed: std::collections::HashSet<&str> =
+                allowed_predicates.iter().copied().collect();
+            for anchor in anchors {
+                for predicate in adjacent_predicates_for_anchor(store, data_graph, &anchor)? {
+                    if !allowed.contains(predicate.as_str()) {
+                        return Ok(true);
+                    }
+                }
+            }
+            Ok(false)
         }
 
         #[derive(Debug, Default)]

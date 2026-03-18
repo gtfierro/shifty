@@ -105,6 +105,33 @@ pub struct SrcGenSparqlBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenLoweredSparqlQueryKind {
+    AdjacentPredicateWhitelist {
+        anchor_path: SrcGenLoweredPropertyPath,
+        allowed_predicate_iris: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenLoweredPropertyPath {
+    NamedNode {
+        predicate_iri: String,
+    },
+    ReverseNamedNode {
+        predicate_iri: String,
+    },
+    ZeroOrOne {
+        inner: Box<SrcGenLoweredPropertyPath>,
+    },
+    Sequence {
+        items: Vec<SrcGenLoweredPropertyPath>,
+    },
+    Alternative {
+        items: Vec<SrcGenLoweredPropertyPath>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SrcGenComponentKind {
     PropertyLink {
         property_shape_iri: String,
@@ -157,6 +184,7 @@ pub enum SrcGenComponentKind {
         prefixes: String,
         requires_path: bool,
         constraint_term: String,
+        lowered_query: Option<SrcGenLoweredSparqlQueryKind>,
     },
     CustomSparql {
         query: String,

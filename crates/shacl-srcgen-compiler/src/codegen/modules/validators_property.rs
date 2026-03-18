@@ -1,5 +1,8 @@
 use crate::codegen::render_tokens_as_module;
-use crate::ir::{SrcGenComponentKind, SrcGenIR, SrcGenPath};
+use crate::ir::{
+    SrcGenComponentKind, SrcGenIR, SrcGenLoweredPropertyPath, SrcGenLoweredSparqlQueryKind,
+    SrcGenPath,
+};
 use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -62,6 +65,33 @@ fn term_expr(term: &Term) -> TokenStream {
                     )
                 }
             }
+        }
+    }
+}
+
+fn lowered_property_path_expr(path: &SrcGenLoweredPropertyPath) -> TokenStream {
+    match path {
+        SrcGenLoweredPropertyPath::NamedNode { predicate_iri } => {
+            let iri = LitStr::new(predicate_iri, Span::call_site());
+            quote! { LoweredPropertyPathRuntime::NamedNode(#iri) }
+        }
+        SrcGenLoweredPropertyPath::ReverseNamedNode { predicate_iri } => {
+            let iri = LitStr::new(predicate_iri, Span::call_site());
+            quote! { LoweredPropertyPathRuntime::ReverseNamedNode(#iri) }
+        }
+        SrcGenLoweredPropertyPath::ZeroOrOne { inner } => {
+            let inner_expr = lowered_property_path_expr(inner.as_ref());
+            quote! { LoweredPropertyPathRuntime::ZeroOrOne(Box::new(#inner_expr)) }
+        }
+        SrcGenLoweredPropertyPath::Sequence { items } => {
+            let item_exprs: Vec<TokenStream> =
+                items.iter().map(lowered_property_path_expr).collect();
+            quote! { LoweredPropertyPathRuntime::Sequence(vec![#(#item_exprs),*]) }
+        }
+        SrcGenLoweredPropertyPath::Alternative { items } => {
+            let item_exprs: Vec<TokenStream> =
+                items.iter().map(lowered_property_path_expr).collect();
+            quote! { LoweredPropertyPathRuntime::Alternative(vec![#(#item_exprs),*]) }
         }
     }
 }
@@ -635,6 +665,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     query,
                     prefixes,
                     requires_path: _,
+                    lowered_query,
                     ..
                 } => {
                     let query_lit = LitStr::new(query, Span::call_site());
@@ -655,73 +686,107 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             quote! { (#direction_expr, #predicate_lit) }
                         })
                         .collect();
-                    constraint_checks.push(quote! {
-                        let required_predicates: &[(SparqlThisPredicateDirection, &str)] =
-                            &[#(#required_predicate_exprs),*];
-                        if required_predicates.is_empty()
-                            || focus_satisfies_required_sparql_predicates(
-                                store,
-                                data_graph,
-                                focus,
-                                required_predicates,
-                            )?
-                        {
-                            let mut query = String::from(#query_lit);
-                            if query.contains("$PATH") {
-                                query = query.replace("$PATH", #path_sparql_lit);
-                            }
-
-                            let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
-                            bindings.push(("this", focus.clone()));
-                            if query_mentions_var(&query, "currentShape") {
-                                if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
-                                    bindings.push(("currentShape", current_shape_term));
+                    let lowered_query_expr = match lowered_query {
+                        Some(SrcGenLoweredSparqlQueryKind::AdjacentPredicateWhitelist {
+                            anchor_path,
+                            allowed_predicate_iris,
+                        }) => {
+                            let anchor_path_expr = lowered_property_path_expr(anchor_path);
+                            let allowed_predicate_lits: Vec<LitStr> = allowed_predicate_iris
+                                .iter()
+                                .map(|iri| LitStr::new(iri, Span::call_site()))
+                                .collect();
+                            quote! {
+                                if lowered_adjacent_predicate_whitelist_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#anchor_path_expr,
+                                    &[#(#allowed_predicate_lits),*],
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(focus.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
                                 }
-                            }
-                            if query_mentions_var(&query, "shapesGraph") {
-                                if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
-                                    bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
-                                }
-                            }
-
-                            let solutions = sparql_select_solutions_with_bindings(
-                                &query,
-                                #prefixes_lit,
-                                store,
-                                data_graph,
-                                &bindings,
-                            )?;
-                            let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
-                            let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
-                                std::collections::HashSet::new();
-                            for row in solutions {
-                                if let Some(failure_term) = row.get("failure") {
-                                    if term_is_true_boolean(failure_term) {
-                                        return Err(format!(
-                                            "SPARQL constraint query reported failure for shape {} component {}",
-                                            #shape_id, #component_id_value
-                                        ));
-                                    }
-                                }
-                                let value = row.get("value").cloned();
-                                let row_signature = sparql_row_signature(&row);
-                                if !seen.insert(row_signature) {
-                                    continue;
-                                }
-                                let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
-                                    Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
-                                } else {
-                                    default_path.clone()
-                                };
-                                violations.push(Violation {
-                                    shape_id: #shape_id,
-                                    component_id: #component_id_value,
-                                    focus: focus.clone(),
-                                    value,
-                                    path,
-                                });
                             }
                         }
+                        None => quote! {
+                            record_fallback_dispatch();
+                            let required_predicates: &[(SparqlThisPredicateDirection, &str)] =
+                                &[#(#required_predicate_exprs),*];
+                            if required_predicates.is_empty()
+                                || focus_satisfies_required_sparql_predicates(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    required_predicates,
+                                )?
+                            {
+                                let mut query = String::from(#query_lit);
+                                if query.contains("$PATH") {
+                                    query = query.replace("$PATH", #path_sparql_lit);
+                                }
+
+                                let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                                bindings.push(("this", focus.clone()));
+                                if query_mentions_var(&query, "currentShape") {
+                                    if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                        bindings.push(("currentShape", current_shape_term));
+                                    }
+                                }
+                                if query_mentions_var(&query, "shapesGraph") {
+                                    if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                        bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                                    }
+                                }
+
+                                let solutions = sparql_select_solutions_with_bindings(
+                                    &query,
+                                    #prefixes_lit,
+                                    store,
+                                    data_graph,
+                                    &bindings,
+                                )?;
+                                let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
+                                let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
+                                    std::collections::HashSet::new();
+                                for row in solutions {
+                                    if let Some(failure_term) = row.get("failure") {
+                                        if term_is_true_boolean(failure_term) {
+                                            return Err(format!(
+                                                "SPARQL constraint query reported failure for shape {} component {}",
+                                                #shape_id, #component_id_value
+                                            ));
+                                        }
+                                    }
+                                    let value = row.get("value").cloned();
+                                    let row_signature = sparql_row_signature(&row);
+                                    if !seen.insert(row_signature) {
+                                        continue;
+                                    }
+                                    let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                        Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
+                                    } else {
+                                        default_path.clone()
+                                    };
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value,
+                                        path,
+                                    });
+                                }
+                            }
+                        },
+                    };
+                    constraint_checks.push(quote! {
+                        #lowered_query_expr
                     });
                 }
                 SrcGenComponentKind::CustomSparql {
