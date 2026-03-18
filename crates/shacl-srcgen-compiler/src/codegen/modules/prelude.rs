@@ -441,6 +441,29 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             Ok(false)
         }
 
+        fn lowered_missing_related_node_violation(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            related_path: &LoweredPropertyPathRuntime,
+            related_class: Option<&oxigraph::model::Term>,
+            required_path: &LoweredPropertyPathRuntime,
+        ) -> Result<bool, String> {
+            let mut related_nodes =
+                resolve_lowered_property_path_runtime(store, data_graph, focus, related_path)?;
+            if let Some(class_term) = related_class {
+                related_nodes.retain(|related| {
+                    lowered_term_has_type_or_subclass(store, related, class_term).unwrap_or(false)
+                });
+            }
+            if related_nodes.is_empty() {
+                return Ok(false);
+            }
+            let required_nodes =
+                resolve_lowered_property_path_runtime(store, data_graph, focus, required_path)?;
+            Ok(required_nodes.is_empty())
+        }
+
         fn lowered_subject_ref_from_term(
             term: &oxigraph::model::Term,
         ) -> Option<oxigraph::model::NamedOrBlankNodeRef<'_>> {

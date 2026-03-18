@@ -598,6 +598,40 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 }
                             }
                         }
+                        Some(SrcGenLoweredSparqlQueryKind::MissingRelatedNode {
+                            related_path,
+                            related_class,
+                            required_path,
+                            ..
+                        }) => {
+                            let related_path_expr = lowered_property_path_expr(related_path);
+                            let related_class_expr = related_class.as_ref().map(term_expr);
+                            let required_path_expr = lowered_property_path_expr(required_path);
+                            let related_class_arg = if let Some(expr) = related_class_expr {
+                                quote! { Some(&#expr) }
+                            } else {
+                                quote! { None }
+                            };
+                            quote! {
+                                if lowered_missing_related_node_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#related_path_expr,
+                                    #related_class_arg,
+                                    &#required_path_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(focus.clone()),
+                                        path: None,
+                                    });
+                                }
+                            }
+                        }
                         Some(SrcGenLoweredSparqlQueryKind::RequiredPathSupport {
                             source_predicate_iri,
                             required_path,

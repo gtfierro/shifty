@@ -12,7 +12,7 @@ use shifty::shacl_ir::{
 use shifty::sparql::{
     lowered_sparql_query_kind, AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode,
     LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind,
-    RequiredPathSupportPlan, SparqlExecutor,
+    MissingRelatedNodePlan, RequiredPathSupportPlan, SparqlExecutor,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -83,6 +83,17 @@ fn srcgen_lowered_query_kind(query: &str, prefixes: &str) -> Option<SrcGenLowere
                 .iter()
                 .map(|predicate| predicate.as_str().to_string())
                 .collect(),
+        }),
+        LoweredSparqlQueryKind::MissingRelatedNode(MissingRelatedNodePlan {
+            related_path,
+            related_variable,
+            related_class,
+            required_path,
+        }) => Some(SrcGenLoweredSparqlQueryKind::MissingRelatedNode {
+            related_path: srcgen_lowered_path(&related_path),
+            related_variable,
+            related_class,
+            required_path: srcgen_lowered_path(&required_path),
         }),
         LoweredSparqlQueryKind::RequiredPathSupport(RequiredPathSupportPlan {
             antecedent_path,
@@ -3012,6 +3023,92 @@ WHERE {
                 ));
             }
             other => panic!("expected lowered required-path-support query, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sparql_missing_related_node_query_is_lowered_generically() {
+        let shape_graph = oxigraph::model::NamedNode::new_unchecked("urn:shape-graph");
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:sparql:missing-related",
+                )),
+            },
+        );
+        let node_shape_terms = HashMap::from([(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:shape:missing-related")),
+        )]);
+        let shape_ir = ShapeIR {
+            shape_graph: shape_graph.clone(),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Property"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: vec![oxigraph::model::Quad::new(
+                oxigraph::model::NamedNode::new_unchecked("urn:sparql:missing-related"),
+                oxigraph::model::NamedNode::new_unchecked("http://www.w3.org/ns/shacl#select"),
+                oxigraph::model::Literal::new_typed_literal(
+                    r#"SELECT $this ?something
+WHERE {
+  ?something <urn:composedOf> $this .
+  FILTER NOT EXISTS {
+    $this <urn:ofConstituent> ?someSubstance .
+  }
+}"#,
+                    oxigraph::model::vocab::xsd::STRING,
+                ),
+                oxigraph::model::GraphName::NamedNode(shape_graph),
+            )],
+            rules: HashMap::new(),
+            node_shape_rules: HashMap::new(),
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        match &lowered.components[0].kind {
+            SrcGenComponentKind::Sparql {
+                lowered_query:
+                    Some(SrcGenLoweredSparqlQueryKind::MissingRelatedNode {
+                        related_path,
+                        related_variable,
+                        related_class,
+                        required_path,
+                    }),
+                ..
+            } => {
+                assert!(matches!(
+                    related_path,
+                    SrcGenLoweredPropertyPath::ReverseNamedNode { predicate_iri }
+                        if predicate_iri == "urn:composedOf"
+                ));
+                assert_eq!(related_variable, "something");
+                assert_eq!(related_class, &None);
+                assert!(matches!(
+                    required_path,
+                    SrcGenLoweredPropertyPath::NamedNode { predicate_iri }
+                        if predicate_iri == "urn:ofConstituent"
+                ));
+            }
+            other => panic!("expected lowered missing-related-node query, got {other:?}"),
         }
     }
 
