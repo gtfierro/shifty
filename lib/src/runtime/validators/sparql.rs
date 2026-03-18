@@ -11,11 +11,13 @@ use crate::runtime::{
 use crate::sparql::{
     ensure_pre_binding_semantics, format_term_with_namespace_aliases, lowered_sparql_query_kind,
     parse_prefix_lines, required_this_predicates, validate_prebound_variable_usage,
-    AdjacentPredicateWhitelistPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MessageTemplater,
-    SparqlExecutor, ThisPredicateDirection,
+    AdjacentPredicateWhitelistPlan, CompatibilitySide, LocalSetCompatibilityMode,
+    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MessageTemplater,
+    RequiredPathSupportPlan, SparqlExecutor, ThisPredicateDirection,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
+use oxigraph::model::vocab::rdfs;
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{NamedNode, Term, TermRef};
 use oxigraph::sparql::{QueryResults, Variable};
@@ -202,6 +204,7 @@ fn resolve_lowered_property_path(
     path: &LoweredPropertyPath,
 ) -> Result<Vec<Term>, String> {
     match path {
+        LoweredPropertyPath::SelfNode => Ok(vec![focus_node.clone()]),
         LoweredPropertyPath::NamedNode(predicate) => {
             context.focus_objects_for_predicate(focus_node, &Term::NamedNode(predicate.clone()))
         }
@@ -210,6 +213,28 @@ fn resolve_lowered_property_path(
         LoweredPropertyPath::ZeroOrOne(inner) => {
             let mut results = HashSet::from([focus_node.clone()]);
             results.extend(resolve_lowered_property_path(context, focus_node, inner)?);
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::ZeroOrMore(inner) => {
+            let mut results = HashSet::new();
+            let mut frontier = vec![focus_node.clone()];
+            while let Some(node) = frontier.pop() {
+                if !results.insert(node.clone()) {
+                    continue;
+                }
+                frontier.extend(resolve_lowered_property_path(context, &node, inner)?);
+            }
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::OneOrMore(inner) => {
+            let mut results = HashSet::new();
+            let mut frontier = resolve_lowered_property_path(context, focus_node, inner)?;
+            while let Some(node) = frontier.pop() {
+                if !results.insert(node.clone()) {
+                    continue;
+                }
+                frontier.extend(resolve_lowered_property_path(context, &node, inner)?);
+            }
             Ok(results.into_iter().collect())
         }
         LoweredPropertyPath::Sequence(segments) => {
@@ -238,6 +263,106 @@ fn resolve_lowered_property_path(
             Ok(results.into_iter().collect())
         }
     }
+}
+
+fn resolve_lowered_property_path_in_store(
+    context: &ValidationContext,
+    focus_node: &Term,
+    path: &LoweredPropertyPath,
+) -> Result<Vec<Term>, String> {
+    match path {
+        LoweredPropertyPath::SelfNode => Ok(vec![focus_node.clone()]),
+        LoweredPropertyPath::NamedNode(predicate) => {
+            let Ok(subject_ref) = focus_node.try_to_subject_ref() else {
+                return Ok(Vec::new());
+            };
+            Ok(context
+                .quads_for_pattern(Some(subject_ref), Some(predicate.as_ref()), None, None)?
+                .into_iter()
+                .map(|quad| quad.object)
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect())
+        }
+        LoweredPropertyPath::ReverseNamedNode(predicate) => Ok(context
+            .quads_for_pattern(None, Some(predicate.as_ref()), Some(focus_node), None)?
+            .into_iter()
+            .map(|quad| quad.subject.into())
+            .collect::<HashSet<Term>>()
+            .into_iter()
+            .collect()),
+        LoweredPropertyPath::ZeroOrOne(inner) => {
+            let mut results = HashSet::from([focus_node.clone()]);
+            results.extend(resolve_lowered_property_path_in_store(
+                context, focus_node, inner,
+            )?);
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::ZeroOrMore(inner) => {
+            let mut results = HashSet::new();
+            let mut frontier = vec![focus_node.clone()];
+            while let Some(node) = frontier.pop() {
+                if !results.insert(node.clone()) {
+                    continue;
+                }
+                frontier.extend(resolve_lowered_property_path_in_store(
+                    context, &node, inner,
+                )?);
+            }
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::OneOrMore(inner) => {
+            let mut results = HashSet::new();
+            let mut frontier = resolve_lowered_property_path_in_store(context, focus_node, inner)?;
+            while let Some(node) = frontier.pop() {
+                if !results.insert(node.clone()) {
+                    continue;
+                }
+                frontier.extend(resolve_lowered_property_path_in_store(
+                    context, &node, inner,
+                )?);
+            }
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::Sequence(segments) => {
+            let mut current = vec![focus_node.clone()];
+            for segment in segments {
+                let mut next = HashSet::new();
+                for node in &current {
+                    next.extend(resolve_lowered_property_path_in_store(
+                        context, node, segment,
+                    )?);
+                }
+                current = next.into_iter().collect();
+                if current.is_empty() {
+                    break;
+                }
+            }
+            Ok(current)
+        }
+        LoweredPropertyPath::Alternative(alternatives) => {
+            let mut results = HashSet::new();
+            for alternative in alternatives {
+                results.extend(resolve_lowered_property_path_in_store(
+                    context,
+                    focus_node,
+                    alternative,
+                )?);
+            }
+            Ok(results.into_iter().collect())
+        }
+    }
+}
+
+fn lowered_path_reaches_target(
+    context: &ValidationContext,
+    focus_node: &Term,
+    path: &LoweredPropertyPath,
+    target: &Term,
+) -> Result<bool, String> {
+    Ok(resolve_lowered_property_path(context, focus_node, path)?
+        .iter()
+        .any(|candidate| candidate == target))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -308,6 +433,312 @@ fn try_run_lowered_adjacent_predicate_whitelist(
         c.clone(),
         failure,
     )]))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_run_lowered_required_path_support(
+    component_id: ComponentID,
+    c: &Context,
+    context: &ValidationContext,
+    current_shape_term: Option<&Term>,
+    constraint_node: &Term,
+    plan: &RequiredPathSupportPlan,
+    path_substitution_value: Option<&String>,
+    message_prefixes: &[(String, String)],
+    messages: &[Term],
+    severity: Option<Severity>,
+) -> Result<Option<Vec<ComponentValidationResult>>, String> {
+    let related_nodes =
+        resolve_lowered_property_path(context, c.focus_node(), &plan.antecedent_path)?;
+    if related_nodes.is_empty() {
+        return Ok(Some(vec![]));
+    }
+
+    let mut results = Vec::new();
+    for related_node in related_nodes {
+        if lowered_path_reaches_target(context, c.focus_node(), &plan.support_path, &related_node)?
+        {
+            continue;
+        }
+
+        let mut substitutions_for_messages = gather_default_substitutions(
+            c,
+            current_shape_term,
+            if c.source_shape().as_node_id().is_some() {
+                Some(c.focus_node())
+            } else {
+                None
+            },
+            path_substitution_value,
+            message_prefixes,
+        );
+        substitutions_for_messages.push((
+            plan.target_variable.clone(),
+            term_to_message_value(&related_node, message_prefixes),
+        ));
+        let (message_opt, message_terms) = context
+            .sparql_services()
+            .instantiate_messages(messages, &substitutions_for_messages);
+        let message =
+            message_opt.unwrap_or_else(|| "Node does not conform to SPARQL constraint".to_string());
+        let failure = ValidationFailure::new(
+            component_id,
+            if c.source_shape().as_node_id().is_some() {
+                Some(c.focus_node().clone())
+            } else {
+                None
+            },
+            message,
+            None,
+            Some(constraint_node.clone()),
+        )
+        .with_severity(severity.clone())
+        .with_message_terms(message_terms);
+        results.push(ComponentValidationResult::Fail(c.clone(), failure));
+    }
+
+    Ok(Some(results))
+}
+
+fn term_satisfies_lowered_class(
+    context: &ValidationContext,
+    node: &Term,
+    class_term: &Term,
+) -> Result<bool, String> {
+    Ok(context
+        .class_constraint_matches_fast(node, class_term)?
+        .unwrap_or(false))
+}
+
+fn term_has_direct_predicate_in_store(
+    context: &ValidationContext,
+    node: &Term,
+    predicate: &NamedNode,
+) -> Result<bool, String> {
+    let Ok(subject_ref) = node.try_to_subject_ref() else {
+        return Ok(false);
+    };
+    Ok(!context
+        .quads_for_pattern(Some(subject_ref), Some(predicate.as_ref()), None, None)?
+        .is_empty())
+}
+
+fn lowered_subclass_related(
+    context: &ValidationContext,
+    left: &Term,
+    right: &Term,
+) -> Result<bool, String> {
+    if let Some(result) = context.subclass_of_or_same_fast(left, right)? {
+        return Ok(result);
+    }
+    let subclass_star = LoweredPropertyPath::ZeroOrMore(Box::new(LoweredPropertyPath::NamedNode(
+        rdfs::SUB_CLASS_OF.into_owned(),
+    )));
+    Ok(
+        resolve_lowered_property_path_in_store(context, left, &subclass_star)?
+            .into_iter()
+            .any(|candidate| candidate == *right),
+    )
+}
+
+fn are_terms_compatible_via_subclass(
+    context: &ValidationContext,
+    left: &Term,
+    right: &Term,
+) -> Result<bool, String> {
+    Ok(lowered_subclass_related(context, left, right)?
+        || lowered_subclass_related(context, right, left)?)
+}
+
+fn collect_constituents(
+    context: &ValidationContext,
+    value: &Term,
+    constituent_path: Option<&LoweredPropertyPath>,
+) -> Result<Vec<Term>, String> {
+    let Some(constituent_path) = constituent_path else {
+        return Ok(Vec::new());
+    };
+    resolve_lowered_property_path_in_store(context, value, constituent_path)
+}
+
+fn value_pair_is_incompatible(
+    context: &ValidationContext,
+    left_value: &Term,
+    right_value: &Term,
+    plan: &LocalSetCompatibilityPlan,
+) -> Result<bool, String> {
+    match plan.mode {
+        LocalSetCompatibilityMode::PurePure => {
+            let left_is_pure = !term_has_direct_predicate_in_store(
+                context,
+                left_value,
+                &plan.composed_of_predicate,
+            )?;
+            let right_is_pure = !term_has_direct_predicate_in_store(
+                context,
+                right_value,
+                &plan.composed_of_predicate,
+            )?;
+            if !left_is_pure || !right_is_pure {
+                return Ok(false);
+            }
+            Ok(!are_terms_compatible_via_subclass(
+                context,
+                left_value,
+                right_value,
+            )?)
+        }
+        LocalSetCompatibilityMode::CompositeVsPure { composite_side } => {
+            let (composite_value, pure_value) = match composite_side {
+                CompatibilitySide::Left => (left_value, right_value),
+                CompatibilitySide::Right => (right_value, left_value),
+            };
+            let pure_is_pure = !term_has_direct_predicate_in_store(
+                context,
+                pure_value,
+                &plan.composed_of_predicate,
+            )?;
+            if !pure_is_pure {
+                return Ok(false);
+            }
+            let constituents =
+                collect_constituents(context, composite_value, plan.constituent_path.as_ref())?;
+            if constituents.is_empty() {
+                return Ok(false);
+            }
+            Ok(!constituents.iter().any(|constituent| {
+                are_terms_compatible_via_subclass(context, constituent, pure_value).unwrap_or(false)
+            }))
+        }
+        LocalSetCompatibilityMode::CompositeVsComposite => {
+            let left_constituents =
+                collect_constituents(context, left_value, plan.constituent_path.as_ref())?;
+            let right_constituents =
+                collect_constituents(context, right_value, plan.constituent_path.as_ref())?;
+            if left_constituents.is_empty() || right_constituents.is_empty() {
+                return Ok(false);
+            }
+            Ok(!left_constituents.iter().any(|left_constituent| {
+                right_constituents.iter().any(|right_constituent| {
+                    are_terms_compatible_via_subclass(context, left_constituent, right_constituent)
+                        .unwrap_or(false)
+                })
+            }))
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_run_lowered_local_set_compatibility(
+    component_id: ComponentID,
+    c: &Context,
+    context: &ValidationContext,
+    current_shape_term: Option<&Term>,
+    constraint_node: &Term,
+    plan: &LocalSetCompatibilityPlan,
+    path_substitution_value: Option<&String>,
+    message_prefixes: &[(String, String)],
+    messages: &[Term],
+    severity: Option<Severity>,
+) -> Result<Option<Vec<ComponentValidationResult>>, String> {
+    let left_anchors =
+        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.left_anchor_path)?;
+    let right_anchors =
+        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.right_anchor_path)?;
+    if left_anchors.is_empty() || right_anchors.is_empty() {
+        return Ok(Some(vec![]));
+    }
+
+    let mut results = Vec::new();
+    for left_anchor in &left_anchors {
+        if let Some(class_term) = &plan.left_class {
+            if !term_satisfies_lowered_class(context, left_anchor, class_term)? {
+                continue;
+            }
+        }
+        let left_values =
+            resolve_lowered_property_path_in_store(context, left_anchor, &plan.left_value_path)?;
+        if left_values.is_empty() {
+            continue;
+        }
+
+        for right_anchor in &right_anchors {
+            if plan.distinct_anchors && left_anchor == right_anchor {
+                continue;
+            }
+            if let Some(class_term) = &plan.right_class {
+                if !term_satisfies_lowered_class(context, right_anchor, class_term)? {
+                    continue;
+                }
+            }
+            let right_values = resolve_lowered_property_path_in_store(
+                context,
+                right_anchor,
+                &plan.right_value_path,
+            )?;
+            if right_values.is_empty() {
+                continue;
+            }
+
+            for left_value in &left_values {
+                for right_value in &right_values {
+                    if !value_pair_is_incompatible(context, left_value, right_value, plan)? {
+                        continue;
+                    }
+
+                    let mut substitutions_for_messages = gather_default_substitutions(
+                        c,
+                        current_shape_term,
+                        if c.source_shape().as_node_id().is_some() {
+                            Some(c.focus_node())
+                        } else {
+                            None
+                        },
+                        path_substitution_value,
+                        message_prefixes,
+                    );
+                    substitutions_for_messages.push((
+                        plan.left_anchor_var.clone(),
+                        term_to_message_value(left_anchor, message_prefixes),
+                    ));
+                    substitutions_for_messages.push((
+                        plan.right_anchor_var.clone(),
+                        term_to_message_value(right_anchor, message_prefixes),
+                    ));
+                    substitutions_for_messages.push((
+                        plan.left_value_var.clone(),
+                        term_to_message_value(left_value, message_prefixes),
+                    ));
+                    substitutions_for_messages.push((
+                        plan.right_value_var.clone(),
+                        term_to_message_value(right_value, message_prefixes),
+                    ));
+                    let (message_opt, message_terms) = context
+                        .sparql_services()
+                        .instantiate_messages(messages, &substitutions_for_messages);
+                    let message = message_opt.unwrap_or_else(|| {
+                        "Node does not conform to SPARQL constraint".to_string()
+                    });
+                    let failure = ValidationFailure::new(
+                        component_id,
+                        if c.source_shape().as_node_id().is_some() {
+                            Some(c.focus_node().clone())
+                        } else {
+                            None
+                        },
+                        message,
+                        None,
+                        Some(constraint_node.clone()),
+                    )
+                    .with_severity(severity.clone())
+                    .with_message_terms(message_terms);
+                    results.push(ComponentValidationResult::Fail(c.clone(), failure));
+                }
+            }
+        }
+    }
+
+    Ok(Some(results))
 }
 
 #[derive(Debug)]
@@ -956,6 +1387,41 @@ impl ValidateComponent for SPARQLConstraintComponent {
             lowered_query_kind.as_ref()
         {
             if let Some(results) = try_run_lowered_adjacent_predicate_whitelist(
+                component_id,
+                c,
+                context,
+                current_shape_term.as_ref(),
+                &self.constraint_node,
+                plan,
+                path_substitution_value.as_ref(),
+                &message_prefixes,
+                &messages,
+                severity.clone(),
+            )? {
+                return Ok(results);
+            }
+        }
+        if let Some(LoweredSparqlQueryKind::RequiredPathSupport(plan)) = lowered_query_kind.as_ref()
+        {
+            if let Some(results) = try_run_lowered_required_path_support(
+                component_id,
+                c,
+                context,
+                current_shape_term.as_ref(),
+                &self.constraint_node,
+                plan,
+                path_substitution_value.as_ref(),
+                &message_prefixes,
+                &messages,
+                severity.clone(),
+            )? {
+                return Ok(results);
+            }
+        }
+        if let Some(LoweredSparqlQueryKind::LocalSetCompatibility(plan)) =
+            lowered_query_kind.as_ref()
+        {
+            if let Some(results) = try_run_lowered_local_set_compatibility(
                 component_id,
                 c,
                 context,

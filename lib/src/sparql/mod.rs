@@ -17,7 +17,7 @@ use oxigraph::store::Store;
 use spargebra::algebra::{
     AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
 };
-use spargebra::term::{GroundTerm, TermPattern};
+use spargebra::term::{BlankNode, GroundTerm, TermPattern};
 use spargebra::{Query as AlgebraQuery, SparqlParser};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -96,6 +96,8 @@ pub struct ThisPredicateRequirement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredSparqlQueryKind {
     AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan),
+    RequiredPathSupport(RequiredPathSupportPlan),
+    LocalSetCompatibility(Box<LocalSetCompatibilityPlan>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,10 +107,51 @@ pub struct AdjacentPredicateWhitelistPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequiredPathSupportPlan {
+    pub antecedent_path: LoweredPropertyPath,
+    pub support_path: LoweredPropertyPath,
+    pub target_variable: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalSetCompatibilityMode {
+    PurePure,
+    CompositeVsPure { composite_side: CompatibilitySide },
+    CompositeVsComposite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompatibilitySide {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSetCompatibilityPlan {
+    pub left_anchor_path: LoweredPropertyPath,
+    pub right_anchor_path: LoweredPropertyPath,
+    pub left_anchor_var: String,
+    pub right_anchor_var: String,
+    pub left_class: Option<Term>,
+    pub right_class: Option<Term>,
+    pub left_value_path: LoweredPropertyPath,
+    pub right_value_path: LoweredPropertyPath,
+    pub left_value_var: String,
+    pub right_value_var: String,
+    pub distinct_anchors: bool,
+    pub composed_of_predicate: NamedNode,
+    pub constituent_path: Option<LoweredPropertyPath>,
+    pub mode: LocalSetCompatibilityMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredPropertyPath {
+    SelfNode,
     NamedNode(NamedNode),
     ReverseNamedNode(NamedNode),
     ZeroOrOne(Box<LoweredPropertyPath>),
+    ZeroOrMore(Box<LoweredPropertyPath>),
+    OneOrMore(Box<LoweredPropertyPath>),
     Sequence(Vec<LoweredPropertyPath>),
     Alternative(Vec<LoweredPropertyPath>),
 }
@@ -839,9 +882,18 @@ fn lowered_sparql_query_kind_in_graph_pattern(
     pattern: &GraphPattern,
 ) -> Option<LoweredSparqlQueryKind> {
     let pattern = unwrap_projection_like_pattern(pattern);
+    if let Some(plan) = lowered_local_set_compatibility(pattern) {
+        return Some(LoweredSparqlQueryKind::LocalSetCompatibility(Box::new(
+            plan,
+        )));
+    }
     let GraphPattern::Filter { expr, inner } = pattern else {
         return None;
     };
+
+    if let Some(plan) = lowered_required_path_support(inner.as_ref(), expr) {
+        return Some(LoweredSparqlQueryKind::RequiredPathSupport(plan));
+    }
 
     let anchor_path = match unwrap_projection_like_pattern(inner.as_ref()) {
         GraphPattern::Path {
@@ -877,6 +929,659 @@ fn lowered_sparql_query_kind_in_graph_pattern(
     Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(
         anchor_path,
     ))
+}
+
+fn lowered_required_path_support(
+    inner_pattern: &GraphPattern,
+    expr: &Expression,
+) -> Option<RequiredPathSupportPlan> {
+    let Expression::Not(inner) = expr else {
+        return None;
+    };
+    let Expression::Exists(support_pattern) = inner.as_ref() else {
+        return None;
+    };
+
+    let (target_variable, antecedent_path) = match unwrap_projection_like_pattern(inner_pattern) {
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } if term_pattern_is_this(subject) => {
+            let TermPattern::Variable(variable) = object else {
+                return None;
+            };
+            (variable.as_str().to_string(), lower_property_path(path)?)
+        }
+        GraphPattern::Bgp { patterns } if patterns.len() == 1 => {
+            let triple = &patterns[0];
+            if !term_pattern_is_this(&triple.subject) {
+                return None;
+            }
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &triple.predicate else {
+                return None;
+            };
+            let TermPattern::Variable(variable) = &triple.object else {
+                return None;
+            };
+            (
+                variable.as_str().to_string(),
+                LoweredPropertyPath::NamedNode(predicate.clone()),
+            )
+        }
+        _ => return None,
+    };
+
+    let support_path = match unwrap_projection_like_pattern(support_pattern) {
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } if term_pattern_is_this(subject)
+            && term_pattern_matches_var(object, &target_variable) =>
+        {
+            lower_property_path(path)?
+        }
+        GraphPattern::Bgp { patterns } if patterns.len() == 1 => {
+            let triple = &patterns[0];
+            if !term_pattern_is_this(&triple.subject)
+                || !term_pattern_matches_var(&triple.object, &target_variable)
+            {
+                return None;
+            }
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &triple.predicate else {
+                return None;
+            };
+            LoweredPropertyPath::NamedNode(predicate.clone())
+        }
+        _ => return None,
+    };
+
+    Some(RequiredPathSupportPlan {
+        antecedent_path,
+        support_path,
+        target_variable,
+    })
+}
+
+#[derive(Debug)]
+enum LoweredAtom<'a> {
+    Triple(&'a spargebra::term::TriplePattern),
+    Path {
+        subject: &'a TermPattern,
+        path: &'a PropertyPathExpression,
+        object: &'a TermPattern,
+    },
+}
+
+fn term_pattern_blank_node(term: &TermPattern) -> Option<&BlankNode> {
+    match term {
+        TermPattern::BlankNode(node) => Some(node),
+        _ => None,
+    }
+}
+
+fn combine_lowered_paths(
+    left: LoweredPropertyPath,
+    right: LoweredPropertyPath,
+) -> LoweredPropertyPath {
+    match (left, right) {
+        (
+            LoweredPropertyPath::Sequence(mut left_items),
+            LoweredPropertyPath::Sequence(right_items),
+        ) => {
+            left_items.extend(right_items);
+            LoweredPropertyPath::Sequence(left_items)
+        }
+        (LoweredPropertyPath::Sequence(mut left_items), right) => {
+            left_items.push(right);
+            LoweredPropertyPath::Sequence(left_items)
+        }
+        (left, LoweredPropertyPath::Sequence(right_items)) => {
+            let mut items = vec![left];
+            items.extend(right_items);
+            LoweredPropertyPath::Sequence(items)
+        }
+        (left, right) => LoweredPropertyPath::Sequence(vec![left, right]),
+    }
+}
+
+fn blanknode_followup<'a>(
+    blank: &BlankNode,
+    atoms: &'a [LoweredAtom<'a>],
+) -> Option<(LoweredPropertyPath, &'a TermPattern)> {
+    atoms.iter().find_map(|atom| match atom {
+        LoweredAtom::Triple(pattern)
+            if term_pattern_blank_node(&pattern.subject) == Some(blank) =>
+        {
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &pattern.predicate else {
+                return None;
+            };
+            Some((
+                LoweredPropertyPath::NamedNode(predicate.clone()),
+                &pattern.object,
+            ))
+        }
+        LoweredAtom::Path {
+            subject,
+            path,
+            object,
+        } if term_pattern_blank_node(subject) == Some(blank) => {
+            Some((lower_property_path(path)?, object))
+        }
+        _ => None,
+    })
+}
+
+fn extract_type_subclass_constraint_from_lowered(
+    path: &LoweredPropertyPath,
+    object: &TermPattern,
+) -> Option<Term> {
+    if !matches!(
+        path,
+        LoweredPropertyPath::Sequence(items)
+            if items.len() == 2
+                && matches!(&items[0], LoweredPropertyPath::NamedNode(predicate)
+                    if predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+                && matches!(&items[1], LoweredPropertyPath::ZeroOrMore(inner)
+                    if matches!(inner.as_ref(), LoweredPropertyPath::NamedNode(predicate)
+                        if predicate.as_str() == "http://www.w3.org/2000/01/rdf-schema#subClassOf"))
+    ) {
+        return None;
+    }
+    match object {
+        TermPattern::NamedNode(node) => Some(Term::NamedNode(node.clone())),
+        TermPattern::BlankNode(node) => Some(Term::BlankNode(node.clone())),
+        _ => None,
+    }
+}
+
+fn lowered_local_set_compatibility(pattern: &GraphPattern) -> Option<LocalSetCompatibilityPlan> {
+    let (atoms, filters) = flatten_conjunctive_atoms(pattern)?;
+    let mut all_filters = Vec::new();
+    for filter in filters {
+        split_conjunctive_filters(filter, &mut all_filters);
+    }
+
+    let distinct_pair = extract_distinct_anchor_pair(&all_filters);
+
+    let mut anchor_patterns: Vec<(String, LoweredPropertyPath)> = Vec::new();
+    let mut class_filters: HashMap<String, Term> = HashMap::new();
+    let mut this_patterns: Vec<(String, LoweredPropertyPath)> = Vec::new();
+    let mut value_paths: Vec<(String, String, LoweredPropertyPath)> = Vec::new();
+    let mut composite_witness_vars: HashSet<String> = HashSet::new();
+
+    for atom in &atoms {
+        match atom {
+            LoweredAtom::Triple(pattern) => {
+                if term_pattern_is_this(&pattern.subject) {
+                    let spargebra::term::NamedNodePattern::NamedNode(predicate) =
+                        &pattern.predicate
+                    else {
+                        continue;
+                    };
+                    let Some(object_var) = term_pattern_var_name(&pattern.object) else {
+                        continue;
+                    };
+                    this_patterns.push((
+                        object_var.to_string(),
+                        LoweredPropertyPath::NamedNode(predicate.clone()),
+                    ));
+                    continue;
+                }
+                if let Some(subject_var) = term_pattern_var_name(&pattern.subject) {
+                    let spargebra::term::NamedNodePattern::NamedNode(predicate) =
+                        &pattern.predicate
+                    else {
+                        continue;
+                    };
+                    if let Some(blank) = term_pattern_blank_node(&pattern.object) {
+                        if let Some((follow_path, final_object)) = blanknode_followup(blank, &atoms)
+                        {
+                            let combined_path = combine_lowered_paths(
+                                LoweredPropertyPath::NamedNode(predicate.clone()),
+                                follow_path,
+                            );
+                            if let Some(object_var) = term_pattern_var_name(final_object) {
+                                value_paths.push((
+                                    subject_var.to_string(),
+                                    object_var.to_string(),
+                                    combined_path.clone(),
+                                ));
+                                if is_lowered_constituent_path(&combined_path) {
+                                    composite_witness_vars.insert(subject_var.to_string());
+                                }
+                                continue;
+                            }
+                            if let Some(class_term) = extract_type_subclass_constraint_from_lowered(
+                                &combined_path,
+                                final_object,
+                            ) {
+                                class_filters.insert(subject_var.to_string(), class_term);
+                                continue;
+                            }
+                        }
+                    }
+                    if predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" {
+                        continue;
+                    }
+                    if let Some(object_var) = term_pattern_var_name(&pattern.object) {
+                        value_paths.push((
+                            subject_var.to_string(),
+                            object_var.to_string(),
+                            LoweredPropertyPath::NamedNode(predicate.clone()),
+                        ));
+                    }
+                }
+            }
+            LoweredAtom::Path {
+                subject,
+                path,
+                object,
+            } => {
+                if term_pattern_is_this(subject) {
+                    let Some(object_var) = term_pattern_var_name(object) else {
+                        continue;
+                    };
+                    this_patterns.push((object_var.to_string(), lower_property_path(path)?));
+                    continue;
+                }
+                if let Some(subject_var) = term_pattern_var_name(subject) {
+                    if let Some(object_var) = term_pattern_var_name(object) {
+                        if let Some(path_lowered) = lower_property_path(path) {
+                            value_paths.push((
+                                subject_var.to_string(),
+                                object_var.to_string(),
+                                path_lowered.clone(),
+                            ));
+                            if matches!(
+                                path,
+                                PropertyPathExpression::Sequence(_, _)
+                                    | PropertyPathExpression::NamedNode(_)
+                            ) && is_composed_constituent_path(path)
+                            {
+                                composite_witness_vars.insert(subject_var.to_string());
+                            }
+                        }
+                    } else if let Some(class_term) =
+                        extract_type_subclass_constraint(subject, path, object)
+                    {
+                        class_filters.insert(subject_var.to_string(), class_term);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut explicit_anchor_vars: HashSet<String> = class_filters.keys().cloned().collect();
+    explicit_anchor_vars.extend(value_paths.iter().filter_map(|(anchor_var, _, path)| {
+        if is_lowered_constituent_path(path) {
+            None
+        } else {
+            Some(anchor_var.clone())
+        }
+    }));
+    if let Some((left, right)) = distinct_pair.as_ref() {
+        explicit_anchor_vars.insert(left.clone());
+        explicit_anchor_vars.insert(right.clone());
+    }
+    for (object_var, path) in this_patterns {
+        if explicit_anchor_vars.contains(&object_var) {
+            anchor_patterns.push((object_var, path));
+        } else {
+            value_paths.push(("this".to_string(), object_var, path));
+        }
+    }
+
+    let composed_of_predicate = extract_composed_of_predicate(&all_filters)?;
+    let composite_anchor_var = composite_witness_vars
+        .iter()
+        .find_map(|witness_var| root_anchor_for_var(witness_var, &value_paths));
+
+    let (left_anchor_var, right_anchor_var) = if let Some((left, right)) = distinct_pair.clone() {
+        (left, right)
+    } else {
+        infer_anchor_pair(&value_paths, composite_anchor_var.as_deref())?
+    };
+
+    let compatibility_mode = extract_compatibility_mode(
+        composite_anchor_var.as_deref(),
+        &left_anchor_var,
+        &right_anchor_var,
+    )?;
+    let constituent_path = match compatibility_mode {
+        LocalSetCompatibilityMode::PurePure => None,
+        _ => Some(extract_constituent_path(&atoms)?),
+    };
+
+    let left_anchor_path = if left_anchor_var == "this" {
+        LoweredPropertyPath::SelfNode
+    } else {
+        anchor_patterns
+            .iter()
+            .find(|(var, _)| var == &left_anchor_var)
+            .map(|(_, path)| path.clone())
+            .unwrap_or(LoweredPropertyPath::SelfNode)
+    };
+    let right_anchor_path = if right_anchor_var == "this" {
+        LoweredPropertyPath::SelfNode
+    } else {
+        anchor_patterns
+            .iter()
+            .find(|(var, _)| var == &right_anchor_var)
+            .map(|(_, path)| path.clone())
+            .unwrap_or(LoweredPropertyPath::SelfNode)
+    };
+
+    let (left_value_var, left_value_path) = value_paths
+        .iter()
+        .find(|(anchor_var, _, _)| anchor_var == &left_anchor_var)
+        .map(|(_, value_var, path)| (value_var.clone(), path.clone()))?;
+    let (right_value_var, right_value_path) = value_paths
+        .iter()
+        .find(|(anchor_var, _, _)| anchor_var == &right_anchor_var)
+        .map(|(_, value_var, path)| (value_var.clone(), path.clone()))?;
+
+    Some(LocalSetCompatibilityPlan {
+        left_anchor_path,
+        right_anchor_path,
+        left_anchor_var: left_anchor_var.clone(),
+        right_anchor_var: right_anchor_var.clone(),
+        left_class: class_filters.remove(&left_anchor_var),
+        right_class: class_filters.remove(&right_anchor_var),
+        left_value_path,
+        right_value_path,
+        left_value_var,
+        right_value_var,
+        distinct_anchors: distinct_pair.is_some(),
+        composed_of_predicate,
+        constituent_path,
+        mode: compatibility_mode,
+    })
+}
+
+fn split_conjunctive_filters<'a>(expr: &'a Expression, output: &mut Vec<&'a Expression>) {
+    match expr {
+        Expression::And(left, right) => {
+            split_conjunctive_filters(left, output);
+            split_conjunctive_filters(right, output);
+        }
+        other => output.push(other),
+    }
+}
+
+fn flatten_conjunctive_atoms<'a>(
+    pattern: &'a GraphPattern,
+) -> Option<(Vec<LoweredAtom<'a>>, Vec<&'a Expression>)> {
+    let mut atoms = Vec::new();
+    let mut filters = Vec::new();
+    flatten_conjunctive_atoms_inner(
+        unwrap_projection_like_pattern(pattern),
+        &mut atoms,
+        &mut filters,
+    )?;
+    Some((atoms, filters))
+}
+
+fn flatten_conjunctive_atoms_inner<'a>(
+    pattern: &'a GraphPattern,
+    atoms: &mut Vec<LoweredAtom<'a>>,
+    filters: &mut Vec<&'a Expression>,
+) -> Option<()> {
+    match unwrap_projection_like_pattern(pattern) {
+        GraphPattern::Bgp { patterns } => {
+            atoms.extend(patterns.iter().map(LoweredAtom::Triple));
+            Some(())
+        }
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } => {
+            atoms.push(LoweredAtom::Path {
+                subject,
+                path,
+                object,
+            });
+            Some(())
+        }
+        GraphPattern::Join { left, right } => {
+            flatten_conjunctive_atoms_inner(left, atoms, filters)?;
+            flatten_conjunctive_atoms_inner(right, atoms, filters)
+        }
+        GraphPattern::Filter { expr, inner } => {
+            filters.push(expr);
+            flatten_conjunctive_atoms_inner(inner, atoms, filters)
+        }
+        _ => None,
+    }
+}
+
+fn extract_type_subclass_constraint(
+    subject: &TermPattern,
+    path: &PropertyPathExpression,
+    object: &TermPattern,
+) -> Option<Term> {
+    if !matches!(
+        path,
+        PropertyPathExpression::Sequence(left, right)
+            if matches!(left.as_ref(), PropertyPathExpression::NamedNode(predicate)
+                if predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+                && matches!(right.as_ref(), PropertyPathExpression::ZeroOrMore(inner)
+                    if matches!(inner.as_ref(), PropertyPathExpression::NamedNode(predicate)
+                        if predicate.as_str() == "http://www.w3.org/2000/01/rdf-schema#subClassOf"))
+    ) {
+        return None;
+    }
+    let _ = term_pattern_var_name(subject)?;
+    match object {
+        TermPattern::NamedNode(node) => Some(Term::NamedNode(node.clone())),
+        TermPattern::BlankNode(node) => Some(Term::BlankNode(node.clone())),
+        _ => None,
+    }
+}
+
+fn is_composed_constituent_path(path: &PropertyPathExpression) -> bool {
+    matches!(
+        path,
+        PropertyPathExpression::Sequence(left, right)
+            if matches!(left.as_ref(), PropertyPathExpression::NamedNode(predicate)
+                if predicate.as_str().ends_with("composedOf"))
+                && matches!(right.as_ref(), PropertyPathExpression::NamedNode(predicate)
+                    if predicate.as_str().ends_with("ofConstituent"))
+    )
+}
+
+fn extract_constituent_path(atoms: &[LoweredAtom<'_>]) -> Option<LoweredPropertyPath> {
+    atoms.iter().find_map(|atom| match atom {
+        LoweredAtom::Path { path, .. } if is_composed_constituent_path(path) => {
+            lower_property_path(path)
+        }
+        LoweredAtom::Triple(pattern) => {
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &pattern.predicate else {
+                return None;
+            };
+            let blank = term_pattern_blank_node(&pattern.object)?;
+            let (follow_path, _) = blanknode_followup(blank, atoms)?;
+            let combined = combine_lowered_paths(
+                LoweredPropertyPath::NamedNode(predicate.clone()),
+                follow_path,
+            );
+            if is_lowered_constituent_path(&combined) {
+                Some(combined)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+}
+
+fn extract_composed_of_predicate(filters: &[&Expression]) -> Option<NamedNode> {
+    filters
+        .iter()
+        .find_map(|filter| extract_composed_of_predicate_from_expr(filter))
+}
+
+fn extract_distinct_anchor_pair(filters: &[&Expression]) -> Option<(String, String)> {
+    filters.iter().find_map(|expr| match expr {
+        Expression::Not(inner) => extract_distinct_anchor_pair(&[inner.as_ref()]),
+        Expression::And(left, right) | Expression::Or(left, right) => {
+            extract_distinct_anchor_pair(&[left.as_ref(), right.as_ref()])
+        }
+        Expression::SameTerm(left, right) | Expression::Equal(left, right) => {
+            let Expression::Variable(left_var) = left.as_ref() else {
+                return None;
+            };
+            let Expression::Variable(right_var) = right.as_ref() else {
+                return None;
+            };
+            Some((
+                left_var.as_str().to_string(),
+                right_var.as_str().to_string(),
+            ))
+        }
+        _ => None,
+    })
+}
+
+fn extract_composed_of_predicate_from_expr(expr: &Expression) -> Option<NamedNode> {
+    match expr {
+        Expression::And(left, right) | Expression::Or(left, right) => {
+            extract_composed_of_predicate_from_expr(left)
+                .or_else(|| extract_composed_of_predicate_from_expr(right))
+        }
+        Expression::Not(inner) => extract_composed_of_predicate_from_expr(inner),
+        Expression::Exists(pattern) => match unwrap_projection_like_pattern(pattern) {
+            GraphPattern::Bgp { patterns } => patterns.first().and_then(|first| {
+                let spargebra::term::NamedNodePattern::NamedNode(predicate) = &first.predicate
+                else {
+                    return None;
+                };
+                predicate
+                    .as_str()
+                    .ends_with("composedOf")
+                    .then(|| predicate.clone())
+            }),
+            GraphPattern::Join { left, .. } => {
+                let GraphPattern::Bgp { patterns } = unwrap_projection_like_pattern(left) else {
+                    return None;
+                };
+                patterns.first().and_then(|first| {
+                    let spargebra::term::NamedNodePattern::NamedNode(predicate) = &first.predicate
+                    else {
+                        return None;
+                    };
+                    predicate
+                        .as_str()
+                        .ends_with("composedOf")
+                        .then(|| predicate.clone())
+                })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn extract_compatibility_mode(
+    composite_anchor_var: Option<&str>,
+    left_anchor_var: &str,
+    right_anchor_var: &str,
+) -> Option<LocalSetCompatibilityMode> {
+    match composite_anchor_var {
+        None => Some(LocalSetCompatibilityMode::PurePure),
+        Some(var) if left_anchor_var == right_anchor_var => {
+            Some(LocalSetCompatibilityMode::CompositeVsComposite)
+        }
+        Some(var) => {
+            let side = if var == left_anchor_var {
+                CompatibilitySide::Left
+            } else if var == right_anchor_var {
+                CompatibilitySide::Right
+            } else {
+                return None;
+            };
+            Some(LocalSetCompatibilityMode::CompositeVsPure {
+                composite_side: side,
+            })
+        }
+    }
+}
+
+fn infer_anchor_pair(
+    value_paths: &[(String, String, LoweredPropertyPath)],
+    composite_anchor_var: Option<&str>,
+) -> Option<(String, String)> {
+    match composite_anchor_var {
+        None => {
+            let anchors = unique_root_anchor_vars(value_paths);
+            let left = anchors.first()?.clone();
+            let right = anchors.get(1).cloned().unwrap_or_else(|| left.clone());
+            Some((left, right))
+        }
+        Some(composite_anchor) => {
+            let anchors = unique_root_anchor_vars(value_paths);
+            let other = anchors
+                .iter()
+                .find(|anchor| anchor.as_str() != composite_anchor)
+                .cloned()
+                .unwrap_or_else(|| composite_anchor.to_string());
+            Some((composite_anchor.to_string(), other))
+        }
+    }
+}
+
+fn root_anchor_for_var(
+    var: &str,
+    value_paths: &[(String, String, LoweredPropertyPath)],
+) -> Option<String> {
+    if var == "this" {
+        return Some("this".to_string());
+    }
+
+    let mut current = var;
+    let mut seen = HashSet::new();
+    loop {
+        if !seen.insert(current.to_string()) {
+            return None;
+        }
+        let Some((anchor_var, _, _)) = value_paths
+            .iter()
+            .find(|(_, value_var, _)| value_var == current)
+        else {
+            return Some(current.to_string());
+        };
+        if anchor_var == "this" {
+            return Some("this".to_string());
+        }
+        current = anchor_var;
+    }
+}
+
+fn is_lowered_constituent_path(path: &LoweredPropertyPath) -> bool {
+    matches!(
+        path,
+        LoweredPropertyPath::Sequence(items)
+            if items.len() == 2
+                && matches!(&items[0], LoweredPropertyPath::NamedNode(predicate)
+                    if predicate.as_str().ends_with("composedOf"))
+                && matches!(&items[1], LoweredPropertyPath::NamedNode(predicate)
+                    if predicate.as_str().ends_with("ofConstituent"))
+    )
+}
+
+fn unique_root_anchor_vars(value_paths: &[(String, String, LoweredPropertyPath)]) -> Vec<String> {
+    let mut anchors = Vec::new();
+    for (anchor_var, _, _) in value_paths {
+        let Some(root) = root_anchor_for_var(anchor_var, value_paths) else {
+            continue;
+        };
+        if !anchors.contains(&root) {
+            anchors.push(root);
+        }
+    }
+    anchors
 }
 
 fn lowered_adjacent_whitelist(
@@ -993,6 +1698,13 @@ fn term_pattern_matches_var(term: &TermPattern, var_name: &str) -> bool {
     matches!(term, TermPattern::Variable(variable) if variable.as_str() == var_name)
 }
 
+fn term_pattern_var_name(term: &TermPattern) -> Option<&str> {
+    match term {
+        TermPattern::Variable(variable) => Some(variable.as_str()),
+        _ => None,
+    }
+}
+
 fn unwrap_projection_like_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
     loop {
         pattern = match pattern {
@@ -1020,6 +1732,12 @@ fn lower_property_path(path: &PropertyPathExpression) -> Option<LoweredPropertyP
             _ => None,
         },
         PropertyPathExpression::ZeroOrOne(inner) => Some(LoweredPropertyPath::ZeroOrOne(Box::new(
+            lower_property_path(inner.as_ref())?,
+        ))),
+        PropertyPathExpression::ZeroOrMore(inner) => Some(LoweredPropertyPath::ZeroOrMore(
+            Box::new(lower_property_path(inner.as_ref())?),
+        )),
+        PropertyPathExpression::OneOrMore(inner) => Some(LoweredPropertyPath::OneOrMore(Box::new(
             lower_property_path(inner.as_ref())?,
         ))),
         PropertyPathExpression::Sequence(left, right) => {
@@ -2080,6 +2798,8 @@ mod tests {
         );
 
         let lowered = lowered_sparql_query_kind(&query);
+        dbg!(&query);
+        dbg!(&lowered);
         assert_eq!(
             lowered,
             Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(
@@ -2098,6 +2818,95 @@ mod tests {
                     ],
                 }
             ))
+        );
+    }
+
+    #[test]
+    fn lowers_required_path_support_query() {
+        let query = parse_query(
+            "SELECT ?this ?other WHERE {
+                ?this <http://example.com/connected> ?other .
+                FILTER NOT EXISTS {
+                    ?this <http://example.com/link>+ ?other .
+                }
+            }",
+        );
+
+        let lowered = lowered_sparql_query_kind(&query);
+        assert_eq!(
+            lowered,
+            Some(LoweredSparqlQueryKind::RequiredPathSupport(
+                RequiredPathSupportPlan {
+                    antecedent_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "http://example.com/connected",
+                    )),
+                    support_path: LoweredPropertyPath::OneOrMore(Box::new(
+                        LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                            "http://example.com/link",
+                        )),
+                    )),
+                    target_variable: "other".to_string(),
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn lowers_local_set_compatibility_query() {
+        let query = parse_query(
+            "PREFIX ex: <urn:>
+             PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+             PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+             SELECT $this ?m2 ?cp ?m1 WHERE {
+                $this ex:cnx ?cp .
+                ?cp a/rdfs:subClassOf* ex:ConnectionPoint .
+                ?cp ex:hasMedium ?m1 .
+                $this ex:hasMedium ?m2 .
+                ?m2 ex:composedOf/ex:ofConstituent ?s2 .
+                FILTER NOT EXISTS { ?m1 ex:composedOf ?c1 . }
+                FILTER NOT EXISTS {
+                    ?m2 ex:composedOf/ex:ofConstituent ?s12 .
+                    { ?s12 rdfs:subClassOf* ?m1 } UNION { ?m1 rdfs:subClassOf* ?s12 } .
+                }
+            }",
+        );
+
+        let lowered = lowered_sparql_query_kind(&query);
+        assert_eq!(
+            lowered,
+            Some(LoweredSparqlQueryKind::LocalSetCompatibility(Box::new(
+                LocalSetCompatibilityPlan {
+                    left_anchor_path: LoweredPropertyPath::SelfNode,
+                    right_anchor_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "urn:cnx",
+                    )),
+                    left_anchor_var: "this".to_string(),
+                    right_anchor_var: "cp".to_string(),
+                    left_class: None,
+                    right_class: Some(Term::NamedNode(NamedNode::new_unchecked(
+                        "urn:ConnectionPoint",
+                    ))),
+                    left_value_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "urn:hasMedium",
+                    )),
+                    right_value_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "urn:hasMedium",
+                    )),
+                    left_value_var: "m2".to_string(),
+                    right_value_var: "m1".to_string(),
+                    distinct_anchors: false,
+                    composed_of_predicate: NamedNode::new_unchecked("urn:composedOf"),
+                    constituent_path: Some(LoweredPropertyPath::Sequence(vec![
+                        LoweredPropertyPath::NamedNode(NamedNode::new_unchecked("urn:composedOf")),
+                        LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                            "urn:ofConstituent",
+                        )),
+                    ])),
+                    mode: LocalSetCompatibilityMode::CompositeVsPure {
+                        composite_side: CompatibilitySide::Left,
+                    },
+                }
+            )))
         );
     }
 }

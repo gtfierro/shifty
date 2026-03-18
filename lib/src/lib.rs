@@ -2717,6 +2717,7 @@ ex:s ex:p ex:u .
 
         let imported_path = temp_dir.join("imported.ttl");
         let imported_ttl = r#"@prefix ex: <http://example.com/ns#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 ex:UnitClass a rdfs:Class .
@@ -3748,6 +3749,165 @@ ex:SafeAnchor ex:allowed ex:Neighbor .
         assert!(
             validator.sparql_query_call_stats().is_empty(),
             "lowered adjacency whitelist should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_required_path_support_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>>
+    {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_required_path_support")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:message "Thing {$this} is connected to {?other} without link support" ;
+        sh:select """
+            SELECT $this ?other
+            WHERE {
+                $this <http://example.com/ns#connected> ?other .
+                FILTER NOT EXISTS {
+                    $this <http://example.com/ns#link>+ ?other .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:BadThing a ex:Thing ;
+    ex:connected ex:Other .
+
+ex:GoodThing a ex:Thing ;
+    ex:connected ex:Reachable ;
+    ex:link ex:Mid .
+
+ex:Mid ex:link ex:Reachable .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered required-path support should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_local_set_compatibility_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>>
+    {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_local_set_compatibility")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:message "Thing {$this} has incompatible mediums {?m2} and {?m1} via {?cp}" ;
+        sh:select """
+            PREFIX ex: <http://example.com/ns#>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            SELECT $this ?m2 ?cp ?m1
+            WHERE {
+                $this ex:cnx ?cp .
+                ?cp a/rdfs:subClassOf* ex:ConnectionPoint .
+                ?cp ex:hasMedium ?m1 .
+                $this ex:hasMedium ?m2 .
+                ?m2 ex:composedOf/ex:ofConstituent ?s2 .
+                FILTER NOT EXISTS { ?m1 ex:composedOf ?c1 . }
+                FILTER NOT EXISTS {
+                    ?m2 ex:composedOf/ex:ofConstituent ?s12 .
+                    { ?s12 rdfs:subClassOf* ?m1 } UNION { ?m1 rdfs:subClassOf* ?s12 } .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:ConnPointClass rdfs:subClassOf ex:ConnectionPoint .
+ex:Air rdfs:subClassOf ex:Medium .
+ex:Steam rdfs:subClassOf ex:Medium .
+
+ex:BadThing a ex:Thing ;
+    ex:hasMedium ex:BadMix ;
+    ex:cnx ex:BadCp .
+
+ex:BadCp a ex:ConnPointClass ;
+    ex:hasMedium ex:Air .
+
+ex:BadMix ex:composedOf ex:BadConstituent .
+ex:BadConstituent ex:ofConstituent ex:Steam .
+
+ex:GoodThing a ex:Thing ;
+    ex:hasMedium ex:GoodMix ;
+    ex:cnx ex:GoodCp .
+
+ex:GoodCp a ex:ConnPointClass ;
+    ex:hasMedium ex:Air .
+
+ex:GoodMix ex:composedOf ex:GoodConstituent .
+ex:GoodConstituent ex:ofConstituent ex:Air .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered local-set compatibility should not execute generic SPARQL"
         );
 
         fs::remove_dir_all(&temp_dir)?;
