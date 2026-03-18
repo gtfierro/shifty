@@ -164,6 +164,8 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             NamedNode(&'static str),
             ReverseNamedNode(&'static str),
             ZeroOrOne(Box<LoweredPropertyPathRuntime>),
+            ZeroOrMore(Box<LoweredPropertyPathRuntime>),
+            OneOrMore(Box<LoweredPropertyPathRuntime>),
             Sequence(Vec<LoweredPropertyPathRuntime>),
             Alternative(Vec<LoweredPropertyPathRuntime>),
         }
@@ -253,6 +255,44 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                         inner.as_ref(),
                     )?);
                     Ok(sort_and_dedup_terms(values))
+                }
+                LoweredPropertyPathRuntime::ZeroOrMore(inner) => {
+                    let mut results = vec![focus.clone()];
+                    results.extend(resolve_lowered_property_path_runtime(
+                        store,
+                        data_graph,
+                        focus,
+                        &LoweredPropertyPathRuntime::OneOrMore(inner.clone()),
+                    )?);
+                    Ok(sort_and_dedup_terms(results))
+                }
+                LoweredPropertyPathRuntime::OneOrMore(inner) => {
+                    let mut results = Vec::new();
+                    let mut frontier = resolve_lowered_property_path_runtime(
+                        store,
+                        data_graph,
+                        focus,
+                        inner.as_ref(),
+                    )?;
+                    let mut visited: std::collections::HashSet<oxigraph::model::Term> =
+                        std::collections::HashSet::new();
+                    while !frontier.is_empty() {
+                        let mut next = Vec::new();
+                        for node in frontier {
+                            if !visited.insert(node.clone()) {
+                                continue;
+                            }
+                            results.push(node.clone());
+                            next.extend(resolve_lowered_property_path_runtime(
+                                store,
+                                data_graph,
+                                &node,
+                                inner.as_ref(),
+                            )?);
+                        }
+                        frontier = sort_and_dedup_terms(next);
+                    }
+                    Ok(sort_and_dedup_terms(results))
                 }
                 LoweredPropertyPathRuntime::Sequence(items) => {
                     let mut current = vec![focus.clone()];
@@ -348,6 +388,52 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                     if !allowed.contains(predicate.as_str()) {
                         return Ok(true);
                     }
+                }
+            }
+            Ok(false)
+        }
+
+        fn lowered_required_path_support_violation(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            source_predicate_iri: &str,
+            required_path: &LoweredPropertyPathRuntime,
+        ) -> Result<bool, String> {
+            let source_predicate = oxigraph::model::NamedNode::new(source_predicate_iri.to_string())
+                .map_err(|err| format!("invalid lowered source predicate IRI: {err}"))?;
+            let subject = match focus {
+                oxigraph::model::Term::NamedNode(node) => node.as_ref().into(),
+                oxigraph::model::Term::BlankNode(node) => node.as_ref().into(),
+                _ => return Ok(false),
+            };
+
+            let mut required_targets: Vec<oxigraph::model::Term> = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                for quad in store.quads_for_pattern(
+                    Some(subject),
+                    Some(source_predicate.as_ref()),
+                    None,
+                    Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                ) {
+                    let quad = quad.map_err(|err| {
+                        format!("failed to scan lowered required-path source predicate: {err}")
+                    })?;
+                    required_targets.push(quad.object);
+                }
+            }
+            let required_targets = sort_and_dedup_terms(required_targets);
+            if required_targets.is_empty() {
+                return Ok(false);
+            }
+
+            let support_targets =
+                resolve_lowered_property_path_runtime(store, data_graph, focus, required_path)?;
+            let support_targets: std::collections::HashSet<oxigraph::model::Term> =
+                support_targets.into_iter().collect();
+            for required_target in required_targets {
+                if !support_targets.contains(&required_target) {
+                    return Ok(true);
                 }
             }
             Ok(false)

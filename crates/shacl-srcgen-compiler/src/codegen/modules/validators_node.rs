@@ -80,6 +80,14 @@ fn lowered_property_path_expr(path: &SrcGenLoweredPropertyPath) -> TokenStream {
             let inner_expr = lowered_property_path_expr(inner.as_ref());
             quote! { LoweredPropertyPathRuntime::ZeroOrOne(Box::new(#inner_expr)) }
         }
+        SrcGenLoweredPropertyPath::ZeroOrMore { inner } => {
+            let inner_expr = lowered_property_path_expr(inner.as_ref());
+            quote! { LoweredPropertyPathRuntime::ZeroOrMore(Box::new(#inner_expr)) }
+        }
+        SrcGenLoweredPropertyPath::OneOrMore { inner } => {
+            let inner_expr = lowered_property_path_expr(inner.as_ref());
+            quote! { LoweredPropertyPathRuntime::OneOrMore(Box::new(#inner_expr)) }
+        }
         SrcGenLoweredPropertyPath::Sequence { items } => {
             let item_exprs: Vec<TokenStream> =
                 items.iter().map(lowered_property_path_expr).collect();
@@ -577,6 +585,32 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     focus,
                                     &#anchor_path_expr,
                                     &[#(#allowed_predicate_lits),*],
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(focus.clone()),
+                                        path: None,
+                                    });
+                                }
+                            }
+                        }
+                        Some(SrcGenLoweredSparqlQueryKind::RequiredPathSupport {
+                            source_predicate_iri,
+                            required_path,
+                        }) => {
+                            let source_predicate_lit =
+                                LitStr::new(source_predicate_iri, Span::call_site());
+                            let required_path_expr = lowered_property_path_expr(required_path);
+                            quote! {
+                                if lowered_required_path_support_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    #source_predicate_lit,
+                                    &#required_path_expr,
                                 )? {
                                     record_fast_path_hit();
                                     violations.push(Violation {

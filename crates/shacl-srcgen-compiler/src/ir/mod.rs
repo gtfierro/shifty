@@ -110,6 +110,10 @@ pub enum SrcGenLoweredSparqlQueryKind {
         anchor_path: SrcGenLoweredPropertyPath,
         allowed_predicate_iris: Vec<String>,
     },
+    RequiredPathSupport {
+        source_predicate_iri: String,
+        required_path: SrcGenLoweredPropertyPath,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,11 +127,17 @@ pub enum SrcGenLoweredPropertyPath {
     ZeroOrOne {
         inner: Box<SrcGenLoweredPropertyPath>,
     },
+    ZeroOrMore {
+        inner: Box<SrcGenLoweredPropertyPath>,
+    },
     Sequence {
         items: Vec<SrcGenLoweredPropertyPath>,
     },
     Alternative {
         items: Vec<SrcGenLoweredPropertyPath>,
+    },
+    OneOrMore {
+        inner: Box<SrcGenLoweredPropertyPath>,
     },
 }
 
