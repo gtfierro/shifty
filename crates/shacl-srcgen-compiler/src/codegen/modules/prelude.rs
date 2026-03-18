@@ -235,7 +235,7 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
                             let quad = quad.map_err(|err| {
                                 format!("failed to scan lowered incoming path: {err}")
                             })?;
-                            let subject = match quad.subject {
+                            let subject = match quad.subject.as_ref() {
                                 oxigraph::model::NamedOrBlankNodeRef::NamedNode(node) => {
                                     oxigraph::model::Term::NamedNode(node.into_owned())
                                 }
