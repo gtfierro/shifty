@@ -97,6 +97,7 @@ pub struct ThisPredicateRequirement {
 pub enum LoweredSparqlQueryKind {
     AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan),
     RequiredPathSupport(RequiredPathSupportPlan),
+    MissingRelatedNode(MissingRelatedNodePlan),
     LocalSetCompatibility(Box<LocalSetCompatibilityPlan>),
 }
 
@@ -111,6 +112,14 @@ pub struct RequiredPathSupportPlan {
     pub antecedent_path: LoweredPropertyPath,
     pub support_path: LoweredPropertyPath,
     pub target_variable: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingRelatedNodePlan {
+    pub related_path: LoweredPropertyPath,
+    pub related_variable: String,
+    pub related_class: Option<Term>,
+    pub required_path: LoweredPropertyPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -887,6 +896,9 @@ fn lowered_sparql_query_kind_in_graph_pattern(
             plan,
         )));
     }
+    if let Some(plan) = lowered_missing_related_node(pattern) {
+        return Some(LoweredSparqlQueryKind::MissingRelatedNode(plan));
+    }
     let GraphPattern::Filter { expr, inner } = pattern else {
         return None;
     };
@@ -1004,6 +1016,59 @@ fn lowered_required_path_support(
     })
 }
 
+fn lowered_missing_related_node(pattern: &GraphPattern) -> Option<MissingRelatedNodePlan> {
+    let (atoms, filters) = flatten_conjunctive_atoms(pattern)?;
+    let mut split_filters = Vec::new();
+    for filter in filters {
+        split_conjunctive_filters(filter, &mut split_filters);
+    }
+
+    let (required_path, _missing_var) = split_filters
+        .iter()
+        .find_map(|expr| extract_missing_focus_path(expr))?;
+
+    let mut class_filters: HashMap<String, Term> = HashMap::new();
+    let mut candidate_paths: Vec<(String, LoweredPropertyPath)> = Vec::new();
+
+    for atom in &atoms {
+        match atom {
+            LoweredAtom::Triple(pattern) => {
+                if let Some(candidate) = lowered_related_candidate_from_triple(pattern, &atoms) {
+                    candidate_paths.push(candidate);
+                    continue;
+                }
+            }
+            LoweredAtom::Path {
+                subject,
+                path,
+                object,
+            } => {
+                if let Some(candidate) = lowered_related_candidate_from_path(subject, path, object) {
+                    candidate_paths.push(candidate);
+                    continue;
+                }
+                if let Some(subject_var) = term_pattern_var_name(subject) {
+                    if let Some(class_term) = extract_type_subclass_constraint(subject, path, object)
+                    {
+                        class_filters.insert(subject_var.to_string(), class_term);
+                    }
+                }
+            }
+        }
+    }
+
+    let (related_variable, related_path) = candidate_paths
+        .into_iter()
+        .find(|(var, _)| var != "this" && !var_is_only_filter_local(var, &split_filters))?;
+
+    Some(MissingRelatedNodePlan {
+        related_path,
+        related_variable: related_variable.clone(),
+        related_class: class_filters.remove(&related_variable),
+        required_path,
+    })
+}
+
 #[derive(Debug)]
 enum LoweredAtom<'a> {
     Triple(&'a spargebra::term::TriplePattern),
@@ -1071,6 +1136,69 @@ fn blanknode_followup<'a>(
         }
         _ => None,
     })
+}
+
+fn lowered_related_candidate_from_triple(
+    pattern: &spargebra::term::TriplePattern,
+    _atoms: &[LoweredAtom<'_>],
+) -> Option<(String, LoweredPropertyPath)> {
+    let spargebra::term::NamedNodePattern::NamedNode(predicate) = &pattern.predicate else {
+        return None;
+    };
+    if term_pattern_is_this(&pattern.subject) {
+        let object_var = term_pattern_var_name(&pattern.object)?;
+        return Some((
+            object_var.to_string(),
+            LoweredPropertyPath::NamedNode(predicate.clone()),
+        ));
+    }
+    if term_pattern_is_this(&pattern.object) {
+        let subject_var = term_pattern_var_name(&pattern.subject)?;
+        return Some((
+            subject_var.to_string(),
+            LoweredPropertyPath::ReverseNamedNode(predicate.clone()),
+        ));
+    }
+    None
+}
+
+fn lowered_related_candidate_from_path(
+    subject: &TermPattern,
+    path: &PropertyPathExpression,
+    object: &TermPattern,
+) -> Option<(String, LoweredPropertyPath)> {
+    if term_pattern_is_this(subject) {
+        let object_var = term_pattern_var_name(object)?;
+        return Some((object_var.to_string(), lower_property_path(path)?));
+    }
+    if term_pattern_is_this(object) {
+        let subject_var = term_pattern_var_name(subject)?;
+        return Some((
+            subject_var.to_string(),
+            reverse_lowered_property_path(&lower_property_path(path)?)?,
+        ));
+    }
+    None
+}
+
+fn reverse_lowered_property_path(path: &LoweredPropertyPath) -> Option<LoweredPropertyPath> {
+    match path {
+        LoweredPropertyPath::SelfNode => Some(LoweredPropertyPath::SelfNode),
+        LoweredPropertyPath::NamedNode(predicate) => {
+            Some(LoweredPropertyPath::ReverseNamedNode(predicate.clone()))
+        }
+        LoweredPropertyPath::ReverseNamedNode(predicate) => {
+            Some(LoweredPropertyPath::NamedNode(predicate.clone()))
+        }
+        LoweredPropertyPath::Sequence(items) => {
+            let mut reversed = Vec::with_capacity(items.len());
+            for item in items.iter().rev() {
+                reversed.push(reverse_lowered_property_path(item)?);
+            }
+            Some(LoweredPropertyPath::Sequence(reversed))
+        }
+        _ => None,
+    }
 }
 
 fn extract_type_subclass_constraint_from_lowered(
@@ -1308,6 +1436,129 @@ fn split_conjunctive_filters<'a>(expr: &'a Expression, output: &mut Vec<&'a Expr
         }
         other => output.push(other),
     }
+}
+
+fn extract_missing_focus_path(expr: &Expression) -> Option<(LoweredPropertyPath, String)> {
+    let Expression::Not(inner) = expr else {
+        return None;
+    };
+    let Expression::Exists(pattern) = inner.as_ref() else {
+        return None;
+    };
+    match unwrap_projection_like_pattern(pattern) {
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } if term_pattern_is_this(subject) => Some((
+            lower_property_path(path)?,
+            term_pattern_var_name(object)?.to_string(),
+        )),
+        GraphPattern::Bgp { patterns } if patterns.len() == 1 => {
+            let triple = &patterns[0];
+            if !term_pattern_is_this(&triple.subject) {
+                return None;
+            }
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &triple.predicate else {
+                return None;
+            };
+            Some((
+                LoweredPropertyPath::NamedNode(predicate.clone()),
+                term_pattern_var_name(&triple.object)?.to_string(),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn expression_mentions_var(expr: &Expression, var_name: &str) -> bool {
+    match expr {
+        Expression::Variable(variable) => variable.as_str() == var_name,
+        Expression::UnaryPlus(inner) | Expression::UnaryMinus(inner) | Expression::Not(inner) => {
+            expression_mentions_var(inner, var_name)
+        }
+        Expression::Or(left, right)
+        | Expression::And(left, right)
+        | Expression::Equal(left, right)
+        | Expression::SameTerm(left, right)
+        | Expression::Greater(left, right)
+        | Expression::GreaterOrEqual(left, right)
+        | Expression::Less(left, right)
+        | Expression::LessOrEqual(left, right)
+        | Expression::Add(left, right)
+        | Expression::Subtract(left, right)
+        | Expression::Multiply(left, right)
+        | Expression::Divide(left, right) => {
+            expression_mentions_var(left, var_name) || expression_mentions_var(right, var_name)
+        }
+        Expression::In(item, items) => {
+            expression_mentions_var(item, var_name)
+                || items.iter().any(|item| expression_mentions_var(item, var_name))
+        }
+        Expression::If(left, middle, right) => {
+            expression_mentions_var(left, var_name)
+                || expression_mentions_var(middle, var_name)
+                || expression_mentions_var(right, var_name)
+        }
+        Expression::Coalesce(items) | Expression::FunctionCall(_, items) => {
+            items.iter().any(|item| expression_mentions_var(item, var_name))
+        }
+        Expression::Exists(pattern) => graph_pattern_mentions_var(pattern, var_name),
+        _ => false,
+    }
+}
+
+fn graph_pattern_mentions_var(pattern: &GraphPattern, var_name: &str) -> bool {
+    match unwrap_projection_like_pattern(pattern) {
+        GraphPattern::Bgp { patterns } => patterns.iter().any(|pattern| {
+            term_pattern_matches_var(&pattern.subject, var_name)
+                || matches!(
+                    &pattern.predicate,
+                    spargebra::term::NamedNodePattern::Variable(variable)
+                        if variable.as_str() == var_name
+                )
+                || term_pattern_matches_var(&pattern.object, var_name)
+        }),
+        GraphPattern::Path {
+            subject,
+            object,
+            ..
+        } => term_pattern_matches_var(subject, var_name) || term_pattern_matches_var(object, var_name),
+        GraphPattern::Join { left, right }
+        | GraphPattern::Union { left, right }
+        | GraphPattern::Lateral { left, right } => {
+            graph_pattern_mentions_var(left, var_name) || graph_pattern_mentions_var(right, var_name)
+        }
+        GraphPattern::Filter { expr, inner } => {
+            expression_mentions_var(expr, var_name) || graph_pattern_mentions_var(inner, var_name)
+        }
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
+            graph_pattern_mentions_var(left, var_name)
+                || graph_pattern_mentions_var(right, var_name)
+                || expression
+                    .as_ref()
+                    .is_some_and(|expr| expression_mentions_var(expr, var_name))
+        }
+        GraphPattern::Graph { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. }
+        | GraphPattern::Extend { inner, .. }
+        | GraphPattern::OrderBy { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Group { inner, .. }
+        | GraphPattern::Service { inner, .. }
+        | GraphPattern::Minus { left: inner, .. } => graph_pattern_mentions_var(inner, var_name),
+        GraphPattern::Values { variables, .. } => variables.iter().any(|var| var.as_str() == var_name),
+    }
+}
+
+fn var_is_only_filter_local(var_name: &str, filters: &[&Expression]) -> bool {
+    filters.iter().all(|expr| expression_mentions_var(expr, var_name))
 }
 
 fn flatten_conjunctive_atoms<'a>(
@@ -2844,6 +3095,35 @@ mod tests {
                         )),
                     )),
                     target_variable: "other".to_string(),
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn lowers_missing_related_node_query() {
+        let query = parse_query(
+            "SELECT ?this ?something WHERE {
+                ?something <http://example.com/composedOf> ?this .
+                FILTER NOT EXISTS {
+                    ?this <http://example.com/ofConstituent> ?someSubstance .
+                }
+            }",
+        );
+
+        let lowered = lowered_sparql_query_kind(&query);
+        assert_eq!(
+            lowered,
+            Some(LoweredSparqlQueryKind::MissingRelatedNode(
+                MissingRelatedNodePlan {
+                    related_path: LoweredPropertyPath::ReverseNamedNode(
+                        NamedNode::new_unchecked("http://example.com/composedOf"),
+                    ),
+                    related_variable: "something".to_string(),
+                    related_class: None,
+                    required_path: LoweredPropertyPath::NamedNode(
+                        NamedNode::new_unchecked("http://example.com/ofConstituent"),
+                    ),
                 }
             ))
         );

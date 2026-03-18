@@ -3823,6 +3823,71 @@ ex:Mid ex:link ex:Reachable .
     }
 
     #[test]
+    fn lowered_missing_related_node_skips_generic_sparql_execution(
+    ) -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_missing_related_node")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:PropertyShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Property ;
+    sh:sparql [
+        sh:message "Property {$this} is referred to by {?something} with composedOf but has no ofConstituent" ;
+        sh:select """
+            SELECT $this ?something
+            WHERE {
+                ?something <http://example.com/ns#composedOf> $this .
+                FILTER NOT EXISTS {
+                    $this <http://example.com/ns#ofConstituent> ?someSubstance .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:BadProperty a ex:Property .
+ex:Mix ex:composedOf ex:BadProperty .
+
+ex:GoodProperty a ex:Property ;
+    ex:ofConstituent ex:Water .
+ex:OtherMix ex:composedOf ex:GoodProperty .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered missing-related-node should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
     fn lowered_local_set_compatibility_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>>
     {
         let _guard = validator_lock().lock().unwrap();

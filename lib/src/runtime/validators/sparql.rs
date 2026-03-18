@@ -13,7 +13,7 @@ use crate::sparql::{
     parse_prefix_lines, required_this_predicates, validate_prebound_variable_usage,
     AdjacentPredicateWhitelistPlan, CompatibilitySide, LocalSetCompatibilityMode,
     LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MessageTemplater,
-    RequiredPathSupportPlan, SparqlExecutor, ThisPredicateDirection,
+    MissingRelatedNodePlan, RequiredPathSupportPlan, SparqlExecutor, ThisPredicateDirection,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
@@ -474,6 +474,77 @@ fn try_run_lowered_required_path_support(
         );
         substitutions_for_messages.push((
             plan.target_variable.clone(),
+            term_to_message_value(&related_node, message_prefixes),
+        ));
+        let (message_opt, message_terms) = context
+            .sparql_services()
+            .instantiate_messages(messages, &substitutions_for_messages);
+        let message =
+            message_opt.unwrap_or_else(|| "Node does not conform to SPARQL constraint".to_string());
+        let failure = ValidationFailure::new(
+            component_id,
+            if c.source_shape().as_node_id().is_some() {
+                Some(c.focus_node().clone())
+            } else {
+                None
+            },
+            message,
+            None,
+            Some(constraint_node.clone()),
+        )
+        .with_severity(severity.clone())
+        .with_message_terms(message_terms);
+        results.push(ComponentValidationResult::Fail(c.clone(), failure));
+    }
+
+    Ok(Some(results))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_run_lowered_missing_related_node(
+    component_id: ComponentID,
+    c: &Context,
+    context: &ValidationContext,
+    current_shape_term: Option<&Term>,
+    constraint_node: &Term,
+    plan: &MissingRelatedNodePlan,
+    path_substitution_value: Option<&String>,
+    message_prefixes: &[(String, String)],
+    messages: &[Term],
+    severity: Option<Severity>,
+) -> Result<Option<Vec<ComponentValidationResult>>, String> {
+    let mut related_nodes =
+        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.related_path)?;
+    if let Some(class_term) = &plan.related_class {
+        related_nodes.retain(|related| {
+            term_satisfies_lowered_class(context, related, class_term).unwrap_or(false)
+        });
+    }
+    if related_nodes.is_empty() {
+        return Ok(Some(vec![]));
+    }
+
+    let required_nodes =
+        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.required_path)?;
+    if !required_nodes.is_empty() {
+        return Ok(Some(vec![]));
+    }
+
+    let mut results = Vec::new();
+    for related_node in related_nodes {
+        let mut substitutions_for_messages = gather_default_substitutions(
+            c,
+            current_shape_term,
+            if c.source_shape().as_node_id().is_some() {
+                Some(c.focus_node())
+            } else {
+                None
+            },
+            path_substitution_value,
+            message_prefixes,
+        );
+        substitutions_for_messages.push((
+            plan.related_variable.clone(),
             term_to_message_value(&related_node, message_prefixes),
         ));
         let (message_opt, message_terms) = context
@@ -1404,6 +1475,23 @@ impl ValidateComponent for SPARQLConstraintComponent {
         if let Some(LoweredSparqlQueryKind::RequiredPathSupport(plan)) = lowered_query_kind.as_ref()
         {
             if let Some(results) = try_run_lowered_required_path_support(
+                component_id,
+                c,
+                context,
+                current_shape_term.as_ref(),
+                &self.constraint_node,
+                plan,
+                path_substitution_value.as_ref(),
+                &message_prefixes,
+                &messages,
+                severity.clone(),
+            )? {
+                return Ok(results);
+            }
+        }
+        if let Some(LoweredSparqlQueryKind::MissingRelatedNode(plan)) = lowered_query_kind.as_ref()
+        {
+            if let Some(results) = try_run_lowered_missing_related_node(
                 component_id,
                 c,
                 context,
