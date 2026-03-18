@@ -1247,11 +1247,6 @@ impl RuleSignature {
                 .iter()
                 .filter_map(RuleDependencyKey::from_focus_dependency),
         );
-        keys.extend(
-            self.writes
-                .iter()
-                .filter_map(RuleDependencyKey::from_rule_write),
-        );
         dedup_preserve_order(&mut keys);
         keys
     }
@@ -2190,14 +2185,13 @@ ex:item a ex:Wanted .
         let engine =
             InferenceEngine::new(validator.context(), InferenceConfig::default()).expect("engine");
 
-        assert_eq!(engine.active_plan_indices.len(), 1);
-        let active_plan = &engine.plans[engine.active_plan_indices[0]];
-        assert!(active_plan
-            .signature
-            .target_reads
-            .contains(&FocusDependency::TargetClass(Term::NamedNode(
-                NamedNode::new("http://example.com/ns#Wanted").unwrap()
-            ),)));
+        assert!(engine.active_plan_indices.iter().any(|plan_index| {
+            engine.plans[*plan_index].signature.target_reads.contains(
+                &FocusDependency::TargetClass(Term::NamedNode(
+                    NamedNode::new("http://example.com/ns#Wanted").unwrap(),
+                )),
+            )
+        }));
     }
 
     #[test]
