@@ -1078,6 +1078,31 @@ impl ValidationContext {
         Ok(Some(result))
     }
 
+    pub(crate) fn subclass_of_or_same_fast(
+        &self,
+        subclass_term: &Term,
+        superclass_term: &Term,
+    ) -> Result<Option<bool>, String> {
+        if !matches!(subclass_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(None);
+        }
+        if !matches!(superclass_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(None);
+        }
+        if subclass_term == superclass_term {
+            return Ok(Some(true));
+        }
+
+        let index = self.ensure_class_constraint_index()?;
+        let Some(super_descendants) = index.class_bitset(superclass_term) else {
+            return Ok(Some(false));
+        };
+        let Some(subclass_id) = index.term_to_id.get(subclass_term).copied() else {
+            return Ok(Some(false));
+        };
+        Ok(Some(super_descendants.contains(subclass_id)))
+    }
+
     /// Return all subjects that are `rdf:type` instances of `class` (or any
     /// subclass of it), using the precomputed bitmap index.
     pub(crate) fn instances_of_class(&self, class: &Term) -> Result<Vec<Term>, String> {

@@ -2798,8 +2798,6 @@ mod tests {
         );
 
         let lowered = lowered_sparql_query_kind(&query);
-        dbg!(&query);
-        dbg!(&lowered);
         assert_eq!(
             lowered,
             Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(
