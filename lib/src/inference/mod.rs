@@ -1463,8 +1463,10 @@ impl DeltaIndex {
     }
 
     fn from_quads(quads: &[Quad], producer_plan_indices: HashSet<usize>) -> Self {
-        let mut index = Self::default();
-        index.producer_plan_indices = producer_plan_indices;
+        let mut index = Self {
+            producer_plan_indices,
+            ..Self::default()
+        };
         for quad in quads {
             let Ok(subject_term) = named_or_blank_to_term(quad.subject.clone()) else {
                 continue;
@@ -2100,7 +2102,7 @@ mod tests {
             severity: crate::types::Severity::Violation,
             deactivated: false,
         };
-        let plans = vec![
+        let plans = [
             RulePlan::for_node_shape(
                 &shape,
                 Rule::Triple(TripleRule {
