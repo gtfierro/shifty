@@ -71,11 +71,13 @@ pub(crate) fn build_validation_plan(shape_ir: &ShapeIR) -> ValidationPlan {
         .collect();
 
     for shape in topo_order {
-        if let Some(&tree_id) = tree_assignments.get(&shape)
-            && let Some(tree) = trees.get_mut(tree_id)
-        {
-            tree.shapes.push(shape);
-        }
+        let Some(&tree_id) = tree_assignments.get(&shape) else {
+            continue;
+        };
+        let Some(tree) = trees.get_mut(tree_id) else {
+            continue;
+        };
+        tree.shapes.push(shape);
     }
 
     ValidationPlan { trees }

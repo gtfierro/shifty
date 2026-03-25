@@ -91,25 +91,28 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
 
     let mut candidate_paths: Vec<std::path::PathBuf> = Vec::new();
 
-    if let Ok(url) = Url::parse(context.shape_graph_iri.as_str())
-        && url.scheme() == "file"
-        && let Ok(path) = url.to_file_path()
-    {
-        candidate_paths.push(path);
+    match Url::parse(context.shape_graph_iri.as_str()) {
+        Ok(url) if url.scheme() == "file" => {
+            if let Ok(path) = url.to_file_path() {
+                candidate_paths.push(path);
+            }
+        }
+        _ => {}
     }
 
     let env = context.env.read().unwrap();
-    if let Some(ontology) = env
+    if let Some(OntologyLocation::File(path)) = env
         .ontologies()
         .values()
         .find(|ontology| ontology.name() == context.shape_graph_iri)
-        && let Some(OntologyLocation::File(path)) = ontology.location()
+        .and_then(|ontology| ontology.location())
     {
         let mut candidate = path.clone();
-        if !candidate.is_absolute()
-            && let Ok(cwd) = std::env::current_dir()
-        {
-            candidate = cwd.join(candidate);
+        match std::env::current_dir() {
+            Ok(cwd) if !candidate.is_absolute() => {
+                candidate = cwd.join(candidate);
+            }
+            _ => {}
         }
         candidate_paths.push(candidate);
     }
@@ -124,9 +127,11 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
             let reader = BufReader::new(file);
             let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
             for quad in parser.for_reader(reader).flatten() {
-                if quad.predicate == shacl.unique_lang
-                    && let Term::Literal(lit) = quad.object.clone()
-                {
+                if quad.predicate != shacl.unique_lang {
+                    continue;
+                }
+
+                if let Term::Literal(lit) = quad.object.clone() {
                     map.insert(quad.subject.clone().into(), lit.value().to_string());
                 }
             }

@@ -19,7 +19,7 @@ use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
 use oxigraph::model::vocab::rdfs;
 use oxigraph::model::vocab::xsd;
-use oxigraph::model::{NamedNode, Term, TermRef};
+use oxigraph::model::{NamedNode, NamedOrBlankNodeRef, Term, TermRef};
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
@@ -52,6 +52,22 @@ fn query_mentions_var(query: &str, var: &str) -> bool {
     }
 
     contains(query, '?', var) || contains(query, '$', var)
+}
+
+fn term_is_true(term: &Term) -> bool {
+    match term {
+        Term::Literal(lit) => {
+            let value = lit.value();
+            if lit.datatype() == xsd::BOOLEAN {
+                value.eq_ignore_ascii_case("true") || value == "1"
+            } else if lit.datatype() == xsd::STRING && lit.language().is_none() {
+                value.eq_ignore_ascii_case("true")
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
 }
 
 fn gather_default_substitutions(
@@ -812,6 +828,28 @@ fn try_run_lowered_local_set_compatibility(
     Ok(Some(results))
 }
 
+fn is_deactivated_constraint(
+    context: &ValidationContext,
+    constraint_subject: NamedOrBlankNodeRef<'_>,
+) -> Result<bool, String> {
+    let shacl = SHACL::new();
+    let deactivated_quad = context
+        .quads_for_pattern(
+            Some(constraint_subject),
+            Some(shacl.deactivated),
+            None,
+            Some(context.shape_graph_iri_ref()),
+        )?
+        .into_iter()
+        .next();
+
+    let Some(deactivated_quad) = deactivated_quad else {
+        return Ok(false);
+    };
+
+    Ok(term_is_true(&deactivated_quad.object))
+}
+
 #[derive(Debug)]
 struct ChunkBatchOutcome {
     elapsed: std::time::Duration,
@@ -1280,19 +1318,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
         }
 
         // 1. Check if deactivated
-        if let Some(deactivated_quad) = context
-            .quads_for_pattern(
-                Some(constraint_subject),
-                Some(shacl.deactivated),
-                None,
-                Some(context.shape_graph_iri_ref()),
-            )?
-            .into_iter()
-            .next()
-            && let Term::Literal(lit) = &deactivated_quad.object
-            && lit.datatype() == xsd::BOOLEAN
-            && lit.value() == "true"
-        {
+        if is_deactivated_constraint(context, constraint_subject)? {
             return Ok(vec![]);
         }
 
@@ -1332,9 +1358,10 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // Handle $PATH substitution for property shapes
         let mut path_substitution_value: Option<String> = None;
-        if c.source_shape().as_prop_id().is_some()
-            && let Some(prop_id) = c.source_shape().as_prop_id()
-            && let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id)
+        if let Some(prop_shape) = c
+            .source_shape()
+            .as_prop_id()
+            .and_then(|prop_id| context.model.get_prop_shape_by_id(prop_id))
         {
             let path_str = prop_shape.sparql_path();
             path_substitution_value = Some(path_str.clone());
@@ -1416,11 +1443,11 @@ impl ValidateComponent for SPARQLConstraintComponent {
             substitutions.push((Variable::new_unchecked("this"), c.focus_node().clone()));
         }
 
-        if let Some(shape_term) = current_shape_term.clone()
-            && query_mentions_var(&full_query_str, "currentShape")
-        {
-            // Only add if the query uses it
-            substitutions.push((Variable::new_unchecked("currentShape"), shape_term));
+        match current_shape_term.clone() {
+            Some(shape_term) if query_mentions_var(&full_query_str, "currentShape") => {
+                substitutions.push((Variable::new_unchecked("currentShape"), shape_term));
+            }
+            _ => {}
         }
         if query_mentions_var(&full_query_str, "shapesGraph") {
             // Only add if the query uses it
@@ -1453,70 +1480,67 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .map(|q| q.object)
             .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
-        if let Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(plan)) =
-            lowered_query_kind.as_ref()
-            && let Some(results) = try_run_lowered_adjacent_predicate_whitelist(
-                component_id,
-                c,
-                context,
-                current_shape_term.as_ref(),
-                &self.constraint_node,
-                plan,
-                path_substitution_value.as_ref(),
-                &message_prefixes,
-                &messages,
-                severity.clone(),
-            )?
-        {
-            return Ok(results);
-        }
-        if let Some(LoweredSparqlQueryKind::RequiredPathSupport(plan)) = lowered_query_kind.as_ref()
-            && let Some(results) = try_run_lowered_required_path_support(
-                component_id,
-                c,
-                context,
-                current_shape_term.as_ref(),
-                &self.constraint_node,
-                plan,
-                path_substitution_value.as_ref(),
-                &message_prefixes,
-                &messages,
-                severity.clone(),
-            )?
-        {
-            return Ok(results);
-        }
-        if let Some(LoweredSparqlQueryKind::MissingRelatedNode(plan)) = lowered_query_kind.as_ref()
-            && let Some(results) = try_run_lowered_missing_related_node(
-                component_id,
-                c,
-                context,
-                current_shape_term.as_ref(),
-                &self.constraint_node,
-                plan,
-                path_substitution_value.as_ref(),
-                &message_prefixes,
-                &messages,
-                severity.clone(),
-            )?
-        {
-            return Ok(results);
-        }
-        if let Some(LoweredSparqlQueryKind::LocalSetCompatibility(plan)) =
-            lowered_query_kind.as_ref()
-            && let Some(results) = try_run_lowered_local_set_compatibility(
-                component_id,
-                c,
-                context,
-                current_shape_term.as_ref(),
-                &self.constraint_node,
-                plan,
-                path_substitution_value.as_ref(),
-                &message_prefixes,
-                &messages,
-                severity.clone(),
-            )?
-        {
+        let lowered_results = match lowered_query_kind.as_ref() {
+            Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(plan)) => {
+                try_run_lowered_adjacent_predicate_whitelist(
+                    component_id,
+                    c,
+                    context,
+                    current_shape_term.as_ref(),
+                    &self.constraint_node,
+                    plan,
+                    path_substitution_value.as_ref(),
+                    &message_prefixes,
+                    &messages,
+                    severity.clone(),
+                )?
+            }
+            Some(LoweredSparqlQueryKind::RequiredPathSupport(plan)) => {
+                try_run_lowered_required_path_support(
+                    component_id,
+                    c,
+                    context,
+                    current_shape_term.as_ref(),
+                    &self.constraint_node,
+                    plan,
+                    path_substitution_value.as_ref(),
+                    &message_prefixes,
+                    &messages,
+                    severity.clone(),
+                )?
+            }
+            Some(LoweredSparqlQueryKind::MissingRelatedNode(plan)) => {
+                try_run_lowered_missing_related_node(
+                    component_id,
+                    c,
+                    context,
+                    current_shape_term.as_ref(),
+                    &self.constraint_node,
+                    plan,
+                    path_substitution_value.as_ref(),
+                    &message_prefixes,
+                    &messages,
+                    severity.clone(),
+                )?
+            }
+            Some(LoweredSparqlQueryKind::LocalSetCompatibility(plan)) => {
+                try_run_lowered_local_set_compatibility(
+                    component_id,
+                    c,
+                    context,
+                    current_shape_term.as_ref(),
+                    &self.constraint_node,
+                    plan,
+                    path_substitution_value.as_ref(),
+                    &message_prefixes,
+                    &messages,
+                    severity.clone(),
+                )?
+            }
+            None => None,
+        };
+
+        if let Some(results) = lowered_results {
             return Ok(results);
         }
 

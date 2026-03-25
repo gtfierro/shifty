@@ -786,11 +786,16 @@ impl<'a> InferenceEngine<'a> {
         predicate: &NamedNode,
         delta: &DeltaIndex,
     ) -> Result<Vec<Term>, String> {
-        if !delta.is_initial
-            && let Some(values) = delta.outgoing_values_for_focus(focus, predicate)
-        {
+        if delta.is_initial {
+            return self
+                .context
+                .focus_objects_for_predicate(focus, &Term::NamedNode(predicate.clone()));
+        }
+
+        if let Some(values) = delta.outgoing_values_for_focus(focus, predicate) {
             return Ok(values);
         }
+
         self.context
             .focus_objects_for_predicate(focus, &Term::NamedNode(predicate.clone()))
     }

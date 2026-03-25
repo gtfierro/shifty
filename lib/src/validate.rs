@@ -4,6 +4,7 @@
 //! validation plan from the ShapeIR, executes node/property shapes in parallel, and collects
 //! failures into a `ValidationReportBuilder`.
 
+use crate::context::model::OriginalValueIndex;
 use crate::context::{Context, ShapeTimingPhase, SourceShape, ValidationContext};
 use crate::model::components::ComponentDescriptor;
 use crate::planning::{ShapeRef, build_validation_plan};
@@ -13,7 +14,7 @@ use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::trace::TraceEvent;
 use crate::types::{Path, PropShapeID, TargetEvalExt, TraceItem};
 use log::{debug, info};
-use oxigraph::model::{Literal, Term};
+use oxigraph::model::{Literal, NamedNode, Term};
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -126,10 +127,8 @@ fn canonicalize_value_nodes(
     for node in &mut nodes {
         let current = node.clone();
 
-        if let Term::Literal(ref lit) = current
-            && let Some(index) = original_index
-            && let Some(original) = index.resolve_literal(focus_node, predicate, lit)
-            && original != current
+        if let Some(original) =
+            resolve_original_literal(original_index, focus_node, predicate, &current)
         {
             exact_matches.remove(&original);
             *node = original;
@@ -164,13 +163,29 @@ fn lookup_by_signature(
     lit: &Literal,
 ) -> Option<Term> {
     let key = literal_signature(lit);
-    if let Some(queue) = buckets.get_mut(&key)
-        && let Some(term) = queue.pop_front()
-    {
-        exact_matches.remove(&term);
-        return Some(term);
+    let queue = buckets.get_mut(&key)?;
+    let term = queue.pop_front()?;
+    exact_matches.remove(&term);
+    Some(term)
+}
+
+fn resolve_original_literal(
+    original_index: Option<&OriginalValueIndex>,
+    focus_node: &Term,
+    predicate: &NamedNode,
+    current: &Term,
+) -> Option<Term> {
+    let Term::Literal(lit) = current else {
+        return None;
+    };
+    let index = original_index?;
+    let original = index.resolve_literal(focus_node, predicate, lit)?;
+
+    if original == *current {
+        return None;
     }
-    None
+
+    Some(original)
 }
 
 fn path_is_definitely_absent_for_focus(
