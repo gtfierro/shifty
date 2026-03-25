@@ -477,12 +477,12 @@ fn prefilter_expr(prefilter: &GeneratedSparqlPrefilter) -> TokenStream {
 fn native_sparql_path_expr(path: &GeneratedNativeSparqlPath) -> TokenStream {
     match path {
         GeneratedNativeSparqlPath::SelfNode => {
-            quote! { NativeSparqlPath::SelfNode }
+            quote! { shifty::sparql::LoweredPropertyPath::SelfNode }
         }
         GeneratedNativeSparqlPath::NamedNode(predicate) => {
             let predicate_lit = LitStr::new(predicate, Span::call_site());
             quote! {
-                NativeSparqlPath::NamedNode(
+                shifty::sparql::LoweredPropertyPath::NamedNode(
                     oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
                 )
             }
@@ -490,33 +490,33 @@ fn native_sparql_path_expr(path: &GeneratedNativeSparqlPath) -> TokenStream {
         GeneratedNativeSparqlPath::ReverseNamedNode(predicate) => {
             let predicate_lit = LitStr::new(predicate, Span::call_site());
             quote! {
-                NativeSparqlPath::ReverseNamedNode(
+                shifty::sparql::LoweredPropertyPath::ReverseNamedNode(
                     oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
                 )
             }
         }
         GeneratedNativeSparqlPath::ZeroOrOne(inner) => {
             let inner_expr = native_sparql_path_expr(inner);
-            quote! { NativeSparqlPath::ZeroOrOne(Box::new(#inner_expr)) }
+            quote! { shifty::sparql::LoweredPropertyPath::ZeroOrOne(Box::new(#inner_expr)) }
         }
         GeneratedNativeSparqlPath::ZeroOrMore(inner) => {
             let inner_expr = native_sparql_path_expr(inner);
-            quote! { NativeSparqlPath::ZeroOrMore(Box::new(#inner_expr)) }
+            quote! { shifty::sparql::LoweredPropertyPath::ZeroOrMore(Box::new(#inner_expr)) }
         }
         GeneratedNativeSparqlPath::OneOrMore(inner) => {
             let inner_expr = native_sparql_path_expr(inner);
-            quote! { NativeSparqlPath::OneOrMore(Box::new(#inner_expr)) }
+            quote! { shifty::sparql::LoweredPropertyPath::OneOrMore(Box::new(#inner_expr)) }
         }
         GeneratedNativeSparqlPath::Sequence(segments) => {
             let segment_exprs: Vec<_> = segments.iter().map(native_sparql_path_expr).collect();
             quote! {
-                NativeSparqlPath::Sequence(vec![#(#segment_exprs),*])
+                shifty::sparql::LoweredPropertyPath::Sequence(vec![#(#segment_exprs),*])
             }
         }
         GeneratedNativeSparqlPath::Alternative(items) => {
             let item_exprs: Vec<_> = items.iter().map(native_sparql_path_expr).collect();
             quote! {
-                NativeSparqlPath::Alternative(vec![#(#item_exprs),*])
+                shifty::sparql::LoweredPropertyPath::Alternative(vec![#(#item_exprs),*])
             }
         }
     }
@@ -531,7 +531,7 @@ fn native_sparql_expr(rule: &GeneratedNativeSparqlRule) -> TokenStream {
             let construct_lit = LitStr::new(construct_predicate, Span::call_site());
             let source_path_expr = native_sparql_path_expr(source_path);
             quote! {
-                NativeSparqlRule::PathCopy {
+                shifty::sparql::CompiledSparqlRule::PathCopy {
                     construct_predicate: oxigraph::model::NamedNode::new_unchecked(#construct_lit),
                     source_path: #source_path_expr,
                 }
@@ -548,7 +548,7 @@ fn native_sparql_expr(rule: &GeneratedNativeSparqlRule) -> TokenStream {
             let right_path_expr = native_sparql_path_expr(right_path);
             let object_expr = term_expr(object);
             quote! {
-                NativeSparqlRule::EqualityConstant {
+                shifty::sparql::CompiledSparqlRule::EqualityConstant {
                     construct_predicate: oxigraph::model::NamedNode::new_unchecked(#construct_lit),
                     left_path: #left_path_expr,
                     right_path: #right_path_expr,
@@ -1073,36 +1073,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
 
         #[derive(Debug, Clone)]
-        enum NativeSparqlPath {
-            SelfNode,
-            NamedNode(oxigraph::model::NamedNode),
-            ReverseNamedNode(oxigraph::model::NamedNode),
-            ZeroOrOne(Box<NativeSparqlPath>),
-            ZeroOrMore(Box<NativeSparqlPath>),
-            OneOrMore(Box<NativeSparqlPath>),
-            Sequence(Vec<NativeSparqlPath>),
-            Alternative(Vec<NativeSparqlPath>),
-        }
-
-        #[derive(Debug, Clone)]
-        enum NativeSparqlRule {
-            PathCopy {
-                construct_predicate: oxigraph::model::NamedNode,
-                source_path: NativeSparqlPath,
-            },
-            EqualityConstant {
-                construct_predicate: oxigraph::model::NamedNode,
-                left_path: NativeSparqlPath,
-                right_path: NativeSparqlPath,
-                object: oxigraph::model::Term,
-            },
-        }
-
-        #[derive(Debug, Clone)]
         struct RuleMetadata {
             dependencies: Vec<FocusDependency>,
             sparql_prefilter: Option<SparqlPrefilter>,
-            native_sparql: Option<NativeSparqlRule>,
+            native_sparql: Option<shifty::sparql::CompiledSparqlRule>,
         }
 
         #[derive(Debug, Clone)]
@@ -1893,161 +1867,62 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(sort_and_dedup_terms(values))
         }
 
-        fn native_direct_values(
-            compiled_rule_index: &CompiledRuleIndex,
-            store: &oxigraph::store::Store,
-            data_graph: &oxigraph::model::NamedNode,
-            focus: &oxigraph::model::Term,
-            predicate: &oxigraph::model::NamedNode,
-            delta: &DeltaIndex,
-        ) -> Result<Vec<oxigraph::model::Term>, String> {
-            if delta.is_initial {
-                if let Some(values) = compiled_rule_index.outgoing_values(focus, predicate) {
-                    return Ok(values);
-                }
-            }
-            if !delta.is_initial {
-                if let Some(values) = delta.outgoing_values_for_focus(focus, predicate) {
-                    return Ok(values);
-                }
-                if let Some(values) = compiled_rule_index.outgoing_values(focus, predicate) {
-                    return Ok(values);
-                }
-            }
-            focus_objects_for_predicate(store, data_graph, focus, predicate)
+        #[derive(Clone, Copy)]
+        struct GeneratedCompiledPathResolver<'a> {
+            compiled_rule_index: &'a CompiledRuleIndex,
+            store: &'a oxigraph::store::Store,
+            data_graph: &'a oxigraph::model::NamedNode,
+            delta: &'a DeltaIndex,
+            use_delta: bool,
         }
 
-        fn native_path_values(
-            compiled_rule_index: &CompiledRuleIndex,
-            store: &oxigraph::store::Store,
-            data_graph: &oxigraph::model::NamedNode,
-            focus: &oxigraph::model::Term,
-            path: &NativeSparqlPath,
-            delta: &DeltaIndex,
-        ) -> Result<Vec<oxigraph::model::Term>, String> {
-            match path {
-                NativeSparqlPath::SelfNode => Ok(vec![focus.clone()]),
-                NativeSparqlPath::NamedNode(predicate) => {
-                    native_direct_values(compiled_rule_index, store, data_graph, focus, predicate, delta)
-                }
-                NativeSparqlPath::ReverseNamedNode(predicate) => {
-                    if delta.is_initial {
-                        if let Some(values) = compiled_rule_index.incoming_values(focus, predicate) {
-                            return Ok(values);
-                        }
+        impl shifty::sparql::CompiledPathResolver for GeneratedCompiledPathResolver<'_> {
+            type Error = String;
+
+            fn direct_values(
+                &self,
+                focus: &oxigraph::model::Term,
+                predicate: &oxigraph::model::NamedNode,
+            ) -> Result<Vec<oxigraph::model::Term>, Self::Error> {
+                if self.use_delta {
+                    if let Some(values) = self.delta.outgoing_values_for_focus(focus, predicate) {
+                        return Ok(values);
                     }
-                    if !delta.is_initial {
-                        if let Some(values) = delta.incoming_values_for_focus(focus, predicate) {
-                            return Ok(values);
-                        }
-                        if let Some(values) = compiled_rule_index.incoming_values(focus, predicate) {
-                            return Ok(values);
-                        }
+                    if let Some(values) = self.compiled_rule_index.outgoing_values(focus, predicate) {
+                        return Ok(values);
                     }
-                    focus_subjects_for_inverse_predicate(store, data_graph, focus, predicate)
                 }
-                NativeSparqlPath::ZeroOrOne(inner) => {
-                    let mut results = std::collections::HashSet::from([focus.clone()]);
-                    results.extend(native_path_values(
-                        compiled_rule_index,
-                        store,
-                        data_graph,
-                        focus,
-                        inner,
-                        &DeltaIndex::default(),
-                    )?);
-                    Ok(results.into_iter().collect())
-                }
-                NativeSparqlPath::ZeroOrMore(inner) => {
-                    let mut results = std::collections::HashSet::new();
-                    let mut frontier = vec![focus.clone()];
-                    while let Some(node) = frontier.pop() {
-                        if !results.insert(node.clone()) {
-                            continue;
-                        }
-                        frontier.extend(native_path_values(
-                            compiled_rule_index,
-                            store,
-                            data_graph,
-                            &node,
-                            inner,
-                            &DeltaIndex::default(),
-                        )?);
+                focus_objects_for_predicate(self.store, self.data_graph, focus, predicate)
+            }
+
+            fn inverse_values(
+                &self,
+                focus: &oxigraph::model::Term,
+                predicate: &oxigraph::model::NamedNode,
+            ) -> Result<Vec<oxigraph::model::Term>, Self::Error> {
+                if self.use_delta && !self.delta.is_initial {
+                    if let Some(values) = self.delta.incoming_values_for_focus(focus, predicate) {
+                        return Ok(values);
                     }
-                    Ok(results.into_iter().collect())
                 }
-                NativeSparqlPath::OneOrMore(inner) => {
-                    let mut results = std::collections::HashSet::new();
-                    let mut frontier = native_path_values(
-                        compiled_rule_index,
-                        store,
-                        data_graph,
-                        focus,
-                        inner,
-                        &DeltaIndex::default(),
-                    )?;
-                    while let Some(node) = frontier.pop() {
-                        if !results.insert(node.clone()) {
-                            continue;
-                        }
-                        frontier.extend(native_path_values(
-                            compiled_rule_index,
-                            store,
-                            data_graph,
-                            &node,
-                            inner,
-                            &DeltaIndex::default(),
-                        )?);
-                    }
-                    Ok(results.into_iter().collect())
+                if self.use_delta
+                    && let Some(values) = self.compiled_rule_index.incoming_values(focus, predicate)
+                {
+                    return Ok(values);
                 }
-                NativeSparqlPath::Sequence(segments) => {
-                    let mut frontier = vec![focus.clone()];
-                    for (index, segment) in segments.iter().enumerate() {
-                        let segment_delta = if index + 1 == segments.len() {
-                            delta
-                        } else {
-                            &DeltaIndex::default()
-                        };
-                        let mut next = Vec::new();
-                        for node in &frontier {
-                            next.extend(native_path_values(
-                                compiled_rule_index,
-                                store,
-                                data_graph,
-                                node,
-                                segment,
-                                segment_delta,
-                            )?);
-                        }
-                        let mut unique = std::collections::HashSet::new();
-                        next.retain(|term| unique.insert(term.clone()));
-                        frontier = next;
-                        if frontier.is_empty() {
-                            break;
-                        }
-                    }
-                    Ok(frontier)
-                }
-                NativeSparqlPath::Alternative(items) => {
-                    let mut results = std::collections::HashSet::new();
-                    for item in items {
-                        results.extend(native_path_values(
-                            compiled_rule_index,
-                            store,
-                            data_graph,
-                            focus,
-                            item,
-                            &DeltaIndex::default(),
-                        )?);
-                    }
-                    Ok(results.into_iter().collect())
+                focus_subjects_for_inverse_predicate(self.store, self.data_graph, focus, predicate)
+            }
+
+            fn without_delta(&self) -> Self {
+                Self {
+                    use_delta: false,
+                    ..*self
                 }
             }
         }
 
         fn native_sparql_construct_triples(
-            native_rule: &NativeSparqlRule,
+            native_rule: &shifty::sparql::CompiledSparqlRule,
             focus: &oxigraph::model::Term,
             delta: &DeltaIndex,
             compiled_rule_index: &CompiledRuleIndex,
@@ -2059,44 +1934,48 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             oxigraph::model::Term,
         )>, String> {
             match native_rule {
-                NativeSparqlRule::PathCopy {
+                shifty::sparql::CompiledSparqlRule::PathCopy {
                     construct_predicate,
                     source_path,
                 } => {
-                    let values = native_path_values(
-                        compiled_rule_index,
-                        store,
-                        data_graph,
+                    let values = shifty::sparql::evaluate_compiled_path(
+                        &GeneratedCompiledPathResolver {
+                            compiled_rule_index,
+                            store,
+                            data_graph,
+                            delta,
+                            use_delta: true,
+                        },
                         focus,
                         source_path,
-                        delta,
                     )?;
                     Ok(values
                         .into_iter()
                         .map(|value| (focus.clone(), construct_predicate.clone(), value))
                         .collect())
                 }
-                NativeSparqlRule::EqualityConstant {
+                shifty::sparql::CompiledSparqlRule::EqualityConstant {
                     construct_predicate,
                     left_path,
                     right_path,
                     object,
                 } => {
-                    let left_values = native_path_values(
+                    let base_resolver = GeneratedCompiledPathResolver {
                         compiled_rule_index,
                         store,
                         data_graph,
+                        delta,
+                        use_delta: false,
+                    };
+                    let left_values = shifty::sparql::evaluate_compiled_path(
+                        &base_resolver,
                         focus,
                         left_path,
-                        &DeltaIndex::default(),
                     )?;
-                    let right_values = native_path_values(
-                        compiled_rule_index,
-                        store,
-                        data_graph,
+                    let right_values = shifty::sparql::evaluate_compiled_path(
+                        &base_resolver,
                         focus,
                         right_path,
-                        &DeltaIndex::default(),
                     )?;
                     let right_set: std::collections::HashSet<oxigraph::model::Term> =
                         right_values.into_iter().collect();

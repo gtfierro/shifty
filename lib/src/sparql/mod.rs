@@ -192,6 +192,94 @@ pub struct CompiledPredicateIndexPlan {
     pub include_incoming: bool,
 }
 
+pub trait CompiledPathResolver: Clone {
+    type Error;
+
+    fn direct_values(&self, focus: &Term, predicate: &NamedNode) -> Result<Vec<Term>, Self::Error>;
+
+    fn inverse_values(&self, focus: &Term, predicate: &NamedNode)
+    -> Result<Vec<Term>, Self::Error>;
+
+    fn without_delta(&self) -> Self;
+}
+
+pub fn evaluate_compiled_path<R>(
+    resolver: &R,
+    focus: &Term,
+    path: &LoweredPropertyPath,
+) -> Result<Vec<Term>, R::Error>
+where
+    R: CompiledPathResolver,
+{
+    match path {
+        LoweredPropertyPath::SelfNode => Ok(vec![focus.clone()]),
+        LoweredPropertyPath::NamedNode(predicate) => resolver.direct_values(focus, predicate),
+        LoweredPropertyPath::ReverseNamedNode(predicate) => {
+            resolver.inverse_values(focus, predicate)
+        }
+        LoweredPropertyPath::ZeroOrOne(inner) => {
+            let mut results = HashSet::from([focus.clone()]);
+            let base = resolver.without_delta();
+            results.extend(evaluate_compiled_path(&base, focus, inner)?);
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::ZeroOrMore(inner) => {
+            let mut results = HashSet::new();
+            let mut frontier = vec![focus.clone()];
+            let base = resolver.without_delta();
+            while let Some(node) = frontier.pop() {
+                if !results.insert(node.clone()) {
+                    continue;
+                }
+                frontier.extend(evaluate_compiled_path(&base, &node, inner)?);
+            }
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::OneOrMore(inner) => {
+            let mut results = HashSet::new();
+            let base = resolver.without_delta();
+            let mut frontier = evaluate_compiled_path(&base, focus, inner)?;
+            while let Some(node) = frontier.pop() {
+                if !results.insert(node.clone()) {
+                    continue;
+                }
+                frontier.extend(evaluate_compiled_path(&base, &node, inner)?);
+            }
+            Ok(results.into_iter().collect())
+        }
+        LoweredPropertyPath::Sequence(segments) => {
+            let mut frontier = vec![focus.clone()];
+            let base = resolver.without_delta();
+            for (index, segment) in segments.iter().enumerate() {
+                let mut next = Vec::new();
+                let segment_resolver = if index + 1 == segments.len() {
+                    resolver
+                } else {
+                    &base
+                };
+                for node in &frontier {
+                    next.extend(evaluate_compiled_path(segment_resolver, node, segment)?);
+                }
+                let mut unique = HashSet::new();
+                next.retain(|term| unique.insert(term.clone()));
+                frontier = next;
+                if frontier.is_empty() {
+                    break;
+                }
+            }
+            Ok(frontier)
+        }
+        LoweredPropertyPath::Alternative(alternatives) => {
+            let mut results = HashSet::new();
+            let base = resolver.without_delta();
+            for alternative in alternatives {
+                results.extend(evaluate_compiled_path(&base, focus, alternative)?);
+            }
+            Ok(results.into_iter().collect())
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SparqlServices {
     prefix_cache: Mutex<HashMap<Term, String>>,
@@ -3627,6 +3715,71 @@ mod tests {
                     include_incoming: false,
                 },
             ]
+        );
+    }
+
+    #[derive(Clone, Default)]
+    struct TestCompiledPathResolver {
+        outgoing: HashMap<(Term, NamedNode), Vec<Term>>,
+        incoming: HashMap<(Term, NamedNode), Vec<Term>>,
+    }
+
+    impl CompiledPathResolver for TestCompiledPathResolver {
+        type Error = String;
+
+        fn direct_values(
+            &self,
+            focus: &Term,
+            predicate: &NamedNode,
+        ) -> Result<Vec<Term>, Self::Error> {
+            Ok(self
+                .outgoing
+                .get(&(focus.clone(), predicate.clone()))
+                .cloned()
+                .unwrap_or_default())
+        }
+
+        fn inverse_values(
+            &self,
+            focus: &Term,
+            predicate: &NamedNode,
+        ) -> Result<Vec<Term>, Self::Error> {
+            Ok(self
+                .incoming
+                .get(&(focus.clone(), predicate.clone()))
+                .cloned()
+                .unwrap_or_default())
+        }
+
+        fn without_delta(&self) -> Self {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn evaluate_compiled_path_handles_sequences_and_inverse_steps() {
+        let source_of = NamedNode::new("http://example.com/ns#sourceOf").unwrap();
+        let value = NamedNode::new("http://example.com/ns#value").unwrap();
+        let focus = Term::NamedNode(NamedNode::new("http://example.com/ns#focus").unwrap());
+        let source = Term::NamedNode(NamedNode::new("http://example.com/ns#source").unwrap());
+        let flag = Term::Literal(Literal::new_simple_literal("flag"));
+
+        let mut resolver = TestCompiledPathResolver::default();
+        resolver
+            .incoming
+            .insert((focus.clone(), source_of.clone()), vec![source.clone()]);
+        resolver
+            .outgoing
+            .insert((source.clone(), value.clone()), vec![flag.clone()]);
+
+        let path = LoweredPropertyPath::Sequence(vec![
+            LoweredPropertyPath::ReverseNamedNode(source_of),
+            LoweredPropertyPath::NamedNode(value),
+        ]);
+
+        assert_eq!(
+            evaluate_compiled_path(&resolver, &focus, &path).expect("path should resolve"),
+            vec![flag]
         );
     }
 }

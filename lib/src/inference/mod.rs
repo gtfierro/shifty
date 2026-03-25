@@ -9,8 +9,9 @@ use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, Tr
 use crate::optimize::InferenceOptimizationConfig;
 use crate::runtime::component::{ConformanceReport, check_conformance_for_node};
 use crate::sparql::{
-    CompiledIndexRequirement, CompiledSparqlRule, LoweredPropertyPath, SparqlExecutor,
-    SparqlServices, compiled_sparql_index_requirements, compiled_sparql_rule,
+    CompiledIndexRequirement, CompiledPathResolver, CompiledSparqlRule, LoweredPropertyPath,
+    SparqlExecutor, SparqlServices, compiled_sparql_index_requirements, compiled_sparql_rule,
+    evaluate_compiled_path,
 };
 use crate::trace::TraceEvent;
 use crate::types::{ComponentID, ID, PropShapeID, RuleID, TargetEvalExt, TraceItem};
@@ -754,109 +755,21 @@ impl<'a> InferenceEngine<'a> {
         Ok(added)
     }
 
-    fn native_direct_values(
-        &self,
-        focus: &Term,
-        predicate: &NamedNode,
-        delta: &DeltaIndex,
-    ) -> Result<Vec<Term>, String> {
-        if let Some(values) = delta.outgoing_values_for_focus(focus, predicate) {
-            return Ok(values);
-        }
-
-        self.context
-            .compiled_focus_objects_for_predicate(focus, predicate)
-    }
-
     fn native_path_values(
         &self,
         focus: &Term,
         path: &LoweredPropertyPath,
         delta: &DeltaIndex,
     ) -> Result<Vec<Term>, String> {
-        match path {
-            LoweredPropertyPath::SelfNode => Ok(vec![focus.clone()]),
-            LoweredPropertyPath::NamedNode(predicate) => {
-                self.native_direct_values(focus, predicate, delta)
-            }
-            LoweredPropertyPath::ReverseNamedNode(predicate) => {
-                if !delta.is_initial
-                    && let Some(values) = delta.incoming_values_for_focus(focus, predicate)
-                {
-                    return Ok(values);
-                }
-
-                self.context
-                    .compiled_focus_subjects_for_inverse_predicate(focus, predicate)
-            }
-            LoweredPropertyPath::ZeroOrOne(inner) => {
-                let mut results = HashSet::from([focus.clone()]);
-                results.extend(self.native_path_values(focus, inner, &DeltaIndex::default())?);
-                Ok(results.into_iter().collect())
-            }
-            LoweredPropertyPath::ZeroOrMore(inner) => {
-                let mut results = HashSet::new();
-                let mut frontier = vec![focus.clone()];
-                while let Some(node) = frontier.pop() {
-                    if !results.insert(node.clone()) {
-                        continue;
-                    }
-                    frontier.extend(self.native_path_values(
-                        &node,
-                        inner,
-                        &DeltaIndex::default(),
-                    )?);
-                }
-                Ok(results.into_iter().collect())
-            }
-            LoweredPropertyPath::OneOrMore(inner) => {
-                let mut results = HashSet::new();
-                let mut frontier = self.native_path_values(focus, inner, &DeltaIndex::default())?;
-                while let Some(node) = frontier.pop() {
-                    if !results.insert(node.clone()) {
-                        continue;
-                    }
-                    frontier.extend(self.native_path_values(
-                        &node,
-                        inner,
-                        &DeltaIndex::default(),
-                    )?);
-                }
-                Ok(results.into_iter().collect())
-            }
-            LoweredPropertyPath::Sequence(segments) => {
-                let mut frontier = vec![focus.clone()];
-                for (index, segment) in segments.iter().enumerate() {
-                    let segment_delta = if index + 1 == segments.len() {
-                        delta
-                    } else {
-                        &DeltaIndex::default()
-                    };
-                    let mut next = Vec::new();
-                    for node in &frontier {
-                        next.extend(self.native_path_values(node, segment, segment_delta)?);
-                    }
-                    let mut unique = HashSet::new();
-                    next.retain(|term| unique.insert(term.clone()));
-                    frontier = next;
-                    if frontier.is_empty() {
-                        break;
-                    }
-                }
-                Ok(frontier)
-            }
-            LoweredPropertyPath::Alternative(alternatives) => {
-                let mut results = HashSet::new();
-                for alternative in alternatives {
-                    results.extend(self.native_path_values(
-                        focus,
-                        alternative,
-                        &DeltaIndex::default(),
-                    )?);
-                }
-                Ok(results.into_iter().collect())
-            }
-        }
+        evaluate_compiled_path(
+            &InferenceCompiledPathResolver {
+                context: self.context,
+                delta,
+                use_delta: true,
+            },
+            focus,
+            path,
+        )
     }
 
     fn apply_triple_rule(
@@ -1156,6 +1069,51 @@ pub fn run_inference(
 ) -> Result<InferenceOutcome, InferenceError> {
     let engine = InferenceEngine::new(context, config)?;
     engine.run()
+}
+
+#[derive(Clone, Copy)]
+struct InferenceCompiledPathResolver<'a> {
+    context: &'a ValidationContext,
+    delta: &'a DeltaIndex,
+    use_delta: bool,
+}
+
+impl CompiledPathResolver for InferenceCompiledPathResolver<'_> {
+    type Error = String;
+
+    fn direct_values(&self, focus: &Term, predicate: &NamedNode) -> Result<Vec<Term>, Self::Error> {
+        if self.use_delta
+            && let Some(values) = self.delta.outgoing_values_for_focus(focus, predicate)
+        {
+            return Ok(values);
+        }
+
+        self.context
+            .compiled_focus_objects_for_predicate(focus, predicate)
+    }
+
+    fn inverse_values(
+        &self,
+        focus: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, Self::Error> {
+        if self.use_delta
+            && !self.delta.is_initial
+            && let Some(values) = self.delta.incoming_values_for_focus(focus, predicate)
+        {
+            return Ok(values);
+        }
+
+        self.context
+            .compiled_focus_subjects_for_inverse_predicate(focus, predicate)
+    }
+
+    fn without_delta(&self) -> Self {
+        Self {
+            use_delta: false,
+            ..*self
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
