@@ -6,10 +6,6 @@ DATA_FILE="ttl/small-brick-model.ttl"
 OUT_DIR="test-compiled-shacl"
 BIN_NAME="myshapes"
 
-export CCACHE_DIR="${CCACHE_DIR:-/tmp/ccache}"
-export CCACHE_TEMPDIR="${CCACHE_TEMPDIR:-/tmp/ccache-tmp}"
-mkdir -p "$CCACHE_DIR" "$CCACHE_TEMPDIR"
-
 echo "ROCKSDB_DYNAMIC=${ROCKSDB_DYNAMIC:-}"
 echo "ROCKSDB_STATIC=${ROCKSDB_STATIC:-}"
 echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-}"

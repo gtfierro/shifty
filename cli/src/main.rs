@@ -1326,12 +1326,6 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                 cmd.arg("--release");
             }
             cmd.arg("--manifest-path").arg(out_dir.join("Cargo.toml"));
-            let ccache_tmp = workspace_root.join(out_dir).join("ccache-tmp");
-            let ccache_dir = workspace_root.join(out_dir).join("ccache");
-            fs::create_dir_all(&ccache_tmp)?;
-            fs::create_dir_all(&ccache_dir)?;
-            cmd.env("CCACHE_TEMPDIR", &ccache_tmp);
-            cmd.env("CCACHE_DIR", &ccache_dir);
             let status = cmd.status()?;
             if !status.success() {
                 return Err("failed to build compiled executable".into());
