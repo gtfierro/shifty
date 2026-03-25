@@ -4,11 +4,12 @@ use ontoenv::config::Config;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
 use shacl_srcgen_compiler::{
+    SrcGenBackend,
     generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
-    lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir,
 };
 use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
-use shifty::test_utils::{list_includes, load_manifest, TestCase};
+use shifty::test_utils::{TestCase, list_includes, load_manifest};
 use shifty::{Source, Validator};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -804,9 +805,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         assert!(
             reports_match,
             "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
-            test_name,
-            expected_turtle,
-            report_turtle
+            test_name, expected_turtle, report_turtle
         );
     }
     Ok(())

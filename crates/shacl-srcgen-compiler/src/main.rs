@@ -1,8 +1,8 @@
 use clap::{Parser, ValueEnum};
 use shacl_srcgen_compiler::{
-    generate_modules_from_ir_with_backend, lower_shape_ir, write_generated_modules, SrcGenBackend,
+    SrcGenBackend, generate_modules_from_ir_with_backend, lower_shape_ir, write_generated_modules,
 };
-use shifty::{ir_cache, Source, ValidatorBuilder};
+use shifty::{Source, ValidatorBuilder, ir_cache};
 use std::fs;
 use std::path::PathBuf;
 

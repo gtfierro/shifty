@@ -6,13 +6,13 @@ use crate::ir::{
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
-    ComponentDescriptor, CustomConstraintComponentDefinition, Path, PropShapeID, Rule,
-    RuleCondition, RuleID, SPARQLValidator, ShapeIR, Target, TriplePatternTerm, ID,
+    ComponentDescriptor, CustomConstraintComponentDefinition, ID, Path, PropShapeID, Rule,
+    RuleCondition, RuleID, SPARQLValidator, ShapeIR, Target, TriplePatternTerm,
 };
 use shifty::sparql::{
-    lowered_sparql_query_kind, AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode,
-    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MissingRelatedNodePlan,
-    RequiredPathSupportPlan, SparqlExecutor,
+    AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode, LocalSetCompatibilityPlan,
+    LoweredPropertyPath, LoweredSparqlQueryKind, MissingRelatedNodePlan, RequiredPathSupportPlan,
+    SparqlExecutor, lowered_sparql_query_kind,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -2047,9 +2047,9 @@ fn component_constraint_component_iri(component: &ComponentDescriptor) -> &str {
 mod tests {
     use super::*;
     use shifty::shacl_ir::{
-        ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, PropShapeID,
+        ComponentDescriptor, ComponentID, FeatureToggles, ID, NodeShapeIR, PropShapeID,
         PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, SparqlRule, Target,
-        TriplePatternTerm, TripleRule, ID,
+        TriplePatternTerm, TripleRule,
     };
     use std::collections::HashMap;
 
@@ -2221,10 +2221,12 @@ mod tests {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert_eq!(lowered.node_shapes.len(), 1);
         assert_eq!(lowered.property_shapes.len(), 1);
         assert!(lowered.node_shapes[0].supported);
@@ -3497,10 +3499,12 @@ WHERE {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert!(lowered.node_shapes[0].supported);
         assert!(lowered.property_shapes[0].supported);
     }
@@ -3609,10 +3613,12 @@ WHERE {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert!(lowered.node_shapes[0].supported);
         assert!(lowered.property_shapes[0].supported);
     }
@@ -3748,10 +3754,12 @@ WHERE {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert!(lowered.node_shapes.iter().all(|shape| shape.supported));
         assert!(lowered.property_shapes[0].supported);
     }
@@ -3873,10 +3881,12 @@ WHERE {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert!(lowered.property_shapes[0].supported);
     }
 
@@ -3976,10 +3986,12 @@ WHERE {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert!(lowered.node_shapes[0].supported);
         assert!(lowered.property_shapes[0].supported);
     }
@@ -4047,10 +4059,12 @@ WHERE {
         let lowered = lower_shape_ir(&shape_ir).unwrap();
         assert!(lowered.meta.specialization_ready);
         assert!(lowered.fallback_annotations.is_empty());
-        assert!(lowered
-            .components
-            .iter()
-            .all(|component| !component.fallback_only));
+        assert!(
+            lowered
+                .components
+                .iter()
+                .all(|component| !component.fallback_only)
+        );
         assert!(lowered.node_shapes[0].supported);
     }
 

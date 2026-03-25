@@ -1,8 +1,8 @@
 use oxigraph::model::Term;
-use shacl_srcgen_compiler::{generate_modules_from_shape_ir_with_backend, SrcGenBackend};
+use shacl_srcgen_compiler::{SrcGenBackend, generate_modules_from_shape_ir_with_backend};
 use shifty::shacl_ir::{
-    ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, Path, PropShapeID,
-    PropertyShapeIR, Severity, ShapeIR, Target, ID,
+    ComponentDescriptor, ComponentID, FeatureToggles, ID, NodeShapeIR, Path, PropShapeID,
+    PropertyShapeIR, Severity, ShapeIR, Target,
 };
 use std::collections::HashMap;
 
@@ -272,8 +272,11 @@ fn run_module_uses_hybrid_dispatch_planning() {
 
     assert!(run.contains("const SRCGEN_HAS_PLANNED_RUNTIME_FALLBACK: bool = true;"));
     assert!(run.contains("fn is_full_fallback_shape(shape_id: u64) -> bool"));
-    assert!(run
-        .contains("fn is_fallback_component_for_shape(shape_id: u64, component_id: u64) -> bool"));
+    assert!(
+        run.contains(
+            "fn is_fallback_component_for_shape(shape_id: u64, component_id: u64) -> bool"
+        )
+    );
     assert!(run.contains("fn merge_specialized_with_runtime("));
     assert!(run.contains("set_runtime_shape_conformance_fallback_allowed(!full_aot);"));
     assert!(!run.contains("generated_backend_is_tables() || !SPECIALIZATION_READY"));

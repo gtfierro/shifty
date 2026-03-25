@@ -1,5 +1,5 @@
-use crate::ir::SrcGenIR;
 use crate::SrcGenBackend;
+use crate::ir::SrcGenIR;
 
 pub mod inference;
 pub mod paths;

@@ -5,7 +5,7 @@ use crate::ir::SrcGenIR;
 use crate::{GeneratedRust, SrcGenBackend};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{parse_file, File, Item};
+use syn::{File, Item, parse_file};
 
 const MODULE_ITEM_CHUNK_SIZE: usize = 256;
 const MODULE_CHUNK_TRIGGER_ITEMS: usize = MODULE_ITEM_CHUNK_SIZE * 2;
@@ -187,12 +187,16 @@ mod tests {
             files.first().map(|f| f.0.as_str()),
             Some("validators_node.rs")
         );
-        assert!(files[0]
-            .1
-            .contains("include!(\"validators_node/chunk_0000.rs\");"));
-        assert!(files
-            .iter()
-            .any(|(name, _)| name == "validators_node/chunk_0001.rs"));
+        assert!(
+            files[0]
+                .1
+                .contains("include!(\"validators_node/chunk_0000.rs\");")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|(name, _)| name == "validators_node/chunk_0001.rs")
+        );
     }
 
     #[test]
@@ -221,12 +225,16 @@ mod tests {
             files.first().map(|f| f.0.as_str()),
             Some("validators_property.rs")
         );
-        assert!(files[0]
-            .1
-            .contains("include!(\"validators_property/chunk_0000.rs\");"));
-        assert!(files
-            .iter()
-            .any(|(name, _)| name == "validators_property/chunk_0001.rs"));
+        assert!(
+            files[0]
+                .1
+                .contains("include!(\"validators_property/chunk_0000.rs\");")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|(name, _)| name == "validators_property/chunk_0001.rs")
+        );
     }
 
     #[test]

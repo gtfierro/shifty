@@ -1,7 +1,7 @@
+use crate::SrcGenBackend;
 use crate::codegen::render_tokens_as_module;
 use crate::codegen::templates::FALLBACK_REASON_TEMPLATE;
 use crate::ir::{SrcGenComponentKind, SrcGenIR};
-use crate::SrcGenBackend;
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashMap;
