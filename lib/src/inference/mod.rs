@@ -9,9 +9,9 @@ use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, Tr
 use crate::optimize::InferenceOptimizationConfig;
 use crate::runtime::component::{ConformanceReport, check_conformance_for_node};
 use crate::sparql::{
-    CompiledIndexRequirement, CompiledPathResolver, CompiledSparqlRule, LoweredPropertyPath,
-    SparqlExecutor, SparqlServices, compiled_sparql_index_requirements, compiled_sparql_rule,
-    evaluate_compiled_path,
+    CompiledIndexRequirement, CompiledPathResolver, CompiledSparqlRule, SparqlExecutor,
+    SparqlServices, compiled_sparql_index_requirements, compiled_sparql_rule,
+    execute_compiled_rule,
 };
 use crate::trace::TraceEvent;
 use crate::types::{ComponentID, ID, PropShapeID, RuleID, TargetEvalExt, TraceItem};
@@ -685,54 +685,19 @@ impl<'a> InferenceEngine<'a> {
                     return Ok(Vec::new());
                 }
 
-                let mut batch = Vec::new();
-                match native_rule {
-                    CompiledSparqlRule::PathCopy {
-                        construct_predicate,
-                        source_path,
-                    } => {
-                        let values = self.native_path_values(focus, source_path, delta).map_err(
-                            |message| InferenceError::RuleExecution {
-                                rule_id: rule.id,
-                                message,
-                            },
-                        )?;
-                        for value in values {
-                            batch.push((focus.clone(), construct_predicate.clone(), value));
-                        }
-                    }
-                    CompiledSparqlRule::EqualityConstant {
-                        construct_predicate,
-                        left_path,
-                        right_path,
-                        object,
-                    } => {
-                        let left_values = self
-                            .native_path_values(focus, left_path, &DeltaIndex::default())
-                            .map_err(|message| InferenceError::RuleExecution {
-                                rule_id: rule.id,
-                                message,
-                            })?;
-                        let right_values = self
-                            .native_path_values(focus, right_path, &DeltaIndex::default())
-                            .map_err(|message| InferenceError::RuleExecution {
-                                rule_id: rule.id,
-                                message,
-                            })?;
-                        let right_set: HashSet<Term> = right_values.into_iter().collect();
-                        if left_values
-                            .into_iter()
-                            .any(|value| right_set.contains(&value))
-                        {
-                            batch.push((
-                                focus.clone(),
-                                construct_predicate.clone(),
-                                object.clone(),
-                            ));
-                        }
-                    }
-                }
-                Ok(batch)
+                execute_compiled_rule(
+                    &InferenceCompiledPathResolver {
+                        context: self.context,
+                        delta,
+                        use_delta: true,
+                    },
+                    native_rule,
+                    focus,
+                )
+                .map_err(|message| InferenceError::RuleExecution {
+                    rule_id: rule.id,
+                    message,
+                })
             })
             .collect();
 
@@ -753,23 +718,6 @@ impl<'a> InferenceEngine<'a> {
         }
 
         Ok(added)
-    }
-
-    fn native_path_values(
-        &self,
-        focus: &Term,
-        path: &LoweredPropertyPath,
-        delta: &DeltaIndex,
-    ) -> Result<Vec<Term>, String> {
-        evaluate_compiled_path(
-            &InferenceCompiledPathResolver {
-                context: self.context,
-                delta,
-                use_delta: true,
-            },
-            focus,
-            path,
-        )
     }
 
     fn apply_triple_rule(
@@ -1968,6 +1916,7 @@ fn named_or_blank_to_term(subject: NamedOrBlankNode) -> Result<Term, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sparql::LoweredPropertyPath;
     use crate::{Source, Validator, backend::GraphBackend};
     use oxigraph::model::{Literal, NamedNode, Quad, Term};
     use std::fs;

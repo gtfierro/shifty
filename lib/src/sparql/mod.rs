@@ -280,6 +280,48 @@ where
     }
 }
 
+pub fn execute_compiled_rule<R>(
+    resolver: &R,
+    rule: &CompiledSparqlRule,
+    focus: &Term,
+) -> Result<Vec<(Term, NamedNode, Term)>, R::Error>
+where
+    R: CompiledPathResolver,
+{
+    match rule {
+        CompiledSparqlRule::PathCopy {
+            construct_predicate,
+            source_path,
+        } => Ok(evaluate_compiled_path(resolver, focus, source_path)?
+            .into_iter()
+            .map(|value| (focus.clone(), construct_predicate.clone(), value))
+            .collect()),
+        CompiledSparqlRule::EqualityConstant {
+            construct_predicate,
+            left_path,
+            right_path,
+            object,
+        } => {
+            let base = resolver.without_delta();
+            let left_values = evaluate_compiled_path(&base, focus, left_path)?;
+            let right_values = evaluate_compiled_path(&base, focus, right_path)?;
+            let right_set: HashSet<Term> = right_values.into_iter().collect();
+            if left_values
+                .into_iter()
+                .any(|value| right_set.contains(&value))
+            {
+                Ok(vec![(
+                    focus.clone(),
+                    construct_predicate.clone(),
+                    object.clone(),
+                )])
+            } else {
+                Ok(Vec::new())
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SparqlServices {
     prefix_cache: Mutex<HashMap<Term, String>>,

@@ -12,8 +12,9 @@ use crate::sparql::{
     AdjacentPredicateWhitelistPlan, CompatibilitySide, LocalSetCompatibilityMode,
     LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MessageTemplater,
     MissingRelatedNodePlan, RequiredPathSupportPlan, SparqlExecutor, ThisPredicateDirection,
-    ensure_pre_binding_semantics, format_term_with_namespace_aliases, lowered_sparql_query_kind,
-    parse_prefix_lines, required_this_predicates, validate_prebound_variable_usage,
+    ensure_pre_binding_semantics, evaluate_compiled_path, format_term_with_namespace_aliases,
+    lowered_sparql_query_kind, parse_prefix_lines, required_this_predicates,
+    validate_prebound_variable_usage,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
@@ -214,159 +215,72 @@ fn hash_query_64(query: &str) -> u64 {
     hasher.finish()
 }
 
-fn resolve_lowered_property_path(
-    context: &ValidationContext,
-    focus_node: &Term,
-    path: &LoweredPropertyPath,
-) -> Result<Vec<Term>, String> {
-    match path {
-        LoweredPropertyPath::SelfNode => Ok(vec![focus_node.clone()]),
-        LoweredPropertyPath::NamedNode(predicate) => {
-            context.focus_objects_for_predicate(focus_node, &Term::NamedNode(predicate.clone()))
-        }
-        LoweredPropertyPath::ReverseNamedNode(predicate) => context
-            .focus_subjects_for_inverse_predicate(focus_node, &Term::NamedNode(predicate.clone())),
-        LoweredPropertyPath::ZeroOrOne(inner) => {
-            let mut results = HashSet::from([focus_node.clone()]);
-            results.extend(resolve_lowered_property_path(context, focus_node, inner)?);
-            Ok(results.into_iter().collect())
-        }
-        LoweredPropertyPath::ZeroOrMore(inner) => {
-            let mut results = HashSet::new();
-            let mut frontier = vec![focus_node.clone()];
-            while let Some(node) = frontier.pop() {
-                if !results.insert(node.clone()) {
-                    continue;
-                }
-                frontier.extend(resolve_lowered_property_path(context, &node, inner)?);
-            }
-            Ok(results.into_iter().collect())
-        }
-        LoweredPropertyPath::OneOrMore(inner) => {
-            let mut results = HashSet::new();
-            let mut frontier = resolve_lowered_property_path(context, focus_node, inner)?;
-            while let Some(node) = frontier.pop() {
-                if !results.insert(node.clone()) {
-                    continue;
-                }
-                frontier.extend(resolve_lowered_property_path(context, &node, inner)?);
-            }
-            Ok(results.into_iter().collect())
-        }
-        LoweredPropertyPath::Sequence(segments) => {
-            let mut current = vec![focus_node.clone()];
-            for segment in segments {
-                let mut next = HashSet::new();
-                for node in &current {
-                    next.extend(resolve_lowered_property_path(context, node, segment)?);
-                }
-                current = next.into_iter().collect();
-                if current.is_empty() {
-                    break;
-                }
-            }
-            Ok(current)
-        }
-        LoweredPropertyPath::Alternative(alternatives) => {
-            let mut results = HashSet::new();
-            for alternative in alternatives {
-                results.extend(resolve_lowered_property_path(
-                    context,
-                    focus_node,
-                    alternative,
-                )?);
-            }
-            Ok(results.into_iter().collect())
-        }
+#[derive(Clone, Copy)]
+struct ValidationCompiledPathResolver<'a> {
+    context: &'a ValidationContext,
+}
+
+impl crate::sparql::CompiledPathResolver for ValidationCompiledPathResolver<'_> {
+    type Error = String;
+
+    fn direct_values(&self, focus: &Term, predicate: &NamedNode) -> Result<Vec<Term>, Self::Error> {
+        self.context
+            .compiled_focus_objects_for_predicate(focus, predicate)
+    }
+
+    fn inverse_values(
+        &self,
+        focus: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, Self::Error> {
+        self.context
+            .compiled_focus_subjects_for_inverse_predicate(focus, predicate)
+    }
+
+    fn without_delta(&self) -> Self {
+        *self
     }
 }
 
-fn resolve_lowered_property_path_in_store(
-    context: &ValidationContext,
-    focus_node: &Term,
-    path: &LoweredPropertyPath,
-) -> Result<Vec<Term>, String> {
-    match path {
-        LoweredPropertyPath::SelfNode => Ok(vec![focus_node.clone()]),
-        LoweredPropertyPath::NamedNode(predicate) => {
-            let Ok(subject_ref) = focus_node.try_to_subject_ref() else {
-                return Ok(Vec::new());
-            };
-            Ok(context
-                .quads_for_pattern(Some(subject_ref), Some(predicate.as_ref()), None, None)?
-                .into_iter()
-                .map(|quad| quad.object)
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect())
-        }
-        LoweredPropertyPath::ReverseNamedNode(predicate) => Ok(context
-            .quads_for_pattern(None, Some(predicate.as_ref()), Some(focus_node), None)?
+#[derive(Clone, Copy)]
+struct StoreCompiledPathResolver<'a> {
+    context: &'a ValidationContext,
+}
+
+impl crate::sparql::CompiledPathResolver for StoreCompiledPathResolver<'_> {
+    type Error = String;
+
+    fn direct_values(&self, focus: &Term, predicate: &NamedNode) -> Result<Vec<Term>, Self::Error> {
+        let Ok(subject_ref) = focus.try_to_subject_ref() else {
+            return Ok(Vec::new());
+        };
+        Ok(self
+            .context
+            .quads_for_pattern(Some(subject_ref), Some(predicate.as_ref()), None, None)?
+            .into_iter()
+            .map(|quad| quad.object)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect())
+    }
+
+    fn inverse_values(
+        &self,
+        focus: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, Self::Error> {
+        Ok(self
+            .context
+            .quads_for_pattern(None, Some(predicate.as_ref()), Some(focus), None)?
             .into_iter()
             .map(|quad| quad.subject.into())
             .collect::<HashSet<Term>>()
             .into_iter()
-            .collect()),
-        LoweredPropertyPath::ZeroOrOne(inner) => {
-            let mut results = HashSet::from([focus_node.clone()]);
-            results.extend(resolve_lowered_property_path_in_store(
-                context, focus_node, inner,
-            )?);
-            Ok(results.into_iter().collect())
-        }
-        LoweredPropertyPath::ZeroOrMore(inner) => {
-            let mut results = HashSet::new();
-            let mut frontier = vec![focus_node.clone()];
-            while let Some(node) = frontier.pop() {
-                if !results.insert(node.clone()) {
-                    continue;
-                }
-                frontier.extend(resolve_lowered_property_path_in_store(
-                    context, &node, inner,
-                )?);
-            }
-            Ok(results.into_iter().collect())
-        }
-        LoweredPropertyPath::OneOrMore(inner) => {
-            let mut results = HashSet::new();
-            let mut frontier = resolve_lowered_property_path_in_store(context, focus_node, inner)?;
-            while let Some(node) = frontier.pop() {
-                if !results.insert(node.clone()) {
-                    continue;
-                }
-                frontier.extend(resolve_lowered_property_path_in_store(
-                    context, &node, inner,
-                )?);
-            }
-            Ok(results.into_iter().collect())
-        }
-        LoweredPropertyPath::Sequence(segments) => {
-            let mut current = vec![focus_node.clone()];
-            for segment in segments {
-                let mut next = HashSet::new();
-                for node in &current {
-                    next.extend(resolve_lowered_property_path_in_store(
-                        context, node, segment,
-                    )?);
-                }
-                current = next.into_iter().collect();
-                if current.is_empty() {
-                    break;
-                }
-            }
-            Ok(current)
-        }
-        LoweredPropertyPath::Alternative(alternatives) => {
-            let mut results = HashSet::new();
-            for alternative in alternatives {
-                results.extend(resolve_lowered_property_path_in_store(
-                    context,
-                    focus_node,
-                    alternative,
-                )?);
-            }
-            Ok(results.into_iter().collect())
-        }
+            .collect())
+    }
+
+    fn without_delta(&self) -> Self {
+        *self
     }
 }
 
@@ -376,9 +290,13 @@ fn lowered_path_reaches_target(
     path: &LoweredPropertyPath,
     target: &Term,
 ) -> Result<bool, String> {
-    Ok(resolve_lowered_property_path(context, focus_node, path)?
-        .iter()
-        .any(|candidate| candidate == target))
+    Ok(evaluate_compiled_path(
+        &ValidationCompiledPathResolver { context },
+        focus_node,
+        path,
+    )?
+    .iter()
+    .any(|candidate| candidate == target))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -394,7 +312,11 @@ fn try_run_lowered_adjacent_predicate_whitelist(
     messages: &[Term],
     severity: Option<Severity>,
 ) -> Result<Option<Vec<ComponentValidationResult>>, String> {
-    let anchors = resolve_lowered_property_path(context, c.focus_node(), &plan.anchor_path)?;
+    let anchors = evaluate_compiled_path(
+        &ValidationCompiledPathResolver { context },
+        c.focus_node(),
+        &plan.anchor_path,
+    )?;
     if anchors.is_empty() {
         return Ok(Some(vec![]));
     }
@@ -464,8 +386,11 @@ fn try_run_lowered_required_path_support(
     messages: &[Term],
     severity: Option<Severity>,
 ) -> Result<Option<Vec<ComponentValidationResult>>, String> {
-    let related_nodes =
-        resolve_lowered_property_path(context, c.focus_node(), &plan.antecedent_path)?;
+    let related_nodes = evaluate_compiled_path(
+        &ValidationCompiledPathResolver { context },
+        c.focus_node(),
+        &plan.antecedent_path,
+    )?;
     if related_nodes.is_empty() {
         return Ok(Some(vec![]));
     }
@@ -529,8 +454,11 @@ fn try_run_lowered_missing_related_node(
     messages: &[Term],
     severity: Option<Severity>,
 ) -> Result<Option<Vec<ComponentValidationResult>>, String> {
-    let mut related_nodes =
-        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.related_path)?;
+    let mut related_nodes = evaluate_compiled_path(
+        &StoreCompiledPathResolver { context },
+        c.focus_node(),
+        &plan.related_path,
+    )?;
     if let Some(class_term) = &plan.related_class {
         related_nodes.retain(|related| {
             term_satisfies_lowered_class(context, related, class_term).unwrap_or(false)
@@ -540,8 +468,11 @@ fn try_run_lowered_missing_related_node(
         return Ok(Some(vec![]));
     }
 
-    let required_nodes =
-        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.required_path)?;
+    let required_nodes = evaluate_compiled_path(
+        &StoreCompiledPathResolver { context },
+        c.focus_node(),
+        &plan.required_path,
+    )?;
     if !required_nodes.is_empty() {
         return Ok(Some(vec![]));
     }
@@ -622,7 +553,7 @@ fn lowered_subclass_related(
         rdfs::SUB_CLASS_OF.into_owned(),
     )));
     Ok(
-        resolve_lowered_property_path_in_store(context, left, &subclass_star)?
+        evaluate_compiled_path(&StoreCompiledPathResolver { context }, left, &subclass_star)?
             .into_iter()
             .any(|candidate| candidate == *right),
     )
@@ -645,7 +576,11 @@ fn collect_constituents(
     let Some(constituent_path) = constituent_path else {
         return Ok(Vec::new());
     };
-    resolve_lowered_property_path_in_store(context, value, constituent_path)
+    evaluate_compiled_path(
+        &StoreCompiledPathResolver { context },
+        value,
+        constituent_path,
+    )
 }
 
 fn value_pair_is_incompatible(
@@ -728,10 +663,16 @@ fn try_run_lowered_local_set_compatibility(
     messages: &[Term],
     severity: Option<Severity>,
 ) -> Result<Option<Vec<ComponentValidationResult>>, String> {
-    let left_anchors =
-        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.left_anchor_path)?;
-    let right_anchors =
-        resolve_lowered_property_path_in_store(context, c.focus_node(), &plan.right_anchor_path)?;
+    let left_anchors = evaluate_compiled_path(
+        &StoreCompiledPathResolver { context },
+        c.focus_node(),
+        &plan.left_anchor_path,
+    )?;
+    let right_anchors = evaluate_compiled_path(
+        &StoreCompiledPathResolver { context },
+        c.focus_node(),
+        &plan.right_anchor_path,
+    )?;
     if left_anchors.is_empty() || right_anchors.is_empty() {
         return Ok(Some(vec![]));
     }
@@ -743,8 +684,11 @@ fn try_run_lowered_local_set_compatibility(
         {
             continue;
         }
-        let left_values =
-            resolve_lowered_property_path_in_store(context, left_anchor, &plan.left_value_path)?;
+        let left_values = evaluate_compiled_path(
+            &StoreCompiledPathResolver { context },
+            left_anchor,
+            &plan.left_value_path,
+        )?;
         if left_values.is_empty() {
             continue;
         }
@@ -758,8 +702,8 @@ fn try_run_lowered_local_set_compatibility(
             {
                 continue;
             }
-            let right_values = resolve_lowered_property_path_in_store(
-                context,
+            let right_values = evaluate_compiled_path(
+                &StoreCompiledPathResolver { context },
                 right_anchor,
                 &plan.right_value_path,
             )?;

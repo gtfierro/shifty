@@ -1933,59 +1933,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             oxigraph::model::NamedNode,
             oxigraph::model::Term,
         )>, String> {
-            match native_rule {
-                shifty::sparql::CompiledSparqlRule::PathCopy {
-                    construct_predicate,
-                    source_path,
-                } => {
-                    let values = shifty::sparql::evaluate_compiled_path(
-                        &GeneratedCompiledPathResolver {
-                            compiled_rule_index,
-                            store,
-                            data_graph,
-                            delta,
-                            use_delta: true,
-                        },
-                        focus,
-                        source_path,
-                    )?;
-                    Ok(values
-                        .into_iter()
-                        .map(|value| (focus.clone(), construct_predicate.clone(), value))
-                        .collect())
-                }
-                shifty::sparql::CompiledSparqlRule::EqualityConstant {
-                    construct_predicate,
-                    left_path,
-                    right_path,
-                    object,
-                } => {
-                    let base_resolver = GeneratedCompiledPathResolver {
-                        compiled_rule_index,
-                        store,
-                        data_graph,
-                        delta,
-                        use_delta: false,
-                    };
-                    let left_values = shifty::sparql::evaluate_compiled_path(
-                        &base_resolver,
-                        focus,
-                        left_path,
-                    )?;
-                    let right_values = shifty::sparql::evaluate_compiled_path(
-                        &base_resolver,
-                        focus,
-                        right_path,
-                    )?;
-                    let right_set: std::collections::HashSet<oxigraph::model::Term> =
-                        right_values.into_iter().collect();
-                    if left_values.into_iter().any(|value| right_set.contains(&value)) {
-                        Ok(vec![(focus.clone(), construct_predicate.clone(), object.clone())])
-                    } else {
-                        Ok(Vec::new())
-                    }
-                }
-            }
+            shifty::sparql::execute_compiled_rule(
+                &GeneratedCompiledPathResolver {
+                    compiled_rule_index,
+                    store,
+                    data_graph,
+                    delta,
+                    use_delta: true,
+                },
+                native_rule,
+                focus,
+            )
         }
 
         fn insert_inferred_candidates(
