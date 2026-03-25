@@ -9,7 +9,9 @@ use crate::runtime::{
 };
 use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
-use crate::sparql::{CompiledIndexRequirement, SparqlExecutor, SparqlServices};
+use crate::sparql::{
+    CompiledIndexRequirement, SparqlExecutor, SparqlServices, compiled_sparql_index_plan,
+};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, TraceItem};
 use fixedbitset::FixedBitSet;
@@ -499,32 +501,25 @@ impl ValidationContext {
         &self,
         requirements: &[CompiledIndexRequirement],
     ) -> Result<(), String> {
-        let mut missing_outgoing = HashSet::new();
-        let mut missing_incoming = HashSet::new();
+        let mut missing_plans = Vec::new();
         {
             let index = self.compiled_sparql_index.read().unwrap();
-            for requirement in requirements {
-                match requirement {
-                    CompiledIndexRequirement::OutgoingValues { predicate }
-                        if !index.covered_outgoing_predicates.contains(predicate) =>
-                    {
-                        missing_outgoing.insert(predicate.clone());
-                    }
-                    CompiledIndexRequirement::IncomingValues { predicate }
-                        if !index.covered_incoming_predicates.contains(predicate) =>
-                    {
-                        missing_incoming.insert(predicate.clone());
-                    }
-                    _ => {}
+            for plan in compiled_sparql_index_plan(requirements.iter()) {
+                let needs_outgoing = plan.include_outgoing
+                    && !index.covered_outgoing_predicates.contains(&plan.predicate);
+                let needs_incoming = plan.include_incoming
+                    && !index.covered_incoming_predicates.contains(&plan.predicate);
+                if needs_outgoing || needs_incoming {
+                    missing_plans.push((plan.predicate, needs_outgoing, needs_incoming));
                 }
             }
         }
 
-        for predicate in missing_outgoing.union(&missing_incoming) {
+        for (predicate, include_outgoing, include_incoming) in missing_plans {
             self.extend_compiled_sparql_index_for_predicate(
-                predicate,
-                missing_outgoing.contains(predicate),
-                missing_incoming.contains(predicate),
+                &predicate,
+                include_outgoing,
+                include_incoming,
             )?;
         }
 

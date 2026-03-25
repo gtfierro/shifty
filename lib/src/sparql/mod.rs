@@ -185,6 +185,13 @@ pub enum CompiledIndexRequirement {
     IncomingValues { predicate: NamedNode },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPredicateIndexPlan {
+    pub predicate: NamedNode,
+    pub include_outgoing: bool,
+    pub include_incoming: bool,
+}
+
 #[derive(Default)]
 pub struct SparqlServices {
     prefix_cache: Mutex<HashMap<Term, String>>,
@@ -931,6 +938,42 @@ pub fn compiled_sparql_index_requirements(
     });
     requirements.dedup();
     requirements
+}
+
+pub fn compiled_sparql_index_plan<'a>(
+    requirements: impl IntoIterator<Item = &'a CompiledIndexRequirement>,
+) -> Vec<CompiledPredicateIndexPlan> {
+    let mut planned = Vec::<CompiledPredicateIndexPlan>::new();
+    for requirement in requirements {
+        match requirement {
+            CompiledIndexRequirement::OutgoingValues { predicate } => {
+                if let Some(existing) = planned.iter_mut().find(|item| item.predicate == *predicate)
+                {
+                    existing.include_outgoing = true;
+                } else {
+                    planned.push(CompiledPredicateIndexPlan {
+                        predicate: predicate.clone(),
+                        include_outgoing: true,
+                        include_incoming: false,
+                    });
+                }
+            }
+            CompiledIndexRequirement::IncomingValues { predicate } => {
+                if let Some(existing) = planned.iter_mut().find(|item| item.predicate == *predicate)
+                {
+                    existing.include_incoming = true;
+                } else {
+                    planned.push(CompiledPredicateIndexPlan {
+                        predicate: predicate.clone(),
+                        include_outgoing: false,
+                        include_incoming: true,
+                    });
+                }
+            }
+        }
+    }
+    planned.sort_by(|left, right| left.predicate.as_str().cmp(right.predicate.as_str()));
+    planned
 }
 
 fn lowered_sparql_query_kind_in_graph_pattern(
@@ -3548,6 +3591,40 @@ mod tests {
                 },
                 CompiledIndexRequirement::OutgoingValues {
                     predicate: NamedNode::new_unchecked("http://example.com/ns#value"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn compiled_index_plan_merges_directions_per_predicate() {
+        let marker = NamedNode::new("http://example.com/ns#marker").unwrap();
+        let value = NamedNode::new("http://example.com/ns#value").unwrap();
+
+        let plan = compiled_sparql_index_plan([
+            &CompiledIndexRequirement::OutgoingValues {
+                predicate: marker.clone(),
+            },
+            &CompiledIndexRequirement::IncomingValues {
+                predicate: marker.clone(),
+            },
+            &CompiledIndexRequirement::OutgoingValues {
+                predicate: value.clone(),
+            },
+        ]);
+
+        assert_eq!(
+            plan,
+            vec![
+                CompiledPredicateIndexPlan {
+                    predicate: marker,
+                    include_outgoing: true,
+                    include_incoming: true,
+                },
+                CompiledPredicateIndexPlan {
+                    predicate: value,
+                    include_outgoing: true,
+                    include_incoming: false,
                 },
             ]
         );

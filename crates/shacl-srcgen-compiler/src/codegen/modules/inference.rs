@@ -7,6 +7,10 @@ use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use regex::Regex;
+use shifty::sparql::{
+    CompiledIndexRequirement as SharedCompiledIndexRequirement,
+    CompiledPredicateIndexPlan as SharedCompiledPredicateIndexPlan, compiled_sparql_index_plan,
+};
 use std::sync::OnceLock;
 use syn::LitStr;
 
@@ -104,18 +108,11 @@ enum GeneratedNativeSparqlRule {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum GeneratedCompiledIndexRequirement {
-    OutgoingValues(String),
-    IncomingValues(String),
-}
-
 #[derive(Debug, Clone)]
 struct GeneratedRuleMetadata {
     dependencies: Vec<GeneratedFocusDependency>,
     sparql_prefilter: Option<GeneratedSparqlPrefilter>,
     native_sparql: Option<GeneratedNativeSparqlRule>,
-    index_requirements: Vec<GeneratedCompiledIndexRequirement>,
 }
 
 fn dedup_preserve_order<T: Eq + std::hash::Hash + Clone>(items: &mut Vec<T>) {
@@ -190,28 +187,22 @@ fn generated_metadata_for_rule(rule: &crate::ir::SrcGenRule) -> GeneratedRuleMet
     dependencies.extend(generated_dependencies_for_rule(rule));
     dedup_preserve_order(&mut dependencies);
 
-    let (sparql_prefilter, native_sparql, index_requirements) = match &rule.kind {
+    let (sparql_prefilter, native_sparql) = match &rule.kind {
         SrcGenRuleKind::Sparql {
             query,
             compiled_query,
-            index_requirements,
             ..
         } => (
             generated_sparql_prefilter(query),
             compiled_query.as_ref().map(generated_native_sparql_rule),
-            index_requirements
-                .iter()
-                .map(generated_compiled_index_requirement)
-                .collect(),
         ),
-        _ => (None, None, Vec::new()),
+        _ => (None, None),
     };
 
     GeneratedRuleMetadata {
         dependencies,
         sparql_prefilter,
         native_sparql,
-        index_requirements,
     }
 }
 
@@ -265,15 +256,19 @@ fn generated_native_path(path: &SrcGenLoweredPropertyPath) -> GeneratedNativeSpa
     }
 }
 
-fn generated_compiled_index_requirement(
+fn shared_compiled_index_requirement(
     requirement: &SrcGenCompiledIndexRequirement,
-) -> GeneratedCompiledIndexRequirement {
+) -> SharedCompiledIndexRequirement {
     match requirement {
         SrcGenCompiledIndexRequirement::OutgoingValues { predicate_iri } => {
-            GeneratedCompiledIndexRequirement::OutgoingValues(predicate_iri.clone())
+            SharedCompiledIndexRequirement::OutgoingValues {
+                predicate: oxigraph::model::NamedNode::new_unchecked(predicate_iri.clone()),
+            }
         }
         SrcGenCompiledIndexRequirement::IncomingValues { predicate_iri } => {
-            GeneratedCompiledIndexRequirement::IncomingValues(predicate_iri.clone())
+            SharedCompiledIndexRequirement::IncomingValues {
+                predicate: oxigraph::model::NamedNode::new_unchecked(predicate_iri.clone()),
+            }
         }
     }
 }
@@ -564,23 +559,33 @@ fn native_sparql_expr(rule: &GeneratedNativeSparqlRule) -> TokenStream {
     }
 }
 
-fn compiled_index_requirement_expr(requirement: &GeneratedCompiledIndexRequirement) -> TokenStream {
-    match requirement {
-        GeneratedCompiledIndexRequirement::OutgoingValues(predicate) => {
-            let predicate_lit = LitStr::new(predicate, Span::call_site());
-            quote! {
-                CompiledIndexRequirement::OutgoingValues(
-                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
-                )
-            }
-        }
-        GeneratedCompiledIndexRequirement::IncomingValues(predicate) => {
-            let predicate_lit = LitStr::new(predicate, Span::call_site());
-            quote! {
-                CompiledIndexRequirement::IncomingValues(
-                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
-                )
-            }
+fn generated_compiled_index_plan_for_rules(
+    rules: &[&crate::ir::SrcGenRule],
+) -> Vec<SharedCompiledPredicateIndexPlan> {
+    let shared_index_requirements: Vec<SharedCompiledIndexRequirement> = rules
+        .iter()
+        .flat_map(|rule| match &rule.kind {
+            SrcGenRuleKind::Sparql {
+                index_requirements, ..
+            } => index_requirements
+                .iter()
+                .map(shared_compiled_index_requirement)
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect();
+    compiled_sparql_index_plan(shared_index_requirements.iter())
+}
+
+fn compiled_index_plan_expr(plan: &SharedCompiledPredicateIndexPlan) -> TokenStream {
+    let predicate_lit = LitStr::new(plan.predicate.as_str(), Span::call_site());
+    let include_outgoing = plan.include_outgoing;
+    let include_incoming = plan.include_incoming;
+    quote! {
+        CompiledIndexPlan {
+            predicate: oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
+            include_outgoing: #include_outgoing,
+            include_incoming: #include_incoming,
         }
     }
 }
@@ -598,6 +603,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         .iter()
         .filter(|rule| matches!(rule.kind, SrcGenRuleKind::Sparql { .. }))
         .count();
+    let compiled_index_plan_exprs: Vec<TokenStream> =
+        generated_compiled_index_plan_for_rules(&specialized_rules)
+            .iter()
+            .map(compiled_index_plan_expr)
+            .collect();
 
     let mut metadata_match_arms: Vec<TokenStream> = Vec::new();
     let mut specialized_rule_blocks: Vec<TokenStream> = Vec::new();
@@ -621,17 +631,11 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .map(native_sparql_expr)
             .map(|expr| quote! { Some(#expr) })
             .unwrap_or_else(|| quote! { None });
-        let index_requirement_exprs: Vec<TokenStream> = metadata
-            .index_requirements
-            .iter()
-            .map(compiled_index_requirement_expr)
-            .collect();
         metadata_match_arms.push(quote! {
             #rule_index => RuleMetadata {
                 dependencies: vec![#(#dependency_exprs),*],
                 sparql_prefilter: #prefilter_expr,
                 native_sparql: #native_expr,
-                index_requirements: vec![#(#index_requirement_exprs),*],
             }
         });
 
@@ -1099,13 +1103,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             dependencies: Vec<FocusDependency>,
             sparql_prefilter: Option<SparqlPrefilter>,
             native_sparql: Option<NativeSparqlRule>,
-            index_requirements: Vec<CompiledIndexRequirement>,
         }
 
-        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-        enum CompiledIndexRequirement {
-            OutgoingValues(oxigraph::model::NamedNode),
-            IncomingValues(oxigraph::model::NamedNode),
+        #[derive(Debug, Clone)]
+        struct CompiledIndexPlan {
+            predicate: oxigraph::model::NamedNode,
+            include_outgoing: bool,
+            include_incoming: bool,
         }
 
         #[derive(Debug, Clone, Copy, Default)]
@@ -1146,23 +1150,21 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 store: &oxigraph::store::Store,
                 data_graph: &oxigraph::model::NamedNode,
             ) -> Result<Self, String> {
-                let mut required_directions: std::collections::HashMap<
+                let required_directions: std::collections::HashMap<
                     oxigraph::model::NamedNode,
                     PredicateIndexDirections,
-                > = std::collections::HashMap::new();
-                for rule_index in 0..GENERATED_SPECIALIZED_INFERENCE_RULES {
-                    let metadata = generated_rule_metadata(rule_index);
-                    for requirement in metadata.index_requirements {
-                        match requirement {
-                            CompiledIndexRequirement::OutgoingValues(predicate) => {
-                                required_directions.entry(predicate).or_default().outgoing = true;
-                            }
-                            CompiledIndexRequirement::IncomingValues(predicate) => {
-                                required_directions.entry(predicate).or_default().incoming = true;
-                            }
-                        }
-                    }
-                }
+                > = generated_compiled_index_plan()
+                    .into_iter()
+                    .map(|plan| {
+                        (
+                            plan.predicate,
+                            PredicateIndexDirections {
+                                outgoing: plan.include_outgoing,
+                                incoming: plan.include_incoming,
+                            },
+                        )
+                    })
+                    .collect();
 
                 let index = Self {
                     required_directions,
@@ -1468,6 +1470,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 #(#metadata_match_arms,)*
                 _ => unreachable!("unknown generated inference rule index {rule_index}"),
             }
+        }
+
+        fn generated_compiled_index_plan() -> Vec<CompiledIndexPlan> {
+            vec![#(#compiled_index_plan_exprs),*]
         }
 
         fn build_dependency_index() -> (
@@ -2389,16 +2395,24 @@ mod tests {
             fallback_only: false,
         };
 
-        let metadata = generated_metadata_for_rule(&rule);
+        let plan = generated_compiled_index_plan_for_rules(&[&rule]);
         assert_eq!(
-            metadata.index_requirements,
+            plan,
             vec![
-                GeneratedCompiledIndexRequirement::IncomingValues(
-                    "http://example.com/ns#sourceOf".to_string()
-                ),
-                GeneratedCompiledIndexRequirement::OutgoingValues(
-                    "http://example.com/ns#value".to_string()
-                ),
+                SharedCompiledPredicateIndexPlan {
+                    predicate: oxigraph::model::NamedNode::new_unchecked(
+                        "http://example.com/ns#sourceOf",
+                    ),
+                    include_outgoing: false,
+                    include_incoming: true,
+                },
+                SharedCompiledPredicateIndexPlan {
+                    predicate: oxigraph::model::NamedNode::new_unchecked(
+                        "http://example.com/ns#value",
+                    ),
+                    include_outgoing: true,
+                    include_incoming: false,
+                },
             ]
         );
     }
