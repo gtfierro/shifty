@@ -1,7 +1,7 @@
 use crate::codegen::render_tokens_as_module;
 use crate::ir::{
-    SrcGenCompiledSparqlRule, SrcGenIR, SrcGenLoweredPropertyPath, SrcGenRuleKind,
-    SrcGenRuleObject, SrcGenRuleSubject,
+    SrcGenCompiledIndexRequirement, SrcGenCompiledSparqlRule, SrcGenIR, SrcGenLoweredPropertyPath,
+    SrcGenRuleKind, SrcGenRuleObject, SrcGenRuleSubject,
 };
 use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
@@ -104,11 +104,18 @@ enum GeneratedNativeSparqlRule {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GeneratedCompiledIndexRequirement {
+    OutgoingValues(String),
+    IncomingValues(String),
+}
+
 #[derive(Debug, Clone)]
 struct GeneratedRuleMetadata {
     dependencies: Vec<GeneratedFocusDependency>,
     sparql_prefilter: Option<GeneratedSparqlPrefilter>,
     native_sparql: Option<GeneratedNativeSparqlRule>,
+    index_requirements: Vec<GeneratedCompiledIndexRequirement>,
 }
 
 fn dedup_preserve_order<T: Eq + std::hash::Hash + Clone>(items: &mut Vec<T>) {
@@ -183,22 +190,28 @@ fn generated_metadata_for_rule(rule: &crate::ir::SrcGenRule) -> GeneratedRuleMet
     dependencies.extend(generated_dependencies_for_rule(rule));
     dedup_preserve_order(&mut dependencies);
 
-    let (sparql_prefilter, native_sparql) = match &rule.kind {
+    let (sparql_prefilter, native_sparql, index_requirements) = match &rule.kind {
         SrcGenRuleKind::Sparql {
             query,
             compiled_query,
+            index_requirements,
             ..
         } => (
             generated_sparql_prefilter(query),
             compiled_query.as_ref().map(generated_native_sparql_rule),
+            index_requirements
+                .iter()
+                .map(generated_compiled_index_requirement)
+                .collect(),
         ),
-        _ => (None, None),
+        _ => (None, None, Vec::new()),
     };
 
     GeneratedRuleMetadata {
         dependencies,
         sparql_prefilter,
         native_sparql,
+        index_requirements,
     }
 }
 
@@ -249,6 +262,19 @@ fn generated_native_path(path: &SrcGenLoweredPropertyPath) -> GeneratedNativeSpa
         SrcGenLoweredPropertyPath::Alternative { items } => GeneratedNativeSparqlPath::Alternative(
             items.iter().map(generated_native_path).collect(),
         ),
+    }
+}
+
+fn generated_compiled_index_requirement(
+    requirement: &SrcGenCompiledIndexRequirement,
+) -> GeneratedCompiledIndexRequirement {
+    match requirement {
+        SrcGenCompiledIndexRequirement::OutgoingValues { predicate_iri } => {
+            GeneratedCompiledIndexRequirement::OutgoingValues(predicate_iri.clone())
+        }
+        SrcGenCompiledIndexRequirement::IncomingValues { predicate_iri } => {
+            GeneratedCompiledIndexRequirement::IncomingValues(predicate_iri.clone())
+        }
     }
 }
 
@@ -538,6 +564,27 @@ fn native_sparql_expr(rule: &GeneratedNativeSparqlRule) -> TokenStream {
     }
 }
 
+fn compiled_index_requirement_expr(requirement: &GeneratedCompiledIndexRequirement) -> TokenStream {
+    match requirement {
+        GeneratedCompiledIndexRequirement::OutgoingValues(predicate) => {
+            let predicate_lit = LitStr::new(predicate, Span::call_site());
+            quote! {
+                CompiledIndexRequirement::OutgoingValues(
+                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
+                )
+            }
+        }
+        GeneratedCompiledIndexRequirement::IncomingValues(predicate) => {
+            let predicate_lit = LitStr::new(predicate, Span::call_site());
+            quote! {
+                CompiledIndexRequirement::IncomingValues(
+                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
+                )
+            }
+        }
+    }
+}
+
 pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
     let generated_rule_count = ir.meta.rule_count;
     let fallback_rule_count = ir.rules.iter().filter(|rule| rule.fallback_only).count();
@@ -574,11 +621,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             .map(native_sparql_expr)
             .map(|expr| quote! { Some(#expr) })
             .unwrap_or_else(|| quote! { None });
+        let index_requirement_exprs: Vec<TokenStream> = metadata
+            .index_requirements
+            .iter()
+            .map(compiled_index_requirement_expr)
+            .collect();
         metadata_match_arms.push(quote! {
             #rule_index => RuleMetadata {
                 dependencies: vec![#(#dependency_exprs),*],
                 sparql_prefilter: #prefilter_expr,
                 native_sparql: #native_expr,
+                index_requirements: vec![#(#index_requirement_exprs),*],
             }
         });
 
@@ -721,6 +774,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     let added = insert_inferred_candidates(
                                         store,
                                         &graph_name,
+                                        &compiled_rule_index,
                                         vec![(subject_term, predicate.clone(), object_term)],
                                         &mut round_inserted_quads,
                                     )?;
@@ -801,6 +855,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                                 native_rule,
                                                 focus,
                                                 &delta,
+                                                &compiled_rule_index,
                                                 store,
                                                 data_graph,
                                             )
@@ -959,6 +1014,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 let added = insert_inferred_candidates(
                                     store,
                                     &graph_name,
+                                    &compiled_rule_index,
                                     all_candidates,
                                     &mut round_inserted_quads,
                                 )?;
@@ -1043,6 +1099,162 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             dependencies: Vec<FocusDependency>,
             sparql_prefilter: Option<SparqlPrefilter>,
             native_sparql: Option<NativeSparqlRule>,
+            index_requirements: Vec<CompiledIndexRequirement>,
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        enum CompiledIndexRequirement {
+            OutgoingValues(oxigraph::model::NamedNode),
+            IncomingValues(oxigraph::model::NamedNode),
+        }
+
+        #[derive(Debug, Clone, Copy, Default)]
+        struct PredicateIndexDirections {
+            outgoing: bool,
+            incoming: bool,
+        }
+
+        #[derive(Debug, Default)]
+        struct CompiledRuleIndexState {
+            outgoing_values_by_focus: std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashMap<
+                    oxigraph::model::NamedNode,
+                    std::collections::HashSet<oxigraph::model::Term>,
+                >,
+            >,
+            incoming_values_by_focus: std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashMap<
+                    oxigraph::model::NamedNode,
+                    std::collections::HashSet<oxigraph::model::Term>,
+                >,
+            >,
+        }
+
+        #[derive(Debug, Default)]
+        struct CompiledRuleIndex {
+            required_directions: std::collections::HashMap<
+                oxigraph::model::NamedNode,
+                PredicateIndexDirections,
+            >,
+            state: std::sync::RwLock<CompiledRuleIndexState>,
+        }
+
+        impl CompiledRuleIndex {
+            fn build(
+                store: &oxigraph::store::Store,
+                data_graph: &oxigraph::model::NamedNode,
+            ) -> Result<Self, String> {
+                let mut required_directions: std::collections::HashMap<
+                    oxigraph::model::NamedNode,
+                    PredicateIndexDirections,
+                > = std::collections::HashMap::new();
+                for rule_index in 0..GENERATED_SPECIALIZED_INFERENCE_RULES {
+                    let metadata = generated_rule_metadata(rule_index);
+                    for requirement in metadata.index_requirements {
+                        match requirement {
+                            CompiledIndexRequirement::OutgoingValues(predicate) => {
+                                required_directions.entry(predicate).or_default().outgoing = true;
+                            }
+                            CompiledIndexRequirement::IncomingValues(predicate) => {
+                                required_directions.entry(predicate).or_default().incoming = true;
+                            }
+                        }
+                    }
+                }
+
+                let index = Self {
+                    required_directions,
+                    state: std::sync::RwLock::new(CompiledRuleIndexState::default()),
+                };
+                index.populate(store, data_graph)?;
+                Ok(index)
+            }
+
+            fn populate(
+                &self,
+                store: &oxigraph::store::Store,
+                data_graph: &oxigraph::model::NamedNode,
+            ) -> Result<(), String> {
+                for (predicate, directions) in &self.required_directions {
+                    for graph in validation_graphs(data_graph)? {
+                        let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                        for quad in store.quads_for_pattern(
+                            None,
+                            Some(predicate.as_ref()),
+                            None,
+                            Some(graph_ref),
+                        ) {
+                            let quad = quad.map_err(|err| {
+                                format!("failed to populate compiled rule index: {err}")
+                            })?;
+                            self.record_quad_with_directions(&quad, *directions);
+                        }
+                    }
+                }
+                Ok(())
+            }
+
+            fn outgoing_values(
+                &self,
+                focus: &oxigraph::model::Term,
+                predicate: &oxigraph::model::NamedNode,
+            ) -> Option<Vec<oxigraph::model::Term>> {
+                let state = self.state.read().unwrap();
+                state
+                    .outgoing_values_by_focus
+                    .get(focus)
+                    .and_then(|by_predicate| by_predicate.get(predicate))
+                    .map(|values| values.iter().cloned().collect())
+            }
+
+            fn incoming_values(
+                &self,
+                focus: &oxigraph::model::Term,
+                predicate: &oxigraph::model::NamedNode,
+            ) -> Option<Vec<oxigraph::model::Term>> {
+                let state = self.state.read().unwrap();
+                state
+                    .incoming_values_by_focus
+                    .get(focus)
+                    .and_then(|by_predicate| by_predicate.get(predicate))
+                    .map(|values| values.iter().cloned().collect())
+            }
+
+            fn record_quad(&self, quad: &oxigraph::model::Quad) {
+                let Some(directions) = self.required_directions.get(&quad.predicate).copied() else {
+                    return;
+                };
+                self.record_quad_with_directions(quad, directions);
+            }
+
+            fn record_quad_with_directions(
+                &self,
+                quad: &oxigraph::model::Quad,
+                directions: PredicateIndexDirections,
+            ) {
+                let subject = oxigraph::model::Term::from(quad.subject.clone());
+                let mut state = self.state.write().unwrap();
+                if directions.outgoing {
+                    state
+                        .outgoing_values_by_focus
+                        .entry(subject.clone())
+                        .or_default()
+                        .entry(quad.predicate.clone())
+                        .or_default()
+                        .insert(quad.object.clone());
+                }
+                if directions.incoming {
+                    state
+                        .incoming_values_by_focus
+                        .entry(quad.object.clone())
+                        .or_default()
+                        .entry(quad.predicate.clone())
+                        .or_default()
+                        .insert(subject);
+                }
+            }
         }
 
         #[derive(Debug, Clone)]
@@ -1676,14 +1888,23 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
 
         fn native_direct_values(
+            compiled_rule_index: &CompiledRuleIndex,
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
             focus: &oxigraph::model::Term,
             predicate: &oxigraph::model::NamedNode,
             delta: &DeltaIndex,
         ) -> Result<Vec<oxigraph::model::Term>, String> {
+            if delta.is_initial {
+                if let Some(values) = compiled_rule_index.outgoing_values(focus, predicate) {
+                    return Ok(values);
+                }
+            }
             if !delta.is_initial {
                 if let Some(values) = delta.outgoing_values_for_focus(focus, predicate) {
+                    return Ok(values);
+                }
+                if let Some(values) = compiled_rule_index.outgoing_values(focus, predicate) {
                     return Ok(values);
                 }
             }
@@ -1691,6 +1912,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
 
         fn native_path_values(
+            compiled_rule_index: &CompiledRuleIndex,
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
             focus: &oxigraph::model::Term,
@@ -1700,11 +1922,19 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             match path {
                 NativeSparqlPath::SelfNode => Ok(vec![focus.clone()]),
                 NativeSparqlPath::NamedNode(predicate) => {
-                    native_direct_values(store, data_graph, focus, predicate, delta)
+                    native_direct_values(compiled_rule_index, store, data_graph, focus, predicate, delta)
                 }
                 NativeSparqlPath::ReverseNamedNode(predicate) => {
+                    if delta.is_initial {
+                        if let Some(values) = compiled_rule_index.incoming_values(focus, predicate) {
+                            return Ok(values);
+                        }
+                    }
                     if !delta.is_initial {
                         if let Some(values) = delta.incoming_values_for_focus(focus, predicate) {
+                            return Ok(values);
+                        }
+                        if let Some(values) = compiled_rule_index.incoming_values(focus, predicate) {
                             return Ok(values);
                         }
                     }
@@ -1713,6 +1943,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 NativeSparqlPath::ZeroOrOne(inner) => {
                     let mut results = std::collections::HashSet::from([focus.clone()]);
                     results.extend(native_path_values(
+                        compiled_rule_index,
                         store,
                         data_graph,
                         focus,
@@ -1729,6 +1960,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             continue;
                         }
                         frontier.extend(native_path_values(
+                            compiled_rule_index,
                             store,
                             data_graph,
                             &node,
@@ -1741,6 +1973,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 NativeSparqlPath::OneOrMore(inner) => {
                     let mut results = std::collections::HashSet::new();
                     let mut frontier = native_path_values(
+                        compiled_rule_index,
                         store,
                         data_graph,
                         focus,
@@ -1752,6 +1985,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                             continue;
                         }
                         frontier.extend(native_path_values(
+                            compiled_rule_index,
                             store,
                             data_graph,
                             &node,
@@ -1772,6 +2006,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         let mut next = Vec::new();
                         for node in &frontier {
                             next.extend(native_path_values(
+                                compiled_rule_index,
                                 store,
                                 data_graph,
                                 node,
@@ -1792,6 +2027,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     let mut results = std::collections::HashSet::new();
                     for item in items {
                         results.extend(native_path_values(
+                            compiled_rule_index,
                             store,
                             data_graph,
                             focus,
@@ -1808,6 +2044,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             native_rule: &NativeSparqlRule,
             focus: &oxigraph::model::Term,
             delta: &DeltaIndex,
+            compiled_rule_index: &CompiledRuleIndex,
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
         ) -> Result<Vec<(
@@ -1821,6 +2058,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     source_path,
                 } => {
                     let values = native_path_values(
+                        compiled_rule_index,
                         store,
                         data_graph,
                         focus,
@@ -1838,9 +2076,16 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     right_path,
                     object,
                 } => {
-                    let left_values =
-                        native_path_values(store, data_graph, focus, left_path, &DeltaIndex::default())?;
+                    let left_values = native_path_values(
+                        compiled_rule_index,
+                        store,
+                        data_graph,
+                        focus,
+                        left_path,
+                        &DeltaIndex::default(),
+                    )?;
                     let right_values = native_path_values(
+                        compiled_rule_index,
                         store,
                         data_graph,
                         focus,
@@ -1861,6 +2106,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         fn insert_inferred_candidates(
             store: &oxigraph::store::Store,
             graph_name: &oxigraph::model::GraphName,
+            compiled_rule_index: &CompiledRuleIndex,
             candidates: Vec<(
                 oxigraph::model::Term,
                 oxigraph::model::NamedNode,
@@ -1908,6 +2154,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             store
                 .extend(inferred_quads.iter().cloned())
                 .map_err(|err| format!("failed to insert inferred quads: {err}"))?;
+            for quad in &inferred_quads {
+                compiled_rule_index.record_quad(quad);
+            }
             inserted_quads.extend(inferred_quads);
             Ok(inserted)
         }
@@ -1928,7 +2177,14 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 .map(|quad| (oxigraph::model::Term::from(quad.subject), quad.predicate, quad.object))
                 .collect();
             let mut inserted_quads = Vec::new();
-            insert_inferred_candidates(store, graph_name, candidates, &mut inserted_quads)
+            let compiled_rule_index = CompiledRuleIndex::default();
+            insert_inferred_candidates(
+                store,
+                graph_name,
+                &compiled_rule_index,
+                candidates,
+                &mut inserted_quads,
+            )
         }
 
         pub fn run_generated_inference_with_options(
@@ -1943,6 +2199,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             let graph_name = oxigraph::model::GraphName::NamedNode(data_graph.clone());
             let mut inserted = 0usize;
             let (dependency_index, always_run_rule_indices) = build_dependency_index();
+            let compiled_rule_index = CompiledRuleIndex::build(store, data_graph)?;
             let mut delta = DeltaIndex::initial();
 
             loop {
@@ -2014,6 +2271,7 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{SrcGenCompiledIndexRequirement, SrcGenRule};
     use oxigraph::model::{Literal, Term};
 
     #[test]
@@ -2092,5 +2350,56 @@ mod tests {
             }
             other => panic!("unexpected native rule: {other:?}"),
         }
+    }
+
+    #[test]
+    fn generated_metadata_preserves_compiled_index_requirements() {
+        let rule = SrcGenRule {
+            id: 7,
+            target_classes: Vec::new(),
+            target_nodes: Vec::new(),
+            target_subjects_of: Vec::new(),
+            target_objects_of: Vec::new(),
+            target_advanced_select_queries: Vec::new(),
+            kind: SrcGenRuleKind::Sparql {
+                query: "CONSTRUCT { $this <http://example.com/ns#flag> ?value . } WHERE { $this ^<http://example.com/ns#sourceOf>/<http://example.com/ns#value> ?value . }".to_string(),
+                condition_shape_iris: Vec::new(),
+                compiled_query: Some(SrcGenCompiledSparqlRule::PathCopy {
+                    construct_predicate_iri: "http://example.com/ns#flag".to_string(),
+                    source_path: SrcGenLoweredPropertyPath::Sequence {
+                        items: vec![
+                            SrcGenLoweredPropertyPath::ReverseNamedNode {
+                                predicate_iri: "http://example.com/ns#sourceOf".to_string(),
+                            },
+                            SrcGenLoweredPropertyPath::NamedNode {
+                                predicate_iri: "http://example.com/ns#value".to_string(),
+                            },
+                        ],
+                    },
+                }),
+                index_requirements: vec![
+                    SrcGenCompiledIndexRequirement::IncomingValues {
+                        predicate_iri: "http://example.com/ns#sourceOf".to_string(),
+                    },
+                    SrcGenCompiledIndexRequirement::OutgoingValues {
+                        predicate_iri: "http://example.com/ns#value".to_string(),
+                    },
+                ],
+            },
+            fallback_only: false,
+        };
+
+        let metadata = generated_metadata_for_rule(&rule);
+        assert_eq!(
+            metadata.index_requirements,
+            vec![
+                GeneratedCompiledIndexRequirement::IncomingValues(
+                    "http://example.com/ns#sourceOf".to_string()
+                ),
+                GeneratedCompiledIndexRequirement::OutgoingValues(
+                    "http://example.com/ns#value".to_string()
+                ),
+            ]
+        );
     }
 }
