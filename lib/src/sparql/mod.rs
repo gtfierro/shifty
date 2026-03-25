@@ -17,7 +17,7 @@ use oxigraph::store::Store;
 use spargebra::algebra::{
     AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
 };
-use spargebra::term::{BlankNode, GroundTerm, TermPattern};
+use spargebra::term::{BlankNode, GroundTerm, NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::{Query as AlgebraQuery, SparqlParser};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -163,6 +163,20 @@ pub enum LoweredPropertyPath {
     OneOrMore(Box<LoweredPropertyPath>),
     Sequence(Vec<LoweredPropertyPath>),
     Alternative(Vec<LoweredPropertyPath>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompiledSparqlRule {
+    PathCopy {
+        construct_predicate: NamedNode,
+        source_path: LoweredPropertyPath,
+    },
+    EqualityConstant {
+        construct_predicate: NamedNode,
+        left_path: LoweredPropertyPath,
+        right_path: LoweredPropertyPath,
+        object: Term,
+    },
 }
 
 #[derive(Default)]
@@ -883,6 +897,10 @@ pub fn lowered_sparql_query_kind(query: &AlgebraQuery) -> Option<LoweredSparqlQu
             lowered_sparql_query_kind_in_graph_pattern(pattern)
         }
     }
+}
+
+pub fn compiled_sparql_rule(query: &AlgebraQuery) -> Option<CompiledSparqlRule> {
+    compiled_path_copy_rule(query).or_else(|| compiled_equality_constant_rule(query))
 }
 
 fn lowered_sparql_query_kind_in_graph_pattern(
@@ -1958,6 +1976,213 @@ fn term_pattern_matches_var(term: &TermPattern, var_name: &str) -> bool {
 fn term_pattern_var_name(term: &TermPattern) -> Option<&str> {
     match term {
         TermPattern::Variable(variable) => Some(variable.as_str()),
+        _ => None,
+    }
+}
+
+fn compiled_path_copy_rule(query: &AlgebraQuery) -> Option<CompiledSparqlRule> {
+    let AlgebraQuery::Construct {
+        template, pattern, ..
+    } = query
+    else {
+        return None;
+    };
+    let [triple] = template.as_slice() else {
+        return None;
+    };
+    if !term_pattern_is_this(&triple.subject) {
+        return None;
+    }
+    let construct_predicate = named_node_pattern_named_node(&triple.predicate)?;
+    let target_var = term_pattern_var_name(&triple.object)?;
+    let source_path = compiled_path_from_graph_pattern(pattern, target_var)?;
+    Some(CompiledSparqlRule::PathCopy {
+        construct_predicate,
+        source_path,
+    })
+}
+
+fn compiled_equality_constant_rule(query: &AlgebraQuery) -> Option<CompiledSparqlRule> {
+    let AlgebraQuery::Construct {
+        template, pattern, ..
+    } = query
+    else {
+        return None;
+    };
+    let [triple] = template.as_slice() else {
+        return None;
+    };
+    if !term_pattern_is_this(&triple.subject) {
+        return None;
+    }
+    let construct_predicate = named_node_pattern_named_node(&triple.predicate)?;
+    let object = term_pattern_constant(&triple.object)?;
+    let GraphPattern::Filter { expr, inner } = unwrap_projection_like_pattern(pattern) else {
+        return None;
+    };
+    let Expression::Equal(left, right) = expr else {
+        return None;
+    };
+    let left_var = expression_variable_name(left.as_ref())?;
+    let right_var = expression_variable_name(right.as_ref())?;
+    let GraphPattern::Bgp { patterns } = unwrap_projection_like_pattern(inner.as_ref()) else {
+        return None;
+    };
+    let [left_pattern, right_pattern] = patterns.as_slice() else {
+        return None;
+    };
+    if !term_pattern_is_this(&left_pattern.subject) || !term_pattern_is_this(&right_pattern.subject)
+    {
+        return None;
+    }
+    let first_var = term_pattern_var_name(&left_pattern.object)?;
+    let second_var = term_pattern_var_name(&right_pattern.object)?;
+    let filter_matches = (first_var == left_var && second_var == right_var)
+        || (first_var == right_var && second_var == left_var);
+    if !filter_matches {
+        return None;
+    }
+    Some(CompiledSparqlRule::EqualityConstant {
+        construct_predicate,
+        left_path: compiled_single_triple_path(left_pattern)?,
+        right_path: compiled_single_triple_path(right_pattern)?,
+        object,
+    })
+}
+
+fn compiled_path_from_graph_pattern(
+    pattern: &GraphPattern,
+    target_var: &str,
+) -> Option<LoweredPropertyPath> {
+    match unwrap_projection_like_pattern(pattern) {
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } => {
+            if !term_pattern_is_this(subject) || term_pattern_var_name(object)? != target_var {
+                return None;
+            }
+            lower_property_path(path)
+        }
+        other => {
+            let mut patterns = Vec::new();
+            collect_named_triple_patterns(other, &mut patterns)?;
+            compiled_path_from_named_triples(&patterns, target_var)
+        }
+    }
+}
+
+fn compiled_single_triple_path(triple: &TriplePattern) -> Option<LoweredPropertyPath> {
+    if !term_pattern_is_this(&triple.subject) {
+        return None;
+    }
+    Some(LoweredPropertyPath::NamedNode(
+        named_node_pattern_named_node(&triple.predicate)?,
+    ))
+}
+
+fn collect_named_triple_patterns<'a>(
+    pattern: &'a GraphPattern,
+    patterns: &mut Vec<&'a TriplePattern>,
+) -> Option<()> {
+    match unwrap_projection_like_pattern(pattern) {
+        GraphPattern::Bgp {
+            patterns: bgp_patterns,
+        } => {
+            for triple in bgp_patterns {
+                named_node_pattern_named_node(&triple.predicate)?;
+                patterns.push(triple);
+            }
+            Some(())
+        }
+        GraphPattern::Join { left, right } => {
+            collect_named_triple_patterns(left.as_ref(), patterns)?;
+            collect_named_triple_patterns(right.as_ref(), patterns)
+        }
+        _ => None,
+    }
+}
+
+fn compiled_path_from_named_triples(
+    patterns: &[&TriplePattern],
+    target_var: &str,
+) -> Option<LoweredPropertyPath> {
+    let mut used = vec![false; patterns.len()];
+    let mut segments = Vec::new();
+    let mut current = TermPattern::Variable(spargebra::term::Variable::new_unchecked("this"));
+
+    loop {
+        if term_pattern_var_name(&current) == Some(target_var) {
+            break;
+        }
+
+        let mut next_match: Option<(usize, LoweredPropertyPath, TermPattern)> = None;
+        for (index, triple) in patterns.iter().enumerate() {
+            if used[index] {
+                continue;
+            }
+            let predicate = named_node_pattern_named_node(&triple.predicate)?;
+            let candidate = if triple.subject == current {
+                Some((
+                    index,
+                    LoweredPropertyPath::NamedNode(predicate),
+                    triple.object.clone(),
+                ))
+            } else if triple.object == current {
+                Some((
+                    index,
+                    LoweredPropertyPath::ReverseNamedNode(predicate),
+                    triple.subject.clone(),
+                ))
+            } else {
+                None
+            };
+            if let Some(candidate) = candidate {
+                if next_match.is_some() {
+                    return None;
+                }
+                next_match = Some(candidate);
+            }
+        }
+
+        let Some((index, segment, next)) = next_match else {
+            return None;
+        };
+        used[index] = true;
+        segments.push(segment);
+        current = next;
+    }
+
+    if used.iter().any(|used| !used) || segments.is_empty() {
+        return None;
+    }
+
+    Some(if segments.len() == 1 {
+        segments.pop().expect("single segment")
+    } else {
+        LoweredPropertyPath::Sequence(segments)
+    })
+}
+
+fn named_node_pattern_named_node(pattern: &NamedNodePattern) -> Option<NamedNode> {
+    match pattern {
+        NamedNodePattern::NamedNode(node) => Some(node.clone()),
+        NamedNodePattern::Variable(_) => None,
+    }
+}
+
+fn term_pattern_constant(term: &TermPattern) -> Option<Term> {
+    match term {
+        TermPattern::NamedNode(node) => Some(Term::NamedNode(node.clone())),
+        TermPattern::Literal(literal) => Some(Term::Literal(literal.clone())),
+        _ => None,
+    }
+}
+
+fn expression_variable_name(expression: &Expression) -> Option<&str> {
+    match expression {
+        Expression::Variable(variable) => Some(variable.as_str()),
         _ => None,
     }
 }
@@ -3188,6 +3413,57 @@ mod tests {
                     },
                 }
             )))
+        );
+    }
+
+    #[test]
+    fn compiles_prefixed_path_copy_rule() {
+        let query = parse_query(
+            "PREFIX ex: <http://example.com/ns#>
+             CONSTRUCT { $this ex:output ?value . }
+             WHERE { $this ^ex:sourceOf/ex:value ?value . }",
+        );
+
+        assert_eq!(
+            compiled_sparql_rule(&query),
+            Some(CompiledSparqlRule::PathCopy {
+                construct_predicate: NamedNode::new_unchecked("http://example.com/ns#output"),
+                source_path: LoweredPropertyPath::Sequence(vec![
+                    LoweredPropertyPath::ReverseNamedNode(NamedNode::new_unchecked(
+                        "http://example.com/ns#sourceOf",
+                    )),
+                    LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "http://example.com/ns#value",
+                    )),
+                ]),
+            })
+        );
+    }
+
+    #[test]
+    fn compiles_prefixed_equality_constant_rule() {
+        let query = parse_query(
+            "PREFIX ex: <http://example.com/ns#>
+             CONSTRUCT { $this ex:isSquare true . }
+             WHERE {
+               $this ex:width ?w ;
+                     ex:height ?h .
+               FILTER(?w = ?h)
+             }",
+        );
+
+        assert_eq!(
+            compiled_sparql_rule(&query),
+            Some(CompiledSparqlRule::EqualityConstant {
+                construct_predicate: NamedNode::new_unchecked("http://example.com/ns#isSquare"),
+                left_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                    "http://example.com/ns#width",
+                )),
+                right_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                    "http://example.com/ns#height",
+                )),
+                object: Term::Literal(Literal::from(true)),
+            })
         );
     }
 }

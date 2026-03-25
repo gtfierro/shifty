@@ -1,8 +1,9 @@
 use crate::ir::{
-    FallbackAnnotation, RuleFallbackAnnotation, SrcGenCompatibilitySide, SrcGenComponent,
-    SrcGenComponentKind, SrcGenIR, SrcGenLocalSetCompatibilityMode, SrcGenLoweredPropertyPath,
-    SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape, SrcGenPath, SrcGenPropertyShape,
-    SrcGenRule, SrcGenRuleKind, SrcGenRuleObject, SrcGenRuleSubject, SrcGenSparqlBinding,
+    FallbackAnnotation, RuleFallbackAnnotation, SrcGenCompatibilitySide, SrcGenCompiledSparqlRule,
+    SrcGenComponent, SrcGenComponentKind, SrcGenIR, SrcGenLocalSetCompatibilityMode,
+    SrcGenLoweredPropertyPath, SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape,
+    SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
+    SrcGenRuleSubject, SrcGenSparqlBinding,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
@@ -12,7 +13,7 @@ use shifty::shacl_ir::{
 use shifty::sparql::{
     AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode, LocalSetCompatibilityPlan,
     LoweredPropertyPath, LoweredSparqlQueryKind, MissingRelatedNodePlan, RequiredPathSupportPlan,
-    SparqlExecutor, lowered_sparql_query_kind,
+    SparqlExecutor, compiled_sparql_rule, lowered_sparql_query_kind,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -61,6 +62,29 @@ fn srcgen_local_set_compatibility_mode(
         LocalSetCompatibilityMode::CompositeVsComposite => {
             SrcGenLocalSetCompatibilityMode::CompositeVsComposite
         }
+    }
+}
+
+fn srcgen_compiled_rule(rule: &shifty::sparql::CompiledSparqlRule) -> SrcGenCompiledSparqlRule {
+    match rule {
+        shifty::sparql::CompiledSparqlRule::PathCopy {
+            construct_predicate,
+            source_path,
+        } => SrcGenCompiledSparqlRule::PathCopy {
+            construct_predicate_iri: construct_predicate.as_str().to_string(),
+            source_path: srcgen_lowered_path(source_path),
+        },
+        shifty::sparql::CompiledSparqlRule::EqualityConstant {
+            construct_predicate,
+            left_path,
+            right_path,
+            object,
+        } => SrcGenCompiledSparqlRule::EqualityConstant {
+            construct_predicate_iri: construct_predicate.as_str().to_string(),
+            left_path: srcgen_lowered_path(left_path),
+            right_path: srcgen_lowered_path(right_path),
+            object: object.clone(),
+        },
     }
 }
 
@@ -997,10 +1021,17 @@ fn rule_kind(
                     Some("SPARQLRule has an empty query string".to_string()),
                 );
             }
+            let compiled_query = shifty::sparql::SparqlServices::new()
+                .algebra(&rule.query)
+                .ok()
+                .and_then(|algebra| compiled_sparql_rule(&algebra))
+                .as_ref()
+                .map(srcgen_compiled_rule);
             (
                 SrcGenRuleKind::Sparql {
                     query: rule.query.clone(),
                     condition_shape_iris,
+                    compiled_query,
                 },
                 None,
             )
@@ -4707,6 +4738,7 @@ WHERE {
             SrcGenRuleKind::Sparql {
                 ref query,
                 ref condition_shape_iris,
+                compiled_query: None,
             } if query.contains("CONSTRUCT")
                 && condition_shape_iris == &vec!["urn:shape:condition".to_string()]
         ));

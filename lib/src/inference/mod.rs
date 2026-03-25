@@ -8,6 +8,9 @@ use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
 use crate::optimize::InferenceOptimizationConfig;
 use crate::runtime::component::{ConformanceReport, check_conformance_for_node};
+use crate::sparql::{
+    CompiledSparqlRule, LoweredPropertyPath, SparqlExecutor, SparqlServices, compiled_sparql_rule,
+};
 use crate::trace::TraceEvent;
 use crate::types::{ComponentID, ID, PropShapeID, RuleID, TargetEvalExt, TraceItem};
 use log::{debug, info};
@@ -15,9 +18,6 @@ use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
 use regex::Regex;
-use spargebra::algebra::{Expression, GraphPattern, PropertyPathExpression};
-use spargebra::term::{NamedNodePattern, TermPattern};
-use spargebra::{Query as AlgebraQuery, SparqlParser};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
@@ -554,7 +554,7 @@ impl<'a> InferenceEngine<'a> {
         &self,
         rule: &SparqlRule,
         prefilter: Option<&SparqlPrefilter>,
-        native_rule: Option<&NativeSparqlRule>,
+        native_rule: Option<&CompiledSparqlRule>,
         delta: &DeltaIndex,
         focus_nodes: &[Term],
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
@@ -656,7 +656,7 @@ impl<'a> InferenceEngine<'a> {
     fn apply_native_sparql_rule(
         &self,
         rule: &SparqlRule,
-        native_rule: &NativeSparqlRule,
+        native_rule: &CompiledSparqlRule,
         prefilter: Option<&SparqlPrefilter>,
         delta: &DeltaIndex,
         focus_nodes: &[Term],
@@ -677,7 +677,7 @@ impl<'a> InferenceEngine<'a> {
 
                 let mut batch = Vec::new();
                 match native_rule {
-                    NativeSparqlRule::PathCopy {
+                    CompiledSparqlRule::PathCopy {
                         construct_predicate,
                         source_path,
                     } => {
@@ -691,28 +691,20 @@ impl<'a> InferenceEngine<'a> {
                             batch.push((focus.clone(), construct_predicate.clone(), value));
                         }
                     }
-                    NativeSparqlRule::EqualityConstant {
+                    CompiledSparqlRule::EqualityConstant {
                         construct_predicate,
-                        left_predicate,
-                        right_predicate,
+                        left_path,
+                        right_path,
                         object,
                     } => {
                         let left_values = self
-                            .context
-                            .focus_objects_for_predicate(
-                                focus,
-                                &Term::NamedNode(left_predicate.clone()),
-                            )
+                            .native_path_values(focus, left_path, &DeltaIndex::default())
                             .map_err(|message| InferenceError::RuleExecution {
                                 rule_id: rule.id,
                                 message,
                             })?;
                         let right_values = self
-                            .context
-                            .focus_objects_for_predicate(
-                                focus,
-                                &Term::NamedNode(right_predicate.clone()),
-                            )
+                            .native_path_values(focus, right_path, &DeltaIndex::default())
                             .map_err(|message| InferenceError::RuleExecution {
                                 rule_id: rule.id,
                                 message,
@@ -776,14 +768,15 @@ impl<'a> InferenceEngine<'a> {
     fn native_path_values(
         &self,
         focus: &Term,
-        path: &NativeSparqlPath,
+        path: &LoweredPropertyPath,
         delta: &DeltaIndex,
     ) -> Result<Vec<Term>, String> {
         match path {
-            NativeSparqlPath::NamedNode(predicate) => {
+            LoweredPropertyPath::SelfNode => Ok(vec![focus.clone()]),
+            LoweredPropertyPath::NamedNode(predicate) => {
                 self.native_direct_values(focus, predicate, delta)
             }
-            NativeSparqlPath::ReverseNamedNode(predicate) => {
+            LoweredPropertyPath::ReverseNamedNode(predicate) => {
                 if !delta.is_initial
                     && let Some(values) = delta.incoming_values_for_focus(focus, predicate)
                 {
@@ -795,7 +788,42 @@ impl<'a> InferenceEngine<'a> {
                     &Term::NamedNode(predicate.clone()),
                 )
             }
-            NativeSparqlPath::Sequence(segments) => {
+            LoweredPropertyPath::ZeroOrOne(inner) => {
+                let mut results = HashSet::from([focus.clone()]);
+                results.extend(self.native_path_values(focus, inner, &DeltaIndex::default())?);
+                Ok(results.into_iter().collect())
+            }
+            LoweredPropertyPath::ZeroOrMore(inner) => {
+                let mut results = HashSet::new();
+                let mut frontier = vec![focus.clone()];
+                while let Some(node) = frontier.pop() {
+                    if !results.insert(node.clone()) {
+                        continue;
+                    }
+                    frontier.extend(self.native_path_values(
+                        &node,
+                        inner,
+                        &DeltaIndex::default(),
+                    )?);
+                }
+                Ok(results.into_iter().collect())
+            }
+            LoweredPropertyPath::OneOrMore(inner) => {
+                let mut results = HashSet::new();
+                let mut frontier = self.native_path_values(focus, inner, &DeltaIndex::default())?;
+                while let Some(node) = frontier.pop() {
+                    if !results.insert(node.clone()) {
+                        continue;
+                    }
+                    frontier.extend(self.native_path_values(
+                        &node,
+                        inner,
+                        &DeltaIndex::default(),
+                    )?);
+                }
+                Ok(results.into_iter().collect())
+            }
+            LoweredPropertyPath::Sequence(segments) => {
                 let mut frontier = vec![focus.clone()];
                 for (index, segment) in segments.iter().enumerate() {
                     let segment_delta = if index + 1 == segments.len() {
@@ -815,6 +843,17 @@ impl<'a> InferenceEngine<'a> {
                     }
                 }
                 Ok(frontier)
+            }
+            LoweredPropertyPath::Alternative(alternatives) => {
+                let mut results = HashSet::new();
+                for alternative in alternatives {
+                    results.extend(self.native_path_values(
+                        focus,
+                        alternative,
+                        &DeltaIndex::default(),
+                    )?);
+                }
+                Ok(results.into_iter().collect())
             }
         }
     }
@@ -1147,7 +1186,7 @@ struct RulePlan {
     rule: Rule,
     signature: RuleSignature,
     sparql_prefilter: Option<SparqlPrefilter>,
-    native_sparql: Option<NativeSparqlRule>,
+    native_sparql: Option<CompiledSparqlRule>,
 }
 
 impl RulePlan {
@@ -1410,27 +1449,6 @@ struct SparqlPrefilter {
     direct_outgoing_predicates: Vec<NamedNode>,
     direct_incoming_predicates: Vec<NamedNode>,
     direct_classes: Vec<Term>,
-}
-
-#[derive(Debug, Clone)]
-enum NativeSparqlPath {
-    NamedNode(NamedNode),
-    ReverseNamedNode(NamedNode),
-    Sequence(Vec<NativeSparqlPath>),
-}
-
-#[derive(Debug, Clone)]
-enum NativeSparqlRule {
-    PathCopy {
-        construct_predicate: NamedNode,
-        source_path: NativeSparqlPath,
-    },
-    EqualityConstant {
-        construct_predicate: NamedNode,
-        left_predicate: NamedNode,
-        right_predicate: NamedNode,
-        object: Term,
-    },
 }
 
 impl SparqlPrefilter {
@@ -1700,17 +1718,17 @@ fn writes_for_sparql_rule(rule: &SparqlRule) -> (Vec<RuleWrite>, SignaturePrecis
     };
 
     let mut writes = match &native_rule {
-        NativeSparqlRule::PathCopy {
+        CompiledSparqlRule::PathCopy {
             construct_predicate,
             ..
         }
-        | NativeSparqlRule::EqualityConstant {
+        | CompiledSparqlRule::EqualityConstant {
             construct_predicate,
             ..
         } => vec![RuleWrite::Predicate(construct_predicate.clone())],
     };
 
-    if let NativeSparqlRule::EqualityConstant {
+    if let CompiledSparqlRule::EqualityConstant {
         construct_predicate,
         object,
         ..
@@ -1896,275 +1914,12 @@ fn sparql_prefilter_for_rule(rule: &Rule) -> Option<SparqlPrefilter> {
     (!prefilter.is_empty()).then_some(prefilter)
 }
 
-fn native_sparql_rule(rule: &Rule) -> Option<NativeSparqlRule> {
+fn native_sparql_rule(rule: &Rule) -> Option<CompiledSparqlRule> {
     let Rule::Sparql(rule) = rule else {
         return None;
     };
-    let algebra = SparqlParser::new().parse_query(&rule.query).ok()?;
-    native_path_copy_rule(&algebra).or_else(|| native_equality_constant_rule(&algebra))
-}
-
-fn native_path_copy_rule(query: &AlgebraQuery) -> Option<NativeSparqlRule> {
-    let AlgebraQuery::Construct {
-        template, pattern, ..
-    } = query
-    else {
-        return None;
-    };
-    let [triple] = template.as_slice() else {
-        return None;
-    };
-    if !term_pattern_is_this(&triple.subject) {
-        return None;
-    }
-    let construct_predicate = named_node_pattern_named_node(&triple.predicate)?;
-    let target_var = term_pattern_variable_name(&triple.object)?;
-    let source_path = native_path_from_graph_pattern(pattern, target_var)?;
-    Some(NativeSparqlRule::PathCopy {
-        construct_predicate,
-        source_path,
-    })
-}
-
-fn native_equality_constant_rule(query: &AlgebraQuery) -> Option<NativeSparqlRule> {
-    let AlgebraQuery::Construct {
-        template, pattern, ..
-    } = query
-    else {
-        return None;
-    };
-    let [triple] = template.as_slice() else {
-        return None;
-    };
-    if !term_pattern_is_this(&triple.subject) {
-        return None;
-    }
-    let construct_predicate = named_node_pattern_named_node(&triple.predicate)?;
-    let object = term_pattern_constant(&triple.object)?;
-    let GraphPattern::Filter { inner, expr } = strip_simple_graph_pattern(pattern) else {
-        return None;
-    };
-    let Expression::Equal(left, right) = expr else {
-        return None;
-    };
-    let left_var = expression_variable_name(left.as_ref())?;
-    let right_var = expression_variable_name(right.as_ref())?;
-    let GraphPattern::Bgp { patterns } = strip_simple_graph_pattern(inner.as_ref()) else {
-        return None;
-    };
-    let [left_pattern, right_pattern] = patterns.as_slice() else {
-        return None;
-    };
-    let left_predicate = named_node_pattern_named_node(&left_pattern.predicate)?;
-    let right_predicate = named_node_pattern_named_node(&right_pattern.predicate)?;
-    if !term_pattern_is_this(&left_pattern.subject) || !term_pattern_is_this(&right_pattern.subject)
-    {
-        return None;
-    }
-    let first_var = term_pattern_variable_name(&left_pattern.object)?;
-    let second_var = term_pattern_variable_name(&right_pattern.object)?;
-    let filter_matches = (first_var == left_var && second_var == right_var)
-        || (first_var == right_var && second_var == left_var);
-    if !filter_matches {
-        return None;
-    }
-    Some(NativeSparqlRule::EqualityConstant {
-        construct_predicate,
-        left_predicate,
-        right_predicate,
-        object,
-    })
-}
-
-fn native_path_from_graph_pattern(
-    pattern: &GraphPattern,
-    target_var: &str,
-) -> Option<NativeSparqlPath> {
-    match strip_simple_graph_pattern(pattern) {
-        GraphPattern::Path {
-            subject,
-            path,
-            object,
-        } => {
-            if !term_pattern_is_this(subject) || term_pattern_variable_name(object)? != target_var {
-                return None;
-            }
-            native_path_from_property_path(path)
-        }
-        other => {
-            let mut patterns = Vec::new();
-            collect_named_triple_patterns(other, &mut patterns)?;
-            native_path_from_named_triples(&patterns, target_var)
-        }
-    }
-}
-
-fn native_path_from_property_path(path: &PropertyPathExpression) -> Option<NativeSparqlPath> {
-    match path {
-        PropertyPathExpression::NamedNode(predicate) => {
-            Some(NativeSparqlPath::NamedNode(predicate.clone()))
-        }
-        PropertyPathExpression::Reverse(inner) => match inner.as_ref() {
-            PropertyPathExpression::NamedNode(predicate) => {
-                Some(NativeSparqlPath::ReverseNamedNode(predicate.clone()))
-            }
-            _ => None,
-        },
-        PropertyPathExpression::Sequence(left, right) => {
-            let mut segments = Vec::new();
-            flatten_native_path_sequence(left.as_ref(), &mut segments)?;
-            flatten_native_path_sequence(right.as_ref(), &mut segments)?;
-            Some(NativeSparqlPath::Sequence(segments))
-        }
-        _ => None,
-    }
-}
-
-fn flatten_native_path_sequence(
-    path: &PropertyPathExpression,
-    segments: &mut Vec<NativeSparqlPath>,
-) -> Option<()> {
-    match path {
-        PropertyPathExpression::Sequence(left, right) => {
-            flatten_native_path_sequence(left.as_ref(), segments)?;
-            flatten_native_path_sequence(right.as_ref(), segments)?;
-            Some(())
-        }
-        other => {
-            segments.push(native_path_from_property_path(other)?);
-            Some(())
-        }
-    }
-}
-
-fn collect_named_triple_patterns<'a>(
-    pattern: &'a GraphPattern,
-    patterns: &mut Vec<&'a spargebra::term::TriplePattern>,
-) -> Option<()> {
-    match strip_simple_graph_pattern(pattern) {
-        GraphPattern::Bgp {
-            patterns: bgp_patterns,
-        } => {
-            for triple in bgp_patterns {
-                named_node_pattern_named_node(&triple.predicate)?;
-                patterns.push(triple);
-            }
-            Some(())
-        }
-        GraphPattern::Join { left, right } => {
-            collect_named_triple_patterns(left.as_ref(), patterns)?;
-            collect_named_triple_patterns(right.as_ref(), patterns)
-        }
-        _ => None,
-    }
-}
-
-fn native_path_from_named_triples(
-    patterns: &[&spargebra::term::TriplePattern],
-    target_var: &str,
-) -> Option<NativeSparqlPath> {
-    let mut used = vec![false; patterns.len()];
-    let mut segments = Vec::new();
-    let mut current = TermPattern::Variable(Variable::new_unchecked("this"));
-
-    loop {
-        if term_pattern_variable_name(&current) == Some(target_var) {
-            break;
-        }
-
-        let mut next_match: Option<(usize, NativeSparqlPath, TermPattern)> = None;
-        for (index, triple) in patterns.iter().enumerate() {
-            if used[index] {
-                continue;
-            }
-            let predicate = named_node_pattern_named_node(&triple.predicate)?;
-            let candidate = if triple.subject == current {
-                Some((
-                    index,
-                    NativeSparqlPath::NamedNode(predicate),
-                    triple.object.clone(),
-                ))
-            } else if triple.object == current {
-                Some((
-                    index,
-                    NativeSparqlPath::ReverseNamedNode(predicate),
-                    triple.subject.clone(),
-                ))
-            } else {
-                None
-            };
-
-            if let Some(candidate) = candidate {
-                if next_match.is_some() {
-                    return None;
-                }
-                next_match = Some(candidate);
-            }
-        }
-
-        let (index, segment, next) = next_match?;
-        used[index] = true;
-        segments.push(segment);
-        current = next;
-    }
-
-    if used.iter().any(|used| !used) || segments.is_empty() {
-        return None;
-    }
-
-    Some(if segments.len() == 1 {
-        segments.pop().expect("single segment")
-    } else {
-        NativeSparqlPath::Sequence(segments)
-    })
-}
-
-fn strip_simple_graph_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
-    loop {
-        pattern = match pattern {
-            GraphPattern::Distinct { inner }
-            | GraphPattern::Reduced { inner }
-            | GraphPattern::Slice { inner, .. }
-            | GraphPattern::OrderBy { inner, .. }
-            | GraphPattern::Project { inner, .. }
-            | GraphPattern::Group { inner, .. }
-            | GraphPattern::Extend { inner, .. } => inner.as_ref(),
-            other => return other,
-        };
-    }
-}
-
-fn term_pattern_is_this(term: &TermPattern) -> bool {
-    matches!(term, TermPattern::Variable(var) if var.as_str() == "this")
-}
-
-fn term_pattern_variable_name(term: &TermPattern) -> Option<&str> {
-    match term {
-        TermPattern::Variable(var) => Some(var.as_str()),
-        _ => None,
-    }
-}
-
-fn term_pattern_constant(term: &TermPattern) -> Option<Term> {
-    match term {
-        TermPattern::NamedNode(node) => Some(Term::NamedNode(node.clone())),
-        TermPattern::Literal(lit) => Some(Term::Literal(lit.clone())),
-        _ => None,
-    }
-}
-
-fn named_node_pattern_named_node(pattern: &NamedNodePattern) -> Option<NamedNode> {
-    match pattern {
-        NamedNodePattern::NamedNode(node) => Some(node.clone()),
-        NamedNodePattern::Variable(_) => None,
-    }
-}
-
-fn expression_variable_name(expression: &Expression) -> Option<&str> {
-    match expression {
-        Expression::Variable(var) => Some(var.as_str()),
-        _ => None,
-    }
+    let algebra = SparqlServices::new().algebra(&rule.query).ok()?;
+    compiled_sparql_rule(&algebra)
 }
 
 fn extract_sparql_dependencies(query: &str) -> Vec<FocusDependency> {
@@ -2470,20 +2225,20 @@ WHERE { $this ^ex:sourceOf/ex:value ?value . }"#
 
         let native = native_sparql_rule(&rule).expect("query should lower");
         match native {
-            NativeSparqlRule::PathCopy {
+            CompiledSparqlRule::PathCopy {
                 construct_predicate,
-                source_path: NativeSparqlPath::Sequence(segments),
+                source_path: LoweredPropertyPath::Sequence(segments),
             } => {
                 assert_eq!(construct_predicate.as_str(), "http://example.com/ns#output");
                 assert_eq!(segments.len(), 2);
                 match &segments[0] {
-                    NativeSparqlPath::ReverseNamedNode(predicate) => {
+                    LoweredPropertyPath::ReverseNamedNode(predicate) => {
                         assert_eq!(predicate.as_str(), "http://example.com/ns#sourceOf");
                     }
                     other => panic!("expected reverse first segment, got {other:?}"),
                 }
                 match &segments[1] {
-                    NativeSparqlPath::NamedNode(predicate) => {
+                    LoweredPropertyPath::NamedNode(predicate) => {
                         assert_eq!(predicate.as_str(), "http://example.com/ns#value");
                     }
                     other => panic!("expected direct second segment, got {other:?}"),
@@ -2513,18 +2268,28 @@ WHERE {
 
         let native = native_sparql_rule(&rule).expect("query should lower");
         match native {
-            NativeSparqlRule::EqualityConstant {
+            CompiledSparqlRule::EqualityConstant {
                 construct_predicate,
-                left_predicate,
-                right_predicate,
+                left_path,
+                right_path,
                 object,
             } => {
                 assert_eq!(
                     construct_predicate.as_str(),
                     "http://example.com/ns#isSquare"
                 );
-                assert_eq!(left_predicate.as_str(), "http://example.com/ns#width");
-                assert_eq!(right_predicate.as_str(), "http://example.com/ns#height");
+                assert_eq!(
+                    left_path,
+                    LoweredPropertyPath::NamedNode(
+                        NamedNode::new("http://example.com/ns#width").unwrap()
+                    )
+                );
+                assert_eq!(
+                    right_path,
+                    LoweredPropertyPath::NamedNode(
+                        NamedNode::new("http://example.com/ns#height").unwrap()
+                    )
+                );
                 assert_eq!(object, Term::Literal(Literal::from(true)));
             }
             other => panic!("expected equality-constant rule, got {other:?}"),

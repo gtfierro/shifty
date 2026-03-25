@@ -165,6 +165,20 @@ pub enum SrcGenLoweredPropertyPath {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenCompiledSparqlRule {
+    PathCopy {
+        construct_predicate_iri: String,
+        source_path: SrcGenLoweredPropertyPath,
+    },
+    EqualityConstant {
+        construct_predicate_iri: String,
+        left_path: SrcGenLoweredPropertyPath,
+        right_path: SrcGenLoweredPropertyPath,
+        object: Term,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SrcGenCompatibilitySide {
     Left,
@@ -330,6 +344,7 @@ pub enum SrcGenRuleKind {
         query: String,
         #[serde(default)]
         condition_shape_iris: Vec<String>,
+        compiled_query: Option<SrcGenCompiledSparqlRule>,
     },
     Unsupported {
         kind: String,
