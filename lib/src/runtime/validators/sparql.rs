@@ -1373,10 +1373,6 @@ impl ValidateComponent for SPARQLConstraintComponent {
             }
         }
 
-        let prepared_query = context
-            .prepare_query(&full_query_str)
-            .map_err(|e| format!("Failed to prepare SPARQL constraint query: {}", e))?;
-
         // Prepare pre-bound variables
         let mut substitutions = vec![];
 
@@ -1487,6 +1483,10 @@ impl ValidateComponent for SPARQLConstraintComponent {
         if let Some(results) = lowered_results {
             return Ok(results);
         }
+
+        let prepared_query = context
+            .prepare_query(&full_query_str)
+            .map_err(|e| format!("Failed to prepare SPARQL constraint query: {}", e))?;
 
         let source_shape = c.source_shape();
         let query_hash = hash_query_64(&full_query_str);
