@@ -179,6 +179,12 @@ pub enum CompiledSparqlRule {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CompiledIndexRequirement {
+    OutgoingValues { predicate: NamedNode },
+    IncomingValues { predicate: NamedNode },
+}
+
 #[derive(Default)]
 pub struct SparqlServices {
     prefix_cache: Mutex<HashMap<Term, String>>,
@@ -901,6 +907,30 @@ pub fn lowered_sparql_query_kind(query: &AlgebraQuery) -> Option<LoweredSparqlQu
 
 pub fn compiled_sparql_rule(query: &AlgebraQuery) -> Option<CompiledSparqlRule> {
     compiled_path_copy_rule(query).or_else(|| compiled_equality_constant_rule(query))
+}
+
+pub fn compiled_sparql_index_requirements(
+    rule: &CompiledSparqlRule,
+) -> Vec<CompiledIndexRequirement> {
+    let mut requirements = Vec::new();
+    match rule {
+        CompiledSparqlRule::PathCopy { source_path, .. } => {
+            collect_compiled_path_index_requirements(source_path, &mut requirements);
+        }
+        CompiledSparqlRule::EqualityConstant {
+            left_path,
+            right_path,
+            ..
+        } => {
+            collect_compiled_path_index_requirements(left_path, &mut requirements);
+            collect_compiled_path_index_requirements(right_path, &mut requirements);
+        }
+    }
+    requirements.sort_by(|left, right| {
+        compiled_index_requirement_sort_key(left).cmp(&compiled_index_requirement_sort_key(right))
+    });
+    requirements.dedup();
+    requirements
 }
 
 fn lowered_sparql_query_kind_in_graph_pattern(
@@ -2000,6 +2030,42 @@ fn compiled_path_copy_rule(query: &AlgebraQuery) -> Option<CompiledSparqlRule> {
         construct_predicate,
         source_path,
     })
+}
+
+fn collect_compiled_path_index_requirements(
+    path: &LoweredPropertyPath,
+    requirements: &mut Vec<CompiledIndexRequirement>,
+) {
+    match path {
+        LoweredPropertyPath::SelfNode => {}
+        LoweredPropertyPath::NamedNode(predicate) => {
+            requirements.push(CompiledIndexRequirement::OutgoingValues {
+                predicate: predicate.clone(),
+            });
+        }
+        LoweredPropertyPath::ReverseNamedNode(predicate) => {
+            requirements.push(CompiledIndexRequirement::IncomingValues {
+                predicate: predicate.clone(),
+            });
+        }
+        LoweredPropertyPath::ZeroOrOne(inner)
+        | LoweredPropertyPath::ZeroOrMore(inner)
+        | LoweredPropertyPath::OneOrMore(inner) => {
+            collect_compiled_path_index_requirements(inner, requirements);
+        }
+        LoweredPropertyPath::Sequence(items) | LoweredPropertyPath::Alternative(items) => {
+            for item in items {
+                collect_compiled_path_index_requirements(item, requirements);
+            }
+        }
+    }
+}
+
+fn compiled_index_requirement_sort_key(requirement: &CompiledIndexRequirement) -> (&str, &str) {
+    match requirement {
+        CompiledIndexRequirement::OutgoingValues { predicate } => ("outgoing", predicate.as_str()),
+        CompiledIndexRequirement::IncomingValues { predicate } => ("incoming", predicate.as_str()),
+    }
 }
 
 fn compiled_equality_constant_rule(query: &AlgebraQuery) -> Option<CompiledSparqlRule> {
@@ -3464,6 +3530,28 @@ mod tests {
                 )),
                 object: Term::Literal(Literal::from(true)),
             })
+        );
+    }
+
+    #[test]
+    fn compiled_rule_reports_index_requirements() {
+        let query = parse_query(
+            "PREFIX ex: <http://example.com/ns#>
+             CONSTRUCT { $this ex:output ?value . }
+             WHERE { $this ^ex:sourceOf/ex:value ?value . }",
+        );
+
+        let compiled = compiled_sparql_rule(&query).expect("compiled rule");
+        assert_eq!(
+            compiled_sparql_index_requirements(&compiled),
+            vec![
+                CompiledIndexRequirement::IncomingValues {
+                    predicate: NamedNode::new_unchecked("http://example.com/ns#sourceOf"),
+                },
+                CompiledIndexRequirement::OutgoingValues {
+                    predicate: NamedNode::new_unchecked("http://example.com/ns#value"),
+                },
+            ]
         );
     }
 }

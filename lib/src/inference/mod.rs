@@ -9,7 +9,8 @@ use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, Tr
 use crate::optimize::InferenceOptimizationConfig;
 use crate::runtime::component::{ConformanceReport, check_conformance_for_node};
 use crate::sparql::{
-    CompiledSparqlRule, LoweredPropertyPath, SparqlExecutor, SparqlServices, compiled_sparql_rule,
+    CompiledIndexRequirement, CompiledSparqlRule, LoweredPropertyPath, SparqlExecutor,
+    SparqlServices, compiled_sparql_index_requirements, compiled_sparql_rule,
 };
 use crate::trace::TraceEvent;
 use crate::types::{ComponentID, ID, PropShapeID, RuleID, TargetEvalExt, TraceItem};
@@ -1187,15 +1188,23 @@ struct RulePlan {
     signature: RuleSignature,
     sparql_prefilter: Option<SparqlPrefilter>,
     native_sparql: Option<CompiledSparqlRule>,
+    #[allow(dead_code)]
+    compiled_index_requirements: Vec<CompiledIndexRequirement>,
 }
 
 impl RulePlan {
     fn for_node_shape(shape: &crate::types::NodeShapeIR, rule: Rule) -> Self {
         let signature = RuleSignature::for_targets_and_rule(&shape.targets, &rule);
+        let native_sparql = native_sparql_rule(&rule);
+        let compiled_index_requirements = native_sparql
+            .as_ref()
+            .map(compiled_sparql_index_requirements)
+            .unwrap_or_default();
         Self {
             owner: RuleOwner::NodeShape(shape.id),
             sparql_prefilter: sparql_prefilter_for_rule(&rule),
-            native_sparql: native_sparql_rule(&rule),
+            native_sparql,
+            compiled_index_requirements,
             rule,
             signature,
         }
@@ -1203,10 +1212,16 @@ impl RulePlan {
 
     fn for_property_shape(shape: &crate::types::PropertyShapeIR, rule: Rule) -> Self {
         let signature = RuleSignature::for_targets_and_rule(&shape.targets, &rule);
+        let native_sparql = native_sparql_rule(&rule);
+        let compiled_index_requirements = native_sparql
+            .as_ref()
+            .map(compiled_sparql_index_requirements)
+            .unwrap_or_default();
         Self {
             owner: RuleOwner::PropertyShape(shape.id),
             sparql_prefilter: sparql_prefilter_for_rule(&rule),
-            native_sparql: native_sparql_rule(&rule),
+            native_sparql,
+            compiled_index_requirements,
             rule,
             signature,
         }
@@ -2090,6 +2105,12 @@ mod tests {
         assert!(plans[1].signature.writes.contains(&RuleWrite::Predicate(
             NamedNode::new("http://example.com/ns#flag").unwrap()
         )));
+        assert_eq!(
+            plans[1].compiled_index_requirements,
+            vec![CompiledIndexRequirement::OutgoingValues {
+                predicate: NamedNode::new("http://example.com/ns#marker").unwrap(),
+            }]
+        );
         assert!(!plans[1].signature.reads.is_empty());
         assert_eq!(
             plans[1].signature.write_precision,

@@ -179,6 +179,12 @@ pub enum SrcGenCompiledSparqlRule {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SrcGenCompiledIndexRequirement {
+    OutgoingValues { predicate_iri: String },
+    IncomingValues { predicate_iri: String },
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SrcGenCompatibilitySide {
     Left,
@@ -345,6 +351,8 @@ pub enum SrcGenRuleKind {
         #[serde(default)]
         condition_shape_iris: Vec<String>,
         compiled_query: Option<SrcGenCompiledSparqlRule>,
+        #[serde(default)]
+        index_requirements: Vec<SrcGenCompiledIndexRequirement>,
     },
     Unsupported {
         kind: String,

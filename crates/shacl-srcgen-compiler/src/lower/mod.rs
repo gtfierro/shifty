@@ -1,9 +1,9 @@
 use crate::ir::{
-    FallbackAnnotation, RuleFallbackAnnotation, SrcGenCompatibilitySide, SrcGenCompiledSparqlRule,
-    SrcGenComponent, SrcGenComponentKind, SrcGenIR, SrcGenLocalSetCompatibilityMode,
-    SrcGenLoweredPropertyPath, SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape,
-    SrcGenPath, SrcGenPropertyShape, SrcGenRule, SrcGenRuleKind, SrcGenRuleObject,
-    SrcGenRuleSubject, SrcGenSparqlBinding,
+    FallbackAnnotation, RuleFallbackAnnotation, SrcGenCompatibilitySide,
+    SrcGenCompiledIndexRequirement, SrcGenCompiledSparqlRule, SrcGenComponent, SrcGenComponentKind,
+    SrcGenIR, SrcGenLocalSetCompatibilityMode, SrcGenLoweredPropertyPath,
+    SrcGenLoweredSparqlQueryKind, SrcGenMeta, SrcGenNodeShape, SrcGenPath, SrcGenPropertyShape,
+    SrcGenRule, SrcGenRuleKind, SrcGenRuleObject, SrcGenRuleSubject, SrcGenSparqlBinding,
 };
 use oxigraph::model::Term;
 use shifty::shacl_ir::{
@@ -11,9 +11,10 @@ use shifty::shacl_ir::{
     RuleCondition, RuleID, SPARQLValidator, ShapeIR, Target, TriplePatternTerm,
 };
 use shifty::sparql::{
-    AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode, LocalSetCompatibilityPlan,
-    LoweredPropertyPath, LoweredSparqlQueryKind, MissingRelatedNodePlan, RequiredPathSupportPlan,
-    SparqlExecutor, compiled_sparql_rule, lowered_sparql_query_kind,
+    AdjacentPredicateWhitelistPlan, CompiledIndexRequirement, LocalSetCompatibilityMode,
+    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MissingRelatedNodePlan,
+    RequiredPathSupportPlan, SparqlExecutor, compiled_sparql_index_requirements,
+    compiled_sparql_rule, lowered_sparql_query_kind,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -85,6 +86,23 @@ fn srcgen_compiled_rule(rule: &shifty::sparql::CompiledSparqlRule) -> SrcGenComp
             right_path: srcgen_lowered_path(right_path),
             object: object.clone(),
         },
+    }
+}
+
+fn srcgen_compiled_index_requirement(
+    requirement: &CompiledIndexRequirement,
+) -> SrcGenCompiledIndexRequirement {
+    match requirement {
+        CompiledIndexRequirement::OutgoingValues { predicate } => {
+            SrcGenCompiledIndexRequirement::OutgoingValues {
+                predicate_iri: predicate.as_str().to_string(),
+            }
+        }
+        CompiledIndexRequirement::IncomingValues { predicate } => {
+            SrcGenCompiledIndexRequirement::IncomingValues {
+                predicate_iri: predicate.as_str().to_string(),
+            }
+        }
     }
 }
 
@@ -1021,17 +1039,26 @@ fn rule_kind(
                     Some("SPARQLRule has an empty query string".to_string()),
                 );
             }
-            let compiled_query = shifty::sparql::SparqlServices::new()
+            let compiled_rule = shifty::sparql::SparqlServices::new()
                 .algebra(&rule.query)
                 .ok()
-                .and_then(|algebra| compiled_sparql_rule(&algebra))
+                .and_then(|algebra| compiled_sparql_rule(&algebra));
+            let compiled_query = compiled_rule.as_ref().map(srcgen_compiled_rule);
+            let index_requirements = compiled_rule
                 .as_ref()
-                .map(srcgen_compiled_rule);
+                .map(|compiled| {
+                    compiled_sparql_index_requirements(compiled)
+                        .into_iter()
+                        .map(|requirement| srcgen_compiled_index_requirement(&requirement))
+                        .collect()
+                })
+                .unwrap_or_default();
             (
                 SrcGenRuleKind::Sparql {
                     query: rule.query.clone(),
                     condition_shape_iris,
                     compiled_query,
+                    index_requirements,
                 },
                 None,
             )
@@ -4739,8 +4766,10 @@ WHERE {
                 ref query,
                 ref condition_shape_iris,
                 compiled_query: None,
+                ref index_requirements,
             } if query.contains("CONSTRUCT")
                 && condition_shape_iris == &vec!["urn:shape:condition".to_string()]
+                && index_requirements.is_empty()
         ));
     }
 
@@ -4815,6 +4844,79 @@ WHERE {
         assert!(lowered.rules[0].fallback_only);
         assert_eq!(lowered.rule_fallback_annotations.len(), 1);
         assert_eq!(lowered.rule_fallback_annotations[0].rule_id, 12);
+    }
+
+    #[test]
+    fn sparql_rule_lowering_captures_compiled_index_requirements() {
+        let mut components = HashMap::new();
+        components.insert(
+            ComponentID(1),
+            ComponentDescriptor::Class {
+                class: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:Equipment")),
+            },
+        );
+
+        let mut node_shape_terms = HashMap::new();
+        node_shape_terms.insert(
+            ID(1),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:equipment",
+            )),
+        );
+
+        let mut rules = HashMap::new();
+        rules.insert(
+            RuleID(51),
+            Rule::Sparql(SparqlRule {
+                id: RuleID(51),
+                query: "PREFIX ex: <urn:> CONSTRUCT { $this ex:flag ?value . } WHERE { $this ^ex:source/ex:value ?value . }".to_string(),
+                source_term: Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                    "urn:rule:sparql:indexed",
+                )),
+                condition_shapes: Vec::new(),
+                deactivated: false,
+                order: None,
+            }),
+        );
+        let mut node_shape_rules = HashMap::new();
+        node_shape_rules.insert(ID(1), vec![RuleID(51)]);
+
+        let shape_ir = ShapeIR {
+            shape_graph: oxigraph::model::NamedNode::new_unchecked("urn:shape-graph"),
+            data_graph: Some(oxigraph::model::NamedNode::new_unchecked("urn:data-graph")),
+            node_shapes: vec![NodeShapeIR {
+                id: ID(1),
+                targets: vec![Target::Class(Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked("urn:Equipment"),
+                ))],
+                constraints: vec![ComponentID(1)],
+                property_shapes: Vec::new(),
+                severity: Severity::Violation,
+                deactivated: false,
+            }],
+            property_shapes: Vec::new(),
+            components,
+            component_templates: HashMap::new(),
+            shape_templates: HashMap::new(),
+            shape_template_cache: HashMap::new(),
+            node_shape_terms,
+            property_shape_terms: HashMap::new(),
+            shape_quads: Vec::new(),
+            rules,
+            node_shape_rules,
+            prop_shape_rules: HashMap::new(),
+            features: FeatureToggles::default(),
+        };
+
+        let lowered = lower_shape_ir(&shape_ir).unwrap();
+        assert!(matches!(
+            lowered.rules[0].kind,
+            SrcGenRuleKind::Sparql {
+                compiled_query: Some(_),
+                ref index_requirements,
+                ..
+            } if index_requirements.len() == 2
+        ));
     }
 
     #[test]
