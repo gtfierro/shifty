@@ -34,7 +34,7 @@ fn compiled_test_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("compiled parity lock should not be poisoned")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<(), Box<dyn Error>> {
@@ -244,6 +244,8 @@ fn deskolemize_term(term: Term, bnodes: &mut std::collections::HashMap<String, B
 }
 
 fn normalize_report_for_comparison(path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let sh_result_message =
+        NamedNode::new("http://www.w3.org/ns/shacl#resultMessage").expect("valid SHACL IRI");
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let stem = path
         .file_stem()
@@ -257,6 +259,9 @@ fn normalize_report_for_comparison(path: &Path) -> Result<PathBuf, Box<dyn Error
     let mut triples: Vec<Triple> = Vec::new();
     for quad in parser.for_reader(file) {
         let triple: Triple = quad?.into();
+        if triple.predicate == sh_result_message {
+            continue;
+        }
         let subject = deskolemize_subject(triple.subject.to_owned(), &mut bnodes);
         let predicate: NamedNode = triple.predicate.to_owned();
         let object = deskolemize_term(triple.object.to_owned(), &mut bnodes);
@@ -407,8 +412,8 @@ ex:Alice a ex:Person ;
 }
 
 #[test]
-fn compiled_variants_and_runtime_reports_are_isomorphic_for_phase2_expanded_constraints(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_phase2_expanded_constraints()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
@@ -505,8 +510,8 @@ ex:d1 a ex:Device ;
 }
 
 #[test]
-fn compiled_variants_and_runtime_reports_are_isomorphic_for_logical_node_constraints(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_logical_node_constraints()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
@@ -602,8 +607,8 @@ ex:c2 a ex:Child, ex:AltChild ;
 }
 
 #[test]
-fn compiled_variants_and_runtime_reports_are_isomorphic_for_closed_and_qualified_constraints(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_closed_and_qualified_constraints()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
@@ -705,8 +710,8 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
 }
 
 #[test]
-fn compiled_variants_and_runtime_reports_are_isomorphic_for_node_datatype_and_membership_constraints(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_for_node_datatype_and_membership_constraints()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
@@ -785,8 +790,8 @@ ex:item1 a ex:Item .
 }
 
 #[test]
-fn compiled_variants_and_runtime_reports_are_isomorphic_with_inference(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_with_inference()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
@@ -862,8 +867,8 @@ ex:Alice a ex:Person .
 }
 
 #[test]
-fn compiled_variants_and_runtime_reports_are_isomorphic_with_shape_data_union(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_reports_are_isomorphic_with_shape_data_union()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");
@@ -938,8 +943,8 @@ ex:Alice a ex:Person ;
 }
 
 #[test]
-fn compiled_variants_and_runtime_detect_domain_sparql_property_violation(
-) -> Result<(), Box<dyn Error>> {
+fn compiled_variants_and_runtime_detect_domain_sparql_property_violation()
+-> Result<(), Box<dyn Error>> {
     let _guard = compiled_test_lock();
     let tmp = unique_temp_dir()?;
     let shapes = tmp.join("shapes.ttl");

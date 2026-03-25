@@ -1,7 +1,7 @@
 use clap::{ArgAction, Parser, ValueEnum};
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
-use log::{info, LevelFilter};
+use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 #[cfg(feature = "srcgen-compiler")]
 use oxigraph::model::{Graph, Triple};
@@ -9,8 +9,9 @@ use oxigraph::model::{Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
+    SrcGenBackend,
     generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
-    lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir,
 };
 use shifty::ir_cache;
 #[cfg(feature = "srcgen-compiler")]
@@ -1291,11 +1292,7 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                             if output.status.success() {
                                 let rev =
                                     String::from_utf8_lossy(&output.stdout).trim().to_string();
-                                if rev.is_empty() {
-                                    None
-                                } else {
-                                    Some(rev)
-                                }
+                                if rev.is_empty() { None } else { Some(rev) }
                             } else {
                                 None
                             }
@@ -1311,9 +1308,8 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                 }
             };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.1\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
-                args.bin_name,
-                shifty_dep,
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2024\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.1\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
+                args.bin_name, shifty_dep,
             );
             fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
