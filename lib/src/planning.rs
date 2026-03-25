@@ -4,7 +4,7 @@
 //! run in parallel without violating shape dependencies (e.g., shapes referenced by other shapes).
 
 use crate::shacl_ir::{ComponentDescriptor, ShapeIR};
-use crate::types::{ComponentID, PropShapeID, ID};
+use crate::types::{ComponentID, ID, PropShapeID};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -147,8 +147,8 @@ fn topological_sort(
 
     let mut queue: VecDeque<ShapeRef> = indegree
         .iter()
-        .filter(|(_, &count)| count == 0)
-        .map(|(&shape, _)| shape)
+        .filter(|&(_, &count)| count == 0)
+        .map(|(shape, _)| *shape)
         .collect();
     let mut order = Vec::new();
 

@@ -7,9 +7,9 @@ use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
 use crate::optimize::InferenceOptimizationConfig;
-use crate::runtime::component::{check_conformance_for_node, ConformanceReport};
+use crate::runtime::component::{ConformanceReport, check_conformance_for_node};
 use crate::trace::TraceEvent;
-use crate::types::{ComponentID, PropShapeID, RuleID, TargetEvalExt, TraceItem, ID};
+use crate::types::{ComponentID, ID, PropShapeID, RuleID, TargetEvalExt, TraceItem};
 use log::{debug, info};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, Variable};
@@ -22,6 +22,7 @@ use std::sync::{Arc, OnceLock};
 
 type CandidateTriple = (Term, NamedNode, Term);
 type CandidateBatches = Result<Vec<Vec<CandidateTriple>>, InferenceError>;
+const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
 /// Configuration options governing inference execution.
 #[derive(Debug, Clone)]
@@ -119,7 +120,11 @@ impl fmt::Display for InferenceError {
                 write!(f, "Rule {} failed to execute: {}", rule_id, message)
             }
             InferenceError::TargetResolution { shape_id, message } => {
-                write!(f, "Failed to resolve targets for shape {}: {}", shape_id, message)
+                write!(
+                    f,
+                    "Failed to resolve targets for shape {}: {}",
+                    shape_id, message
+                )
             }
             InferenceError::PropertyShapeTargetResolution { shape_id, message } => {
                 write!(
@@ -1368,13 +1373,11 @@ impl RuleDependencyGraph {
             }
         }
 
-        let active: HashSet<usize> = self.active_plan_indices.iter().copied().collect();
-        let mut ordered: Vec<usize> = scheduled
-            .into_iter()
-            .filter(|plan_index| active.contains(plan_index))
-            .collect();
-        ordered.sort_unstable();
-        ordered
+        self.active_plan_indices
+            .iter()
+            .copied()
+            .filter(|plan_index| scheduled.contains(plan_index))
+            .collect()
     }
 }
 
@@ -1472,6 +1475,7 @@ impl DeltaIndex {
                 continue;
             };
             let predicate = quad.predicate.clone();
+            let is_rdf_type = is_rdf_type_predicate(&predicate);
             index
                 .subjects_by_predicate
                 .entry(predicate.clone())
@@ -1502,9 +1506,7 @@ impl DeltaIndex {
                 .entry(predicate.clone())
                 .or_default()
                 .insert(subject_term.clone());
-            if predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-                && matches!(quad.object, Term::NamedNode(_))
-            {
+            if is_rdf_type && matches!(quad.object, Term::NamedNode(_)) {
                 index
                     .typed_subjects_by_class
                     .entry(quad.object.clone())
@@ -1658,10 +1660,10 @@ fn writes_for_rule(rule: &Rule) -> (Vec<RuleWrite>, SignaturePrecision) {
 
 fn writes_for_triple_rule(rule: &TripleRule) -> (Vec<RuleWrite>, SignaturePrecision) {
     let mut writes = vec![RuleWrite::Predicate(rule.predicate.clone())];
-    if rule.predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" {
-        if let TriplePatternTerm::Constant(Term::NamedNode(class)) = &rule.object {
-            writes.push(RuleWrite::Class(Term::NamedNode(class.clone())));
-        }
+    if is_rdf_type_predicate(&rule.predicate)
+        && let TriplePatternTerm::Constant(Term::NamedNode(class)) = &rule.object
+    {
+        writes.push(RuleWrite::Class(Term::NamedNode(class.clone())));
     }
     (writes, SignaturePrecision::Exact)
 }
@@ -1687,16 +1689,14 @@ fn writes_for_sparql_rule(rule: &SparqlRule) -> (Vec<RuleWrite>, SignaturePrecis
     };
 
     if let NativeSparqlRule::EqualityConstant {
-        ref construct_predicate,
-        ref object,
+        construct_predicate,
+        object,
         ..
     } = &native_rule
+        && is_rdf_type_predicate(construct_predicate)
+        && matches!(object, Term::NamedNode(_))
     {
-        if construct_predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-            && matches!(object, Term::NamedNode(_))
-        {
-            writes.push(RuleWrite::Class(object.clone()));
-        }
+        writes.push(RuleWrite::Class(object.clone()));
     }
 
     (writes, SignaturePrecision::Conservative)
@@ -1781,11 +1781,15 @@ fn dataset_dependency_keys(context: &ValidationContext) -> HashSet<RuleDependenc
         .flatten()
     {
         keys.insert(RuleDependencyKey::Predicate(quad.predicate.clone()));
-        if quad.predicate.as_str() == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" {
+        if is_rdf_type_predicate(&quad.predicate) {
             keys.insert(RuleDependencyKey::Class(quad.object.clone()));
         }
     }
     keys
+}
+
+fn is_rdf_type_predicate(predicate: &NamedNode) -> bool {
+    predicate.as_str() == RDF_TYPE_IRI
 }
 
 fn dedup_preserve_order<T: Eq + std::hash::Hash + Clone>(items: &mut Vec<T>) {
@@ -2060,7 +2064,7 @@ fn named_or_blank_to_term(subject: NamedOrBlankNode) -> Result<Term, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{backend::GraphBackend, Source, Validator};
+    use crate::{Source, Validator, backend::GraphBackend};
     use oxigraph::model::{Literal, NamedNode, Quad, Term};
     use std::fs;
     use std::path::PathBuf;
@@ -2135,12 +2139,14 @@ mod tests {
             ),
         ];
 
-        assert!(plans[0]
-            .signature
-            .target_reads
-            .contains(&FocusDependency::TargetClass(Term::NamedNode(
-                NamedNode::new("http://example.com/ns#Base").unwrap()
-            ),)));
+        assert!(
+            plans[0]
+                .signature
+                .target_reads
+                .contains(&FocusDependency::TargetClass(Term::NamedNode(
+                    NamedNode::new("http://example.com/ns#Base").unwrap()
+                ),))
+        );
         assert!(plans[0].signature.writes.contains(&RuleWrite::Predicate(
             NamedNode::new("http://example.com/ns#marker").unwrap()
         )));
@@ -2378,11 +2384,13 @@ ex:Focus ex:value "foo" .
             Term::Literal(Literal::new_simple_literal("derived")),
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
-        assert!(context
-            .backend
-            .store()
-            .contains(quad.as_ref())
-            .expect("quad lookup"));
+        assert!(
+            context
+                .backend
+                .store()
+                .contains(quad.as_ref())
+                .expect("quad lookup")
+        );
     }
 
     #[test]
