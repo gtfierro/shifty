@@ -4,6 +4,9 @@ use oxigraph::model::Term;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use regex::Regex;
+use spargebra::algebra::{Expression, GraphPattern, PropertyPathExpression};
+use spargebra::term::{NamedNodePattern, TermPattern};
+use spargebra::{Query as AlgebraQuery, SparqlParser};
 use std::sync::OnceLock;
 use syn::LitStr;
 
@@ -76,15 +79,17 @@ struct GeneratedSparqlPrefilter {
 }
 
 #[derive(Debug, Clone)]
+enum GeneratedNativeSparqlPath {
+    NamedNode(String),
+    ReverseNamedNode(String),
+    Sequence(Vec<GeneratedNativeSparqlPath>),
+}
+
+#[derive(Debug, Clone)]
 enum GeneratedNativeSparqlRule {
-    DirectCopy {
+    PathCopy {
         construct_predicate: String,
-        source_predicate: String,
-    },
-    TwoHopCopy {
-        construct_predicate: String,
-        first_predicate: String,
-        second_predicate: String,
+        source_path: GeneratedNativeSparqlPath,
     },
     EqualityConstant {
         construct_predicate: String,
@@ -173,13 +178,10 @@ fn generated_metadata_for_rule(rule: &crate::ir::SrcGenRule) -> GeneratedRuleMet
     dedup_preserve_order(&mut dependencies);
 
     let (sparql_prefilter, native_sparql) = match &rule.kind {
-        SrcGenRuleKind::Sparql { query, .. } => {
-            let normalized = normalize_sparql(query);
-            (
-                generated_sparql_prefilter(query),
-                generated_native_sparql_rule(&normalized),
-            )
-        }
+        SrcGenRuleKind::Sparql { query, .. } => (
+            generated_sparql_prefilter(query),
+            generated_native_sparql_rule(query),
+        ),
         _ => (None, None),
     };
 
@@ -188,10 +190,6 @@ fn generated_metadata_for_rule(rule: &crate::ir::SrcGenRule) -> GeneratedRuleMet
         sparql_prefilter,
         native_sparql,
     }
-}
-
-fn normalize_sparql(query: &str) -> String {
-    query.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn generated_sparql_prefilter(query: &str) -> Option<GeneratedSparqlPrefilter> {
@@ -269,74 +267,282 @@ fn generated_sparql_prefilter(query: &str) -> Option<GeneratedSparqlPrefilter> {
 }
 
 fn generated_native_sparql_rule(query: &str) -> Option<GeneratedNativeSparqlRule> {
-    generated_native_direct_copy_rule(query)
-        .or_else(|| generated_native_two_hop_copy_rule(query))
-        .or_else(|| generated_native_equality_constant_rule(query))
+    let algebra = SparqlParser::new().parse_query(query).ok()?;
+    generated_native_path_copy_rule(&algebra)
+        .or_else(|| generated_native_equality_constant_rule(&algebra))
 }
 
-fn generated_native_direct_copy_rule(query: &str) -> Option<GeneratedNativeSparqlRule> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)CONSTRUCT\s*\{\s*\$this\s+(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*\}\s*WHERE\s*\{\s*\$this\s+(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*\}"#,
-        )
-        .expect("valid native direct copy regex")
-    });
-    let captures = re.captures(query)?;
-    if captures.get(2)?.as_str() != captures.get(4)?.as_str() {
+fn generated_native_path_copy_rule(query: &AlgebraQuery) -> Option<GeneratedNativeSparqlRule> {
+    let AlgebraQuery::Construct {
+        template, pattern, ..
+    } = query
+    else {
+        return None;
+    };
+    let [triple] = template.as_slice() else {
+        return None;
+    };
+    if !generated_term_pattern_is_this(&triple.subject) {
         return None;
     }
-    Some(GeneratedNativeSparqlRule::DirectCopy {
-        construct_predicate: parse_iri_str(captures.get(1)?.as_str())?.to_string(),
-        source_predicate: parse_iri_str(captures.get(3)?.as_str())?.to_string(),
+    let construct_predicate = generated_named_node_pattern_named_node(&triple.predicate)?;
+    let target_var = generated_term_pattern_variable_name(&triple.object)?;
+    let source_path = generated_native_path_from_graph_pattern(pattern, target_var)?;
+    Some(GeneratedNativeSparqlRule::PathCopy {
+        construct_predicate,
+        source_path,
     })
 }
 
-fn generated_native_two_hop_copy_rule(query: &str) -> Option<GeneratedNativeSparqlRule> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)CONSTRUCT\s*\{\s*\$this\s+(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*\}\s*WHERE\s*\{\s*\$this\s+(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*(\?[A-Za-z_][A-Za-z0-9_]*)\s+(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*\}"#,
-        )
-        .expect("valid native two-hop copy regex")
-    });
-    let captures = re.captures(query)?;
-    if captures.get(4)?.as_str() != captures.get(5)?.as_str()
-        || captures.get(2)?.as_str() != captures.get(7)?.as_str()
+fn generated_native_equality_constant_rule(
+    query: &AlgebraQuery,
+) -> Option<GeneratedNativeSparqlRule> {
+    let AlgebraQuery::Construct {
+        template, pattern, ..
+    } = query
+    else {
+        return None;
+    };
+    let [triple] = template.as_slice() else {
+        return None;
+    };
+    if !generated_term_pattern_is_this(&triple.subject) {
+        return None;
+    }
+    let construct_predicate = generated_named_node_pattern_named_node(&triple.predicate)?;
+    let object = generated_term_pattern_constant(&triple.object)?;
+    let GraphPattern::Filter { inner, expr } = generated_strip_simple_graph_pattern(pattern) else {
+        return None;
+    };
+    let Expression::Equal(left, right) = expr else {
+        return None;
+    };
+    let left_var = generated_expression_variable_name(left.as_ref())?;
+    let right_var = generated_expression_variable_name(right.as_ref())?;
+    let GraphPattern::Bgp { patterns } = generated_strip_simple_graph_pattern(inner.as_ref())
+    else {
+        return None;
+    };
+    let [left_pattern, right_pattern] = patterns.as_slice() else {
+        return None;
+    };
+    let left_predicate = generated_named_node_pattern_named_node(&left_pattern.predicate)?;
+    let right_predicate = generated_named_node_pattern_named_node(&right_pattern.predicate)?;
+    if !generated_term_pattern_is_this(&left_pattern.subject)
+        || !generated_term_pattern_is_this(&right_pattern.subject)
     {
         return None;
     }
-    Some(GeneratedNativeSparqlRule::TwoHopCopy {
-        construct_predicate: parse_iri_str(captures.get(1)?.as_str())?.to_string(),
-        first_predicate: parse_iri_str(captures.get(3)?.as_str())?.to_string(),
-        second_predicate: parse_iri_str(captures.get(6)?.as_str())?.to_string(),
-    })
-}
-
-fn generated_native_equality_constant_rule(query: &str) -> Option<GeneratedNativeSparqlRule> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)CONSTRUCT\s*\{\s*\$this\s+(<[^>]+>)\s+(.+?)\s*\.\s*\}\s*WHERE\s*\{\s*\$this\s+(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*;\s*(<[^>]+>)\s+(\?[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*FILTER\s*\(\s*(\?[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\?[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\}"#,
-        )
-        .expect("valid native equality constant regex")
-    });
-    let captures = re.captures(query)?;
-    let left_var = captures.get(4)?.as_str();
-    let right_var = captures.get(6)?.as_str();
-    let filter_left = captures.get(7)?.as_str();
-    let filter_right = captures.get(8)?.as_str();
-    let filter_matches = (left_var == filter_left && right_var == filter_right)
-        || (left_var == filter_right && right_var == filter_left);
+    let first_var = generated_term_pattern_variable_name(&left_pattern.object)?;
+    let second_var = generated_term_pattern_variable_name(&right_pattern.object)?;
+    let filter_matches = (first_var == left_var && second_var == right_var)
+        || (first_var == right_var && second_var == left_var);
     if !filter_matches {
         return None;
     }
     Some(GeneratedNativeSparqlRule::EqualityConstant {
-        construct_predicate: parse_iri_str(captures.get(1)?.as_str())?.to_string(),
-        left_predicate: parse_iri_str(captures.get(3)?.as_str())?.to_string(),
-        right_predicate: parse_iri_str(captures.get(5)?.as_str())?.to_string(),
-        object: parse_term_token(captures.get(2)?.as_str())?,
+        construct_predicate,
+        left_predicate,
+        right_predicate,
+        object,
     })
+}
+
+fn generated_native_path_from_graph_pattern(
+    pattern: &GraphPattern,
+    target_var: &str,
+) -> Option<GeneratedNativeSparqlPath> {
+    match generated_strip_simple_graph_pattern(pattern) {
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } => {
+            if !generated_term_pattern_is_this(subject)
+                || generated_term_pattern_variable_name(object)? != target_var
+            {
+                return None;
+            }
+            generated_native_path_from_property_path(path)
+        }
+        other => {
+            let mut patterns = Vec::new();
+            generated_collect_named_triple_patterns(other, &mut patterns)?;
+            generated_native_path_from_named_triples(&patterns, target_var)
+        }
+    }
+}
+
+fn generated_native_path_from_property_path(
+    path: &PropertyPathExpression,
+) -> Option<GeneratedNativeSparqlPath> {
+    match path {
+        PropertyPathExpression::NamedNode(predicate) => Some(GeneratedNativeSparqlPath::NamedNode(
+            predicate.as_str().to_string(),
+        )),
+        PropertyPathExpression::Reverse(inner) => match inner.as_ref() {
+            PropertyPathExpression::NamedNode(predicate) => Some(
+                GeneratedNativeSparqlPath::ReverseNamedNode(predicate.as_str().to_string()),
+            ),
+            _ => None,
+        },
+        PropertyPathExpression::Sequence(left, right) => {
+            let mut segments = Vec::new();
+            generated_flatten_native_path_sequence(left.as_ref(), &mut segments)?;
+            generated_flatten_native_path_sequence(right.as_ref(), &mut segments)?;
+            Some(GeneratedNativeSparqlPath::Sequence(segments))
+        }
+        _ => None,
+    }
+}
+
+fn generated_flatten_native_path_sequence(
+    path: &PropertyPathExpression,
+    segments: &mut Vec<GeneratedNativeSparqlPath>,
+) -> Option<()> {
+    match path {
+        PropertyPathExpression::Sequence(left, right) => {
+            generated_flatten_native_path_sequence(left.as_ref(), segments)?;
+            generated_flatten_native_path_sequence(right.as_ref(), segments)?;
+            Some(())
+        }
+        other => {
+            segments.push(generated_native_path_from_property_path(other)?);
+            Some(())
+        }
+    }
+}
+
+fn generated_collect_named_triple_patterns<'a>(
+    pattern: &'a GraphPattern,
+    patterns: &mut Vec<&'a spargebra::term::TriplePattern>,
+) -> Option<()> {
+    match generated_strip_simple_graph_pattern(pattern) {
+        GraphPattern::Bgp {
+            patterns: bgp_patterns,
+        } => {
+            for triple in bgp_patterns {
+                generated_named_node_pattern_named_node(&triple.predicate)?;
+                patterns.push(triple);
+            }
+            Some(())
+        }
+        GraphPattern::Join { left, right } => {
+            generated_collect_named_triple_patterns(left.as_ref(), patterns)?;
+            generated_collect_named_triple_patterns(right.as_ref(), patterns)
+        }
+        _ => None,
+    }
+}
+
+fn generated_native_path_from_named_triples(
+    patterns: &[&spargebra::term::TriplePattern],
+    target_var: &str,
+) -> Option<GeneratedNativeSparqlPath> {
+    let mut used = vec![false; patterns.len()];
+    let mut segments = Vec::new();
+    let mut current = TermPattern::Variable(spargebra::term::Variable::new_unchecked("this"));
+
+    loop {
+        if generated_term_pattern_variable_name(&current) == Some(target_var) {
+            break;
+        }
+
+        let mut next_match: Option<(usize, GeneratedNativeSparqlPath, TermPattern)> = None;
+        for (index, triple) in patterns.iter().enumerate() {
+            if used[index] {
+                continue;
+            }
+            let predicate = generated_named_node_pattern_named_node(&triple.predicate)?;
+            let candidate = if triple.subject == current {
+                Some((
+                    index,
+                    GeneratedNativeSparqlPath::NamedNode(predicate),
+                    triple.object.clone(),
+                ))
+            } else if triple.object == current {
+                Some((
+                    index,
+                    GeneratedNativeSparqlPath::ReverseNamedNode(predicate),
+                    triple.subject.clone(),
+                ))
+            } else {
+                None
+            };
+
+            if let Some(candidate) = candidate {
+                if next_match.is_some() {
+                    return None;
+                }
+                next_match = Some(candidate);
+            }
+        }
+
+        let Some((index, segment, next)) = next_match else {
+            return None;
+        };
+        used[index] = true;
+        segments.push(segment);
+        current = next;
+    }
+
+    if used.iter().any(|used| !used) || segments.is_empty() {
+        return None;
+    }
+
+    Some(if segments.len() == 1 {
+        segments.pop().expect("single segment")
+    } else {
+        GeneratedNativeSparqlPath::Sequence(segments)
+    })
+}
+
+fn generated_strip_simple_graph_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
+    loop {
+        pattern = match pattern {
+            GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Project { inner, .. }
+            | GraphPattern::Group { inner, .. }
+            | GraphPattern::Extend { inner, .. } => inner.as_ref(),
+            other => return other,
+        };
+    }
+}
+
+fn generated_term_pattern_is_this(term: &TermPattern) -> bool {
+    matches!(term, TermPattern::Variable(var) if var.as_str() == "this")
+}
+
+fn generated_term_pattern_variable_name<'a>(term: &'a TermPattern) -> Option<&'a str> {
+    match term {
+        TermPattern::Variable(var) => Some(var.as_str()),
+        _ => None,
+    }
+}
+
+fn generated_term_pattern_constant(term: &TermPattern) -> Option<Term> {
+    match term {
+        TermPattern::NamedNode(node) => Some(Term::NamedNode(node.clone())),
+        TermPattern::Literal(lit) => Some(Term::Literal(lit.clone())),
+        _ => None,
+    }
+}
+
+fn generated_named_node_pattern_named_node(pattern: &NamedNodePattern) -> Option<String> {
+    match pattern {
+        NamedNodePattern::NamedNode(node) => Some(node.as_str().to_string()),
+        NamedNodePattern::Variable(_) => None,
+    }
+}
+
+fn generated_expression_variable_name(expression: &Expression) -> Option<&str> {
+    match expression {
+        Expression::Variable(var) => Some(var.as_str()),
+        _ => None,
+    }
 }
 
 fn parse_iri_str(token: &str) -> Option<String> {
@@ -344,23 +550,6 @@ fn parse_iri_str(token: &str) -> Option<String> {
         .strip_prefix('<')
         .and_then(|value| value.strip_suffix('>'))
         .map(str::to_string)
-}
-
-fn parse_term_token(token: &str) -> Option<Term> {
-    if let Some(iri) = parse_iri_str(token) {
-        return Some(Term::NamedNode(oxigraph::model::NamedNode::new(iri).ok()?));
-    }
-    if token == "true" || token == "false" {
-        return Some(Term::Literal(oxigraph::model::Literal::from(
-            token == "true",
-        )));
-    }
-    if let Some(value) = token.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        return Some(Term::Literal(oxigraph::model::Literal::new_simple_literal(
-            value,
-        )));
-    }
-    None
 }
 
 fn extract_sparql_dependencies(query: &str) -> Vec<GeneratedFocusDependency> {
@@ -483,34 +672,45 @@ fn prefilter_expr(prefilter: &GeneratedSparqlPrefilter) -> TokenStream {
     }
 }
 
-fn native_sparql_expr(rule: &GeneratedNativeSparqlRule) -> TokenStream {
-    match rule {
-        GeneratedNativeSparqlRule::DirectCopy {
-            construct_predicate,
-            source_predicate,
-        } => {
-            let construct_lit = LitStr::new(construct_predicate, Span::call_site());
-            let source_lit = LitStr::new(source_predicate, Span::call_site());
+fn native_sparql_path_expr(path: &GeneratedNativeSparqlPath) -> TokenStream {
+    match path {
+        GeneratedNativeSparqlPath::NamedNode(predicate) => {
+            let predicate_lit = LitStr::new(predicate, Span::call_site());
             quote! {
-                NativeSparqlRule::DirectCopy {
-                    construct_predicate: oxigraph::model::NamedNode::new_unchecked(#construct_lit),
-                    source_predicate: oxigraph::model::NamedNode::new_unchecked(#source_lit),
-                }
+                NativeSparqlPath::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
+                )
             }
         }
-        GeneratedNativeSparqlRule::TwoHopCopy {
+        GeneratedNativeSparqlPath::ReverseNamedNode(predicate) => {
+            let predicate_lit = LitStr::new(predicate, Span::call_site());
+            quote! {
+                NativeSparqlPath::ReverseNamedNode(
+                    oxigraph::model::NamedNode::new_unchecked(#predicate_lit),
+                )
+            }
+        }
+        GeneratedNativeSparqlPath::Sequence(segments) => {
+            let segment_exprs: Vec<_> = segments.iter().map(native_sparql_path_expr).collect();
+            quote! {
+                NativeSparqlPath::Sequence(vec![#(#segment_exprs),*])
+            }
+        }
+    }
+}
+
+fn native_sparql_expr(rule: &GeneratedNativeSparqlRule) -> TokenStream {
+    match rule {
+        GeneratedNativeSparqlRule::PathCopy {
             construct_predicate,
-            first_predicate,
-            second_predicate,
+            source_path,
         } => {
             let construct_lit = LitStr::new(construct_predicate, Span::call_site());
-            let first_lit = LitStr::new(first_predicate, Span::call_site());
-            let second_lit = LitStr::new(second_predicate, Span::call_site());
+            let source_path_expr = native_sparql_path_expr(source_path);
             quote! {
-                NativeSparqlRule::TwoHopCopy {
+                NativeSparqlRule::PathCopy {
                     construct_predicate: oxigraph::model::NamedNode::new_unchecked(#construct_lit),
-                    first_predicate: oxigraph::model::NamedNode::new_unchecked(#first_lit),
-                    second_predicate: oxigraph::model::NamedNode::new_unchecked(#second_lit),
+                    source_path: #source_path_expr,
                 }
             }
         }
@@ -1010,15 +1210,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
 
         #[derive(Debug, Clone)]
+        enum NativeSparqlPath {
+            NamedNode(oxigraph::model::NamedNode),
+            ReverseNamedNode(oxigraph::model::NamedNode),
+            Sequence(Vec<NativeSparqlPath>),
+        }
+
+        #[derive(Debug, Clone)]
         enum NativeSparqlRule {
-            DirectCopy {
+            PathCopy {
                 construct_predicate: oxigraph::model::NamedNode,
-                source_predicate: oxigraph::model::NamedNode,
-            },
-            TwoHopCopy {
-                construct_predicate: oxigraph::model::NamedNode,
-                first_predicate: oxigraph::model::NamedNode,
-                second_predicate: oxigraph::model::NamedNode,
+                source_path: NativeSparqlPath,
             },
             EqualityConstant {
                 construct_predicate: oxigraph::model::NamedNode,
@@ -1073,6 +1275,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     std::collections::HashSet<oxigraph::model::Term>,
                 >,
             >,
+            incoming_values_by_focus: std::collections::HashMap<
+                oxigraph::model::Term,
+                std::collections::HashMap<
+                    oxigraph::model::NamedNode,
+                    std::collections::HashSet<oxigraph::model::Term>,
+                >,
+            >,
         }
 
         impl DeltaIndex {
@@ -1118,6 +1327,13 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         .entry(predicate.clone())
                         .or_default()
                         .insert(quad.object.clone());
+                    index
+                        .incoming_values_by_focus
+                        .entry(quad.object.clone())
+                        .or_default()
+                        .entry(predicate.clone())
+                        .or_default()
+                        .insert(subject_term.clone());
                     if predicate == oxigraph::model::vocab::rdf::TYPE
                         && matches!(quad.object, oxigraph::model::Term::NamedNode(_))
                     {
@@ -1156,6 +1372,17 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 predicate: &oxigraph::model::NamedNode,
             ) -> Option<Vec<oxigraph::model::Term>> {
                 self.outgoing_values_by_focus
+                    .get(focus)
+                    .and_then(|by_predicate| by_predicate.get(predicate))
+                    .map(|values| values.iter().cloned().collect())
+            }
+
+            fn incoming_values_for_focus(
+                &self,
+                focus: &oxigraph::model::Term,
+                predicate: &oxigraph::model::NamedNode,
+            ) -> Option<Vec<oxigraph::model::Term>> {
+                self.incoming_values_by_focus
                     .get(focus)
                     .and_then(|by_predicate| by_predicate.get(predicate))
                     .map(|values| values.iter().cloned().collect())
@@ -1618,6 +1845,28 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             Ok(sort_and_dedup_terms(values))
         }
 
+        fn focus_subjects_for_inverse_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            predicate: &oxigraph::model::NamedNode,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let mut values = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    Some(focus.as_ref()),
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    values.push(oxigraph::model::Term::from(quad.subject));
+                }
+            }
+            Ok(sort_and_dedup_terms(values))
+        }
+
         fn native_direct_values(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,
@@ -1633,6 +1882,55 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             focus_objects_for_predicate(store, data_graph, focus, predicate)
         }
 
+        fn native_path_values(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            path: &NativeSparqlPath,
+            delta: &DeltaIndex,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            match path {
+                NativeSparqlPath::NamedNode(predicate) => {
+                    native_direct_values(store, data_graph, focus, predicate, delta)
+                }
+                NativeSparqlPath::ReverseNamedNode(predicate) => {
+                    if !delta.is_initial {
+                        if let Some(values) = delta.incoming_values_for_focus(focus, predicate) {
+                            return Ok(values);
+                        }
+                    }
+                    focus_subjects_for_inverse_predicate(store, data_graph, focus, predicate)
+                }
+                NativeSparqlPath::Sequence(segments) => {
+                    let mut frontier = vec![focus.clone()];
+                    for (index, segment) in segments.iter().enumerate() {
+                        let segment_delta = if index + 1 == segments.len() {
+                            delta
+                        } else {
+                            &DeltaIndex::default()
+                        };
+                        let mut next = Vec::new();
+                        for node in &frontier {
+                            next.extend(native_path_values(
+                                store,
+                                data_graph,
+                                node,
+                                segment,
+                                segment_delta,
+                            )?);
+                        }
+                        let mut unique = std::collections::HashSet::new();
+                        next.retain(|term| unique.insert(term.clone()));
+                        frontier = next;
+                        if frontier.is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(frontier)
+                }
+            }
+        }
+
         fn native_sparql_construct_triples(
             native_rule: &NativeSparqlRule,
             focus: &oxigraph::model::Term,
@@ -1645,45 +1943,21 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
             oxigraph::model::Term,
         )>, String> {
             match native_rule {
-                NativeSparqlRule::DirectCopy {
+                NativeSparqlRule::PathCopy {
                     construct_predicate,
-                    source_predicate,
+                    source_path,
                 } => {
-                    let values = native_direct_values(
+                    let values = native_path_values(
                         store,
                         data_graph,
                         focus,
-                        source_predicate,
+                        source_path,
                         delta,
                     )?;
                     Ok(values
                         .into_iter()
                         .map(|value| (focus.clone(), construct_predicate.clone(), value))
                         .collect())
-                }
-                NativeSparqlRule::TwoHopCopy {
-                    construct_predicate,
-                    first_predicate,
-                    second_predicate,
-                } => {
-                    let mids =
-                        focus_objects_for_predicate(store, data_graph, focus, first_predicate)?;
-                    let mut values = Vec::new();
-                    let mut unique = std::collections::HashSet::new();
-                    for mid in mids {
-                        for value in native_direct_values(
-                            store,
-                            data_graph,
-                            &mid,
-                            second_predicate,
-                            delta,
-                        )? {
-                            if unique.insert(value.clone()) {
-                                values.push((focus.clone(), construct_predicate.clone(), value));
-                            }
-                        }
-                    }
-                    Ok(values)
                 }
                 NativeSparqlRule::EqualityConstant {
                     construct_predicate,
@@ -1857,4 +2131,63 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
     };
     render_tokens_as_module(tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxigraph::model::{Literal, Term};
+
+    #[test]
+    fn generated_native_sparql_rule_matches_prefixed_path_copy_query() {
+        let query = "PREFIX ex: <http://example.com/ns#> CONSTRUCT { $this ex:output ?value . } WHERE { $this ^ex:sourceOf/ex:value ?value . }";
+
+        let native_rule = generated_native_sparql_rule(query).expect("native path-copy rule");
+
+        match native_rule {
+            GeneratedNativeSparqlRule::PathCopy {
+                construct_predicate,
+                source_path: GeneratedNativeSparqlPath::Sequence(segments),
+            } => {
+                assert_eq!(construct_predicate, "http://example.com/ns#output");
+                assert_eq!(segments.len(), 2);
+                match &segments[0] {
+                    GeneratedNativeSparqlPath::ReverseNamedNode(predicate) => {
+                        assert_eq!(predicate, "http://example.com/ns#sourceOf");
+                    }
+                    other => panic!("unexpected first path segment: {other:?}"),
+                }
+                match &segments[1] {
+                    GeneratedNativeSparqlPath::NamedNode(predicate) => {
+                        assert_eq!(predicate, "http://example.com/ns#value");
+                    }
+                    other => panic!("unexpected second path segment: {other:?}"),
+                }
+            }
+            other => panic!("unexpected native rule: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generated_native_sparql_rule_matches_prefixed_equality_constant_query() {
+        let query = "PREFIX ex: <http://example.com/ns#> CONSTRUCT { $this ex:isSquare true . } WHERE { $this ex:width ?left . $this ex:height ?right . FILTER(?left = ?right) }";
+
+        let native_rule =
+            generated_native_sparql_rule(query).expect("native equality-constant rule");
+
+        match native_rule {
+            GeneratedNativeSparqlRule::EqualityConstant {
+                construct_predicate,
+                left_predicate,
+                right_predicate,
+                object,
+            } => {
+                assert_eq!(construct_predicate, "http://example.com/ns#isSquare");
+                assert_eq!(left_predicate, "http://example.com/ns#width");
+                assert_eq!(right_predicate, "http://example.com/ns#height");
+                assert_eq!(object, Term::Literal(Literal::from(true)));
+            }
+            other => panic!("unexpected native rule: {other:?}"),
+        }
+    }
 }
