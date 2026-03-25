@@ -1752,7 +1752,7 @@ fn extract_compatibility_mode(
 ) -> Option<LocalSetCompatibilityMode> {
     match composite_anchor_var {
         None => Some(LocalSetCompatibilityMode::PurePure),
-        Some(var) if left_anchor_var == right_anchor_var => {
+        Some(_) if left_anchor_var == right_anchor_var => {
             Some(LocalSetCompatibilityMode::CompositeVsComposite)
         }
         Some(var) => {
