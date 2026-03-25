@@ -23,7 +23,7 @@ jobs:
           - runner: macos-15
             asset: macos-aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build CLI
@@ -42,7 +42,7 @@ jobs:
           Copy-Item target/release/shifty.exe "dist/shifty-${{ matrix.asset }}.exe"
           Compress-Archive -Path "dist/shifty-${{ matrix.asset }}.exe" -DestinationPath "dist/shifty-${{ matrix.asset }}.zip"
       - name: Upload CLI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cli-${{ matrix.asset }}
           path: dist
@@ -60,8 +60,8 @@ jobs:
             target: aarch64
             use_zig: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.x
       - name: Build wheels
@@ -83,7 +83,7 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.platform.use_zig && '-C link-arg=-lc++ -C link-arg=-lc++abi' || '' }}
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
@@ -99,8 +99,8 @@ jobs:
           - runner: ubuntu-22.04
             target: aarch64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.x
       - name: Build wheels
@@ -120,7 +120,7 @@ jobs:
         env:
           RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-musllinux-${{ matrix.platform.target }}
           path: dist
@@ -129,8 +129,8 @@ jobs:
     name: Build wheels (windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.x
           architecture: x64
@@ -139,7 +139,7 @@ jobs:
         with:
           target: x64
           args: --release --out dist --manifest-path python/Cargo.toml
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.13t
           architecture: x64
@@ -149,7 +149,7 @@ jobs:
           target: x64
           args: --release --out dist --manifest-path python/Cargo.toml -i python3.13t
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-windows-x64
           path: dist
@@ -160,10 +160,10 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: "10.15"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set macOS deployment target
         run: echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}" >> $GITHUB_ENV
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.x
       - name: Build wheels
@@ -177,7 +177,7 @@ jobs:
           target: aarch64
           args: --release --out dist --manifest-path python/Cargo.toml -i python3.13t
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-macos-aarch64
           path: dist
@@ -186,14 +186,14 @@ jobs:
     name: Build sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist --manifest-path python/Cargo.toml
       - name: Upload sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-sdist
           path: dist
@@ -257,7 +257,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Publish crate
