@@ -1,7 +1,7 @@
 use crate::named_nodes::{MF, RDF, RDFS, SHACL, SHT};
 use crate::runtime::ToSubjectRef;
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{vocab::xsd, Graph, NamedOrBlankNodeRef as SubjectRef, TermRef, TripleRef};
+use oxigraph::model::{Graph, NamedOrBlankNodeRef as SubjectRef, TermRef, TripleRef, vocab::xsd};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -74,10 +74,10 @@ fn extract_path_graph(manifest_graph: &Graph, path_node: SubjectRef, report_grap
             if let TermRef::NamedNode(_) | TermRef::BlankNode(_) = triple.object {
                 extract_path_graph(manifest_graph, triple.object.to_subject_ref(), report_graph);
             }
-        } else if predicate_ref == rdf.rest || predicate_ref == rdf.first {
-            if let TermRef::BlankNode(_) = triple.object {
-                extract_path_graph(manifest_graph, triple.object.to_subject_ref(), report_graph);
-            }
+        } else if (predicate_ref == rdf.rest || predicate_ref == rdf.first)
+            && let TermRef::BlankNode(_) = triple.object
+        {
+            extract_path_graph(manifest_graph, triple.object.to_subject_ref(), report_graph);
         }
     }
 }
@@ -100,11 +100,11 @@ fn extract_report_graph(manifest_graph: &Graph, result_node: SubjectRef) -> Grap
                 report_graph.insert(triple);
 
                 // Recursively handle sh:resultPath if it's a blank node
-                if triple.predicate == sh.result_path {
-                    if let TermRef::BlankNode(_) = triple.object {
-                        let path_subject = triple.object.to_subject_ref();
-                        extract_path_graph(manifest_graph, path_subject, &mut report_graph);
-                    }
+                if triple.predicate == sh.result_path
+                    && let TermRef::BlankNode(_) = triple.object
+                {
+                    let path_subject = triple.object.to_subject_ref();
+                    extract_path_graph(manifest_graph, path_subject, &mut report_graph);
                 }
             }
         }
@@ -114,10 +114,10 @@ fn extract_report_graph(manifest_graph: &Graph, result_node: SubjectRef) -> Grap
 
 /// Loads and parses a SHACL test suite manifest file from the given path.
 fn iri_to_file_path(iri: &str) -> Option<PathBuf> {
-    if let Ok(url) = Url::parse(iri) {
-        if url.scheme() == "file" {
-            return url.to_file_path().ok();
-        }
+    if let Ok(url) = Url::parse(iri)
+        && url.scheme() == "file"
+    {
+        return url.to_file_path().ok();
     }
     None
 }
@@ -179,116 +179,113 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, String> {
     // Handle test entries
     if let Some(entries_list_head) =
         manifest_graph.object_for_subject_predicate(manifest_node, mf.entries)
+        && let TermRef::NamedNode(_) | TermRef::BlankNode(_) = entries_list_head
     {
-        if let TermRef::NamedNode(_) | TermRef::BlankNode(_) = entries_list_head {
-            let mut current_node = entries_list_head;
-            let nil_ref: TermRef = rdf.nil.into();
-            while current_node != nil_ref {
-                let list_node = current_node.to_subject_ref();
-                let obj = manifest_graph
-                    .object_for_subject_predicate(list_node, rdf.first)
-                    .ok_or_else(|| {
-                        format!(
-                            "Invalid RDF list for mf:entries: missing rdf:first at {}",
-                            current_node
-                        )
-                    })?;
-                let entry = obj.to_subject_ref();
+        let mut current_node = entries_list_head;
+        let nil_ref: TermRef = rdf.nil.into();
+        while current_node != nil_ref {
+            let list_node = current_node.to_subject_ref();
+            let obj = manifest_graph
+                .object_for_subject_predicate(list_node, rdf.first)
+                .ok_or_else(|| {
+                    format!(
+                        "Invalid RDF list for mf:entries: missing rdf:first at {}",
+                        current_node
+                    )
+                })?;
+            let entry = obj.to_subject_ref();
 
-                let next_node = manifest_graph
-                    .object_for_subject_predicate(list_node, rdf.rest)
-                    .ok_or_else(|| {
-                        "Invalid RDF list for mf:entries: missing rdf:rest".to_string()
-                    })?;
+            let next_node = manifest_graph
+                .object_for_subject_predicate(list_node, rdf.rest)
+                .ok_or_else(|| "Invalid RDF list for mf:entries: missing rdf:rest".to_string())?;
 
-                let is_validate_test =
-                    manifest_graph.contains(TripleRef::new(entry, rdf.type_, sht.validate));
+            let is_validate_test =
+                manifest_graph.contains(TripleRef::new(entry, rdf.type_, sht.validate));
 
-                if is_validate_test {
-                    let name = manifest_graph
-                        .object_for_subject_predicate(entry, rdfs.label)
-                        .and_then(|t| match t {
-                            TermRef::Literal(l) => Some(l.value().to_string()),
-                            _ => None,
-                        })
-                        .unwrap_or_else(|| "Unnamed test".to_string());
+            if is_validate_test {
+                let name = manifest_graph
+                    .object_for_subject_predicate(entry, rdfs.label)
+                    .and_then(|t| match t {
+                        TermRef::Literal(l) => Some(l.value().to_string()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| "Unnamed test".to_string());
 
-                    let action_node = manifest_graph
-                        .object_for_subject_predicate(entry, mf.action)
-                        .ok_or_else(|| format!("Test '{}' has no mf:action", name))?;
-                    let action_s = action_node.to_subject_ref();
+                let action_node = manifest_graph
+                    .object_for_subject_predicate(entry, mf.action)
+                    .ok_or_else(|| format!("Test '{}' has no mf:action", name))?;
+                let action_s = action_node.to_subject_ref();
 
-                    // Defaults: many tests embed data+shapes in the same file
-                    let mut data_graph_path = path.to_path_buf();
-                    let mut shapes_graph_path = path.to_path_buf();
+                // Defaults: many tests embed data+shapes in the same file
+                let mut data_graph_path = path.to_path_buf();
+                let mut shapes_graph_path = path.to_path_buf();
 
-                    // Optional explicit data/shapes graph paths
-                    if let Some(dg) =
-                        manifest_graph.object_for_subject_predicate(action_s, SHT::new().data_graph)
-                    {
-                        data_graph_path = resolve_graph_path(path, &manifest_url, dg)?;
-                    }
-                    if let Some(sg) = manifest_graph
-                        .object_for_subject_predicate(action_s, SHT::new().shapes_graph)
-                    {
-                        shapes_graph_path = resolve_graph_path(path, &manifest_url, sg)?;
-                    }
-
-                    let result_term = manifest_graph
-                        .object_for_subject_predicate(entry, mf.result)
-                        .ok_or_else(|| format!("Test '{}' has no mf:result", name))?;
-
-                    let skip_syntax_only = if let TermRef::NamedNode(nn) = result_term {
-                        let iri = nn.as_str();
-                        iri == "http://www.w3.org/ns/shacl-test#Failure"
-                            || iri == "http://www.w3.org/ns/shacl-test#Success"
-                    } else {
-                        false
-                    };
-
-                    if skip_syntax_only {
-                        current_node = next_node;
-                        continue;
-                    }
-
-                    let result_node =
-                        if matches!(result_term, TermRef::NamedNode(_) | TermRef::BlankNode(_)) {
-                            result_term.to_subject_ref()
-                        } else {
-                            current_node = next_node;
-                            continue;
-                        };
-
-                    let conforms = manifest_graph
-                        .object_for_subject_predicate(result_node, sh.conforms)
-                        .and_then(|t| {
-                            if let TermRef::Literal(l) = t {
-                                if l.datatype() == xsd::BOOLEAN {
-                                    return l.value().parse::<bool>().ok();
-                                }
-                            }
-                            None
-                        })
-                        .ok_or_else(|| {
-                            format!(
-                                "Test '{}' has no valid sh:conforms boolean literal in its result",
-                                name
-                            )
-                        })?;
-
-                    let expected_report = extract_report_graph(&manifest_graph, result_node);
-
-                    test_cases.push(TestCase {
-                        name,
-                        conforms,
-                        data_graph_path,
-                        shapes_graph_path,
-                        expected_report,
-                    });
+                // Optional explicit data/shapes graph paths
+                if let Some(dg) =
+                    manifest_graph.object_for_subject_predicate(action_s, SHT::new().data_graph)
+                {
+                    data_graph_path = resolve_graph_path(path, &manifest_url, dg)?;
+                }
+                if let Some(sg) =
+                    manifest_graph.object_for_subject_predicate(action_s, SHT::new().shapes_graph)
+                {
+                    shapes_graph_path = resolve_graph_path(path, &manifest_url, sg)?;
                 }
 
-                current_node = next_node;
+                let result_term = manifest_graph
+                    .object_for_subject_predicate(entry, mf.result)
+                    .ok_or_else(|| format!("Test '{}' has no mf:result", name))?;
+
+                let skip_syntax_only = if let TermRef::NamedNode(nn) = result_term {
+                    let iri = nn.as_str();
+                    iri == "http://www.w3.org/ns/shacl-test#Failure"
+                        || iri == "http://www.w3.org/ns/shacl-test#Success"
+                } else {
+                    false
+                };
+
+                if skip_syntax_only {
+                    current_node = next_node;
+                    continue;
+                }
+
+                let result_node =
+                    if matches!(result_term, TermRef::NamedNode(_) | TermRef::BlankNode(_)) {
+                        result_term.to_subject_ref()
+                    } else {
+                        current_node = next_node;
+                        continue;
+                    };
+
+                let conforms = manifest_graph
+                    .object_for_subject_predicate(result_node, sh.conforms)
+                    .and_then(|t| {
+                        if let TermRef::Literal(l) = t
+                            && l.datatype() == xsd::BOOLEAN
+                        {
+                            return l.value().parse::<bool>().ok();
+                        }
+                        None
+                    })
+                    .ok_or_else(|| {
+                        format!(
+                            "Test '{}' has no valid sh:conforms boolean literal in its result",
+                            name
+                        )
+                    })?;
+
+                let expected_report = extract_report_graph(&manifest_graph, result_node);
+
+                test_cases.push(TestCase {
+                    name,
+                    conforms,
+                    data_graph_path,
+                    shapes_graph_path,
+                    expected_report,
+                });
             }
+
+            current_node = next_node;
         }
     }
 

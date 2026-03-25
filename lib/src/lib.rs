@@ -35,7 +35,7 @@ pub(crate) mod validate;
 use crate::canonicalization::skolemize;
 use crate::context::model::OriginalValueIndex;
 use crate::context::{
-    render_heatmap_graphviz, render_shapes_graphviz, ParsingContext, ShapesModel, ValidationContext,
+    ParsingContext, ShapesModel, ValidationContext, render_heatmap_graphviz, render_shapes_graphviz,
 };
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
@@ -510,16 +510,17 @@ impl ValidatorBuilder {
             } else {
                 None
             };
-            if do_imports && !data_in_env {
-                if let Source::Quads { quads, .. } = &data_source {
-                    let _ = Self::load_import_graphs_for_quads(
-                        &mut env,
-                        quads,
-                        import_depth,
-                        "data",
-                        refresh_strategy,
-                    )?;
-                }
+            if do_imports
+                && !data_in_env
+                && let Source::Quads { quads, .. } = &data_source
+            {
+                let _ = Self::load_import_graphs_for_quads(
+                    &mut env,
+                    quads,
+                    import_depth,
+                    "data",
+                    refresh_strategy,
+                )?;
             }
             let data_contains_shapes = data_closure_ids
                 .as_ref()
@@ -955,30 +956,30 @@ impl ValidatorBuilder {
                 return Err(Box::new(std::io::Error::other(format!(
                     "Empty source is not loadable for {} graph",
                     label
-                ))))
+                ))));
             }
             Source::Quads { .. } => unreachable!("in-memory quads handled above"),
         };
 
         // Resolve through OntoEnv when possible.
-        if let Ok(graph_id) = from_env {
-            if let Ok(ontology) = env.get_ontology(&graph_id) {
-                let graph_iri = ontology.name().clone();
-                let location = ontology
-                    .location()
-                    .map(|loc| loc.as_str().to_string())
-                    .unwrap_or_else(|| "<unknown>".into());
-                debug!(
-                    "Loaded {} graph {} (location {})",
-                    label, graph_iri, location
-                );
-                info!("Added {} graph: {}", label, graph_iri);
-                return Ok(LoadedSource {
-                    graph_iri,
-                    in_env: true,
-                    graph_id: Some(graph_id),
-                });
-            }
+        if let Ok(graph_id) = from_env
+            && let Ok(ontology) = env.get_ontology(&graph_id)
+        {
+            let graph_iri = ontology.name().clone();
+            let location = ontology
+                .location()
+                .map(|loc| loc.as_str().to_string())
+                .unwrap_or_else(|| "<unknown>".into());
+            debug!(
+                "Loaded {} graph {} (location {})",
+                label, graph_iri, location
+            );
+            info!("Added {} graph: {}", label, graph_iri);
+            return Ok(LoadedSource {
+                graph_iri,
+                in_env: true,
+                graph_id: Some(graph_id),
+            });
         }
 
         // Fallback: manual Turtle parse into the env store (keeps the graph name stable).
@@ -988,7 +989,7 @@ impl ValidatorBuilder {
                 return Err(Box::new(std::io::Error::other(format!(
                     "Failed to resolve {} graph {} via OntoEnv",
                     label, fallback_location
-                ))))
+                ))));
             }
         };
         let iri = Url::from_file_path(path)
@@ -1263,10 +1264,10 @@ impl ValidatorBuilder {
         }
         if let Some(ids) = secondary_ids {
             for id in ids {
-                if let Some(primary) = primary_by_uri.get(id.name().as_str()) {
-                    if *primary != id {
-                        return true;
-                    }
+                if let Some(primary) = primary_by_uri.get(id.name().as_str())
+                    && *primary != id
+                {
+                    return true;
                 }
             }
         }
@@ -1828,11 +1829,7 @@ impl Validator {
 
         let shape_ir = self.context.shape_ir();
         let Some(node_shape_id) = shape_ir.node_shape_terms.iter().find_map(|(id, term)| {
-            if term == &shape_term {
-                Some(*id)
-            } else {
-                None
-            }
+            if term == &shape_term { Some(*id) } else { None }
         }) else {
             return Err(format!(
                 "node shape identifier {shape_id} was not found in the loaded shape graph"
@@ -2471,8 +2468,8 @@ mod tests {
     }
 
     #[test]
-    fn shape_ir_with_imports_uses_added_graph_id_when_ontology_iri_collides(
-    ) -> Result<(), Box<dyn Error>> {
+    fn shape_ir_with_imports_uses_added_graph_id_when_ontology_iri_collides()
+    -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_shape_ir_collision")?;
 
@@ -2529,8 +2526,8 @@ ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
     }
 
     #[test]
-    fn root_graph_is_rewritten_from_requested_source_when_ontology_iri_collides(
-    ) -> Result<(), Box<dyn Error>> {
+    fn root_graph_is_rewritten_from_requested_source_when_ontology_iri_collides()
+    -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_root_graph_collision")?;
 
@@ -3055,9 +3052,11 @@ ex:ThingB a ex:Thing ;
                 _ => None,
             })
             .collect();
-        assert!(custom_components
-            .iter()
-            .any(|c| c.definition.iri == template_iri && c.definition.template.is_some()));
+        assert!(
+            custom_components
+                .iter()
+                .any(|c| c.definition.iri == template_iri && c.definition.template.is_some())
+        );
 
         let shape_template_iri = NamedNode::new("http://example.com/ns#LabelShapeTemplate")?;
         let shape_template = validator
@@ -3106,13 +3105,15 @@ ex:Alice a ex:Person ;
         fs::write(&shapes_path, shapes_ttl).unwrap();
         fs::write(&data_path, data_ttl).unwrap();
 
-        assert!(validate_prebound_variable_usage(
-            "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
-            "unit-test",
-            true,
-            true,
-        )
-        .is_ok());
+        assert!(
+            validate_prebound_variable_usage(
+                "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
+                "unit-test",
+                true,
+                true,
+            )
+            .is_ok()
+        );
 
         let result =
             Validator::from_files(&shapes_path.to_string_lossy(), &data_path.to_string_lossy());
@@ -3132,13 +3133,15 @@ ex:Alice a ex:Person ;
     #[test]
     fn custom_property_validator_allows_missing_path() {
         let _guard = validator_lock().lock().unwrap();
-        assert!(validate_prebound_variable_usage(
-            "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
-            "unit-test",
-            true,
-            true,
-        )
-        .is_ok());
+        assert!(
+            validate_prebound_variable_usage(
+                "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
+                "unit-test",
+                true,
+                true,
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -3254,8 +3257,8 @@ ex:Alice a ex:Thing ;
     }
 
     #[test]
-    fn optimizer_prunes_safe_top_level_property_shape_when_path_absent(
-    ) -> Result<(), Box<dyn Error>> {
+    fn optimizer_prunes_safe_top_level_property_shape_when_path_absent()
+    -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_opt_property_safe_absent_path")?;
 
@@ -3374,8 +3377,8 @@ ex:Alice a ex:Thing ;
     }
 
     #[test]
-    fn focus_predicate_summary_detects_present_and_absent_outgoing_predicates(
-    ) -> Result<(), Box<dyn Error>> {
+    fn focus_predicate_summary_detects_present_and_absent_outgoing_predicates()
+    -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_focus_predicate_summary")?;
 
@@ -3430,12 +3433,16 @@ ex:Carol a ex:Thing .
                 .focus_outgoing_predicate_count(&carol, &present)?,
             0
         );
-        assert!(validator
-            .context
-            .focus_has_incoming_predicate(&bob, &present)?);
-        assert!(validator
-            .context
-            .focus_has_incoming_predicate(&label, &present)?);
+        assert!(
+            validator
+                .context
+                .focus_has_incoming_predicate(&bob, &present)?
+        );
+        assert!(
+            validator
+                .context
+                .focus_has_incoming_predicate(&label, &present)?
+        );
         assert_eq!(
             validator
                 .context
@@ -3492,8 +3499,8 @@ ex:Carol a ex:Thing .
     }
 
     #[test]
-    fn sparql_constraints_skip_execution_when_required_this_predicate_is_absent(
-    ) -> Result<(), Box<dyn Error>> {
+    fn sparql_constraints_skip_execution_when_required_this_predicate_is_absent()
+    -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_sparql_prefilter")?;
 
@@ -3681,8 +3688,8 @@ ex:ThingShape
     }
 
     #[test]
-    fn lowered_adjacent_predicate_whitelist_skips_generic_sparql_execution(
-    ) -> Result<(), Box<dyn Error>> {
+    fn lowered_adjacent_predicate_whitelist_skips_generic_sparql_execution()
+    -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_lowered_adjacent_whitelist")?;
 

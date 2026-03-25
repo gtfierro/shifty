@@ -1,10 +1,10 @@
 use crate::compiled_runtime::analysis::{
     AnalysisBudget, AnalysisContext, AnalysisPhase, AnalysisState, AnalyzerRegistry,
 };
-use crate::compiled_runtime::opt::{build_default_plan, ExecutionPlan, PlanRewriterRegistry};
+use crate::compiled_runtime::opt::{ExecutionPlan, PlanRewriterRegistry, build_default_plan};
 use crate::compiled_runtime::path;
 use crate::compiled_runtime::program::{CompiledProgram, KERNEL_VERSION, PROGRAM_SCHEMA_VERSION};
-use crate::compiled_runtime::report::{compact_from_graph, graph_to_turtle, CompactReport};
+use crate::compiled_runtime::report::{CompactReport, compact_from_graph, graph_to_turtle};
 use crate::{Source, ValidationReportOptions, Validator};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::store::Store;
@@ -220,8 +220,8 @@ fn collect_data_quads(
 mod tests {
     use super::*;
     use crate::compiled_runtime::program::{
-        ComponentRow, ProgramHeader, ShapeRow, StaticHints, TripleRow, KERNEL_VERSION,
-        PROGRAM_SCHEMA_VERSION,
+        ComponentRow, KERNEL_VERSION, PROGRAM_SCHEMA_VERSION, ProgramHeader, ShapeRow, StaticHints,
+        TripleRow,
     };
     use oxigraph::model::{NamedNode, Term};
 

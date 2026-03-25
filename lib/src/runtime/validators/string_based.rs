@@ -1,4 +1,4 @@
-use crate::context::{sanitize_graphviz_string, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, sanitize_graphviz_string};
 use crate::runtime::validators::parallel_value_node_checks;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, TermRef};
@@ -569,15 +569,14 @@ impl ValidateComponent for UniqueLangConstraintComponent {
             let mut duplicated_tags = HashSet::new();
 
             for vn in value_nodes {
-                if let TermRef::Literal(lit) = vn.as_ref() {
-                    if let Some(lang) = lit.language() {
-                        if !lang.is_empty() {
-                            // SHACL spec: "for each non-empty language tag"
-                            if !lang_tags_seen.insert(lang.to_lowercase()) {
-                                // If insert returns false, it means the value was already present.
-                                duplicated_tags.insert(lang.to_lowercase());
-                            }
-                        }
+                if let TermRef::Literal(lit) = vn.as_ref()
+                    && let Some(lang) = lit.language()
+                    && !lang.is_empty()
+                {
+                    // SHACL spec: "for each non-empty language tag"
+                    if !lang_tags_seen.insert(lang.to_lowercase()) {
+                        // If insert returns false, it means the value was already present.
+                        duplicated_tags.insert(lang.to_lowercase());
                     }
                 }
             }

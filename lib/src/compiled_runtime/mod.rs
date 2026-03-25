@@ -6,5 +6,5 @@ pub mod path;
 pub mod program;
 pub mod report;
 
-pub use kernel::{run, KernelOptions, KernelReport};
+pub use kernel::{KernelOptions, KernelReport, run};
 pub use program::CompiledProgram;

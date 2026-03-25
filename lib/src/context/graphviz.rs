@@ -276,22 +276,20 @@ pub(crate) fn render_heatmap_graphviz(
         let comp_str = comp.to_graphviz_string(*ident, context);
         for line in comp_str.lines() {
             let mut modified_line = line.to_string();
-            if let Some(start_pos) = modified_line.find('[') {
-                if let Some(end_pos) = modified_line.rfind(']') {
-                    let color_attr = format!("fillcolor=\"{}\", ", color);
-                    modified_line.insert_str(start_pos + 1, &color_attr);
+            if let Some(start_pos) = modified_line.find('[')
+                && let Some(end_pos) = modified_line.rfind(']')
+            {
+                let color_attr = format!("fillcolor=\"{}\", ", color);
+                modified_line.insert_str(start_pos + 1, &color_attr);
 
-                    if let Some(label_start) = modified_line.find("label=\"") {
-                        let new_end_pos = end_pos + color_attr.len();
-                        if let Some(label_end) = modified_line[..new_end_pos].rfind('"') {
-                            if label_end > label_start {
-                                let freq_text = format!(
-                                    "\\n({:.2}%) ({}/{})",
-                                    relative_freq, count, total_freq
-                                );
-                                modified_line.insert_str(label_end, &freq_text);
-                            }
-                        }
+                if let Some(label_start) = modified_line.find("label=\"") {
+                    let new_end_pos = end_pos + color_attr.len();
+                    if let Some(label_end) = modified_line[..new_end_pos].rfind('"')
+                        && label_end > label_start
+                    {
+                        let freq_text =
+                            format!("\\n({:.2}%) ({}/{})", relative_freq, count, total_freq);
+                        modified_line.insert_str(label_end, &freq_text);
                     }
                 }
             }

@@ -582,10 +582,10 @@ impl<'a> InferenceEngine<'a> {
                 if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
                     return Ok(Vec::new());
                 }
-                if let Some(prefilter) = prefilter {
-                    if !prefilter.matches_delta(delta, focus) {
-                        return Ok(Vec::new());
-                    }
+                if let Some(prefilter) = prefilter
+                    && !prefilter.matches_delta(delta, focus)
+                {
+                    return Ok(Vec::new());
                 }
 
                 let prepared = self.context.prepare_query(&rule.query).map_err(|e| {
@@ -666,10 +666,10 @@ impl<'a> InferenceEngine<'a> {
                 if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
                     return Ok(Vec::new());
                 }
-                if let Some(prefilter) = prefilter {
-                    if !prefilter.matches_delta(delta, focus) {
-                        return Ok(Vec::new());
-                    }
+                if let Some(prefilter) = prefilter
+                    && !prefilter.matches_delta(delta, focus)
+                {
+                    return Ok(Vec::new());
                 }
 
                 let mut batch = Vec::new();
@@ -786,10 +786,10 @@ impl<'a> InferenceEngine<'a> {
         predicate: &NamedNode,
         delta: &DeltaIndex,
     ) -> Result<Vec<Term>, String> {
-        if !delta.is_initial {
-            if let Some(values) = delta.outgoing_values_for_focus(focus, predicate) {
-                return Ok(values);
-            }
+        if !delta.is_initial
+            && let Some(values) = delta.outgoing_values_for_focus(focus, predicate)
+        {
+            return Ok(values);
         }
         self.context
             .focus_objects_for_predicate(focus, &Term::NamedNode(predicate.clone()))

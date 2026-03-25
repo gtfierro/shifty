@@ -6,7 +6,7 @@
 
 use crate::context::{Context, ShapeTimingPhase, SourceShape, ValidationContext};
 use crate::model::components::ComponentDescriptor;
-use crate::planning::{build_validation_plan, ShapeRef};
+use crate::planning::{ShapeRef, build_validation_plan};
 use crate::report::ValidationReportBuilder;
 use crate::runtime::{Component, ComponentValidationResult, ToSubjectRef, ValidationFailure};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
@@ -126,28 +126,25 @@ fn canonicalize_value_nodes(
     for node in &mut nodes {
         let current = node.clone();
 
-        if let Term::Literal(ref lit) = current {
-            if let Some(index) = original_index {
-                if let Some(original) = index.resolve_literal(focus_node, predicate, lit) {
-                    if original != current {
-                        exact_matches.remove(&original);
-                        *node = original;
-                        continue;
-                    }
-                }
-            }
+        if let Term::Literal(ref lit) = current
+            && let Some(index) = original_index
+            && let Some(original) = index.resolve_literal(focus_node, predicate, lit)
+            && original != current
+        {
+            exact_matches.remove(&original);
+            *node = original;
+            continue;
         }
 
         if exact_matches.remove(&current) {
             continue;
         }
 
-        if let Term::Literal(ref lit) = current {
-            if let Some(term) =
+        if let Term::Literal(ref lit) = current
+            && let Some(term) =
                 lookup_by_signature(&mut literals_by_signature, &mut exact_matches, lit)
-            {
-                *node = term;
-            }
+        {
+            *node = term;
         }
     }
 
@@ -167,11 +164,11 @@ fn lookup_by_signature(
     lit: &Literal,
 ) -> Option<Term> {
     let key = literal_signature(lit);
-    if let Some(queue) = buckets.get_mut(&key) {
-        if let Some(term) = queue.pop_front() {
-            exact_matches.remove(&term);
-            return Some(term);
-        }
+    if let Some(queue) = buckets.get_mut(&key)
+        && let Some(term) = queue.pop_front()
+    {
+        exact_matches.remove(&term);
+        return Some(term);
     }
     None
 }
@@ -906,9 +903,9 @@ impl PropertyShape {
                                             nodes.push(term.clone());
                                         } else {
                                             return Err(format!(
-                                            "Missing valueNode in solution for PropertyShape {}",
-                                            self.identifier()
-                                        ));
+                                                "Missing valueNode in solution for PropertyShape {}",
+                                                self.identifier()
+                                            ));
                                         }
                                     }
                                     nodes

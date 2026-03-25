@@ -1,4 +1,4 @@
-use crate::types::{ComponentID, Path, PropShapeID, Severity, Target, ID};
+use crate::types::{ComponentID, ID, Path, PropShapeID, Severity, Target};
 use oxigraph::model::Term;
 
 /// Immutable description of a SHACL node shape.

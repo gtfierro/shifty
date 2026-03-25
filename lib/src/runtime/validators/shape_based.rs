@@ -1,14 +1,14 @@
-use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext};
+use crate::context::{Context, SourceShape, ValidationContext, format_term_for_label};
 use crate::shape::NodeShape;
-use crate::types::{ComponentID, PropShapeID, TraceItem, ID};
+use crate::types::{ComponentID, ID, PropShapeID, TraceItem};
 use oxigraph::model::NamedNode;
 // Removed: use oxigraph::model::Term;
 
-use crate::runtime::validators::sparql::should_batch_sparql_focuses;
 use crate::runtime::Component;
+use crate::runtime::validators::sparql::should_batch_sparql_focuses;
 use crate::runtime::{
-    check_conformance_for_node, ComponentValidationResult, ConformanceReport, GraphvizOutput,
-    ValidateComponent, ValidationFailure,
+    ComponentValidationResult, ConformanceReport, GraphvizOutput, ValidateComponent,
+    ValidationFailure, check_conformance_for_node,
 };
 
 #[derive(Debug)]
@@ -138,33 +138,31 @@ impl ValidateComponent for PropertyConstraintComponent {
         trace: &mut Vec<TraceItem>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if let Some(property_shape) = validation_context.model.get_prop_shape_by_id(&self.shape) {
-            if let Some(parent_node_shape) = c.source_shape().as_node_id() {
-                if let Some(focus_nodes) = validation_context.cached_node_targets(parent_node_shape)
-                {
-                    if should_batch_sparql_focuses(focus_nodes.len()) {
-                        let parent_shape = c.source_shape();
-                        let batched = validation_context.get_or_compute_property_shape_batch(
-                            self.shape,
-                            parent_shape.clone(),
-                            || {
-                                property_shape.collect_batched_sparql_failures(
-                                    focus_nodes.as_ref(),
-                                    validation_context,
-                                )
-                            },
-                        );
-                        let batched = match batched.as_ref() {
-                            Ok(grouped) => grouped,
-                            Err(err) => return Err(err.clone()),
-                        };
-                        return property_shape.validate_with_batched_sparql(
-                            c,
+            if let Some(parent_node_shape) = c.source_shape().as_node_id()
+                && let Some(focus_nodes) = validation_context.cached_node_targets(parent_node_shape)
+                && should_batch_sparql_focuses(focus_nodes.len())
+            {
+                let parent_shape = c.source_shape();
+                let batched = validation_context.get_or_compute_property_shape_batch(
+                    self.shape,
+                    parent_shape.clone(),
+                    || {
+                        property_shape.collect_batched_sparql_failures(
+                            focus_nodes.as_ref(),
                             validation_context,
-                            trace,
-                            Some(batched),
-                        );
-                    }
-                }
+                        )
+                    },
+                );
+                let batched = match batched.as_ref() {
+                    Ok(grouped) => grouped,
+                    Err(err) => return Err(err.clone()),
+                };
+                return property_shape.validate_with_batched_sparql(
+                    c,
+                    validation_context,
+                    trace,
+                    Some(batched),
+                );
             }
             // Per SHACL spec for sh:property, the validation results from the property shape
             // are the results of this constraint.
@@ -337,12 +335,10 @@ impl ValidateComponent for QualifiedValueShapeComponent {
 
                                 if let Some(Component::QualifiedValueShape(qvs)) =
                                     validation_context.get_component(sibling_component_id)
-                                {
-                                    if let Some(sibling_node_shape) =
+                                    && let Some(sibling_node_shape) =
                                         validation_context.model.get_node_shape_by_id(&qvs.shape)
-                                    {
-                                        sibling_shapes.push(sibling_node_shape);
-                                    }
+                                {
+                                    sibling_shapes.push(sibling_node_shape);
                                 }
                             }
                         }
@@ -416,44 +412,44 @@ impl ValidateComponent for QualifiedValueShapeComponent {
         }
 
         // Check min/max counts
-        if let Some(min) = self.min_count {
-            if qualified_nodes_count < min {
-                let failure = ValidationFailure {
-                    component_id,
-                    failed_value_node: None,
-                    message: format!(
-                        "Found {} values that conform to the qualified value shape and not to any sibling shapes, but at least {} were required.",
-                        qualified_nodes_count, min
-                    ),
-                    result_path: None,
-                    source_constraint: None,
+        if let Some(min) = self.min_count
+            && qualified_nodes_count < min
+        {
+            let failure = ValidationFailure {
+                component_id,
+                failed_value_node: None,
+                message: format!(
+                    "Found {} values that conform to the qualified value shape and not to any sibling shapes, but at least {} were required.",
+                    qualified_nodes_count, min
+                ),
+                result_path: None,
+                source_constraint: None,
 
-                    severity: None,
+                severity: None,
 
-                    message_terms: Vec::new(),
-                };
-                validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
-            }
+                message_terms: Vec::new(),
+            };
+            validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
         }
 
-        if let Some(max) = self.max_count {
-            if qualified_nodes_count > max {
-                let failure = ValidationFailure {
-                    component_id,
-                    failed_value_node: None,
-                    message: format!(
-                        "Found {} values that conform to the qualified value shape and not to any sibling shapes, but at most {} were allowed.",
-                        qualified_nodes_count, max
-                    ),
-                    result_path: None,
-                    source_constraint: None,
+        if let Some(max) = self.max_count
+            && qualified_nodes_count > max
+        {
+            let failure = ValidationFailure {
+                component_id,
+                failed_value_node: None,
+                message: format!(
+                    "Found {} values that conform to the qualified value shape and not to any sibling shapes, but at most {} were allowed.",
+                    qualified_nodes_count, max
+                ),
+                result_path: None,
+                source_constraint: None,
 
-                    severity: None,
+                severity: None,
 
-                    message_terms: Vec::new(),
-                };
-                validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
-            }
+                message_terms: Vec::new(),
+            };
+            validation_results.push(ComponentValidationResult::Fail(c.clone(), failure));
         }
 
         Ok(validation_results)

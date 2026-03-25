@@ -1,9 +1,9 @@
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
 pub use crate::shacl_ir::{
-    ComponentDescriptor, ComponentID, FeatureToggles, NodeShapeIR, ParameterBindings, Path,
+    ComponentDescriptor, ComponentID, FeatureToggles, ID, NodeShapeIR, ParameterBindings, Path,
     PropShapeID, PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target,
-    TriplePatternTerm, ID,
+    TriplePatternTerm,
 };
 use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
 use oxigraph::sparql::QueryResults;
@@ -135,10 +135,10 @@ impl TargetEvalExt for Target {
                                     targets.push(t.to_owned());
                                 } else if let Some(t) = solution.get("target") {
                                     targets.push(t.to_owned());
-                                } else if let Some(var) = solution.variables().first() {
-                                    if let Some(t) = solution.get(var.as_str()) {
-                                        targets.push(t.to_owned());
-                                    }
+                                } else if let Some(var) = solution.variables().first()
+                                    && let Some(t) = solution.get(var.as_str())
+                                {
+                                    targets.push(t.to_owned());
                                 }
                             }
                         }

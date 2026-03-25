@@ -1,4 +1,4 @@
-use crate::context::{format_term_for_label, sanitize_graphviz_string, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, format_term_for_label, sanitize_graphviz_string};
 use crate::runtime::Component;
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
@@ -102,15 +102,15 @@ impl GraphvizOutput for ClosedConstraintComponent {
         _context: &ValidationContext,
     ) -> String {
         let mut label_parts = vec![format!("Closed: {}", self.closed)];
-        if let Some(ignored) = &self.ignored_properties {
-            if !ignored.is_empty() {
-                let ignored_str = ignored
-                    .iter()
-                    .map(format_term_for_label)
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                label_parts.push(format!("Ignored: [{}]", ignored_str));
-            }
+        if let Some(ignored) = &self.ignored_properties
+            && !ignored.is_empty()
+        {
+            let ignored_str = ignored
+                .iter()
+                .map(format_term_for_label)
+                .collect::<Vec<String>>()
+                .join(", ");
+            label_parts.push(format!("Ignored: [{}]", ignored_str));
         }
         format!(
             "{} [label=\"{}\"];",
@@ -153,14 +153,11 @@ impl ValidateComponent for ClosedConstraintComponent {
             for constraint_com_id in node_shape.constraints() {
                 if let Some(Component::PropertyConstraint(pc)) =
                     validation_context.get_component(constraint_com_id)
-                {
-                    if let Some(prop_shape) =
+                    && let Some(prop_shape) =
                         validation_context.model.get_prop_shape_by_id(pc.shape())
-                    {
-                        if let Path::Simple(Term::NamedNode(p)) = prop_shape.path() {
-                            allowed_properties.insert(p.clone());
-                        }
-                    }
+                    && let Path::Simple(Term::NamedNode(p)) = prop_shape.path()
+                {
+                    allowed_properties.insert(p.clone());
                 }
             }
         }

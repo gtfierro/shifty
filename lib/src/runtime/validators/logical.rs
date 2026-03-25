@@ -1,10 +1,10 @@
-use crate::context::{format_term_for_label, Context, SourceShape, ValidationContext};
-use crate::types::{ComponentID, TraceItem, ID};
+use crate::context::{Context, SourceShape, ValidationContext, format_term_for_label};
+use crate::types::{ComponentID, ID, TraceItem};
 use oxigraph::model::NamedNode;
 
 use crate::runtime::{
-    check_conformance_for_node, ComponentValidationResult, ConformanceReport, GraphvizOutput,
-    ValidateComponent, ValidationFailure,
+    ComponentValidationResult, ConformanceReport, GraphvizOutput, ValidateComponent,
+    ValidationFailure, check_conformance_for_node,
 };
 
 // logical constraints

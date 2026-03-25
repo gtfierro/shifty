@@ -1,7 +1,7 @@
 #![allow(deprecated)]
 use crate::context::{
-    format_term_for_label, sanitize_graphviz_string, BatchedSparqlResult, BatchedSparqlViolation,
-    Context, ValidationContext,
+    BatchedSparqlResult, BatchedSparqlViolation, Context, ValidationContext, format_term_for_label,
+    sanitize_graphviz_string,
 };
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::named_nodes::SHACL;
@@ -9,11 +9,11 @@ use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 use crate::sparql::{
-    ensure_pre_binding_semantics, format_term_with_namespace_aliases, lowered_sparql_query_kind,
-    parse_prefix_lines, required_this_predicates, validate_prebound_variable_usage,
     AdjacentPredicateWhitelistPlan, CompatibilitySide, LocalSetCompatibilityMode,
     LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MessageTemplater,
     MissingRelatedNodePlan, RequiredPathSupportPlan, SparqlExecutor, ThisPredicateDirection,
+    ensure_pre_binding_semantics, format_term_with_namespace_aliases, lowered_sparql_query_kind,
+    parse_prefix_lines, required_this_predicates, validate_prebound_variable_usage,
 };
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
@@ -722,10 +722,10 @@ fn try_run_lowered_local_set_compatibility(
 
     let mut results = Vec::new();
     for left_anchor in &left_anchors {
-        if let Some(class_term) = &plan.left_class {
-            if !term_satisfies_lowered_class(context, left_anchor, class_term)? {
-                continue;
-            }
+        if let Some(class_term) = &plan.left_class
+            && !term_satisfies_lowered_class(context, left_anchor, class_term)?
+        {
+            continue;
         }
         let left_values =
             resolve_lowered_property_path_in_store(context, left_anchor, &plan.left_value_path)?;
@@ -737,10 +737,10 @@ fn try_run_lowered_local_set_compatibility(
             if plan.distinct_anchors && left_anchor == right_anchor {
                 continue;
             }
-            if let Some(class_term) = &plan.right_class {
-                if !term_satisfies_lowered_class(context, right_anchor, class_term)? {
-                    continue;
-                }
+            if let Some(class_term) = &plan.right_class
+                && !term_satisfies_lowered_class(context, right_anchor, class_term)?
+            {
+                continue;
             }
             let right_values = resolve_lowered_property_path_in_store(
                 context,
@@ -848,10 +848,11 @@ fn execute_batched_sparql_chunk(
             for solution_res in solutions {
                 rows_returned = rows_returned.saturating_add(1);
                 let solution = solution_res.map_err(|e| e.to_string())?;
-                if let Some(Term::Literal(failure)) = solution.get("failure") {
-                    if failure.datatype() == xsd::BOOLEAN && failure.value() == "true" {
-                        return Err("SPARQL query reported a failure.".to_string());
-                    }
+                if let Some(Term::Literal(failure)) = solution.get("failure")
+                    && failure.datatype() == xsd::BOOLEAN
+                    && failure.value() == "true"
+                {
+                    return Err("SPARQL query reported a failure.".to_string());
                 }
 
                 let Some(focus_node) = solution.get("this").cloned() else {
@@ -1006,10 +1007,10 @@ fn try_run_batched_sparql_constraint(
     }
 
     let mut substitutions = Vec::new();
-    if let Some(shape_term) = current_shape_term {
-        if query_mentions_var(full_query_str, "currentShape") {
-            substitutions.push((Variable::new_unchecked("currentShape"), shape_term.clone()));
-        }
+    if let Some(shape_term) = current_shape_term
+        && query_mentions_var(full_query_str, "currentShape")
+    {
+        substitutions.push((Variable::new_unchecked("currentShape"), shape_term.clone()));
     }
     if query_mentions_var(full_query_str, "shapesGraph") {
         substitutions.push((
@@ -1143,10 +1144,10 @@ impl SPARQLConstraintComponent {
             }
         };
 
-        if let Some(path_str) = path_substitution_value {
-            if select_query.contains("$PATH") {
-                select_query = select_query.replace("$PATH", path_str);
-            }
+        if let Some(path_str) = path_substitution_value
+            && select_query.contains("$PATH")
+        {
+            select_query = select_query.replace("$PATH", path_str);
         }
 
         let full_query_str = if !prefixes.is_empty() {
@@ -1288,12 +1289,11 @@ impl ValidateComponent for SPARQLConstraintComponent {
             )?
             .into_iter()
             .next()
+            && let Term::Literal(lit) = &deactivated_quad.object
+            && lit.datatype() == xsd::BOOLEAN
+            && lit.value() == "true"
         {
-            if let Term::Literal(lit) = &deactivated_quad.object {
-                if lit.datatype() == xsd::BOOLEAN && lit.value() == "true" {
-                    return Ok(vec![]);
-                }
-            }
+            return Ok(vec![]);
         }
 
         // 2. Get SELECT query
@@ -1332,14 +1332,13 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         // Handle $PATH substitution for property shapes
         let mut path_substitution_value: Option<String> = None;
-        if c.source_shape().as_prop_id().is_some() {
-            if let Some(prop_id) = c.source_shape().as_prop_id() {
-                if let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id) {
-                    let path_str = prop_shape.sparql_path();
-                    path_substitution_value = Some(path_str.clone());
-                    select_query = select_query.replace("$PATH", &path_str);
-                }
-            }
+        if c.source_shape().as_prop_id().is_some()
+            && let Some(prop_id) = c.source_shape().as_prop_id()
+            && let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id)
+        {
+            let path_str = prop_shape.sparql_path();
+            path_substitution_value = Some(path_str.clone());
+            select_query = select_query.replace("$PATH", &path_str);
         }
 
         let full_query_str = if !prefixes.is_empty() {
@@ -1417,11 +1416,11 @@ impl ValidateComponent for SPARQLConstraintComponent {
             substitutions.push((Variable::new_unchecked("this"), c.focus_node().clone()));
         }
 
-        if let Some(shape_term) = current_shape_term.clone() {
-            if query_mentions_var(&full_query_str, "currentShape") {
-                // Only add if the query uses it
-                substitutions.push((Variable::new_unchecked("currentShape"), shape_term));
-            }
+        if let Some(shape_term) = current_shape_term.clone()
+            && query_mentions_var(&full_query_str, "currentShape")
+        {
+            // Only add if the query uses it
+            substitutions.push((Variable::new_unchecked("currentShape"), shape_term));
         }
         if query_mentions_var(&full_query_str, "shapesGraph") {
             // Only add if the query uses it
@@ -1456,8 +1455,7 @@ impl ValidateComponent for SPARQLConstraintComponent {
 
         if let Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(plan)) =
             lowered_query_kind.as_ref()
-        {
-            if let Some(results) = try_run_lowered_adjacent_predicate_whitelist(
+            && let Some(results) = try_run_lowered_adjacent_predicate_whitelist(
                 component_id,
                 c,
                 context,
@@ -1468,13 +1466,12 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 &message_prefixes,
                 &messages,
                 severity.clone(),
-            )? {
-                return Ok(results);
-            }
+            )?
+        {
+            return Ok(results);
         }
         if let Some(LoweredSparqlQueryKind::RequiredPathSupport(plan)) = lowered_query_kind.as_ref()
-        {
-            if let Some(results) = try_run_lowered_required_path_support(
+            && let Some(results) = try_run_lowered_required_path_support(
                 component_id,
                 c,
                 context,
@@ -1485,13 +1482,12 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 &message_prefixes,
                 &messages,
                 severity.clone(),
-            )? {
-                return Ok(results);
-            }
+            )?
+        {
+            return Ok(results);
         }
         if let Some(LoweredSparqlQueryKind::MissingRelatedNode(plan)) = lowered_query_kind.as_ref()
-        {
-            if let Some(results) = try_run_lowered_missing_related_node(
+            && let Some(results) = try_run_lowered_missing_related_node(
                 component_id,
                 c,
                 context,
@@ -1502,14 +1498,13 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 &message_prefixes,
                 &messages,
                 severity.clone(),
-            )? {
-                return Ok(results);
-            }
+            )?
+        {
+            return Ok(results);
         }
         if let Some(LoweredSparqlQueryKind::LocalSetCompatibility(plan)) =
             lowered_query_kind.as_ref()
-        {
-            if let Some(results) = try_run_lowered_local_set_compatibility(
+            && let Some(results) = try_run_lowered_local_set_compatibility(
                 component_id,
                 c,
                 context,
@@ -1520,9 +1515,9 @@ impl ValidateComponent for SPARQLConstraintComponent {
                 &message_prefixes,
                 &messages,
                 severity.clone(),
-            )? {
-                return Ok(results);
-            }
+            )?
+        {
+            return Ok(results);
         }
 
         let source_shape = c.source_shape();
@@ -1605,18 +1600,19 @@ impl ValidateComponent for SPARQLConstraintComponent {
                             return Err(e.to_string());
                         }
                     };
-                    if let Some(Term::Literal(failure)) = solution.get("failure") {
-                        if failure.datatype() == xsd::BOOLEAN && failure.value() == "true" {
-                            context.record_sparql_query_call(
-                                source_shape.clone(),
-                                component_id,
-                                &self.constraint_node,
-                                query_hash,
-                                rows_returned,
-                                query_started.elapsed(),
-                            );
-                            return Err("SPARQL query reported a failure.".to_string());
-                        }
+                    if let Some(Term::Literal(failure)) = solution.get("failure")
+                        && failure.datatype() == xsd::BOOLEAN
+                        && failure.value() == "true"
+                    {
+                        context.record_sparql_query_call(
+                            source_shape.clone(),
+                            component_id,
+                            &self.constraint_node,
+                            query_hash,
+                            rows_returned,
+                            query_started.elapsed(),
+                        );
+                        return Err("SPARQL query reported a failure.".to_string());
                     }
 
                     let failed_value_node = if let Some(val) = solution.get("value") {
@@ -1864,14 +1860,13 @@ impl ValidateComponent for CustomConstraintComponent {
         let mut query_body = validator.query.clone();
         let mut path_substitution_value: Option<String> = None;
 
-        if is_prop_shape {
-            if let Some(prop_id) = c.source_shape().as_prop_id() {
-                if let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id) {
-                    let path_str = prop_shape.sparql_path();
-                    path_substitution_value = Some(path_str.clone());
-                    query_body = query_body.replace("$PATH", &path_str);
-                }
-            }
+        if is_prop_shape
+            && let Some(prop_id) = c.source_shape().as_prop_id()
+            && let Some(prop_shape) = context.model.get_prop_shape_by_id(prop_id)
+        {
+            let path_str = prop_shape.sparql_path();
+            path_substitution_value = Some(path_str.clone());
+            query_body = query_body.replace("$PATH", &path_str);
         }
 
         let current_shape_term = c.source_shape().get_term(context);
@@ -1889,13 +1884,13 @@ impl ValidateComponent for CustomConstraintComponent {
             prebound_vars.insert(var);
         }
 
-        if let Some(term) = current_shape_term.clone() {
-            if query_mentions_var(&query_body, "currentShape") {
-                let var = Variable::new_unchecked("currentShape");
-                substitutions.push((var.clone(), term));
-                optional_prebound_vars.insert(var.clone());
-                prebound_vars.insert(var);
-            }
+        if let Some(term) = current_shape_term.clone()
+            && query_mentions_var(&query_body, "currentShape")
+        {
+            let var = Variable::new_unchecked("currentShape");
+            substitutions.push((var.clone(), term));
+            optional_prebound_vars.insert(var.clone());
+            prebound_vars.insert(var);
         }
 
         if query_mentions_var(&query_body, "shapesGraph") {
@@ -1918,15 +1913,13 @@ impl ValidateComponent for CustomConstraintComponent {
 
             if !query_mentions_var(&query_body, &var_name) {
                 // Skip optional parameters that are unused in the query.
-                if let Some(param) = param_meta {
-                    if !param.optional {
-                        return Err(format!(
-                            "Custom constraint {} expects query variable ?{} for parameter {}, but it was not referenced.",
-                            self.definition.iri,
-                            var_name,
-                            param.path
-                        ));
-                    }
+                if let Some(param) = param_meta
+                    && !param.optional
+                {
+                    return Err(format!(
+                        "Custom constraint {} expects query variable ?{} for parameter {}, but it was not referenced.",
+                        self.definition.iri, var_name, param.path
+                    ));
                 }
                 continue;
             }
@@ -2089,10 +2082,11 @@ impl ValidateComponent for CustomConstraintComponent {
                     for solution_res in solutions {
                         let solution = solution_res.map_err(|e| e.to_string())?;
 
-                        if let Some(Term::Literal(failure)) = solution.get("failure") {
-                            if failure.datatype() == xsd::BOOLEAN && failure.value() == "true" {
-                                return Err("SPARQL validator reported a failure.".to_string());
-                            }
+                        if let Some(Term::Literal(failure)) = solution.get("failure")
+                            && failure.datatype() == xsd::BOOLEAN
+                            && failure.value() == "true"
+                        {
+                            return Err("SPARQL validator reported a failure.".to_string());
                         }
 
                         let failed_value_node = if let Some(val) = solution.get("value") {
@@ -2179,7 +2173,7 @@ impl ValidateComponent for CustomConstraintComponent {
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_sparql_execution, SparqlExecutionMode};
+    use super::{SparqlExecutionMode, plan_sparql_execution};
 
     #[test]
     fn sparql_execution_plan_stays_per_focus_for_unselective_medium_batches() {

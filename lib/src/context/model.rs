@@ -1,7 +1,7 @@
 use super::ids::IDLookupTable;
 use crate::model::{
-    components::sparql::CustomConstraintComponentDefinition, components::ComponentDescriptor,
-    ComponentTemplateDefinition, Rule, ShapeTemplateDefinition,
+    ComponentTemplateDefinition, Rule, ShapeTemplateDefinition, components::ComponentDescriptor,
+    components::sparql::CustomConstraintComponentDefinition,
 };
 use crate::optimize::Optimizer;
 use crate::parser;
@@ -9,7 +9,7 @@ use crate::shacl_ir::{FeatureToggles, ShapeIR};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::skolem::skolem_base;
 use crate::sparql::SparqlServices;
-use crate::types::{ComponentID, PropShapeID, RuleID, ID};
+use crate::types::{ComponentID, ID, PropShapeID, RuleID};
 use log::info;
 use ontoenv::api::OntoEnv;
 use ontoenv::ontology::{GraphIdentifier, OntologyLocation};

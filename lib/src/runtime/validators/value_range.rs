@@ -1,4 +1,4 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, format_term_for_label};
 use crate::runtime::validators::compare_terms_fast;
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,

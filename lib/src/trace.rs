@@ -4,7 +4,7 @@
 //! emit `TraceEvent`s through a `TraceSink`, allowing both interpreted and
 //! compiled executors to share diagnostics plumbing.
 
-use crate::types::{ComponentID, PropShapeID, RuleID, ID};
+use crate::types::{ComponentID, ID, PropShapeID, RuleID};
 use oxigraph::model::Term;
 use std::sync::{Arc, Mutex};
 

@@ -11,13 +11,13 @@ mod rules;
 use crate::context::ParsingContext;
 use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, SeverityExt, ID};
+use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, Severity, SeverityExt};
 use components::parse_components;
 use log::{debug, info, warn};
 use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{
-    vocab::xsd, GraphName, GraphNameRef, NamedOrBlankNodeRef as SubjectRef, Term, TermRef,
+    GraphName, GraphNameRef, NamedOrBlankNodeRef as SubjectRef, Term, TermRef, vocab::xsd,
 };
 use rules::parse_rules_for_shape;
 use std::collections::{HashMap, HashSet};
@@ -91,12 +91,11 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
 
     let mut candidate_paths: Vec<std::path::PathBuf> = Vec::new();
 
-    if let Ok(url) = Url::parse(context.shape_graph_iri.as_str()) {
-        if url.scheme() == "file" {
-            if let Ok(path) = url.to_file_path() {
-                candidate_paths.push(path);
-            }
-        }
+    if let Ok(url) = Url::parse(context.shape_graph_iri.as_str())
+        && url.scheme() == "file"
+        && let Ok(path) = url.to_file_path()
+    {
+        candidate_paths.push(path);
     }
 
     let env = context.env.read().unwrap();
@@ -104,16 +103,15 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
         .ontologies()
         .values()
         .find(|ontology| ontology.name() == context.shape_graph_iri)
+        && let Some(OntologyLocation::File(path)) = ontology.location()
     {
-        if let Some(OntologyLocation::File(path)) = ontology.location() {
-            let mut candidate = path.clone();
-            if !candidate.is_absolute() {
-                if let Ok(cwd) = std::env::current_dir() {
-                    candidate = cwd.join(candidate);
-                }
-            }
-            candidate_paths.push(candidate);
+        let mut candidate = path.clone();
+        if !candidate.is_absolute()
+            && let Ok(cwd) = std::env::current_dir()
+        {
+            candidate = cwd.join(candidate);
         }
+        candidate_paths.push(candidate);
     }
 
     let mut seen = HashSet::new();
@@ -126,10 +124,10 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
             let reader = BufReader::new(file);
             let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
             for quad in parser.for_reader(reader).flatten() {
-                if quad.predicate == shacl.unique_lang {
-                    if let Term::Literal(lit) = quad.object.clone() {
-                        map.insert(quad.subject.clone().into(), lit.value().to_string());
-                    }
+                if quad.predicate == shacl.unique_lang
+                    && let Term::Literal(lit) = quad.object.clone()
+                {
+                    map.insert(quad.subject.clone().into(), lit.value().to_string());
                 }
             }
         }
@@ -351,7 +349,7 @@ fn get_node_shapes(context: &ParsingContext) -> Vec<Term> {
             .flatten()
         {
             let list_head_term = quad.object; // This is Term
-                                              // parse_rdf_list will also use shape_graph_name_ref internally
+            // parse_rdf_list will also use shape_graph_name_ref internally
             for item_term in parse_rdf_list(context, list_head_term) {
                 node_shapes.insert(item_term);
             }

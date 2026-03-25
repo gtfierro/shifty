@@ -1,4 +1,4 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, format_term_for_label};
 use crate::named_nodes::SHACL;
 use crate::runtime::ToSubjectRef;
 use crate::types::{ComponentID, TraceItem};
@@ -148,11 +148,7 @@ impl DatatypeConstraintComponent {
 
 fn trim_leading_zeros(digits: &str) -> &str {
     let trimmed = digits.trim_start_matches('0');
-    if trimmed.is_empty() {
-        "0"
-    } else {
-        trimmed
-    }
+    if trimmed.is_empty() { "0" } else { trimmed }
 }
 
 fn compare_unsigned_decimal(lhs: &str, rhs: &str) -> Ordering {

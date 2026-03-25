@@ -6,8 +6,8 @@
 
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
-use crate::runtime::component::Component;
 use crate::runtime::ValidationFailure;
+use crate::runtime::component::Component;
 use crate::types::{Path, Severity};
 use crate::{canonicalization::deskolemize_graph, skolem::skolem_base};
 use oxigraph::io::{RdfFormat, RdfSerializer};
@@ -338,20 +338,19 @@ impl ValidationReportBuilder {
                         message_terms.extend(fetch_shape_messages(validation_context, &shape_term));
                     }
 
-                    if message_terms.is_empty() {
-                        if let Some(constraint_term) = &failure.source_constraint {
-                            message_terms
-                                .extend(fetch_shape_messages(validation_context, constraint_term));
-                        }
+                    if message_terms.is_empty()
+                        && let Some(constraint_term) = &failure.source_constraint
+                    {
+                        message_terms
+                            .extend(fetch_shape_messages(validation_context, constraint_term));
                     }
                 }
 
-                if message_terms.is_empty() {
-                    if let Some(default_message) =
+                if message_terms.is_empty()
+                    && let Some(default_message) =
                         Self::default_message_term(failure, validation_context)
-                    {
-                        message_terms.push(default_message);
-                    }
+                {
+                    message_terms.push(default_message);
                 }
 
                 if !message_terms.is_empty() {

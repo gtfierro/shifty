@@ -1,6 +1,6 @@
 use crate::context::ParsingContext;
 use crate::types::{ComponentDescriptor, Target};
-use oxigraph::model::{vocab::rdf, vocab::rdfs, NamedOrBlankNode, Term};
+use oxigraph::model::{NamedOrBlankNode, Term, vocab::rdf, vocab::rdfs};
 use std::collections::{HashMap, HashSet};
 
 /// Configuration for inference-time optimization passes.

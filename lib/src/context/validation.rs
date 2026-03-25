@@ -1,21 +1,21 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
 use crate::backend::{Binding, GraphBackend, OxigraphBackend};
-use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
+use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{
-    build_component_from_descriptor, Component, ConformanceReport, CustomConstraintComponent,
+    Component, ConformanceReport, CustomConstraintComponent, build_component_from_descriptor,
 };
 use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
 use crate::sparql::{SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
+use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, TraceItem};
 use fixedbitset::FixedBitSet;
 use oxigraph::model::{
-    vocab::rdf, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
-    Term, TermRef,
+    GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad, Term,
+    TermRef, vocab::rdf,
 };
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, Variable};
 use std::cell::RefCell;
