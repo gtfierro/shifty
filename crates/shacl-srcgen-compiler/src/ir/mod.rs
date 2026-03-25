@@ -111,6 +111,10 @@ pub enum SrcGenLoweredSparqlQueryKind {
         anchor_path: SrcGenLoweredPropertyPath,
         allowed_predicate_iris: Vec<String>,
     },
+    PathValueEqualsConstant {
+        value_path: SrcGenLoweredPropertyPath,
+        expected_value: Term,
+    },
     MissingRelatedNode {
         related_path: SrcGenLoweredPropertyPath,
         related_variable: String,

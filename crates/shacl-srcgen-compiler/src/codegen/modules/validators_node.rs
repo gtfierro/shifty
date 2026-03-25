@@ -601,6 +601,31 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                 }
                             }
                         }
+                        Some(SrcGenLoweredSparqlQueryKind::PathValueEqualsConstant {
+                            value_path,
+                            expected_value,
+                        }) => {
+                            let value_path_expr = lowered_property_path_expr(value_path);
+                            let expected_value_expr = term_expr(expected_value);
+                            quote! {
+                                if lowered_path_value_equals_constant_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#value_path_expr,
+                                    &#expected_value_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(focus.clone()),
+                                        path: None,
+                                    });
+                                }
+                            }
+                        }
                         Some(SrcGenLoweredSparqlQueryKind::MissingRelatedNode {
                             related_path,
                             related_class,

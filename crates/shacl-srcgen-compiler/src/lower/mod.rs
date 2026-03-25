@@ -126,6 +126,15 @@ fn srcgen_lowered_query_kind(query: &str, prefixes: &str) -> Option<SrcGenLowere
                 .map(|predicate| predicate.as_str().to_string())
                 .collect(),
         }),
+        LoweredSparqlQueryKind::PathValueEqualsConstant(
+            shifty::sparql::PathValueEqualsConstantPlan {
+                value_path,
+                expected_value,
+            },
+        ) => Some(SrcGenLoweredSparqlQueryKind::PathValueEqualsConstant {
+            value_path: srcgen_lowered_path(&value_path),
+            expected_value,
+        }),
         LoweredSparqlQueryKind::MissingRelatedNode(MissingRelatedNodePlan {
             related_path,
             related_variable,
@@ -2104,6 +2113,7 @@ fn component_constraint_component_iri(component: &ComponentDescriptor) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxigraph::model::Literal;
     use shifty::shacl_ir::{
         ComponentDescriptor, ComponentID, FeatureToggles, ID, NodeShapeIR, PropShapeID,
         PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, SparqlRule, Target,
@@ -2190,6 +2200,28 @@ mod tests {
         assert_eq!(first.node_shapes[0].iri, "urn:shape:a-node");
         assert_eq!(first.components[0].id, 3);
         assert!(first.meta.specialization_ready);
+    }
+
+    #[test]
+    fn lowers_path_value_equals_constant_query_for_srcgen() {
+        let lowered = srcgen_lowered_query_kind(
+            r#"SELECT $this
+               WHERE {
+                   $this ex:required ?value .
+                   FILTER(?value = "bad")
+               }"#,
+            "PREFIX ex: <http://example.com/ns#>",
+        );
+
+        let Some(SrcGenLoweredSparqlQueryKind::PathValueEqualsConstant {
+            value_path: SrcGenLoweredPropertyPath::NamedNode { predicate_iri },
+            expected_value,
+        }) = lowered
+        else {
+            panic!("expected PathValueEqualsConstant lowering");
+        };
+        assert_eq!(predicate_iri, "http://example.com/ns#required");
+        assert_eq!(expected_value, Term::Literal(Literal::from("bad")));
     }
 
     #[test]

@@ -395,6 +395,18 @@ pub fn generate(ir: &SrcGenIR, backend: SrcGenBackend) -> Result<String, String>
             Ok(false)
         }
 
+        fn lowered_path_value_equals_constant_violation(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            value_path: &LoweredPropertyPathRuntime,
+            expected_value: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            let values =
+                resolve_lowered_property_path_runtime(store, data_graph, focus, value_path)?;
+            Ok(values.iter().any(|value| value == expected_value))
+        }
+
         fn lowered_required_path_support_violation(
             store: &oxigraph::store::Store,
             data_graph: &oxigraph::model::NamedNode,

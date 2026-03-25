@@ -96,6 +96,7 @@ pub struct ThisPredicateRequirement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredSparqlQueryKind {
     AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan),
+    PathValueEqualsConstant(PathValueEqualsConstantPlan),
     RequiredPathSupport(RequiredPathSupportPlan),
     MissingRelatedNode(MissingRelatedNodePlan),
     LocalSetCompatibility(Box<LocalSetCompatibilityPlan>),
@@ -112,6 +113,12 @@ pub enum CompiledTargetSelectQuery {
 pub struct AdjacentPredicateWhitelistPlan {
     pub anchor_path: LoweredPropertyPath,
     pub allowed_predicates: Vec<NamedNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathValueEqualsConstantPlan {
+    pub value_path: LoweredPropertyPath,
+    pub expected_value: Term,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1129,6 +1136,10 @@ pub fn compiled_sparql_index_plan<'a>(
 fn lowered_sparql_query_kind_in_graph_pattern(
     pattern: &GraphPattern,
 ) -> Option<LoweredSparqlQueryKind> {
+    if let Some(plan) = lowered_path_value_equals_constant(pattern) {
+        return Some(LoweredSparqlQueryKind::PathValueEqualsConstant(plan));
+    }
+
     let pattern = unwrap_projection_like_pattern(pattern);
     if let Some(plan) = lowered_local_set_compatibility(pattern) {
         return Some(LoweredSparqlQueryKind::LocalSetCompatibility(Box::new(
@@ -1252,6 +1263,65 @@ fn lowered_required_path_support(
         antecedent_path,
         support_path,
         target_variable,
+    })
+}
+
+fn lowered_path_value_equals_constant(
+    pattern: &GraphPattern,
+) -> Option<PathValueEqualsConstantPlan> {
+    let projection_vars = projected_variables(pattern)?;
+    if projection_vars.len() != 1 || projection_vars[0].as_str() != "this" {
+        return None;
+    }
+
+    let (atoms, filters) = flatten_conjunctive_atoms(pattern)?;
+    if atoms.len() != 1 {
+        return None;
+    }
+
+    let mut split_filters = Vec::new();
+    for filter in filters {
+        split_conjunctive_filters(filter, &mut split_filters);
+    }
+    if split_filters.len() != 1 {
+        return None;
+    }
+
+    let (value_variable, value_path) = match &atoms[0] {
+        LoweredAtom::Triple(pattern) => {
+            if !term_pattern_is_this(&pattern.subject) {
+                return None;
+            }
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &pattern.predicate else {
+                return None;
+            };
+            let TermPattern::Variable(variable) = &pattern.object else {
+                return None;
+            };
+            (
+                variable.as_str(),
+                LoweredPropertyPath::NamedNode(predicate.clone()),
+            )
+        }
+        LoweredAtom::Path {
+            subject,
+            path,
+            object,
+        } => {
+            if !term_pattern_is_this(subject) {
+                return None;
+            }
+            let TermPattern::Variable(variable) = object else {
+                return None;
+            };
+            (variable.as_str(), lower_property_path(path)?)
+        }
+    };
+
+    let expected_value = extract_variable_constant_equality(split_filters[0], value_variable)?;
+    Some(PathValueEqualsConstantPlan {
+        value_path,
+        expected_value,
     })
 }
 
@@ -2444,6 +2514,24 @@ fn expression_variable_name(expression: &Expression) -> Option<&str> {
     }
 }
 
+fn projected_variables(mut pattern: &GraphPattern) -> Option<&[Variable]> {
+    loop {
+        pattern = match pattern {
+            GraphPattern::Project {
+                inner: _,
+                variables,
+            } => return Some(variables.as_slice()),
+            GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Group { inner, .. }
+            | GraphPattern::Extend { inner, .. } => inner.as_ref(),
+            _ => return None,
+        };
+    }
+}
+
 fn unwrap_projection_like_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
     loop {
         pattern = match pattern {
@@ -2456,6 +2544,29 @@ fn unwrap_projection_like_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
             | GraphPattern::Extend { inner, .. } => inner.as_ref(),
             other => return other,
         };
+    }
+}
+
+fn extract_variable_constant_equality(expr: &Expression, variable_name: &str) -> Option<Term> {
+    match expr {
+        Expression::Equal(left, right) | Expression::SameTerm(left, right) => {
+            if expression_variable_name(left.as_ref()) == Some(variable_name) {
+                expression_constant_term(right.as_ref())
+            } else if expression_variable_name(right.as_ref()) == Some(variable_name) {
+                expression_constant_term(left.as_ref())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn expression_constant_term(expr: &Expression) -> Option<Term> {
+    match expr {
+        Expression::NamedNode(node) => Some(Term::NamedNode(node.clone())),
+        Expression::Literal(literal) => Some(Term::Literal(literal.clone())),
+        _ => None,
     }
 }
 
@@ -3680,6 +3791,28 @@ SELECT ?this WHERE { ?this a ex:Thing . }",
         let query = parse_query("SELECT ?this WHERE { ?this <http://example.com/p> <urn:o> . }");
 
         assert_eq!(compiled_target_select_query(&query), None);
+    }
+
+    #[test]
+    fn lowers_path_value_equals_constant_query() {
+        let query = parse_query(
+            "SELECT ?this WHERE {
+                ?this <http://example.com/p> ?value .
+                FILTER(?value = \"bad\")
+            }",
+        );
+
+        assert_eq!(
+            lowered_sparql_query_kind(&query),
+            Some(LoweredSparqlQueryKind::PathValueEqualsConstant(
+                PathValueEqualsConstantPlan {
+                    value_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "http://example.com/p",
+                    )),
+                    expected_value: Term::Literal(Literal::from("bad")),
+                }
+            ))
+        );
     }
 
     #[test]
