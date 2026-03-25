@@ -102,6 +102,13 @@ pub enum LoweredSparqlQueryKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompiledTargetSelectQuery {
+    ClassInstances { class: NamedNode },
+    SubjectsOf { predicate: NamedNode },
+    ObjectsOf { predicate: NamedNode },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdjacentPredicateWhitelistPlan {
     pub anchor_path: LoweredPropertyPath,
     pub allowed_predicates: Vec<NamedNode>,
@@ -1068,6 +1075,19 @@ pub fn compiled_sparql_index_requirements(
     });
     requirements.dedup();
     requirements
+}
+
+pub fn compiled_target_select_query_from_str(query: &str) -> Option<CompiledTargetSelectQuery> {
+    let algebra = SparqlParser::new().parse_query(query).ok()?;
+    compiled_target_select_query(&algebra)
+}
+
+pub fn compiled_target_select_query(query: &AlgebraQuery) -> Option<CompiledTargetSelectQuery> {
+    let AlgebraQuery::Select { pattern, .. } = query else {
+        return None;
+    };
+    let target_var = target_select_projection_var(pattern)?;
+    compiled_target_select_query_in_graph_pattern(pattern, target_var)
 }
 
 pub fn compiled_sparql_index_plan<'a>(
@@ -2439,6 +2459,40 @@ fn unwrap_projection_like_pattern(mut pattern: &GraphPattern) -> &GraphPattern {
     }
 }
 
+fn target_select_projection_var(mut pattern: &GraphPattern) -> Option<&str> {
+    let mut selected = None;
+    loop {
+        pattern = match pattern {
+            GraphPattern::Project { inner, variables } => {
+                if selected.is_none() {
+                    selected = preferred_target_projection_var(variables);
+                }
+                inner.as_ref()
+            }
+            GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Group { inner, .. }
+            | GraphPattern::Extend { inner, .. } => inner.as_ref(),
+            _ => return selected,
+        };
+    }
+}
+
+fn preferred_target_projection_var(variables: &[Variable]) -> Option<&str> {
+    variables
+        .iter()
+        .find(|variable| variable.as_str() == "this")
+        .or_else(|| {
+            variables
+                .iter()
+                .find(|variable| variable.as_str() == "target")
+        })
+        .or_else(|| variables.first())
+        .map(Variable::as_str)
+}
+
 fn lower_property_path(path: &PropertyPathExpression) -> Option<LoweredPropertyPath> {
     match path {
         PropertyPathExpression::NamedNode(predicate) => {
@@ -2505,6 +2559,103 @@ fn flatten_alternative(
             Some(())
         }
     }
+}
+
+fn compiled_target_select_query_in_graph_pattern(
+    pattern: &GraphPattern,
+    target_var: &str,
+) -> Option<CompiledTargetSelectQuery> {
+    match unwrap_projection_like_pattern(pattern) {
+        GraphPattern::Bgp { patterns } if patterns.len() == 1 => {
+            compiled_target_select_query_in_triple_pattern(&patterns[0], target_var)
+        }
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } => compiled_target_select_query_in_path_pattern(subject, path, object, target_var),
+        _ => None,
+    }
+}
+
+fn compiled_target_select_query_in_triple_pattern(
+    pattern: &TriplePattern,
+    target_var: &str,
+) -> Option<CompiledTargetSelectQuery> {
+    let NamedNodePattern::NamedNode(predicate) = &pattern.predicate else {
+        return None;
+    };
+
+    if term_pattern_matches_var(&pattern.subject, target_var) {
+        return match (&pattern.object, predicate.as_str()) {
+            (TermPattern::NamedNode(class), "http://www.w3.org/1999/02/22-rdf-syntax-ns#type") => {
+                Some(CompiledTargetSelectQuery::ClassInstances {
+                    class: class.clone(),
+                })
+            }
+            (TermPattern::Variable(_), _) => Some(CompiledTargetSelectQuery::SubjectsOf {
+                predicate: predicate.clone(),
+            }),
+            _ => None,
+        };
+    }
+
+    if term_pattern_matches_var(&pattern.object, target_var)
+        && term_pattern_var_name(&pattern.subject).is_some()
+    {
+        return Some(CompiledTargetSelectQuery::ObjectsOf {
+            predicate: predicate.clone(),
+        });
+    }
+
+    None
+}
+
+fn compiled_target_select_query_in_path_pattern(
+    subject: &TermPattern,
+    path: &PropertyPathExpression,
+    object: &TermPattern,
+    target_var: &str,
+) -> Option<CompiledTargetSelectQuery> {
+    if term_pattern_matches_var(subject, target_var) && term_pattern_var_name(object).is_some() {
+        return match path {
+            PropertyPathExpression::NamedNode(predicate) => {
+                Some(CompiledTargetSelectQuery::SubjectsOf {
+                    predicate: predicate.clone(),
+                })
+            }
+            PropertyPathExpression::Reverse(inner) => match inner.as_ref() {
+                PropertyPathExpression::NamedNode(predicate) => {
+                    Some(CompiledTargetSelectQuery::ObjectsOf {
+                        predicate: predicate.clone(),
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+    }
+
+    if term_pattern_matches_var(object, target_var) && term_pattern_var_name(subject).is_some() {
+        return match path {
+            PropertyPathExpression::NamedNode(predicate) => {
+                Some(CompiledTargetSelectQuery::ObjectsOf {
+                    predicate: predicate.clone(),
+                })
+            }
+            PropertyPathExpression::Reverse(inner) => match inner.as_ref() {
+                PropertyPathExpression::NamedNode(predicate) => {
+                    Some(CompiledTargetSelectQuery::SubjectsOf {
+                        predicate: predicate.clone(),
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+    }
+
+    None
 }
 
 fn required_this_predicates_in_graph_pattern(
@@ -3494,6 +3645,41 @@ mod tests {
             predicate: NamedNode::new_unchecked("http://example.com/p"),
             direction: ThisPredicateDirection::Outgoing,
         }));
+    }
+
+    #[test]
+    fn compiles_prefixed_target_select_class_query() {
+        let compiled = compiled_target_select_query_from_str(
+            "PREFIX ex: <http://example.com/>
+SELECT ?this WHERE { ?this a ex:Thing . }",
+        );
+
+        assert_eq!(
+            compiled,
+            Some(CompiledTargetSelectQuery::ClassInstances {
+                class: NamedNode::new_unchecked("http://example.com/Thing"),
+            })
+        );
+    }
+
+    #[test]
+    fn compiles_target_select_object_projection_query() {
+        let query =
+            parse_query("SELECT ?target WHERE { ?source <http://example.com/contains> ?target . }");
+
+        assert_eq!(
+            compiled_target_select_query(&query),
+            Some(CompiledTargetSelectQuery::ObjectsOf {
+                predicate: NamedNode::new_unchecked("http://example.com/contains"),
+            })
+        );
+    }
+
+    #[test]
+    fn does_not_compile_target_select_with_constant_object_filter() {
+        let query = parse_query("SELECT ?this WHERE { ?this <http://example.com/p> <urn:o> . }");
+
+        assert_eq!(compiled_target_select_query(&query), None);
     }
 
     #[test]

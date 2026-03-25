@@ -5,6 +5,7 @@ pub use crate::shacl_ir::{
     PropShapeID, PropertyShapeIR, Rule, RuleCondition, RuleID, Severity, ShapeIR, Target,
     TriplePatternTerm,
 };
+use crate::sparql::{CompiledTargetSelectQuery, compiled_target_select_query_from_str};
 use oxigraph::model::{NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
 use oxigraph::sparql::QueryResults;
 use std::fmt;
@@ -110,6 +111,27 @@ impl TargetEvalExt for Target {
                         } else {
                             format!("{}\n{}", prefixes, select_q)
                         };
+
+                        if let Some(compiled) = compiled_target_select_query_from_str(&query_str) {
+                            let targets = match compiled {
+                                CompiledTargetSelectQuery::ClassInstances { class } => {
+                                    context.instances_of_class(&Term::NamedNode(class))?
+                                }
+                                CompiledTargetSelectQuery::SubjectsOf { predicate } => {
+                                    context.target_subjects_of(&Term::NamedNode(predicate))?
+                                }
+                                CompiledTargetSelectQuery::ObjectsOf { predicate } => {
+                                    context.target_objects_of(&Term::NamedNode(predicate))?
+                                }
+                            };
+                            let targets: Arc<[Term]> = targets.into();
+                            context.store_advanced_target(selector, Arc::clone(&targets));
+                            return Ok(contexts_from_terms(
+                                context,
+                                targets.iter().cloned(),
+                                source_shape,
+                            ));
+                        }
 
                         let prepared = context.prepare_query(&query_str).map_err(|e| {
                             format!(
