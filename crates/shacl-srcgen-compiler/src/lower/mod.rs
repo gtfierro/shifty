@@ -11,8 +11,8 @@ use shifty::shacl_ir::{
 };
 use shifty::sparql::{
     lowered_sparql_query_kind, AdjacentPredicateWhitelistPlan, LocalSetCompatibilityMode,
-    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind,
-    MissingRelatedNodePlan, RequiredPathSupportPlan, SparqlExecutor,
+    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MissingRelatedNodePlan,
+    RequiredPathSupportPlan, SparqlExecutor,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -3040,7 +3040,9 @@ WHERE {
         );
         let node_shape_terms = HashMap::from([(
             ID(1),
-            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked("urn:shape:missing-related")),
+            Term::NamedNode(oxigraph::model::NamedNode::new_unchecked(
+                "urn:shape:missing-related",
+            )),
         )]);
         let shape_ir = ShapeIR {
             shape_graph: shape_graph.clone(),

@@ -1043,12 +1043,14 @@ fn lowered_missing_related_node(pattern: &GraphPattern) -> Option<MissingRelated
                 path,
                 object,
             } => {
-                if let Some(candidate) = lowered_related_candidate_from_path(subject, path, object) {
+                if let Some(candidate) = lowered_related_candidate_from_path(subject, path, object)
+                {
                     candidate_paths.push(candidate);
                     continue;
                 }
                 if let Some(subject_var) = term_pattern_var_name(subject) {
-                    if let Some(class_term) = extract_type_subclass_constraint(subject, path, object)
+                    if let Some(class_term) =
+                        extract_type_subclass_constraint(subject, path, object)
                     {
                         class_filters.insert(subject_var.to_string(), class_term);
                     }
@@ -1493,16 +1495,18 @@ fn expression_mentions_var(expr: &Expression, var_name: &str) -> bool {
         }
         Expression::In(item, items) => {
             expression_mentions_var(item, var_name)
-                || items.iter().any(|item| expression_mentions_var(item, var_name))
+                || items
+                    .iter()
+                    .any(|item| expression_mentions_var(item, var_name))
         }
         Expression::If(left, middle, right) => {
             expression_mentions_var(left, var_name)
                 || expression_mentions_var(middle, var_name)
                 || expression_mentions_var(right, var_name)
         }
-        Expression::Coalesce(items) | Expression::FunctionCall(_, items) => {
-            items.iter().any(|item| expression_mentions_var(item, var_name))
-        }
+        Expression::Coalesce(items) | Expression::FunctionCall(_, items) => items
+            .iter()
+            .any(|item| expression_mentions_var(item, var_name)),
         Expression::Exists(pattern) => graph_pattern_mentions_var(pattern, var_name),
         _ => false,
     }
@@ -1520,14 +1524,16 @@ fn graph_pattern_mentions_var(pattern: &GraphPattern, var_name: &str) -> bool {
                 || term_pattern_matches_var(&pattern.object, var_name)
         }),
         GraphPattern::Path {
-            subject,
-            object,
-            ..
-        } => term_pattern_matches_var(subject, var_name) || term_pattern_matches_var(object, var_name),
+            subject, object, ..
+        } => {
+            term_pattern_matches_var(subject, var_name)
+                || term_pattern_matches_var(object, var_name)
+        }
         GraphPattern::Join { left, right }
         | GraphPattern::Union { left, right }
         | GraphPattern::Lateral { left, right } => {
-            graph_pattern_mentions_var(left, var_name) || graph_pattern_mentions_var(right, var_name)
+            graph_pattern_mentions_var(left, var_name)
+                || graph_pattern_mentions_var(right, var_name)
         }
         GraphPattern::Filter { expr, inner } => {
             expression_mentions_var(expr, var_name) || graph_pattern_mentions_var(inner, var_name)
@@ -1553,12 +1559,16 @@ fn graph_pattern_mentions_var(pattern: &GraphPattern, var_name: &str) -> bool {
         | GraphPattern::Group { inner, .. }
         | GraphPattern::Service { inner, .. }
         | GraphPattern::Minus { left: inner, .. } => graph_pattern_mentions_var(inner, var_name),
-        GraphPattern::Values { variables, .. } => variables.iter().any(|var| var.as_str() == var_name),
+        GraphPattern::Values { variables, .. } => {
+            variables.iter().any(|var| var.as_str() == var_name)
+        }
     }
 }
 
 fn var_is_only_filter_local(var_name: &str, filters: &[&Expression]) -> bool {
-    filters.iter().all(|expr| expression_mentions_var(expr, var_name))
+    filters
+        .iter()
+        .all(|expr| expression_mentions_var(expr, var_name))
 }
 
 fn flatten_conjunctive_atoms<'a>(
@@ -3116,14 +3126,14 @@ mod tests {
             lowered,
             Some(LoweredSparqlQueryKind::MissingRelatedNode(
                 MissingRelatedNodePlan {
-                    related_path: LoweredPropertyPath::ReverseNamedNode(
-                        NamedNode::new_unchecked("http://example.com/composedOf"),
-                    ),
+                    related_path: LoweredPropertyPath::ReverseNamedNode(NamedNode::new_unchecked(
+                        "http://example.com/composedOf"
+                    ),),
                     related_variable: "something".to_string(),
                     related_class: None,
-                    required_path: LoweredPropertyPath::NamedNode(
-                        NamedNode::new_unchecked("http://example.com/ofConstituent"),
-                    ),
+                    required_path: LoweredPropertyPath::NamedNode(NamedNode::new_unchecked(
+                        "http://example.com/ofConstituent"
+                    ),),
                 }
             ))
         );

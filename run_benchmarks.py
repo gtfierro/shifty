@@ -423,6 +423,7 @@ def benchmark_platforms(
             "--shacl-ir",
             "shapes.ir",
             "--run-inference",
+            "--temporary",
         ],
         "shifty": lambda data: [
             "./target/release/shifty",
@@ -432,6 +433,7 @@ def benchmark_platforms(
             "--shapes-file",
             str(shapes_file),
             "--run-inference",
+            "--temporary",
         ],
         "srcgen-compiler": lambda data: [
             str(compiled_binary),
