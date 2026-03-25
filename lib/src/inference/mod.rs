@@ -3,7 +3,7 @@
 //! Evaluates SHACL rules (triple rules and SPARQL rules) over the data graph,
 //! emitting inferred triples into a separate inference graph.
 
-use crate::backend::Binding;
+use crate::backend::{Binding, GraphBackend};
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
 use crate::optimize::InferenceOptimizationConfig;
@@ -22,7 +22,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 type CandidateTriple = (Term, NamedNode, Term);
 type CandidateBatches = Result<Vec<Vec<CandidateTriple>>, InferenceError>;
@@ -187,6 +187,7 @@ pub struct InferenceEngine<'a> {
     plans: Vec<RulePlan>,
     dependency_graph: RuleDependencyGraph,
     active_plan_indices: Vec<usize>,
+    compiled_rule_index: Arc<CompiledRuleIndex>,
 }
 
 impl<'a> InferenceEngine<'a> {
@@ -201,14 +202,21 @@ impl<'a> InferenceEngine<'a> {
             plans: Vec::new(),
             dependency_graph: RuleDependencyGraph::default(),
             active_plan_indices: Vec::new(),
+            compiled_rule_index: Arc::new(CompiledRuleIndex::default()),
         };
         let plans = engine.build_rule_plans()?;
         let dependency_graph = RuleDependencyGraph::from_plans(context, &plans, &engine.config);
         let active_plan_indices = dependency_graph.active_plan_indices();
+        let compiled_rule_index = Arc::new(CompiledRuleIndex::build(
+            context,
+            &plans,
+            &active_plan_indices,
+        )?);
         let engine = Self {
             plans,
             dependency_graph,
             active_plan_indices,
+            compiled_rule_index,
             ..engine
         };
         engine.validate_config()?;
@@ -394,15 +402,23 @@ impl<'a> InferenceEngine<'a> {
             }
 
             let added = match &plan.rule {
-                Rule::Sparql(sparql_rule) => self.apply_sparql_rule(
-                    sparql_rule,
-                    plan.sparql_prefilter.as_ref(),
-                    plan.native_sparql.as_ref(),
-                    delta,
-                    &focus_nodes,
-                    &mut seen_new,
-                    collected,
-                )?,
+                Rule::Sparql(sparql_rule) => {
+                    self.context
+                        .ensure_compiled_sparql_index(&plan.compiled_index_requirements)
+                        .map_err(|message| InferenceError::RuleExecution {
+                            rule_id: sparql_rule.id,
+                            message,
+                        })?;
+                    self.apply_sparql_rule(
+                        sparql_rule,
+                        plan.sparql_prefilter.as_ref(),
+                        plan.native_sparql.as_ref(),
+                        delta,
+                        &focus_nodes,
+                        &mut seen_new,
+                        collected,
+                    )?
+                }
                 Rule::Triple(triple_rule) => self.apply_triple_rule(
                     triple_rule,
                     delta,
@@ -753,6 +769,9 @@ impl<'a> InferenceEngine<'a> {
         delta: &DeltaIndex,
     ) -> Result<Vec<Term>, String> {
         if delta.is_initial {
+            if let Some(values) = self.compiled_rule_index.outgoing_values(focus, predicate) {
+                return Ok(values);
+            }
             return self
                 .context
                 .focus_objects_for_predicate(focus, &Term::NamedNode(predicate.clone()));
@@ -763,7 +782,7 @@ impl<'a> InferenceEngine<'a> {
         }
 
         self.context
-            .focus_objects_for_predicate(focus, &Term::NamedNode(predicate.clone()))
+            .compiled_focus_objects_for_predicate(focus, predicate)
     }
 
     fn native_path_values(
@@ -778,16 +797,19 @@ impl<'a> InferenceEngine<'a> {
                 self.native_direct_values(focus, predicate, delta)
             }
             LoweredPropertyPath::ReverseNamedNode(predicate) => {
+                if delta.is_initial
+                    && let Some(values) = self.compiled_rule_index.incoming_values(focus, predicate)
+                {
+                    return Ok(values);
+                }
                 if !delta.is_initial
                     && let Some(values) = delta.incoming_values_for_focus(focus, predicate)
                 {
                     return Ok(values);
                 }
 
-                self.context.focus_subjects_for_inverse_predicate(
-                    focus,
-                    &Term::NamedNode(predicate.clone()),
-                )
+                self.context
+                    .compiled_focus_subjects_for_inverse_predicate(focus, predicate)
             }
             LoweredPropertyPath::ZeroOrOne(inner) => {
                 let mut results = HashSet::from([focus.clone()]);
@@ -1010,6 +1032,11 @@ impl<'a> InferenceEngine<'a> {
                     delta.and_then(|d| d.outgoing_values_for_focus(focus_node, predicate))
                 {
                     values
+                } else if let Some(values) = self
+                    .compiled_rule_index
+                    .outgoing_values(focus_node, predicate)
+                {
+                    values
                 } else {
                     self.context
                         .focus_objects_for_predicate(
@@ -1024,6 +1051,11 @@ impl<'a> InferenceEngine<'a> {
                 crate::types::Path::Simple(Term::NamedNode(predicate)) => {
                     let values = if let Some(values) =
                         delta.and_then(|d| d.incoming_values_for_focus(focus_node, predicate))
+                    {
+                        values
+                    } else if let Some(values) = self
+                        .compiled_rule_index
+                        .incoming_values(focus_node, predicate)
                     {
                         values
                     } else {
@@ -1149,6 +1181,7 @@ impl<'a> InferenceEngine<'a> {
                 message: e,
             })?;
 
+        self.compiled_rule_index.record_quad(&quad);
         seen_new.insert(key);
         collected.push(quad);
         Ok(true)
@@ -1190,6 +1223,131 @@ struct RulePlan {
     native_sparql: Option<CompiledSparqlRule>,
     #[allow(dead_code)]
     compiled_index_requirements: Vec<CompiledIndexRequirement>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PredicateIndexDirections {
+    outgoing: bool,
+    incoming: bool,
+}
+
+#[derive(Debug, Default)]
+struct CompiledRuleIndexState {
+    outgoing_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+}
+
+#[derive(Debug, Default)]
+struct CompiledRuleIndex {
+    required_directions: HashMap<NamedNode, PredicateIndexDirections>,
+    state: RwLock<CompiledRuleIndexState>,
+}
+
+impl CompiledRuleIndex {
+    fn build(
+        context: &ValidationContext,
+        plans: &[RulePlan],
+        active_plan_indices: &[usize],
+    ) -> Result<Self, InferenceError> {
+        let mut required_directions: HashMap<NamedNode, PredicateIndexDirections> = HashMap::new();
+        for &plan_index in active_plan_indices {
+            let Some(plan) = plans.get(plan_index) else {
+                continue;
+            };
+            for requirement in &plan.compiled_index_requirements {
+                match requirement {
+                    CompiledIndexRequirement::OutgoingValues { predicate } => {
+                        required_directions
+                            .entry(predicate.clone())
+                            .or_default()
+                            .outgoing = true;
+                    }
+                    CompiledIndexRequirement::IncomingValues { predicate } => {
+                        required_directions
+                            .entry(predicate.clone())
+                            .or_default()
+                            .incoming = true;
+                    }
+                }
+            }
+        }
+
+        let index = Self {
+            required_directions,
+            state: RwLock::new(CompiledRuleIndexState::default()),
+        };
+        index.populate(context).map_err(|message| {
+            InferenceError::Configuration(format!("Failed to build compiled rule index: {message}"))
+        })?;
+        Ok(index)
+    }
+
+    fn populate(&self, context: &ValidationContext) -> Result<(), String> {
+        for (predicate, directions) in &self.required_directions {
+            context.backend.for_each_quad_for_pattern(
+                None,
+                Some(predicate.as_ref()),
+                None,
+                Some(context.data_graph_iri_ref()),
+                |quad| {
+                    self.record_quad_with_directions(&quad, *directions);
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    fn outgoing_values(&self, focus: &Term, predicate: &NamedNode) -> Option<Vec<Term>> {
+        let state = self.state.read().unwrap();
+        state
+            .outgoing_values_by_focus
+            .get(focus)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map(|values| values.iter().cloned().collect())
+    }
+
+    fn incoming_values(&self, focus: &Term, predicate: &NamedNode) -> Option<Vec<Term>> {
+        let state = self.state.read().unwrap();
+        state
+            .incoming_values_by_focus
+            .get(focus)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map(|values| values.iter().cloned().collect())
+    }
+
+    fn record_quad(&self, quad: &Quad) {
+        let Some(directions) = self.required_directions.get(&quad.predicate).copied() else {
+            return;
+        };
+        self.record_quad_with_directions(quad, directions);
+    }
+
+    fn record_quad_with_directions(&self, quad: &Quad, directions: PredicateIndexDirections) {
+        let Ok(subject_term) = named_or_blank_to_term(quad.subject.clone()) else {
+            return;
+        };
+
+        let mut state = self.state.write().unwrap();
+        if directions.outgoing {
+            state
+                .outgoing_values_by_focus
+                .entry(subject_term.clone())
+                .or_default()
+                .entry(quad.predicate.clone())
+                .or_default()
+                .insert(quad.object.clone());
+        }
+        if directions.incoming {
+            state
+                .incoming_values_by_focus
+                .entry(quad.object.clone())
+                .or_default()
+                .entry(quad.predicate.clone())
+                .or_default()
+                .insert(subject_term);
+        }
+    }
 }
 
 impl RulePlan {
@@ -2492,6 +2650,63 @@ ex:item a ex:Base .
     }
 
     #[test]
+    fn compiled_rule_index_tracks_newly_inferred_predicates() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:BaseShape a sh:NodeShape ;
+    sh:targetClass ex:Base ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:order 0 ;
+        sh:subject sh:this ;
+        sh:predicate ex:marker ;
+        sh:object ex:derived ;
+    ] ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:order 1 ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT { $this ex:flag ?value . }
+            WHERE { $this ex:marker ?value . }
+        """ ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Base .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let engine =
+            InferenceEngine::new(validator.context(), InferenceConfig::default()).expect("engine");
+
+        let marker = NamedNode::new("http://example.com/ns#marker").unwrap();
+        assert_eq!(
+            engine.compiled_rule_index.outgoing_values(
+                &Term::NamedNode(NamedNode::new("http://example.com/ns#item").unwrap()),
+                &marker,
+            ),
+            None
+        );
+
+        let context = validator.context();
+        let outcome = run_inference(context, InferenceConfig::default()).expect("inference");
+        assert_eq!(outcome.triples_added, 2);
+        assert!(outcome.iterations_executed >= 2);
+
+        let flag_quad = Quad::new(
+            NamedNode::new("http://example.com/ns#item").unwrap(),
+            NamedNode::new("http://example.com/ns#flag").unwrap(),
+            NamedNode::new("http://example.com/ns#derived").unwrap(),
+            GraphName::NamedNode(context.data_graph_iri.clone()),
+        );
+        assert!(context.contains_quad(&flag_quad).expect("quad lookup"));
+    }
+
+    #[test]
     fn semi_naive_inference_reaches_transitive_closure() {
         let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://example.com/ns#> .
@@ -2550,5 +2765,101 @@ ex:d a ex:Node .
             );
             assert!(context.contains_quad(&quad).expect("quad lookup"));
         }
+    }
+
+    #[test]
+    fn compiled_sparql_index_returns_direct_and_inverse_values() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:Shape a sh:NodeShape ;
+    sh:targetClass ex:Thing .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:focus a ex:Thing ;
+    ex:sourceOf ex:source .
+
+ex:source ex:value "flag" .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let source_of = NamedNode::new("http://example.com/ns#sourceOf").unwrap();
+        let value = NamedNode::new("http://example.com/ns#value").unwrap();
+        let focus = Term::NamedNode(NamedNode::new("http://example.com/ns#focus").unwrap());
+        let source = Term::NamedNode(NamedNode::new("http://example.com/ns#source").unwrap());
+
+        context
+            .ensure_compiled_sparql_index(&[
+                CompiledIndexRequirement::IncomingValues {
+                    predicate: source_of.clone(),
+                },
+                CompiledIndexRequirement::OutgoingValues {
+                    predicate: value.clone(),
+                },
+            ])
+            .expect("compiled index should build");
+
+        assert_eq!(
+            context
+                .compiled_focus_subjects_for_inverse_predicate(&source, &source_of)
+                .expect("inverse lookup should succeed"),
+            vec![focus]
+        );
+        assert_eq!(
+            context
+                .compiled_focus_objects_for_predicate(&source, &value)
+                .expect("outgoing lookup should succeed"),
+            vec![Term::Literal(Literal::new_simple_literal("flag"))]
+        );
+    }
+
+    #[test]
+    fn sparql_path_copy_rule_infers_from_compiled_index() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:FocusShape a sh:NodeShape ;
+    sh:targetClass ex:Focus ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT {
+                $this ex:flag ?value .
+            }
+            WHERE {
+                $this ^ex:sourceOf/ex:value ?value .
+            }
+        """ ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Focus .
+ex:source ex:sourceOf ex:item ;
+    ex:value "compiled" .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let outcome =
+            run_inference(context, InferenceConfig::default()).expect("inference should succeed");
+
+        assert_eq!(outcome.triples_added, 1);
+        let quad = Quad::new(
+            NamedNode::new("http://example.com/ns#item").unwrap(),
+            NamedNode::new("http://example.com/ns#flag").unwrap(),
+            Literal::new_simple_literal("compiled"),
+            GraphName::NamedNode(context.data_graph_iri.clone()),
+        );
+        assert!(
+            context
+                .contains_quad(&quad)
+                .expect("quad lookup should succeed")
+        );
     }
 }

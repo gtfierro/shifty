@@ -2212,9 +2212,7 @@ fn compiled_path_from_named_triples(
             }
         }
 
-        let Some((index, segment, next)) = next_match else {
-            return None;
-        };
+        let (index, segment, next) = next_match?;
         used[index] = true;
         segments.push(segment);
         current = next;

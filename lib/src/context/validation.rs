@@ -9,7 +9,7 @@ use crate::runtime::{
 };
 use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
-use crate::sparql::{SparqlExecutor, SparqlServices};
+use crate::sparql::{CompiledIndexRequirement, SparqlExecutor, SparqlServices};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, TraceItem};
 use fixedbitset::FixedBitSet;
@@ -192,6 +192,14 @@ struct FocusPredicateSummary {
     objects_by_predicate: HashMap<Term, HashSet<Term>>,
 }
 
+#[derive(Debug, Default)]
+struct CompiledSparqlIndex {
+    covered_outgoing_predicates: HashSet<NamedNode>,
+    covered_incoming_predicates: HashSet<NamedNode>,
+    outgoing_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+}
+
 impl ClassConstraintIndex {
     fn class_bitset(&self, class: &Term) -> Option<&FixedBitSet> {
         let class_id = self.term_to_id.get(class).copied()?;
@@ -241,6 +249,7 @@ pub struct ValidationContext {
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
     focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
+    compiled_sparql_index: RwLock<CompiledSparqlIndex>,
 }
 
 impl ValidationContext {
@@ -308,6 +317,7 @@ impl ValidationContext {
             class_constraint_memo: RwLock::new(HashMap::new()),
             node_conformance_cache: RwLock::new(HashMap::new()),
             focus_predicate_summary: RwLock::new(None),
+            compiled_sparql_index: RwLock::new(CompiledSparqlIndex::default()),
         }
     }
 
@@ -458,6 +468,7 @@ impl ValidationContext {
         if !quads.is_empty() {
             self.node_conformance_cache.write().unwrap().clear();
             *self.focus_predicate_summary.write().unwrap() = None;
+            *self.compiled_sparql_index.write().unwrap() = CompiledSparqlIndex::default();
             self.class_constraint_memo.write().unwrap().clear();
             *self.class_constraint_index.write().unwrap() = None;
             self.advanced_target_cache.write().unwrap().clear();
@@ -482,6 +493,78 @@ impl ValidationContext {
             .incoming_by_focus
             .get(focus_node)
             .is_some_and(|predicates| predicates.contains(predicate)))
+    }
+
+    pub(crate) fn ensure_compiled_sparql_index(
+        &self,
+        requirements: &[CompiledIndexRequirement],
+    ) -> Result<(), String> {
+        let mut missing_outgoing = HashSet::new();
+        let mut missing_incoming = HashSet::new();
+        {
+            let index = self.compiled_sparql_index.read().unwrap();
+            for requirement in requirements {
+                match requirement {
+                    CompiledIndexRequirement::OutgoingValues { predicate }
+                        if !index.covered_outgoing_predicates.contains(predicate) =>
+                    {
+                        missing_outgoing.insert(predicate.clone());
+                    }
+                    CompiledIndexRequirement::IncomingValues { predicate }
+                        if !index.covered_incoming_predicates.contains(predicate) =>
+                    {
+                        missing_incoming.insert(predicate.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        for predicate in missing_outgoing.union(&missing_incoming) {
+            self.extend_compiled_sparql_index_for_predicate(
+                predicate,
+                missing_outgoing.contains(predicate),
+                missing_incoming.contains(predicate),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn compiled_focus_objects_for_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        self.ensure_compiled_sparql_index(&[CompiledIndexRequirement::OutgoingValues {
+            predicate: predicate.clone(),
+        }])?;
+        Ok(self
+            .compiled_sparql_index
+            .read()
+            .unwrap()
+            .outgoing_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+    }
+
+    pub(crate) fn compiled_focus_subjects_for_inverse_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        self.ensure_compiled_sparql_index(&[CompiledIndexRequirement::IncomingValues {
+            predicate: predicate.clone(),
+        }])?;
+        Ok(self
+            .compiled_sparql_index
+            .read()
+            .unwrap()
+            .incoming_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
     }
 
     pub(crate) fn focus_outgoing_predicate_count(
@@ -664,6 +747,7 @@ impl ValidationContext {
         *self.class_constraint_index.write().unwrap() = None;
         self.node_conformance_cache.write().unwrap().clear();
         *self.focus_predicate_summary.write().unwrap() = None;
+        *self.compiled_sparql_index.write().unwrap() = CompiledSparqlIndex::default();
     }
 
     pub(crate) fn cached_node_conformance(
@@ -1220,6 +1304,69 @@ impl ValidationContext {
             descendants_by_super,
             subject_type_bits,
         })
+    }
+
+    fn extend_compiled_sparql_index_for_predicate(
+        &self,
+        predicate: &NamedNode,
+        include_outgoing: bool,
+        include_incoming: bool,
+    ) -> Result<(), String> {
+        if !include_outgoing && !include_incoming {
+            return Ok(());
+        }
+
+        let mut outgoing_values_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut incoming_values_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
+        self.backend.for_each_quad_for_pattern(
+            None,
+            Some(predicate.as_ref()),
+            None,
+            Some(self.data_graph_iri_ref()),
+            |quad| {
+                let subject = match quad.subject.clone() {
+                    NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                    NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+                };
+                if include_outgoing {
+                    outgoing_values_by_focus
+                        .entry(subject.clone())
+                        .or_default()
+                        .insert(quad.object.clone());
+                }
+                if include_incoming {
+                    incoming_values_by_focus
+                        .entry(quad.object)
+                        .or_default()
+                        .insert(subject);
+                }
+                Ok(())
+            },
+        )?;
+
+        let mut index = self.compiled_sparql_index.write().unwrap();
+        if include_outgoing {
+            for (focus, objects) in outgoing_values_by_focus {
+                index
+                    .outgoing_values_by_focus
+                    .entry(focus)
+                    .or_default()
+                    .insert(predicate.clone(), objects);
+            }
+            index.covered_outgoing_predicates.insert(predicate.clone());
+        }
+        if include_incoming {
+            for (focus, subjects) in incoming_values_by_focus {
+                index
+                    .incoming_values_by_focus
+                    .entry(focus)
+                    .or_default()
+                    .insert(predicate.clone(), subjects);
+            }
+            index.covered_incoming_predicates.insert(predicate.clone());
+        }
+
+        Ok(())
     }
 
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
