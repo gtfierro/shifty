@@ -338,6 +338,9 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     let select_query_lit = LitStr::new(select_query, Span::call_site());
                     quote! {
                         focus_nodes.extend(focus_nodes_for_advanced_target_select_cached(
+                            &mut target_class_index,
+                            &mut target_subjects_of_cache,
+                            &mut target_objects_of_cache,
                             &mut advanced_target_select_cache,
                             store,
                             data_graph,
@@ -1695,6 +1698,15 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
         }
 
         fn focus_nodes_for_advanced_target_select_cached(
+            target_class_index: &mut Option<TargetClassIndex>,
+            target_subjects_of_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
+            target_objects_of_cache: &mut std::collections::HashMap<
+                String,
+                Vec<oxigraph::model::Term>,
+            >,
             advanced_target_select_cache: &mut std::collections::HashMap<
                 String,
                 Vec<oxigraph::model::Term>,
@@ -1707,27 +1719,59 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 return Ok(cached.clone());
             }
 
-            let solutions = sparql_select_solutions_with_bindings(
-                select_query,
-                "",
-                store,
-                data_graph,
-                &[],
-            )?;
-            let mut nodes: Vec<oxigraph::model::Term> = Vec::new();
-            for row in solutions {
-                if let Some(this_term) = row.get("this") {
-                    nodes.push(this_term.clone());
-                    continue;
+            let mut nodes = if let Some(compiled) =
+                shifty::sparql::compiled_target_select_query_from_str(select_query)
+            {
+                match compiled {
+                    shifty::sparql::CompiledTargetSelectQuery::ClassInstances { class } => {
+                        focus_nodes_for_target_class_cached(
+                            target_class_index,
+                            store,
+                            data_graph,
+                            class.as_str(),
+                        )?
+                    }
+                    shifty::sparql::CompiledTargetSelectQuery::SubjectsOf { predicate } => {
+                        focus_nodes_for_target_subjects_of_cached(
+                            target_subjects_of_cache,
+                            store,
+                            data_graph,
+                            predicate.as_str(),
+                        )?
+                    }
+                    shifty::sparql::CompiledTargetSelectQuery::ObjectsOf { predicate } => {
+                        focus_nodes_for_target_objects_of_cached(
+                            target_objects_of_cache,
+                            store,
+                            data_graph,
+                            predicate.as_str(),
+                        )?
+                    }
                 }
-                if let Some(target_term) = row.get("target") {
-                    nodes.push(target_term.clone());
-                    continue;
+            } else {
+                let solutions = sparql_select_solutions_with_bindings(
+                    select_query,
+                    "",
+                    store,
+                    data_graph,
+                    &[],
+                )?;
+                let mut nodes: Vec<oxigraph::model::Term> = Vec::new();
+                for row in solutions {
+                    if let Some(this_term) = row.get("this") {
+                        nodes.push(this_term.clone());
+                        continue;
+                    }
+                    if let Some(target_term) = row.get("target") {
+                        nodes.push(target_term.clone());
+                        continue;
+                    }
+                    if let Some((_, term)) = row.iter().min_by(|left, right| left.0.cmp(right.0)) {
+                        nodes.push(term.clone());
+                    }
                 }
-                if let Some((_, term)) = row.iter().min_by(|left, right| left.0.cmp(right.0)) {
-                    nodes.push(term.clone());
-                }
-            }
+                nodes
+            };
 
             nodes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
             nodes.dedup();
