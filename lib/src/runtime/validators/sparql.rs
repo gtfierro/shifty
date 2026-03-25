@@ -1165,6 +1165,10 @@ impl SPARQLConstraintComponent {
             &optional_prebound_vars,
         )?;
 
+        if lowered_sparql_query_kind(&algebra_query).is_some() {
+            return Ok(None);
+        }
+
         let required_predicates = required_this_predicates(&algebra_query);
         let prepared_query = context
             .prepare_query(&full_query_str)

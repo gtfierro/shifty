@@ -3985,4 +3985,83 @@ ex:GoodConstituent ex:ofConstituent ex:Air .
         fs::remove_dir_all(&temp_dir)?;
         Ok(())
     }
+
+    #[test]
+    fn lowered_property_shape_sparql_skips_generic_batch_execution() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_property_shape_batch_bypass")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:property [
+        sh:path ex:marker ;
+        sh:sparql [
+            sh:message "Thing {$this} has disallowed adjacent structure" ;
+            sh:select """
+                SELECT $this
+                WHERE {
+                    $this <http://example.com/ns#hasPart> ?anchor .
+                    FILTER NOT EXISTS {
+                        { ?anchor ?p ?o . }
+                        UNION
+                        { ?o ?p ?anchor . }
+                        FILTER (?p NOT IN (
+                            <http://example.com/ns#hasPart>,
+                            <http://example.com/ns#allowed>,
+                            <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>
+                        ))
+                    }
+                }
+            """ ;
+        ] ;
+    ] .
+"#;
+
+        let mut data_ttl = String::from("@prefix ex: <http://example.com/ns#> .\n\n");
+        for i in 0..128 {
+            if i < 16 {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:marker \"m\" ;\n    ex:hasPart ex:Anchor{0} .\n\nex:Anchor{0} ex:allowed ex:Neighbor{0} ;\n    ex:disallowed ex:Other{0} .\n\n",
+                    i
+                ));
+            } else {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:marker \"m\" ;\n    ex:hasPart ex:SafeAnchor{0} .\n\nex:SafeAnchor{0} ex:allowed ex:Neighbor{0} .\n\n",
+                    i
+                ));
+            }
+        }
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 16);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered property-shape SPARQL should bypass generic batch execution"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
 }
