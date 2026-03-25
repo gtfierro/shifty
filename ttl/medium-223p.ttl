@@ -17,7 +17,7 @@ s223:EnumerationKind-Overridden a s223:EnumerationKind-AlarmStatus,
     rdfs:label "AlarmStatus-Ok"@en,
         "Override-Overridden"@en .
 
-bldg:nrel00000000 a s223:Sensor ;
+bldg:nrel00000000 a s223:AirHandlingUnit ;
     rdfs:label "nrel00000000" ;
     s223:hasObservationLocation bldg:nrel00000010 ;
     s223:hasPhysicalLocation bldg:nrel00000519 ;
