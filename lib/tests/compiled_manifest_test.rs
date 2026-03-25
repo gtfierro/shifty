@@ -172,10 +172,10 @@ fn shape_cache_key(
     path.hash(&mut hasher);
     strict_full_aot.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
-    if let Ok(modified) = metadata.modified() {
-        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
-            duration.as_nanos().hash(&mut hasher);
-        }
+    if let Ok(modified) = metadata.modified()
+        && let Ok(duration) = modified.duration_since(UNIX_EPOCH)
+    {
+        duration.as_nanos().hash(&mut hasher);
     }
     Ok(format!("{:016x}", hasher.finish()))
 }
@@ -411,11 +411,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .env("CARGO_NET_OFFLINE", "true");
 
     let mut pkg_config_path = String::from("/usr/lib/x86_64-linux-gnu/pkgconfig");
-    if let Ok(existing) = std::env::var("PKG_CONFIG_PATH") {
-        if !existing.is_empty() {
-            pkg_config_path.push(':');
-            pkg_config_path.push_str(&existing);
-        }
+    if let Ok(existing) = std::env::var("PKG_CONFIG_PATH")
+        && !existing.is_empty()
+    {
+        pkg_config_path.push(':');
+        pkg_config_path.push_str(&existing);
     }
     cmd.env("PKG_CONFIG_PATH", pkg_config_path);
 
@@ -525,10 +525,9 @@ fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
     for triple in expected.iter() {
         if triple.predicate == rdf_type
             && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+            && let Some(sig) = result_signature(expected, triple.subject)
         {
-            if let Some(sig) = result_signature(expected, triple.subject) {
-                *expected_counts.entry(sig).or_insert(0) += 1;
-            }
+            *expected_counts.entry(sig).or_insert(0) += 1;
         }
     }
 
@@ -537,13 +536,12 @@ fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
     for triple in report.iter() {
         if triple.predicate == rdf_type
             && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+            && let Some(sig) = result_signature(report, triple.subject)
         {
-            if let Some(sig) = result_signature(report, triple.subject) {
-                actual_by_sig
-                    .entry(sig)
-                    .or_default()
-                    .push(triple.subject.into_owned());
-            }
+            actual_by_sig
+                .entry(sig)
+                .or_default()
+                .push(triple.subject.into_owned());
         }
     }
 
@@ -570,12 +568,12 @@ fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
         if dropped.contains(&triple.subject.into_owned()) {
             continue;
         }
-        if triple.predicate == sh_result.as_ref() {
-            if let oxigraph::model::TermRef::BlankNode(obj_bnode) = triple.object {
-                let obj_node = oxigraph::model::NamedOrBlankNode::BlankNode(obj_bnode.into_owned());
-                if dropped.contains(&obj_node) {
-                    continue;
-                }
+        if triple.predicate == sh_result.as_ref()
+            && let oxigraph::model::TermRef::BlankNode(obj_bnode) = triple.object
+        {
+            let obj_node = oxigraph::model::NamedOrBlankNode::BlankNode(obj_bnode.into_owned());
+            if dropped.contains(&obj_node) {
+                continue;
             }
         }
         filtered.insert(triple);
@@ -614,12 +612,11 @@ fn anonymize_result_blank_nodes(graph: &Graph) -> Graph {
         if result_subjects.contains(&subject)
             && (triple.predicate == sh_source_shape.as_ref()
                 || triple.predicate == sh_value.as_ref())
+            && let oxigraph::model::TermRef::BlankNode(_) = triple.object
         {
-            if let oxigraph::model::TermRef::BlankNode(_) = triple.object {
-                let key = (subject.clone(), triple.predicate.into_owned());
-                let replacement = replacements.entry(key).or_default().clone();
-                object = oxigraph::model::Term::BlankNode(replacement);
-            }
+            let key = (subject.clone(), triple.predicate.into_owned());
+            let replacement = replacements.entry(key).or_default().clone();
+            object = oxigraph::model::Term::BlankNode(replacement);
         }
         out.insert(
             oxigraph::model::Triple::new(subject, triple.predicate.into_owned(), object).as_ref(),
@@ -632,12 +629,11 @@ fn anonymize_result_blank_nodes(graph: &Graph) -> Graph {
 fn report_conforms(report_graph: &Graph) -> Option<bool> {
     let conforms_pred = NamedNode::new("http://www.w3.org/ns/shacl#conforms").ok()?;
     for triple in report_graph.iter() {
-        if triple.predicate == conforms_pred.as_ref() {
-            if let oxigraph::model::TermRef::Literal(lit) = triple.object {
-                if let Ok(parsed) = lit.value().parse::<bool>() {
-                    return Some(parsed);
-                }
-            }
+        if triple.predicate == conforms_pred.as_ref()
+            && let oxigraph::model::TermRef::Literal(lit) = triple.object
+            && let Ok(parsed) = lit.value().parse::<bool>()
+        {
+            return Some(parsed);
         }
     }
     None

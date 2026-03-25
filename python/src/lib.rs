@@ -912,14 +912,12 @@ fn execute_validate(
         }
     }
 
-    if return_inference_outcome {
-        if let Some(outcome) = inference_outcome {
-            let stats = PyDict::new(py);
-            stats.set_item("iterations_executed", outcome.iterations_executed)?;
-            stats.set_item("triples_added", outcome.triples_added)?;
-            stats.set_item("converged", outcome.converged)?;
-            diagnostics.set_item("inference_outcome", stats)?;
-        }
+    if return_inference_outcome && let Some(outcome) = inference_outcome {
+        let stats = PyDict::new(py);
+        stats.set_item("iterations_executed", outcome.iterations_executed)?;
+        stats.set_item("triples_added", outcome.triples_added)?;
+        stats.set_item("converged", outcome.converged)?;
+        diagnostics.set_item("inference_outcome", stats)?;
     }
 
     if diagnostics.is_empty() {

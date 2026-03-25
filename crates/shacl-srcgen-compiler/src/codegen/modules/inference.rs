@@ -478,9 +478,7 @@ fn generated_native_path_from_named_triples(
             }
         }
 
-        let Some((index, segment, next)) = next_match else {
-            return None;
-        };
+        let (index, segment, next) = next_match?;
         used[index] = true;
         segments.push(segment);
         current = next;
@@ -516,7 +514,7 @@ fn generated_term_pattern_is_this(term: &TermPattern) -> bool {
     matches!(term, TermPattern::Variable(var) if var.as_str() == "this")
 }
 
-fn generated_term_pattern_variable_name<'a>(term: &'a TermPattern) -> Option<&'a str> {
+fn generated_term_pattern_variable_name(term: &TermPattern) -> Option<&str> {
     match term {
         TermPattern::Variable(var) => Some(var.as_str()),
         _ => None,
