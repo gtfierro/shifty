@@ -17,9 +17,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  RUST_TOOLCHAIN: "1.85.0"
-
 permissions:
   contents: read
 
@@ -42,8 +39,6 @@ jobs:
           python-version: 3.x
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -84,8 +79,6 @@ jobs:
           python-version: 3.x
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -123,8 +116,6 @@ jobs:
           architecture: ${{ matrix.platform.target }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -163,8 +154,6 @@ jobs:
           python-version: 3.x
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:

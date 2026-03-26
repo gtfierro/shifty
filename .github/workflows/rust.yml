@@ -1,8 +1,5 @@
 name: Rust
 
-env:
-  RUST_TOOLCHAIN: "1.85.0"
-
 concurrency:
   group: rust-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,7 +21,6 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
         components: rustfmt, clippy
 
     - name: Cargo fmt
