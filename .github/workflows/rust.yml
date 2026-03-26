@@ -1,5 +1,8 @@
 name: Rust
 
+env:
+  RUST_TOOLCHAIN: "1.85.0"
+
 concurrency:
   group: rust-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,6 +24,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
+        toolchain: ${{ env.RUST_TOOLCHAIN }}
         components: rustfmt, clippy
 
     - name: Cargo fmt
@@ -31,3 +35,6 @@ jobs:
 
     - name: Cargo test
       run: cargo test --workspace --all-features
+
+    - name: Cargo test (compiled manifest suite)
+      run: cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test
