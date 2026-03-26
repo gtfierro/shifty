@@ -631,6 +631,7 @@ mod tests {
         ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
+            true,
             false,
             true,
             Arc::new(shape_ir),

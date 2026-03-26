@@ -795,6 +795,7 @@ impl ValidatorBuilder {
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
+            use_shapes_graph_union,
             warnings_are_errors,
             skip_sparql_blank_targets,
             shape_ir_arc,
@@ -2702,6 +2703,101 @@ ex:s ex:p ex:u .
         assert!(
             report.conforms(),
             "validation should still see imported class typing from the merged store"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_validation_uses_shape_data_union_for_property_pair_constraints()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_runtime_union_property_pair")?;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:q ex:o .
+
+ex:Shape a sh:NodeShape ;
+    sh:targetNode ex:s ;
+    sh:property [
+        sh:path ex:p ;
+        sh:equals ex:q
+    ] .
+"#;
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:o .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let union_validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path.clone()))
+            .with_data_source(Source::File(data_path.clone()))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .build()?;
+        assert!(
+            union_validator.validate().conforms(),
+            "runtime property-pair constraints should see values from the shapes+data union"
+        );
+
+        let no_union_validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_shapes_data_union(false)
+            .build()?;
+        assert!(
+            !no_union_validator.validate().conforms(),
+            "disabling the union should hide shapes-only comparison values from runtime validation"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_shape_data_union_deduplicates_identical_triples_for_counts()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_runtime_union_dedup_counts")?;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:o .
+
+ex:Shape a sh:NodeShape ;
+    sh:targetNode ex:s ;
+    sh:property [
+        sh:path ex:p ;
+        sh:maxCount 1
+    ] .
+"#;
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:o .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .build()?;
+        assert!(
+            validator.validate().conforms(),
+            "shape+data union should treat identical triples as one value for count-based constraints"
         );
 
         fs::remove_dir_all(&temp_dir)?;

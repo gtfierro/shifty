@@ -67,14 +67,11 @@ impl ValidateComponent for EqualsConstraintComponent {
         };
 
         let other_values_set: HashSet<Term> = context
-            .quads_for_pattern(
-                Some(focus_node.try_to_subject_ref()?),
-                Some(equals_property.as_ref()),
-                None,
-                Some(context.data_graph_iri_ref()),
+            .validation_objects_for_predicate(
+                focus_node.try_to_subject_ref()?,
+                equals_property.as_ref(),
             )?
             .into_iter()
-            .map(|q| q.object)
             .collect();
 
         let mut results = Vec::new();
@@ -190,14 +187,11 @@ impl ValidateComponent for DisjointConstraintComponent {
         };
 
         let other_values: HashSet<Term> = context
-            .quads_for_pattern(
-                Some(focus_node.try_to_subject_ref()?),
-                Some(disjoint_property.as_ref()),
-                None,
-                Some(context.data_graph_iri_ref()),
+            .validation_objects_for_predicate(
+                focus_node.try_to_subject_ref()?,
+                disjoint_property.as_ref(),
             )?
             .into_iter()
-            .map(|q| q.object)
             .collect();
 
         if other_values.is_empty() {
@@ -292,10 +286,9 @@ impl ValidateComponent for LessThanConstraintComponent {
             }
         };
 
-        let other_values: Vec<Term> = context.objects_for_predicate(
+        let other_values: Vec<Term> = context.validation_objects_for_predicate(
             focus_node.try_to_subject_ref()?,
             less_than_property.as_ref(),
-            context.data_graph_iri_ref(),
         )?;
 
         if other_values.is_empty() {
@@ -409,10 +402,9 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
             }
         };
 
-        let other_values: Vec<Term> = context.objects_for_predicate(
+        let other_values: Vec<Term> = context.validation_objects_for_predicate(
             focus_node.try_to_subject_ref()?,
             lte_property.as_ref(),
-            context.data_graph_iri_ref(),
         )?;
 
         if other_values.is_empty() {

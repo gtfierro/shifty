@@ -202,6 +202,13 @@ struct CompiledSparqlIndex {
     incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TriplePatternKey {
+    subject: NamedOrBlankNode,
+    predicate: NamedNode,
+    object: Term,
+}
+
 impl ClassConstraintIndex {
     fn class_bitset(&self, class: &Term) -> Option<&FixedBitSet> {
         let class_id = self.term_to_id.get(class).copied()?;
@@ -228,6 +235,7 @@ impl ClassConstraintIndex {
 pub struct ValidationContext {
     pub(crate) model: Arc<ShapesModel>,
     pub(crate) data_graph_iri: NamedNode,
+    use_shapes_data_union: bool,
     data_graph_skolem_base: String,
     shape_graph_skolem_base: String,
     pub(crate) warnings_are_errors: bool,
@@ -258,6 +266,7 @@ impl ValidationContext {
     pub(crate) fn new(
         model: Arc<ShapesModel>,
         data_graph_iri: NamedNode,
+        use_shapes_data_union: bool,
         warnings_are_errors: bool,
         skip_sparql_blank_targets: bool,
         shape_ir: Arc<ShapeIR>,
@@ -297,6 +306,7 @@ impl ValidationContext {
         Self {
             model,
             data_graph_iri,
+            use_shapes_data_union,
             data_graph_skolem_base,
             shape_graph_skolem_base,
             warnings_are_errors,
@@ -329,6 +339,66 @@ impl ValidationContext {
 
     pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
         self.backend.shapes_graph()
+    }
+
+    fn should_use_shape_data_union(&self) -> bool {
+        self.use_shapes_data_union && self.data_graph_iri != self.model.shape_graph_iri
+    }
+
+    pub(crate) fn for_each_validation_quad_for_pattern<F>(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        mut callback: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(Quad) -> Result<(), String>,
+    {
+        if !self.should_use_shape_data_union() {
+            return self.backend.for_each_quad_for_pattern(
+                subject,
+                predicate,
+                object,
+                Some(self.data_graph_iri_ref()),
+                callback,
+            );
+        }
+
+        let mut seen = HashSet::new();
+        for graph in [self.data_graph_iri_ref(), self.shape_graph_iri_ref()] {
+            self.backend.for_each_quad_for_pattern(
+                subject,
+                predicate,
+                object,
+                Some(graph),
+                |quad| {
+                    let key = TriplePatternKey {
+                        subject: quad.subject.clone(),
+                        predicate: quad.predicate.clone(),
+                        object: quad.object.clone(),
+                    };
+                    if seen.insert(key) {
+                        callback(quad)?;
+                    }
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validation_objects_for_predicate(
+        &self,
+        subject: NamedOrBlankNodeRef<'_>,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        let mut objects = Vec::new();
+        self.for_each_validation_quad_for_pattern(Some(subject), Some(predicate), None, |quad| {
+            objects.push(quad.object);
+            Ok(())
+        })?;
+        Ok(objects)
     }
 
     pub(crate) fn sparql_services(&self) -> &SparqlServices {
@@ -390,16 +460,6 @@ impl ValidationContext {
 
     pub(crate) fn prepare_query(&self, query: &str) -> Result<PreparedSparqlQuery, String> {
         self.backend.prepare_query(query)
-    }
-
-    pub(crate) fn objects_for_predicate(
-        &self,
-        subject: NamedOrBlankNodeRef<'_>,
-        predicate: NamedNodeRef<'_>,
-        graph: GraphNameRef<'_>,
-    ) -> Result<Vec<Term>, String> {
-        self.backend
-            .objects_for_predicate(subject, predicate, graph)
     }
 
     pub(crate) fn execute_prepared<'a>(
@@ -792,50 +852,44 @@ impl ValidationContext {
             HashMap::new();
         let mut subjects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
         let mut objects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
-        self.backend.for_each_quad_for_pattern(
-            None,
-            None,
-            None,
-            Some(self.data_graph_iri_ref()),
-            |quad| {
-                let subject = match quad.subject {
-                    NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
-                    NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
-                };
-                let predicate = Term::NamedNode(quad.predicate);
-                outgoing_counts_by_focus
-                    .entry(subject.clone())
-                    .or_default()
-                    .entry(predicate.clone())
-                    .and_modify(|count| *count += 1)
-                    .or_insert(1);
-                outgoing_values_by_focus
-                    .entry(subject.clone())
-                    .or_default()
-                    .entry(predicate.clone())
-                    .or_default()
-                    .insert(quad.object.clone());
-                subjects_by_predicate
-                    .entry(predicate.clone())
-                    .or_default()
-                    .insert(subject.clone());
-                incoming_by_focus
-                    .entry(quad.object.clone())
-                    .or_default()
-                    .insert(predicate.clone());
-                incoming_values_by_focus
-                    .entry(quad.object.clone())
-                    .or_default()
-                    .entry(predicate.clone())
-                    .or_default()
-                    .insert(subject.clone());
-                objects_by_predicate
-                    .entry(predicate)
-                    .or_default()
-                    .insert(quad.object);
-                Ok(())
-            },
-        )?;
+        self.for_each_validation_quad_for_pattern(None, None, None, |quad| {
+            let subject = match quad.subject {
+                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+            };
+            let predicate = Term::NamedNode(quad.predicate);
+            outgoing_counts_by_focus
+                .entry(subject.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+            outgoing_values_by_focus
+                .entry(subject.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .or_default()
+                .insert(quad.object.clone());
+            subjects_by_predicate
+                .entry(predicate.clone())
+                .or_default()
+                .insert(subject.clone());
+            incoming_by_focus
+                .entry(quad.object.clone())
+                .or_default()
+                .insert(predicate.clone());
+            incoming_values_by_focus
+                .entry(quad.object.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .or_default()
+                .insert(subject.clone());
+            objects_by_predicate
+                .entry(predicate)
+                .or_default()
+                .insert(quad.object);
+            Ok(())
+        })?;
 
         let summary = if outgoing_counts_by_focus.is_empty() {
             None
@@ -1313,31 +1367,25 @@ impl ValidationContext {
 
         let mut outgoing_values_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
         let mut incoming_values_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
-        self.backend.for_each_quad_for_pattern(
-            None,
-            Some(predicate.as_ref()),
-            None,
-            Some(self.data_graph_iri_ref()),
-            |quad| {
-                let subject = match quad.subject.clone() {
-                    NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
-                    NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
-                };
-                if include_outgoing {
-                    outgoing_values_by_focus
-                        .entry(subject.clone())
-                        .or_default()
-                        .insert(quad.object.clone());
-                }
-                if include_incoming {
-                    incoming_values_by_focus
-                        .entry(quad.object)
-                        .or_default()
-                        .insert(subject);
-                }
-                Ok(())
-            },
-        )?;
+        self.for_each_validation_quad_for_pattern(None, Some(predicate.as_ref()), None, |quad| {
+            let subject = match quad.subject.clone() {
+                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+            };
+            if include_outgoing {
+                outgoing_values_by_focus
+                    .entry(subject.clone())
+                    .or_default()
+                    .insert(quad.object.clone());
+            }
+            if include_incoming {
+                incoming_values_by_focus
+                    .entry(quad.object)
+                    .or_default()
+                    .insert(subject);
+            }
+            Ok(())
+        })?;
 
         let mut index = self.compiled_sparql_index.write().unwrap();
         if include_outgoing {

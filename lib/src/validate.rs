@@ -96,11 +96,7 @@ fn canonicalize_value_nodes(
     };
 
     let raw_objects: Vec<Term> = validation_context
-        .objects_for_predicate(
-            subject,
-            predicate.as_ref(),
-            validation_context.data_graph_iri_ref(),
-        )
+        .validation_objects_for_predicate(subject, predicate.as_ref())
         .unwrap_or_default();
 
     if raw_objects.is_empty() && validation_context.model.original_values.is_none() {
