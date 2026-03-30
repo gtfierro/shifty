@@ -78,6 +78,8 @@ struct PropertyShapeBatchCacheKey {
 
 type PropertyShapeBatchFailures = HashMap<ComponentID, BatchedSparqlResult>;
 type PropertyShapeBatchCacheValue = Arc<Result<PropertyShapeBatchFailures, String>>;
+type PropertyValueBatchMap = HashMap<Term, Vec<Term>>;
+type PropertyValueBatchCacheValue = Arc<Result<PropertyValueBatchMap, String>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct NodeConformanceCacheKey {
@@ -255,7 +257,7 @@ pub struct ValidationContext {
     property_shape_batch_cache:
         Mutex<HashMap<PropertyShapeBatchCacheKey, PropertyShapeBatchCacheValue>>,
     property_value_batch_cache:
-        Mutex<HashMap<PropertyShapeBatchCacheKey, Arc<Result<HashMap<Term, Vec<Term>>, String>>>>,
+        Mutex<HashMap<PropertyShapeBatchCacheKey, PropertyValueBatchCacheValue>>,
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,

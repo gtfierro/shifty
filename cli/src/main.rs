@@ -3,7 +3,7 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{NamedOrBlankNode, Quad, Term, TripleRef};
+use oxigraph::model::{Graph, NamedOrBlankNode, Quad, Term, Triple, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
@@ -737,14 +737,11 @@ fn shape_term_for_source<'a>(source: &SourceShape, shape_ir: &'a ShapeIR) -> Opt
     }
 }
 
-fn shape_term_for_node<'a>(id: shifty::shacl_ir::ID, shape_ir: &'a ShapeIR) -> Option<&'a Term> {
+fn shape_term_for_node(id: shifty::shacl_ir::ID, shape_ir: &ShapeIR) -> Option<&Term> {
     shape_ir.node_shape_terms.get(&id)
 }
 
-fn shape_term_for_property<'a>(
-    id: shifty::shacl_ir::PropShapeID,
-    shape_ir: &'a ShapeIR,
-) -> Option<&'a Term> {
+fn shape_term_for_property(id: shifty::shacl_ir::PropShapeID, shape_ir: &ShapeIR) -> Option<&Term> {
     shape_ir.property_shape_terms.get(&id)
 }
 

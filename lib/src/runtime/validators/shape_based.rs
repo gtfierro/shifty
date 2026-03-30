@@ -154,25 +154,24 @@ impl ValidateComponent for PropertyConstraintComponent {
                     validation_context.cached_node_targets(parent_node_shape_id)
                 && focus_nodes.len() > 1
                 && !is_path_summary_able(property_shape.path())
+                && let Ok(path_str) = property_shape.path().to_sparql_path()
             {
-                if let Ok(path_str) = property_shape.path().to_sparql_path() {
-                    let batched_values = validation_context.get_or_compute_property_value_batch(
-                        self.shape,
-                        parent_shape.clone(),
-                        || {
-                            property_shape.pre_fetch_value_nodes(
-                                focus_nodes.as_ref(),
-                                &path_str,
-                                validation_context,
-                            )
-                        },
-                    );
-                    match batched_values.as_ref() {
-                        Ok(map) => {
-                            prefetched_for_this_focus = map.get(c.focus_node()).cloned();
-                        }
-                        Err(err) => return Err(err.clone()),
+                let batched_values = validation_context.get_or_compute_property_value_batch(
+                    self.shape,
+                    parent_shape.clone(),
+                    || {
+                        property_shape.pre_fetch_value_nodes(
+                            focus_nodes.as_ref(),
+                            &path_str,
+                            validation_context,
+                        )
+                    },
+                );
+                match batched_values.as_ref() {
+                    Ok(map) => {
+                        prefetched_for_this_focus = map.get(c.focus_node()).cloned();
                     }
+                    Err(err) => return Err(err.clone()),
                 }
             }
 

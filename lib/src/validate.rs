@@ -639,10 +639,11 @@ impl ValidateShape for PropertyShape {
         }
 
         let mut prefetched_values: HashMap<Term, Vec<Term>> = HashMap::new();
-        if !is_path_summary_able(self.path()) && focus_nodes.len() > 1 {
-            if let Ok(path_str) = self.path().to_sparql_path() {
-                prefetched_values = self.pre_fetch_value_nodes(&focus_nodes, &path_str, context)?;
-            }
+        if !is_path_summary_able(self.path())
+            && focus_nodes.len() > 1
+            && let Ok(path_str) = self.path().to_sparql_path()
+        {
+            prefetched_values = self.pre_fetch_value_nodes(&focus_nodes, &path_str, context)?;
         }
 
         let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
@@ -744,13 +745,13 @@ impl PropertyShape {
             if let QueryResults::Solutions(solutions) = results {
                 for solution_res in solutions {
                     let solution = solution_res.map_err(|e| e.to_string())?;
-                    if let Some(focus) = solution.get(&focus_var).cloned() {
-                        if let Some(value) = solution.get(&value_node_var).cloned() {
-                            all_results
-                                .entry(focus)
-                                .or_insert_with(Vec::new)
-                                .push(value);
-                        }
+                    if let Some(focus) = solution.get(&focus_var).cloned()
+                        && let Some(value) = solution.get(&value_node_var).cloned()
+                    {
+                        all_results
+                            .entry(focus)
+                            .or_insert_with(Vec::new)
+                            .push(value);
                     }
                 }
             }
