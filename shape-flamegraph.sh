@@ -12,6 +12,8 @@ INCLUDE_RULES=${3:-}
 TRACE_FILE="trace.jsonl"
 FOLDED_FILE="folded.txt"
 SVG_FILE="shape_flamegraph.svg"
+SHAPES_JSON_FILE="trace.shapes.json"
+SHAPE_CBD_FILE="trace.shape-cbd.ttl"
 
 if [ ! -f "target/release/shifty" ]; then
     echo "Building shifty in release mode..."
@@ -46,12 +48,7 @@ if [ -n "$INCLUDE_RULES" ]; then
 fi
 
 echo "Running SHACL validation with tracing (serial mode)..."
-RAYON_NUM_THREADS=1 ./target/release/shifty validate \
-    --shapes-file "$SHAPES_FILE" \
-    --data-file "$DATA_FILE" \
-    --trace-jsonl "$TRACE_FILE" \
-    --format dump \
-    "${VALIDATE_ARGS[@]}" > /dev/null
+RAYON_NUM_THREADS=1 ./target/release/shifty validate     --shapes-file "$SHAPES_FILE"     --data-file "$DATA_FILE"     --trace-jsonl "$TRACE_FILE"     --format dump     "${VALIDATE_ARGS[@]}" > /dev/null
 
 echo "Processing trace into folded stacks..."
 python3 generate_flamegraph.py "$TRACE_FILE" "${GENERATOR_ARGS[@]}" > "$FOLDED_FILE"
@@ -60,3 +57,5 @@ echo "Generating flamegraph SVG..."
 inferno-flamegraph < "$FOLDED_FILE" > "$SVG_FILE"
 
 echo "Success! Flamegraph generated: $SVG_FILE"
+echo "Shape metadata: $SHAPES_JSON_FILE"
+echo "Shape CBD: $SHAPE_CBD_FILE"
