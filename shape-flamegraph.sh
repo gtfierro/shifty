@@ -37,7 +37,7 @@ GENERATOR_ARGS=()
 VALIDATE_ARGS=(--run-inference=false)
 if [ -n "$INCLUDE_RULES" ]; then
     if [ "$INCLUDE_RULES" != "--include-rules" ]; then
-        echo "Error: unsupported option ''"
+        echo "Error: unsupported optional argument. Use --include-rules"
         echo "Usage: $0 <shapes.ttl> <data.ttl> [--include-rules]"
         exit 1
     fi
