@@ -1,15 +1,14 @@
 use clap::{ArgAction, Parser, ValueEnum};
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
-use log::{LevelFilter, info};
+use log::{info, LevelFilter};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Graph, NamedOrBlankNode, Quad, Term, Triple, TripleRef};
+use oxigraph::model::{NamedOrBlankNode, Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
-    SrcGenBackend,
     generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
-    lower_shape_ir as lower_shape_ir_to_srcgen_ir,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
 };
 use shifty::ir_cache;
 use shifty::shacl_ir::ShapeIR;
@@ -921,10 +920,14 @@ fn subject_matches_term(subject: &NamedOrBlankNode, term: &Term) -> bool {
     }
 }
 
-fn collect_shape_cbd_graph(root: &Term, shape_ir: &ShapeIR) -> Graph {
+fn collect_shape_tooltip_fields(root: &Term, shape_ir: &ShapeIR) -> (Vec<String>, Vec<String>) {
+    const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
+    const SH_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
+
     let mut queue: VecDeque<Term> = VecDeque::from([root.clone()]);
     let mut seen_subjects: HashSet<Term> = HashSet::new();
-    let mut graph = Graph::new();
+    let mut labels: HashSet<String> = HashSet::new();
+    let mut messages: HashSet<String> = HashSet::new();
 
     while let Some(subject_term) = queue.pop_front() {
         if !seen_subjects.insert(subject_term.clone()) {
@@ -932,12 +935,19 @@ fn collect_shape_cbd_graph(root: &Term, shape_ir: &ShapeIR) -> Graph {
         }
         for quad in &shape_ir.shape_quads {
             if subject_matches_term(&quad.subject, &subject_term) {
-                let triple = Triple::new(
-                    quad.subject.clone(),
-                    quad.predicate.clone(),
-                    quad.object.clone(),
-                );
-                graph.insert(&triple);
+                match quad.predicate.as_str() {
+                    RDFS_LABEL => {
+                        if let Term::Literal(literal) = &quad.object {
+                            labels.insert(literal.value().to_string());
+                        }
+                    }
+                    SH_MESSAGE => {
+                        if let Term::Literal(literal) = &quad.object {
+                            messages.insert(literal.value().to_string());
+                        }
+                    }
+                    _ => {}
+                }
                 if let Term::BlankNode(bn) = &quad.object {
                     queue.push_back(Term::BlankNode(bn.clone()));
                 }
@@ -945,28 +955,11 @@ fn collect_shape_cbd_graph(root: &Term, shape_ir: &ShapeIR) -> Graph {
         }
     }
 
-    graph
-}
-
-fn serialize_graph_to_turtle(graph: &Graph) -> Result<String, String> {
-    let mut writer = Vec::new();
-    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
-        .with_prefix("sh", "http://www.w3.org/ns/shacl#")
-        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
-        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
-        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
-        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")
-        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
-        .for_writer(&mut writer);
-    for triple in graph.iter() {
-        serializer
-            .serialize_triple(triple)
-            .map_err(|e| format!("Failed to serialise Turtle triple: {}", e))?;
-    }
-    serializer
-        .finish()
-        .map_err(|e| format!("Failed to finish Turtle serialisation: {}", e))?;
-    String::from_utf8(writer).map_err(|e| format!("Failed to decode Turtle bytes: {}", e))
+    let mut labels = labels.into_iter().collect::<Vec<_>>();
+    labels.sort();
+    let mut messages = messages.into_iter().collect::<Vec<_>>();
+    messages.sort();
+    (labels, messages)
 }
 
 fn write_traced_shape_sidecars(
@@ -994,15 +987,11 @@ fn write_traced_shape_sidecars(
                     traced_shapes.entry(frame).or_insert((kind, term.clone()));
                 }
             }
-            TraceEvent::EnterPropertyShape(id, _)
-            | TraceEvent::ExitPropertyShape(id, _) => {
+            TraceEvent::EnterPropertyShape(id, _) | TraceEvent::ExitPropertyShape(id, _) => {
                 if let Some(term) = shape_term_for_property(*id, shape_ir) {
                     let kind = "PropertyShape".to_string();
-                    let frame = shape_frame_name(
-                        &kind,
-                        Some(term),
-                        &format!("PropertyShape_{}", id.0),
-                    );
+                    let frame =
+                        shape_frame_name(&kind, Some(term), &format!("PropertyShape_{}", id.0));
                     traced_shapes.entry(frame).or_insert((kind, term.clone()));
                 }
             }
@@ -1021,43 +1010,33 @@ fn write_traced_shape_sidecars(
     subjects.sort_by(|left, right| left.0.cmp(&right.0));
 
     let metadata_path = trace_sidecar_path(trace_jsonl_path, ".shapes.json");
-    let cbd_path = trace_sidecar_path(trace_jsonl_path, ".shape-cbd.ttl");
-
-    let mut combined_graph = Graph::new();
     let mut shape_entries = Vec::with_capacity(subjects.len());
     for (frame, kind, term) in &subjects {
-        let cbd_graph = collect_shape_cbd_graph(term, shape_ir);
-        for triple in cbd_graph.iter() {
-            let owned = Triple::new(
-                triple.subject.into_owned(),
-                triple.predicate.into_owned(),
-                triple.object.into_owned(),
-            );
-            combined_graph.insert(&owned);
-        }
-        let cbd_ttl = serialize_graph_to_turtle(&cbd_graph)?;
+        let (labels, messages) = collect_shape_tooltip_fields(term, shape_ir);
         shape_entries.push(json!({
             "frame": frame,
             "kind": kind,
             "term": term.to_string(),
-            "cbd_ttl": cbd_ttl,
+            "labels": labels,
+            "messages": messages,
         }));
     }
 
     let metadata = json!({
         "shapes": shape_entries,
-        "cbd_ttl": cbd_path.to_string_lossy(),
     });
     fs::write(
         &metadata_path,
         serde_json::to_string_pretty(&metadata)
             .map_err(|e| format!("Failed to serialise shape metadata JSON: {}", e))?,
     )
-    .map_err(|e| format!("Failed to write shape metadata {}: {}", metadata_path.display(), e))?;
-
-    let turtle = serialize_graph_to_turtle(&combined_graph)?;
-    fs::write(&cbd_path, turtle)
-        .map_err(|e| format!("Failed to write shape CBD {}: {}", cbd_path.display(), e))?;
+    .map_err(|e| {
+        format!(
+            "Failed to write shape metadata {}: {}",
+            metadata_path.display(),
+            e
+        )
+    })?;
 
     Ok(())
 }
@@ -1623,7 +1602,11 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                             if output.status.success() {
                                 let rev =
                                     String::from_utf8_lossy(&output.stdout).trim().to_string();
-                                if rev.is_empty() { None } else { Some(rev) }
+                                if rev.is_empty() {
+                                    None
+                                } else {
+                                    Some(rev)
+                                }
                             } else {
                                 None
                             }

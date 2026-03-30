@@ -13,7 +13,7 @@ TRACE_FILE="trace.jsonl"
 FOLDED_FILE="folded.txt"
 SVG_FILE="shape_flamegraph.svg"
 SHAPES_JSON_FILE="trace.shapes.json"
-SHAPE_CBD_FILE="trace.shape-cbd.ttl"
+STALE_CBD_FILE="trace.shape-cbd.ttl"
 
 if [ ! -f "target/release/shifty" ]; then
     echo "Building shifty in release mode..."
@@ -34,6 +34,8 @@ if ! command -v inferno-flamegraph >/dev/null 2>&1; then
     echo "Error: inferno-flamegraph not found. Install it with: cargo install inferno"
     exit 1
 fi
+
+rm -f "$STALE_CBD_FILE"
 
 GENERATOR_ARGS=()
 VALIDATE_ARGS=()
@@ -59,4 +61,3 @@ python3 generate_flamegraph.py "$TRACE_FILE" --inject-tooltips "$SVG_FILE"
 
 echo "Success! Flamegraph generated: $SVG_FILE"
 echo "Shape metadata: $SHAPES_JSON_FILE"
-echo "Shape CBD: $SHAPE_CBD_FILE"

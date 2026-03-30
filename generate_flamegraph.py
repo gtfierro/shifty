@@ -105,12 +105,16 @@ def inject_tooltips(input_file: str, svg_path: str) -> None:
         tooltip = frame
         if sep:
             tooltip += f" ({suffix}"
-        term = shape.get("term", "")
-        if term:
-            tooltip += f"\nTerm: {term}"
-        cbd = shape.get("cbd_ttl", "").strip()
-        if cbd:
-            tooltip += f"\n\nCBD:\n{cbd}"
+        labels = [label for label in shape.get("labels", []) if isinstance(label, str) and label]
+        messages = [
+            message
+            for message in shape.get("messages", [])
+            if isinstance(message, str) and message
+        ]
+        if labels:
+            tooltip += "\nLabel: " + " | ".join(labels)
+        if messages:
+            tooltip += "\nMessage: " + " | ".join(messages)
         return f"<title>{html.escape(tooltip)}</title>"
 
     updated = re.sub(r"<title>(.*?)</title>", replace_title, content, flags=re.DOTALL)
