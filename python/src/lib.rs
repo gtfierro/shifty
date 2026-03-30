@@ -333,46 +333,100 @@ where
     Ok(())
 }
 
+use once_cell::sync::Lazy;
+use std::time::Instant;
+
+static START_INSTANT: Lazy<Instant> = Lazy::new(Instant::now);
+
 fn trace_event_to_json(event: &TraceEvent) -> serde_json::Value {
     match event {
-        TraceEvent::EnterNodeShape(id) => json!({
+        TraceEvent::EnterNodeShape(id, ts) => json!({
             "type": "EnterNodeShape",
             "node_shape_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
         }),
-        TraceEvent::EnterPropertyShape(id) => json!({
+        TraceEvent::ExitNodeShape(id, ts) => json!({
+            "type": "ExitNodeShape",
+            "node_shape_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::EnterPropertyShape(id, ts) => json!({
             "type": "EnterPropertyShape",
             "property_shape_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::ExitPropertyShape(id, ts) => json!({
+            "type": "ExitPropertyShape",
+            "property_shape_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::EnterComponent(id, ts) => json!({
+            "type": "EnterComponent",
+            "component_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::ExitComponent(id, ts) => json!({
+            "type": "ExitComponent",
+            "component_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::EnterRule(id, ts) => json!({
+            "type": "EnterRule",
+            "rule_id": id.0,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::ExitRule(id, inserted, ts) => json!({
+            "type": "ExitRule",
+            "rule_id": id.0,
+            "inserted": inserted,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
         }),
         TraceEvent::ComponentPassed {
             component,
             focus,
             value,
+            ts,
         } => json!({
             "type": "ComponentPassed",
             "component_id": component.0,
             "focus": focus.to_string(),
             "value": value.as_ref().map(|t| t.to_string()),
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
         }),
         TraceEvent::ComponentFailed {
             component,
             focus,
             value,
             message,
+            ts,
         } => json!({
             "type": "ComponentFailed",
             "component_id": component.0,
             "focus": focus.to_string(),
             "value": value.as_ref().map(|t| t.to_string()),
             "message": message,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
         }),
-        TraceEvent::SparqlQuery { label } => json!({
+        TraceEvent::SparqlQuery { label, ts } => json!({
             "type": "SparqlQuery",
             "label": label,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
         }),
-        TraceEvent::RuleApplied { rule, inserted } => json!({
+        TraceEvent::EnterShapeExecution(source, ts) => json!({
+            "type": "EnterShapeExecution",
+            "source": format!("{:?}", source),
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::ExitShapeExecution(source, ts) => json!({
+            "type": "ExitShapeExecution",
+            "source": format!("{:?}", source),
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::RuleApplied { rule, inserted, ts } => json!({
             "type": "RuleApplied",
             "rule_id": rule.0,
             "inserted": inserted,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
         }),
     }
 }
@@ -382,44 +436,93 @@ fn trace_events_to_py(py: Python<'_>, events: &[TraceEvent]) -> PyResult<Py<PyAn
     for event in events {
         let dict = PyDict::new(py);
         match event {
-            TraceEvent::EnterNodeShape(id) => {
+            TraceEvent::EnterNodeShape(id, ts) => {
                 dict.set_item("type", "EnterNodeShape")?;
                 dict.set_item("node_shape_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
-            TraceEvent::EnterPropertyShape(id) => {
+            TraceEvent::ExitNodeShape(id, ts) => {
+                dict.set_item("type", "ExitNodeShape")?;
+                dict.set_item("node_shape_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::EnterPropertyShape(id, ts) => {
                 dict.set_item("type", "EnterPropertyShape")?;
                 dict.set_item("property_shape_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::ExitPropertyShape(id, ts) => {
+                dict.set_item("type", "ExitPropertyShape")?;
+                dict.set_item("property_shape_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::EnterComponent(id, ts) => {
+                dict.set_item("type", "EnterComponent")?;
+                dict.set_item("component_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::ExitComponent(id, ts) => {
+                dict.set_item("type", "ExitComponent")?;
+                dict.set_item("component_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::EnterRule(id, ts) => {
+                dict.set_item("type", "EnterRule")?;
+                dict.set_item("rule_id", id.0)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::ExitRule(id, inserted, ts) => {
+                dict.set_item("type", "ExitRule")?;
+                dict.set_item("rule_id", id.0)?;
+                dict.set_item("inserted", inserted)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
             TraceEvent::ComponentPassed {
                 component,
                 focus,
                 value,
+                ts,
             } => {
                 dict.set_item("type", "ComponentPassed")?;
                 dict.set_item("component_id", component.0)?;
                 dict.set_item("focus", focus.to_string())?;
                 dict.set_item("value", value.as_ref().map(|t| t.to_string()))?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
             TraceEvent::ComponentFailed {
                 component,
                 focus,
                 value,
                 message,
+                ts,
             } => {
                 dict.set_item("type", "ComponentFailed")?;
                 dict.set_item("component_id", component.0)?;
                 dict.set_item("focus", focus.to_string())?;
                 dict.set_item("value", value.as_ref().map(|t| t.to_string()))?;
                 dict.set_item("message", message)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
-            TraceEvent::SparqlQuery { label } => {
+            TraceEvent::SparqlQuery { label, ts } => {
                 dict.set_item("type", "SparqlQuery")?;
                 dict.set_item("label", label)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
-            TraceEvent::RuleApplied { rule, inserted } => {
+            TraceEvent::EnterShapeExecution(source, ts) => {
+                dict.set_item("type", "EnterShapeExecution")?;
+                dict.set_item("source", format!("{:?}", source))?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::ExitShapeExecution(source, ts) => {
+                dict.set_item("type", "ExitShapeExecution")?;
+                dict.set_item("source", format!("{:?}", source))?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::RuleApplied { rule, inserted, ts } => {
                 dict.set_item("type", "RuleApplied")?;
                 dict.set_item("rule_id", rule.0)?;
                 dict.set_item("inserted", inserted)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
         }
         list.append(dict)?;

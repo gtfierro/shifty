@@ -69,17 +69,14 @@ def frame_name(event: dict, fallback: str) -> str:
         return frame
     return fallback
 
-
-
-
-def load_shape_metadata(input_file: str) -> dict[str, dict]:
+def load_frame_metadata(input_file: str) -> dict[str, dict]:
     metadata_path = input_file.removesuffix(".jsonl") + ".shapes.json"
     try:
         with open(metadata_path, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
     except FileNotFoundError:
         return {}
-    shapes = payload.get("shapes", [])
+    shapes = payload.get("frames", payload.get("shapes", []))
     return {
         item["frame"]: item
         for item in shapes
@@ -88,7 +85,7 @@ def load_shape_metadata(input_file: str) -> dict[str, dict]:
 
 
 def inject_tooltips(input_file: str, svg_path: str) -> None:
-    metadata = load_shape_metadata(input_file)
+    metadata = load_frame_metadata(input_file)
     if not metadata:
         return
     svg_file = Path(svg_path)
@@ -99,18 +96,24 @@ def inject_tooltips(input_file: str, svg_path: str) -> None:
         if title_text == "all" or title_text.startswith("all ("):
             return match.group(0)
         frame, sep, suffix = title_text.partition(" (")
-        shape = metadata.get(frame)
-        if shape is None:
+        item = metadata.get(frame)
+        if item is None:
             return match.group(0)
         tooltip = frame
         if sep:
             tooltip += f" ({suffix}"
-        labels = [label for label in shape.get("labels", []) if isinstance(label, str) and label]
+        labels = [label for label in item.get("labels", []) if isinstance(label, str) and label]
         messages = [
             message
-            for message in shape.get("messages", [])
+            for message in item.get("messages", [])
             if isinstance(message, str) and message
         ]
+        args = [arg for arg in item.get("args", []) if isinstance(arg, str) and arg]
+        component_kind = item.get("component_kind")
+        if isinstance(component_kind, str) and component_kind:
+            tooltip += "\nComponent: " + component_kind
+        if args:
+            tooltip += "\nArgs: " + " | ".join(args)
         if labels:
             tooltip += "\nLabel: " + " | ".join(labels)
         if messages:
@@ -158,6 +161,11 @@ def generate_flamegraph(input_file: str, shape_source: str, include_rules: bool)
                     current_stack,
                     frame_name(event, f"PropertyShape_{event['property_shape_id']}"),
                 )
+
+        if event_type == "EnterComponent":
+            current_stack.append(frame_name(event, f"Component_{event['component_id']}"))
+        elif event_type == "ExitComponent":
+            pop_frame(current_stack, frame_name(event, f"Component_{event['component_id']}"))
 
         if include_rules:
             if event_type == "EnterRule":

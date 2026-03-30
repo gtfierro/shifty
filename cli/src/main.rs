@@ -1,17 +1,18 @@
 use clap::{ArgAction, Parser, ValueEnum};
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
-use log::{info, LevelFilter};
+use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{NamedOrBlankNode, Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
+    SrcGenBackend,
     generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
-    lower_shape_ir as lower_shape_ir_to_srcgen_ir, SrcGenBackend,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir,
 };
 use shifty::ir_cache;
-use shifty::shacl_ir::ShapeIR;
+use shifty::shacl_ir::{ComponentDescriptor, ShapeIR};
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -752,6 +753,249 @@ fn shape_frame_name(kind: &str, term: Option<&Term>, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
+fn component_shape_ref(id: shifty::shacl_ir::ID, shape_ir: &ShapeIR) -> String {
+    shape_ir
+        .node_shape_terms
+        .get(&id)
+        .map(readable_term_label)
+        .unwrap_or_else(|| format!("NodeShape_{}", id.0))
+}
+
+fn component_property_ref(id: shifty::shacl_ir::PropShapeID, shape_ir: &ShapeIR) -> String {
+    shape_ir
+        .property_shape_terms
+        .get(&id)
+        .map(readable_term_label)
+        .unwrap_or_else(|| format!("PropertyShape_{}", id.0))
+}
+
+fn component_kind_and_args(
+    descriptor: &ComponentDescriptor,
+    shape_ir: &ShapeIR,
+) -> (String, Vec<String>) {
+    match descriptor {
+        ComponentDescriptor::Node { shape } => (
+            "NodeConstraint".to_string(),
+            vec![format!("shape={}", component_shape_ref(*shape, shape_ir))],
+        ),
+        ComponentDescriptor::Property { shape } => (
+            "PropertyConstraint".to_string(),
+            vec![format!(
+                "shape={}",
+                component_property_ref(*shape, shape_ir)
+            )],
+        ),
+        ComponentDescriptor::QualifiedValueShape {
+            shape,
+            min_count,
+            max_count,
+            disjoint,
+        } => {
+            let mut args = vec![format!("shape={}", component_shape_ref(*shape, shape_ir))];
+            if let Some(value) = min_count {
+                args.push(format!("min_count={}", value));
+            }
+            if let Some(value) = max_count {
+                args.push(format!("max_count={}", value));
+            }
+            if let Some(value) = disjoint {
+                args.push(format!("disjoint={}", value));
+            }
+            ("QualifiedValueShape".to_string(), args)
+        }
+        ComponentDescriptor::Class { class } => (
+            "ClassConstraint".to_string(),
+            vec![format!("class={}", readable_term_label(class))],
+        ),
+        ComponentDescriptor::Datatype { datatype } => (
+            "DatatypeConstraint".to_string(),
+            vec![format!("datatype={}", readable_term_label(datatype))],
+        ),
+        ComponentDescriptor::NodeKind { node_kind } => (
+            "NodeKindConstraint".to_string(),
+            vec![format!("node_kind={}", readable_term_label(node_kind))],
+        ),
+        ComponentDescriptor::MinCount { min_count } => (
+            "MinCount".to_string(),
+            vec![format!("min_count={}", min_count)],
+        ),
+        ComponentDescriptor::MaxCount { max_count } => (
+            "MaxCount".to_string(),
+            vec![format!("max_count={}", max_count)],
+        ),
+        ComponentDescriptor::MinExclusive { value } => (
+            "MinExclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MinInclusive { value } => (
+            "MinInclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MaxExclusive { value } => (
+            "MaxExclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MaxInclusive { value } => (
+            "MaxInclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MinLength { length } => (
+            "MinLengthConstraint".to_string(),
+            vec![format!("length={}", length)],
+        ),
+        ComponentDescriptor::MaxLength { length } => (
+            "MaxLengthConstraint".to_string(),
+            vec![format!("length={}", length)],
+        ),
+        ComponentDescriptor::Pattern { pattern, flags } => {
+            let mut args = vec![format!("pattern={}", pattern)];
+            if let Some(value) = flags {
+                args.push(format!("flags={}", value));
+            }
+            ("PatternConstraint".to_string(), args)
+        }
+        ComponentDescriptor::LanguageIn { languages } => (
+            "LanguageInConstraint".to_string(),
+            vec![format!("languages={}", languages.join(","))],
+        ),
+        ComponentDescriptor::UniqueLang { enabled } => (
+            "UniqueLangConstraint".to_string(),
+            vec![format!("enabled={}", enabled)],
+        ),
+        ComponentDescriptor::Equals { property } => (
+            "EqualsConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::Disjoint { property } => (
+            "DisjointConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::LessThan { property } => (
+            "LessThanConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::LessThanOrEquals { property } => (
+            "LessThanOrEqualsConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::Not { shape } => (
+            "NotConstraint".to_string(),
+            vec![format!("shape={}", component_shape_ref(*shape, shape_ir))],
+        ),
+        ComponentDescriptor::And { shapes } => (
+            "AndConstraint".to_string(),
+            vec![format!(
+                "shapes={}",
+                shapes
+                    .iter()
+                    .map(|shape| component_shape_ref(*shape, shape_ir))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Or { shapes } => (
+            "OrConstraint".to_string(),
+            vec![format!(
+                "shapes={}",
+                shapes
+                    .iter()
+                    .map(|shape| component_shape_ref(*shape, shape_ir))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Xone { shapes } => (
+            "XoneConstraint".to_string(),
+            vec![format!(
+                "shapes={}",
+                shapes
+                    .iter()
+                    .map(|shape| component_shape_ref(*shape, shape_ir))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Closed {
+            closed,
+            ignored_properties,
+        } => (
+            "ClosedConstraint".to_string(),
+            vec![
+                format!("closed={}", closed),
+                format!(
+                    "ignored_properties={}",
+                    ignored_properties
+                        .iter()
+                        .map(readable_term_label)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+            ],
+        ),
+        ComponentDescriptor::HasValue { value } => (
+            "HasValueConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::In { values } => (
+            "InConstraint".to_string(),
+            vec![format!(
+                "values={}",
+                values
+                    .iter()
+                    .map(readable_term_label)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Sparql { constraint_node } => (
+            "SPARQLConstraint".to_string(),
+            vec![format!(
+                "constraint={}",
+                readable_term_label(constraint_node)
+            )],
+        ),
+        ComponentDescriptor::Custom {
+            definition,
+            parameter_values,
+        } => {
+            let mut args = parameter_values
+                .iter()
+                .map(|(name, values)| {
+                    format!(
+                        "{}={}",
+                        readable_term_label(&Term::NamedNode(name.clone())),
+                        values
+                            .iter()
+                            .map(readable_term_label)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                })
+                .collect::<Vec<_>>();
+            args.sort();
+            (
+                readable_term_label(&Term::NamedNode(definition.iri.clone())),
+                args,
+            )
+        }
+    }
+}
+
+fn component_frame_name(id: shifty::shacl_ir::ComponentID, shape_ir: &ShapeIR) -> String {
+    shape_ir
+        .components
+        .get(&id)
+        .map(|descriptor| {
+            let (kind, args) = component_kind_and_args(descriptor, shape_ir);
+            if args.is_empty() {
+                format!("Component:{}", kind)
+            } else {
+                format!("Component:{}({})", kind, args.join(", "))
+            }
+        })
+        .unwrap_or_else(|| format!("Component:{}", id.0))
+}
+
 fn annotate_shape_value(
     mut value: serde_json::Value,
     kind: &str,
@@ -853,6 +1097,18 @@ fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json:
                 term,
             )
         }
+        TraceEvent::EnterComponent(id, ts) => json!({
+            "type": "EnterComponent",
+            "component_id": id.0,
+            "frame": component_frame_name(*id, shape_ir),
+            "ts": get_ts_nanos(*ts),
+        }),
+        TraceEvent::ExitComponent(id, ts) => json!({
+            "type": "ExitComponent",
+            "component_id": id.0,
+            "frame": component_frame_name(*id, shape_ir),
+            "ts": get_ts_nanos(*ts),
+        }),
         TraceEvent::EnterRule(id, ts) => json!({
             "type": "EnterRule",
             "rule_id": id.0,
@@ -874,6 +1130,7 @@ fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json:
         } => json!({
             "type": "ComponentPassed",
             "component_id": component.0,
+            "frame": component_frame_name(*component, shape_ir),
             "focus": term_to_string(focus),
             "value": value.as_ref().map(term_to_string),
             "ts": get_ts_nanos(*ts),
@@ -887,6 +1144,7 @@ fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json:
         } => json!({
             "type": "ComponentFailed",
             "component_id": component.0,
+            "frame": component_frame_name(*component, shape_ir),
             "focus": term_to_string(focus),
             "value": value.as_ref().map(term_to_string),
             "message": message,
@@ -969,6 +1227,7 @@ fn write_traced_shape_sidecars(
 ) -> Result<(), String> {
     let shape_ir = validator.shape_ir();
     let mut traced_shapes: HashMap<String, (String, Term)> = HashMap::new();
+    let mut traced_components: HashSet<shifty::shacl_ir::ComponentID> = HashSet::new();
 
     for event in events {
         match event {
@@ -995,35 +1254,57 @@ fn write_traced_shape_sidecars(
                     traced_shapes.entry(frame).or_insert((kind, term.clone()));
                 }
             }
+            TraceEvent::EnterComponent(id, _)
+            | TraceEvent::ExitComponent(id, _)
+            | TraceEvent::ComponentPassed { component: id, .. }
+            | TraceEvent::ComponentFailed { component: id, .. } => {
+                traced_components.insert(*id);
+            }
             _ => {}
         }
     }
 
-    if traced_shapes.is_empty() {
+    if traced_shapes.is_empty() && traced_components.is_empty() {
         return Ok(());
     }
 
-    let mut subjects: Vec<(String, String, Term)> = traced_shapes
+    let mut frame_entries: Vec<serde_json::Value> = traced_shapes
         .into_iter()
-        .map(|(frame, (kind, term))| (frame, kind, term))
+        .map(|(frame, (kind, term))| {
+            let (labels, messages) = collect_shape_tooltip_fields(&term, shape_ir);
+            json!({
+                "frame": frame,
+                "kind": kind,
+                "term": term.to_string(),
+                "labels": labels,
+                "messages": messages,
+            })
+        })
         .collect();
-    subjects.sort_by(|left, right| left.0.cmp(&right.0));
-
     let metadata_path = trace_sidecar_path(trace_jsonl_path, ".shapes.json");
-    let mut shape_entries = Vec::with_capacity(subjects.len());
-    for (frame, kind, term) in &subjects {
-        let (labels, messages) = collect_shape_tooltip_fields(term, shape_ir);
-        shape_entries.push(json!({
-            "frame": frame,
-            "kind": kind,
-            "term": term.to_string(),
-            "labels": labels,
-            "messages": messages,
-        }));
+
+    let mut component_ids: Vec<_> = traced_components.into_iter().collect();
+    component_ids.sort_by_key(|id| id.0);
+    for component_id in component_ids {
+        if let Some(descriptor) = shape_ir.components.get(&component_id) {
+            let (kind, args) = component_kind_and_args(descriptor, shape_ir);
+            frame_entries.push(json!({
+                "frame": component_frame_name(component_id, shape_ir),
+                "kind": "Component",
+                "component_id": component_id.0,
+                "component_kind": kind,
+                "args": args,
+            }));
+        }
     }
+    frame_entries.sort_by(|left, right| {
+        left.get("frame")
+            .and_then(|value| value.as_str())
+            .cmp(&right.get("frame").and_then(|value| value.as_str()))
+    });
 
     let metadata = json!({
-        "shapes": shape_entries,
+        "frames": frame_entries,
     });
     fs::write(
         &metadata_path,
@@ -1602,11 +1883,7 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                             if output.status.success() {
                                 let rev =
                                     String::from_utf8_lossy(&output.stdout).trim().to_string();
-                                if rev.is_empty() {
-                                    None
-                                } else {
-                                    Some(rev)
-                                }
+                                if rev.is_empty() { None } else { Some(rev) }
                             } else {
                                 None
                             }

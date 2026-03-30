@@ -4,38 +4,57 @@
 //! emit `TraceEvent`s through a `TraceSink`, allowing both interpreted and
 //! compiled executors to share diagnostics plumbing.
 
+use crate::context::SourceShape;
 use crate::types::{ComponentID, ID, PropShapeID, RuleID};
 use oxigraph::model::Term;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Structured trace events emitted during execution.
 #[derive(Debug, Clone)]
 pub enum TraceEvent {
-    EnterNodeShape(ID),
-    EnterPropertyShape(PropShapeID),
+    EnterShapeExecution(SourceShape, Instant),
+    ExitShapeExecution(SourceShape, Instant),
+    EnterNodeShape(ID, Instant),
+    ExitNodeShape(ID, Instant),
+    EnterPropertyShape(PropShapeID, Instant),
+    ExitPropertyShape(PropShapeID, Instant),
+    EnterComponent(ComponentID, Instant),
+    ExitComponent(ComponentID, Instant),
+    EnterRule(RuleID, Instant),
+    ExitRule(RuleID, usize, Instant),
     ComponentPassed {
         component: ComponentID,
         focus: Term,
         value: Option<Term>,
+        ts: Instant,
     },
     ComponentFailed {
         component: ComponentID,
         focus: Term,
         value: Option<Term>,
         message: Option<String>,
+        ts: Instant,
     },
     SparqlQuery {
         label: String,
+        ts: Instant,
     },
     RuleApplied {
         rule: RuleID,
         inserted: usize,
+        ts: Instant,
     },
 }
 
 /// Consumer for trace events. Implementations may buffer, stream, or drop.
 pub trait TraceSink: Send + Sync {
     fn record(&self, event: TraceEvent);
+    fn record_batch(&self, events: Vec<TraceEvent>) {
+        for event in events {
+            self.record(event);
+        }
+    }
 }
 
 /// No-op sink useful when callers do not care about traces.
@@ -43,6 +62,7 @@ pub struct NullTraceSink;
 
 impl TraceSink for NullTraceSink {
     fn record(&self, _event: TraceEvent) {}
+    fn record_batch(&self, _events: Vec<TraceEvent>) {}
 }
 
 /// In-memory sink that records all events for later inspection.
@@ -64,6 +84,15 @@ impl TraceSink for MemoryTraceSink {
     fn record(&self, event: TraceEvent) {
         if let Ok(mut guard) = self.events.lock() {
             guard.push(event);
+        }
+    }
+
+    fn record_batch(&self, events: Vec<TraceEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.events.lock() {
+            guard.extend(events);
         }
     }
 }
