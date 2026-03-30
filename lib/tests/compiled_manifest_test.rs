@@ -73,6 +73,11 @@ fn compiled_test_shared_lockfile() -> PathBuf {
     compiled_test_build_root().join("Cargo.lock")
 }
 
+fn compiled_test_workspace_dir(strict_full_aot: bool) -> PathBuf {
+    let profile = if strict_full_aot { "strict" } else { "hybrid" };
+    compiled_test_build_root().join("workspace").join(profile)
+}
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -242,12 +247,10 @@ fn compiled_bin_for_shapes(
             .map_err(|e| io::Error::other(format!("Failed to generate srcgen Rust: {}", e)))?;
     let (generated_root, generated_files) = (generated.root, generated.files);
 
-    let out_dir = build_root.join("workspaces").join(&cache_key);
-    if out_dir.exists() {
-        std::fs::remove_dir_all(&out_dir)?;
-    }
+    let out_dir = compiled_test_workspace_dir(strict_full_aot);
     let src_dir = out_dir.join("src");
     let generated_dir = src_dir.join("generated");
+    std::fs::create_dir_all(&src_dir)?;
     if generated_dir.exists() {
         std::fs::remove_dir_all(&generated_dir)?;
     }
@@ -433,7 +436,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let shared_bin_path = build_root.join("target").join("debug").join(bin_name);
     std::fs::copy(&shared_bin_path, &cached_bin)?;
-    let _ = std::fs::remove_dir_all(&out_dir);
     compiled_cache()
         .lock()
         .unwrap()
