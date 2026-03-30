@@ -187,7 +187,7 @@ fn run_compiled_validate_with_metrics(
             .arg(&rss_file)
             .arg("--")
             .arg(compiled_bin)
-            .args(["--run-inference=true", "--full-aot=true", data])
+            .args(["--run-inference", "--full-aot=true", data])
             .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -196,7 +196,7 @@ fn run_compiled_validate_with_metrics(
         let _ = fs::remove_file(rss_file);
     } else {
         let mut cmd = Command::new(compiled_bin);
-        cmd.args(["--run-inference=true", "--full-aot=true", data])
+        cmd.args(["--run-inference", "--full-aot=true", data])
             .env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -379,7 +379,7 @@ ex:Alice a ex:Person ;
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-core"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
@@ -387,7 +387,7 @@ ex:Alice a ex:Person ;
         &shared_target_dir()
             .join("debug")
             .join("compiled-secondary-bin-core"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -477,7 +477,7 @@ ex:d1 a ex:Device ;
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-expanded"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
@@ -485,7 +485,7 @@ ex:d1 a ex:Device ;
         &shared_target_dir()
             .join("debug")
             .join("srcgen-bin-expanded"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -574,7 +574,7 @@ ex:c2 a ex:Child, ex:AltChild ;
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-logical-node"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
@@ -582,7 +582,7 @@ ex:c2 a ex:Child, ex:AltChild ;
         &shared_target_dir()
             .join("debug")
             .join("srcgen-bin-logical-node"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -677,7 +677,7 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-closed-qualified"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
@@ -685,7 +685,7 @@ ex:fingerThumb a ex:Finger, ex:Thumb .
         &shared_target_dir()
             .join("debug")
             .join("srcgen-bin-closed-qualified"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -757,7 +757,7 @@ ex:item1 a ex:Item .
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-node-membership"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
@@ -765,7 +765,7 @@ ex:item1 a ex:Item .
         &shared_target_dir()
             .join("debug")
             .join("srcgen-bin-node-membership"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -835,13 +835,13 @@ ex:Alice a ex:Person .
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-infer"),
-        &["--run-inference=true", data.to_str().unwrap()],
+        &["--run-inference", data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
     run_binary_to_file(
         &shared_target_dir().join("debug").join("srcgen-bin-infer"),
-        &["--run-inference=true", data.to_str().unwrap()],
+        &["--run-inference", data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -912,13 +912,13 @@ ex:Alice a ex:Person ;
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-union"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
     run_binary_to_file(
         &shared_target_dir().join("debug").join("srcgen-bin-union"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -1007,7 +1007,7 @@ ex:zoneBad a ex:HvacZone ;
         &shared_target_dir()
             .join("debug")
             .join("compiled-primary-bin-domain-sparql"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_primary_report,
     )?;
 
@@ -1015,7 +1015,7 @@ ex:zoneBad a ex:HvacZone ;
         &shared_target_dir()
             .join("debug")
             .join("srcgen-bin-domain-sparql"),
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &compiled_secondary_report,
     )?;
 
@@ -1100,7 +1100,7 @@ ex:PersonShape
     // Warmup
     run_binary_to_file(
         &srcgen_bin,
-        &["--run-inference=false", data.to_str().unwrap()],
+        &[data.to_str().unwrap()],
         &tmp.join("warmup-srcgen.ttl"),
     )?;
     run_cli_to_file(
@@ -1120,7 +1120,7 @@ ex:PersonShape
         let start = Instant::now();
         run_binary_to_file(
             &srcgen_bin,
-            &["--run-inference=false", data.to_str().unwrap()],
+            &[data.to_str().unwrap()],
             &tmp.join(format!("srcgen-{idx}.ttl")),
         )?;
         srcgen_runs.push(start.elapsed());

@@ -1032,22 +1032,14 @@ struct HttpRequest {
 
 fn print_usage(program: &str) {
     eprintln!(
-        "usage:\n  {} [--follow-bnodes] [--run-inference=true|false] [--full-aot] [--fail-on-violations] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference=true|false] [--full-aot] [--fail-on-violations] <data.rdf>\n  {} infer [--full-aot] <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
+        "usage:\n  {} [--follow-bnodes] [--run-inference] [--full-aot] [--fail-on-violations] <data.rdf>\n  {} validate [--follow-bnodes] [--run-inference] [--full-aot] [--fail-on-violations] <data.rdf>\n  {} infer [--full-aot] <data.rdf>\n  {} serve [--bind HOST:PORT] [--host HOST] [--port PORT]",
         program, program, program, program
     );
 }
 
-fn parse_bool_arg(value: &str) -> Result<bool, String> {
-    match value {
-        "true" | "1" | "yes" | "on" => Ok(true),
-        "false" | "0" | "no" | "off" => Ok(false),
-        other => Err(format!("invalid boolean value: {}", other)),
-    }
-}
-
 fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, String> {
     let mut follow_bnodes = false;
-    let mut run_inference = true;
+    let mut run_inference = false;
     let mut full_aot = false;
     let mut fail_on_violations = false;
     let mut data_path: Option<PathBuf> = None;
@@ -1055,12 +1047,8 @@ fn parse_validate_args(args: &[String], program: &str) -> Result<CommandSpec, St
     for arg in args {
         if arg == "--follow-bnodes" {
             follow_bnodes = true;
-        } else if arg == "--no-run-inference" {
-            run_inference = false;
         } else if arg == "--run-inference" {
             run_inference = true;
-        } else if let Some(value) = arg.strip_prefix("--run-inference=") {
-            run_inference = parse_bool_arg(value)?;
         } else if arg == "--full-aot" {
             full_aot = true;
         } else if let Some(value) = arg.strip_prefix("--full-aot=") {

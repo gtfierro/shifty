@@ -57,7 +57,7 @@ if [[ -n "$DATA_FILE" ]]; then
   echo "Running compiled binary with generated inference enabled..."
   echo "Full AOT mode: $FULL_AOT"
   echo "Report file: $REPORT_FILE"
-  if "$BIN_PATH" --run-inference=true --full-aot="$FULL_AOT" --fail-on-violations "$DATA_FILE" | tee "$REPORT_FILE"; then
+  if "$BIN_PATH" --run-inference --full-aot="$FULL_AOT" --fail-on-violations "$DATA_FILE" | tee "$REPORT_FILE"; then
     echo "Validation conforms."
   else
     status=$?
@@ -69,5 +69,5 @@ if [[ -n "$DATA_FILE" ]]; then
   fi
 else
   echo "No data file supplied. To run validation with inference:"
-  echo "  $BIN_PATH --run-inference=true --full-aot=true --fail-on-violations <data.ttl>"
+  echo "  $BIN_PATH --run-inference --full-aot=true --fail-on-violations <data.ttl>"
 fi

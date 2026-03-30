@@ -27,8 +27,8 @@ echo "Wrote SrcGenIR: $OUT_DIR/srcgen.ir.json"
 if [[ -n "$DATA_FILE" ]]; then
   echo "Running compiled binary with generated inference enabled..."
   echo "Full AOT mode: $FULL_AOT"
-  "$BIN_PATH" --run-inference=true --full-aot="$FULL_AOT" "$DATA_FILE"
+  "$BIN_PATH" --run-inference --full-aot="$FULL_AOT" "$DATA_FILE"
 else
   echo "No data file supplied. To run validation with inference:"
-  echo "  $BIN_PATH --run-inference=true --full-aot=true <data.ttl>"
+  echo "  $BIN_PATH --run-inference --full-aot=true <data.ttl>"
 fi

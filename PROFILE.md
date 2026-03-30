@@ -15,7 +15,7 @@ Generate a shape-focused flamegraph from structured trace events:
 ./shape-flamegraph.sh ttl/223p.ttl ttl/small-223p.ttl
 ```
 
-This defaults to validation-only timing by passing `--run-inference=false` to `shifty validate`.
+This defaults to validation-only timing by omitting `--run-inference` from `shifty validate`.
 Use `--include-rules` as the optional third argument if you want rule execution folded into the flamegraph as well.
 
 The script writes:

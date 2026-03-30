@@ -373,8 +373,8 @@ struct ValidateArgs {
     #[arg(long)]
     follow_bnodes: bool,
 
-    /// Run SHACL rule inference before validation (default: true, set false via --run-inference=false)
-    #[arg(long, default_value_t = true, require_equals = true, num_args = 1, value_parser = clap::value_parser!(bool))]
+    /// Run SHACL rule inference before validation
+    #[arg(long)]
     run_inference: bool,
 
     /// Minimum iterations for inference
@@ -1531,9 +1531,7 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                     || args.inference_error_on_blank_nodes
                     || args.inference_debug)
             {
-                return Err(
-                    "inference tuning flags require --run-inference=true (default true)".into(),
-                );
+                return Err("inference tuning flags require --run-inference".into());
             }
             let fetch_start = Instant::now();
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
