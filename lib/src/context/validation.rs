@@ -254,6 +254,8 @@ pub struct ValidationContext {
     sparql_batch_cache: Mutex<HashMap<SparqlBatchCacheKey, SparqlBatchCacheValue>>,
     property_shape_batch_cache:
         Mutex<HashMap<PropertyShapeBatchCacheKey, PropertyShapeBatchCacheValue>>,
+    property_value_batch_cache:
+        Mutex<HashMap<PropertyShapeBatchCacheKey, Arc<Result<HashMap<Term, Vec<Term>>, String>>>>,
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
@@ -324,6 +326,7 @@ impl ValidationContext {
             sparql_query_stats: Mutex::new(HashMap::new()),
             sparql_batch_cache: Mutex::new(HashMap::new()),
             property_shape_batch_cache: Mutex::new(HashMap::new()),
+            property_value_batch_cache: Mutex::new(HashMap::new()),
             shape_timing_stats: Mutex::new(HashMap::new()),
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
@@ -470,6 +473,7 @@ impl ValidationContext {
         enforce_values_clause: bool,
     ) -> Result<QueryResults<'a>, String> {
         self.record_graph_call(GraphCallKind::ExecutePrepared);
+
         self.backend
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
     }
@@ -1153,6 +1157,30 @@ impl ValidationContext {
         computed
     }
 
+    pub(crate) fn get_or_compute_property_value_batch<F>(
+        &self,
+        property_shape_id: PropShapeID,
+        parent_shape: SourceShape,
+        compute: F,
+    ) -> Arc<Result<HashMap<Term, Vec<Term>>, String>>
+    where
+        F: FnOnce() -> Result<HashMap<Term, Vec<Term>>, String>,
+    {
+        let key = PropertyShapeBatchCacheKey {
+            property_shape_id,
+            parent_shape,
+        };
+
+        let mut cache = self.property_value_batch_cache.lock().unwrap();
+        if let Some(cached) = cache.get(&key).cloned() {
+            return cached;
+        }
+
+        let computed = Arc::new(compute());
+        cache.insert(key, Arc::clone(&computed));
+        computed
+    }
+
     fn current_component_key(&self) -> Option<ComponentGraphCallKey> {
         ACTIVE_COMPONENT_STACK.with(|stack| stack.borrow().last().cloned())
     }
@@ -1487,7 +1515,7 @@ fn term_from_term_ref(term: TermRef<'_>) -> Option<Term> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum SourceShape {
+pub enum SourceShape {
     NodeShape(ID),
     PropertyShape(PropShapeID),
 }
@@ -1502,21 +1530,21 @@ impl fmt::Display for SourceShape {
 }
 
 impl SourceShape {
-    pub(crate) fn as_prop_id(&self) -> Option<&PropShapeID> {
+    pub fn as_prop_id(&self) -> Option<&PropShapeID> {
         match self {
             SourceShape::PropertyShape(id) => Some(id),
             _ => None,
         }
     }
 
-    pub(crate) fn as_node_id(&self) -> Option<&ID> {
+    pub fn as_node_id(&self) -> Option<&ID> {
         match self {
             SourceShape::NodeShape(id) => Some(id),
             _ => None,
         }
     }
 
-    pub(crate) fn get_term(&self, ctx: &ValidationContext) -> Option<Term> {
+    pub fn get_term(&self, ctx: &ValidationContext) -> Option<Term> {
         match self {
             SourceShape::NodeShape(id) => ctx
                 .model

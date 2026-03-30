@@ -14,7 +14,33 @@ use crate::shape::{NodeShape, PropertyShape, ValidateShape};
 use crate::trace::TraceEvent;
 use crate::types::{Path, PropShapeID, TargetEvalExt, TraceItem};
 use log::{debug, info};
+use oxigraph::model::vocab::xsd;
 use oxigraph::model::{Literal, NamedNode, Term};
+
+fn format_term_for_sparql(term: &Term) -> String {
+    match term {
+        Term::NamedNode(nn) => format!("<{}>", nn.as_str()),
+        Term::BlankNode(bn) => format!("_:{}", bn.as_str()),
+        Term::Literal(lit) => {
+            let value = lit.value().replace('\\', "\\\\").replace('"', "\\\"");
+            if let Some(lang) = lit.language() {
+                format!("\"{}\"@{}", value, lang)
+            } else if lit.datatype() != xsd::STRING {
+                format!("\"{}\"^^<{}>", value, lit.datatype().as_str())
+            } else {
+                format!("\"{}\"", value)
+            }
+        }
+    }
+}
+
+pub(crate) fn is_path_summary_able(path: &Path) -> bool {
+    match path {
+        Path::Simple(Term::NamedNode(_)) => true,
+        Path::Inverse(inner) => matches!(inner.as_ref(), Path::Simple(Term::NamedNode(_))),
+        _ => false,
+    }
+}
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -54,7 +80,16 @@ fn run_plan_shape(
     context: &ValidationContext,
     report_builder: &mut ValidationReportBuilder,
 ) -> Result<(), String> {
-    match shape_ref {
+    let source = match shape_ref {
+        ShapeRef::Node(id) => SourceShape::NodeShape(id),
+        ShapeRef::Property(id) => SourceShape::PropertyShape(PropShapeID(id.0)),
+    };
+    context.trace_sink.record(TraceEvent::EnterShapeExecution(
+        source.clone(),
+        Instant::now(),
+    ));
+
+    let res = match shape_ref {
         ShapeRef::Node(id) => {
             if let Some(shape) = context.model.get_node_shape_by_id(&id) {
                 shape.process_targets(context, report_builder)
@@ -72,7 +107,13 @@ fn run_plan_shape(
                 ))
             }
         }
-    }
+    };
+
+    context
+        .trace_sink
+        .record(TraceEvent::ExitShapeExecution(source, Instant::now()));
+
+    res
 }
 
 fn canonicalize_value_nodes(
@@ -406,9 +447,9 @@ impl ValidateShape for NodeShape {
                     node_value_selection_started.elapsed(),
                 );
                 let trace_index = target_context.trace_index();
-                context
-                    .trace_sink
-                    .record(TraceEvent::EnterNodeShape(*self.identifier()));
+                let now = Instant::now();
+                let mut local_events = Vec::new();
+                local_events.push(TraceEvent::EnterNodeShape(*self.identifier(), now));
 
                 let shape_label = context
                     .model
@@ -492,12 +533,14 @@ impl ValidateShape for NodeShape {
                         &mut target_context,
                         context,
                         &mut local_trace,
+                        &mut local_events,
+                        None,
                     ) {
                         Ok(validation_results) => {
                             for result in validation_results {
                                 match result {
                                     ComponentValidationResult::Fail(ctx, failure) => {
-                                        context.trace_sink.record(TraceEvent::ComponentFailed {
+                                        local_events.push(TraceEvent::ComponentFailed {
                                             component: *constraint_id,
                                             focus: ctx.focus_node().clone(),
                                             value: failure
@@ -505,14 +548,16 @@ impl ValidateShape for NodeShape {
                                                 .clone()
                                                 .or_else(|| ctx.value().cloned()),
                                             message: Some(failure.message.clone()),
+                                            ts: Instant::now(),
                                         });
                                         local_report.add_failure(&ctx, failure);
                                     }
                                     ComponentValidationResult::Pass(ctx) => {
-                                        context.trace_sink.record(TraceEvent::ComponentPassed {
+                                        local_events.push(TraceEvent::ComponentPassed {
                                             component: *constraint_id,
                                             focus: ctx.focus_node().clone(),
                                             value: ctx.value().cloned(),
+                                            ts: Instant::now(),
                                         });
                                     }
                                 }
@@ -533,6 +578,12 @@ impl ValidateShape for NodeShape {
                         traces.push(local_trace);
                     }
                 }
+
+                local_events.push(TraceEvent::ExitNodeShape(
+                    *self.identifier(),
+                    Instant::now(),
+                ));
+                context.trace_sink.record_batch(local_events);
 
                 Ok(local_report)
             })
@@ -587,26 +638,41 @@ impl ValidateShape for PropertyShape {
             return Ok(());
         }
 
+        let mut prefetched_values: HashMap<Term, Vec<Term>> = HashMap::new();
+        if !is_path_summary_able(self.path()) && focus_nodes.len() > 1 {
+            if let Ok(path_str) = self.path().to_sparql_path() {
+                prefetched_values = self.pre_fetch_value_nodes(&focus_nodes, &path_str, context)?;
+            }
+        }
+
         let focus_reports: Result<Vec<ValidationReportBuilder>, String> = focus_nodes
             .as_ref()
             .par_iter()
             .map(|focus_node| {
                 let mut local_report = ValidationReportBuilder::with_capacity(8);
+                let values_for_this_focus = prefetched_values.get(focus_node);
+
                 let mut target_context = Context::new(
                     focus_node.clone(),
                     None,
-                    Some(vec![focus_node.clone()]),
+                    None,
                     SourceShape::PropertyShape(*self.identifier()),
                     context.new_trace(),
                 );
                 let trace_index = target_context.trace_index();
-                context
-                    .trace_sink
-                    .record(TraceEvent::EnterPropertyShape(*self.identifier()));
+                let now = Instant::now();
+                let mut local_events = Vec::new();
+                local_events.push(TraceEvent::EnterPropertyShape(*self.identifier(), now));
 
                 let mut local_trace: Vec<TraceItem> = Vec::new();
 
-                match self.validate(&mut target_context, context, &mut local_trace) {
+                match self.validate(
+                    &mut target_context,
+                    context,
+                    &mut local_trace,
+                    &mut local_events,
+                    values_for_this_focus.cloned(),
+                ) {
                     Ok(validation_results) => {
                         for result in validation_results {
                             if let ComponentValidationResult::Fail(ctx, failure) = result {
@@ -628,6 +694,12 @@ impl ValidateShape for PropertyShape {
                     }
                 }
 
+                local_events.push(TraceEvent::ExitPropertyShape(
+                    *self.identifier(),
+                    Instant::now(),
+                ));
+                context.trace_sink.record_batch(local_events);
+
                 Ok(local_report)
             })
             .collect();
@@ -640,6 +712,53 @@ impl ValidateShape for PropertyShape {
 }
 
 impl PropertyShape {
+    pub(crate) fn pre_fetch_value_nodes(
+        &self,
+        focus_nodes: &[Term],
+        sparql_path: &str,
+        context: &ValidationContext,
+    ) -> Result<HashMap<Term, Vec<Term>>, String> {
+        if focus_nodes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut all_results = HashMap::new();
+        let focus_var = Variable::new_unchecked("focus");
+        let value_node_var = Variable::new_unchecked("valueNode");
+
+        for chunk in focus_nodes.chunks(500) {
+            let mut values_clause = String::from("VALUES ?focus { ");
+            for node in chunk {
+                values_clause.push_str(&format!("{} ", format_term_for_sparql(node)));
+            }
+            values_clause.push_str(" }");
+
+            let query_str = format!(
+                "SELECT ?focus ?valueNode WHERE {{ {} ?focus {} ?valueNode . }}",
+                values_clause, sparql_path
+            );
+
+            let prepared = context.prepare_query(&query_str)?;
+            let results = context.execute_prepared(&query_str, &prepared, &[], false)?;
+
+            if let QueryResults::Solutions(solutions) = results {
+                for solution_res in solutions {
+                    let solution = solution_res.map_err(|e| e.to_string())?;
+                    if let Some(focus) = solution.get(&focus_var).cloned() {
+                        if let Some(value) = solution.get(&value_node_var).cloned() {
+                            all_results
+                                .entry(focus)
+                                .or_insert_with(Vec::new)
+                                .push(value);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(all_results)
+    }
+
     pub(crate) fn collect_batched_sparql_failures(
         &self,
         focus_nodes: &[Term],
@@ -658,8 +777,17 @@ impl PropertyShape {
         prebatched_sparql_failures: Option<
             &HashMap<crate::types::ComponentID, crate::context::BatchedSparqlResult>,
         >,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        self.validate_internal(focus_context, context, trace, prebatched_sparql_failures)
+        self.validate_internal(
+            focus_context,
+            context,
+            trace,
+            prebatched_sparql_failures,
+            events,
+            prefetched_values,
+        )
     }
 
     /// Validates a context against this property shape.
@@ -672,8 +800,17 @@ impl PropertyShape {
         focus_context: &mut Context,
         context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
-        self.validate_internal(focus_context, context, trace, None)
+        self.validate_internal(
+            focus_context,
+            context,
+            trace,
+            None,
+            events,
+            prefetched_values,
+        )
     }
 
     fn validate_internal(
@@ -684,10 +821,18 @@ impl PropertyShape {
         prebatched_sparql_failures: Option<
             &HashMap<crate::types::ComponentID, crate::context::BatchedSparqlResult>,
         >,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if self.is_deactivated() {
             return Ok(vec![]);
         }
+        let source = SourceShape::PropertyShape(PropShapeID(self.identifier().0));
+        events.push(TraceEvent::EnterShapeExecution(
+            source.clone(),
+            Instant::now(),
+        ));
+
         trace.push(TraceItem::PropertyShape(*self.identifier()));
 
         let shape_label = context
@@ -789,7 +934,11 @@ impl PropertyShape {
         // Fast path: resolve simple and inverse-simple paths directly from the cached
         // focus-predicate summary instead of issuing SPARQL queries.
         for focus_node in &focus_nodes_for_this_shape {
-            if let Some(value_nodes) = summary_value_nodes_for_focus(context, self, focus_node)? {
+            if let Some(values) = &prefetched_values {
+                value_node_map.insert(focus_node.clone(), values.clone());
+            } else if let Some(value_nodes) =
+                summary_value_nodes_for_focus(context, self, focus_node)?
+            {
                 value_node_map.insert(focus_node.clone(), value_nodes);
             }
         }
@@ -858,11 +1007,12 @@ impl PropertyShape {
                             }),
                         )
                         .with_message_terms(violation.message_terms);
-                        context.trace_sink.record(TraceEvent::ComponentFailed {
+                        events.push(TraceEvent::ComponentFailed {
                             component: constraint_id,
                             focus: focus_node.clone(),
                             value: failure.failed_value_node.clone(),
                             message: Some(failure.message.clone()),
+                            ts: Instant::now(),
                         });
                         all_results.push(ComponentValidationResult::Fail(
                             constraint_validation_context.clone(),
@@ -955,12 +1105,14 @@ impl PropertyShape {
                     &mut constraint_validation_context,
                     context,
                     trace,
+                    events,
+                    None,
                 ) {
                     Ok(results) => {
                         for result in results {
                             match result {
                                 ComponentValidationResult::Fail(ctx, failure) => {
-                                    context.trace_sink.record(TraceEvent::ComponentFailed {
+                                    events.push(TraceEvent::ComponentFailed {
                                         component: constraint_id,
                                         focus: ctx.focus_node().clone(),
                                         value: failure
@@ -968,14 +1120,16 @@ impl PropertyShape {
                                             .clone()
                                             .or_else(|| ctx.value().cloned()),
                                         message: Some(failure.message.clone()),
+                                        ts: Instant::now(),
                                     });
                                     all_results.push(ComponentValidationResult::Fail(ctx, failure));
                                 }
                                 ComponentValidationResult::Pass(ctx) => {
-                                    context.trace_sink.record(TraceEvent::ComponentPassed {
+                                    events.push(TraceEvent::ComponentPassed {
                                         component: constraint_id,
                                         focus: ctx.focus_node().clone(),
                                         value: ctx.value().cloned(),
+                                        ts: Instant::now(),
                                     });
                                     all_results.push(ComponentValidationResult::Pass(ctx));
                                 }
@@ -988,6 +1142,8 @@ impl PropertyShape {
                 }
             }
         }
+
+        events.push(TraceEvent::ExitShapeExecution(source, Instant::now()));
 
         Ok(all_results)
     }

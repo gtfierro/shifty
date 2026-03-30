@@ -1,0 +1,15 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+_:cb00847f80c538be0dae5deba5c6de5e sh:value "Spain"@en ;
+	sh:sourceShape <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#LanguageExamplePropertyShape> ;
+	sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+	sh:resultSeverity sh:Violation ;
+	sh:resultPath <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#germanLabel> ;
+	sh:sourceConstraint <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#LanguageExamplePropertyShape-sparql> ;
+	sh:resultMessage "Values are literals with German language tag." ;
+	sh:focusNode <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#InvalidCountry> ;
+	a sh:ValidationResult .
+_:cd18f998d119533920147910f97ba8c5 sh:result _:cb00847f80c538be0dae5deba5c6de5e ;
+	sh:conforms false ;
+	a sh:ValidationReport .
+

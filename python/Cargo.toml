@@ -22,3 +22,4 @@ ontoenv = "0.5.1"
 tempfile = "3"
 serde_json.workspace = true
 env_logger.workspace = true
+once_cell = "1"

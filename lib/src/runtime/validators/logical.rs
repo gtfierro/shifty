@@ -1,6 +1,7 @@
 use crate::context::{Context, SourceShape, ValidationContext, format_term_for_label};
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, ID, TraceItem};
-use oxigraph::model::NamedNode;
+use oxigraph::model::{NamedNode, Term};
 
 use crate::runtime::{
     ComponentValidationResult, ConformanceReport, GraphvizOutput, ValidateComponent,
@@ -52,6 +53,8 @@ impl ValidateComponent for NotConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes to check
@@ -81,6 +84,8 @@ impl ValidateComponent for NotConstraintComponent {
                 negated_node_shape,
                 validation_context,
                 trace,
+                events,
+                prefetched_values.clone(),
             )?;
 
             match result {
@@ -161,6 +166,8 @@ impl ValidateComponent for AndConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes
@@ -194,6 +201,8 @@ impl ValidateComponent for AndConstraintComponent {
                     conjunct_node_shape,
                     validation_context,
                     trace,
+                    events,
+                    prefetched_values.clone(),
                 )?;
 
                 match result {
@@ -276,6 +285,8 @@ impl ValidateComponent for OrConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes
@@ -332,6 +343,8 @@ impl ValidateComponent for OrConstraintComponent {
                     disjunct_node_shape,
                     validation_context,
                     trace,
+                    events,
+                    prefetched_values.clone(),
                 )?;
 
                 match result {
@@ -418,6 +431,8 @@ impl ValidateComponent for XoneConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]); // No value nodes
@@ -472,6 +487,8 @@ impl ValidateComponent for XoneConstraintComponent {
                     xone_node_shape,
                     validation_context,
                     trace,
+                    events,
+                    prefetched_values.clone(),
                 )?;
 
                 match result {

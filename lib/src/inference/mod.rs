@@ -24,6 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 type CandidateTriple = (Term, NamedNode, Term);
 type CandidateBatches = Result<Vec<Vec<CandidateTriple>>, InferenceError>;
@@ -394,6 +395,12 @@ impl<'a> InferenceEngine<'a> {
                 );
             }
 
+            let rule_id = plan.rule.id();
+            let now = Instant::now();
+            self.context
+                .trace_sink
+                .record(TraceEvent::EnterRule(rule_id, now));
+
             let added = match &plan.rule {
                 Rule::Sparql(sparql_rule) => {
                     self.context
@@ -420,16 +427,14 @@ impl<'a> InferenceEngine<'a> {
                     collected,
                 )?,
             };
+
+            self.context
+                .trace_sink
+                .record(TraceEvent::ExitRule(rule_id, added, Instant::now()));
+
             iteration_added += added;
             if added > 0 {
                 producer_plan_indices.insert(plan_index);
-            }
-
-            if added > 0 {
-                self.context.trace_sink.record(TraceEvent::RuleApplied {
-                    rule: plan.rule.id(),
-                    inserted: added,
-                });
             }
 
             if self.config.trace && added > 0 {
@@ -1900,10 +1905,14 @@ fn node_conforms_to_shape(
         vc.new_trace(),
     );
     let mut trace: Vec<TraceItem> = Vec::new();
-    match check_conformance_for_node(&mut ctx, shape, vc, &mut trace)? {
-        ConformanceReport::Conforms => Ok(true),
-        ConformanceReport::NonConforms(_) => Ok(false),
-    }
+    let mut events = Vec::new();
+    let result =
+        match check_conformance_for_node(&mut ctx, shape, vc, &mut trace, &mut events, None)? {
+            ConformanceReport::Conforms => Ok(true),
+            ConformanceReport::NonConforms(_) => Ok(false),
+        };
+    vc.trace_sink.record_batch(events);
+    result
 }
 
 fn named_or_blank_to_term(subject: NamedOrBlankNode) -> Result<Term, String> {

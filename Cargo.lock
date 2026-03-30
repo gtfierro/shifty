@@ -425,6 +425,7 @@ dependencies = [
  "env_logger",
  "graphviz-rust",
  "log",
+ "once_cell",
  "oxigraph",
  "serde_json",
  "shacl-srcgen-compiler",
@@ -2521,6 +2522,7 @@ name = "python"
 version = "0.0.11"
 dependencies = [
  "env_logger",
+ "once_cell",
  "ontoenv",
  "oxigraph",
  "pyo3",

@@ -1,0 +1,12 @@
+_:b178814438f8a57483c017423690d9a2 a <http://www.w3.org/ns/shacl#ValidationReport> ;
+	<http://www.w3.org/ns/shacl#conforms> false ;
+	<http://www.w3.org/ns/shacl#result> _:e4529992281dc85ee0b565f48e5c346d .
+_:e4529992281dc85ee0b565f48e5c346d <http://www.w3.org/ns/shacl#resultPath> <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#germanLabel> ;
+	<http://www.w3.org/ns/shacl#sourceConstraint> <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#LanguageExamplePropertyShape-sparql> ;
+	<http://www.w3.org/ns/shacl#focusNode> <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#InvalidCountry> ;
+	<http://www.w3.org/ns/shacl#value> "Spain"@en ;
+	a <http://www.w3.org/ns/shacl#ValidationResult> ;
+	<http://www.w3.org/ns/shacl#resultSeverity> <http://www.w3.org/ns/shacl#Violation> ;
+	<http://www.w3.org/ns/shacl#sourceConstraintComponent> <http://www.w3.org/ns/shacl#SPARQLConstraintComponent> ;
+	<http://www.w3.org/ns/shacl#sourceShape> <http://datashapes.org/sh/tests/sparql/property/sparql-001.test#LanguageExamplePropertyShape>
+.

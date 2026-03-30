@@ -2,8 +2,9 @@ use crate::context::{Context, ValidationContext};
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
 };
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, TraceItem};
-use oxigraph::model::NamedNode;
+use oxigraph::model::{NamedNode, Term};
 
 #[derive(Debug)]
 pub struct MinCountConstraintComponent {
@@ -41,6 +42,8 @@ impl ValidateComponent for MinCountConstraintComponent {
         c: &mut Context,
         _context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let count = c.value_count();
         if count < self.min_count as usize {
@@ -101,6 +104,8 @@ impl ValidateComponent for MaxCountConstraintComponent {
         c: &mut Context,
         _context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let count = c.value_count();
         if count > self.max_count as usize {

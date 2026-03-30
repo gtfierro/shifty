@@ -16,6 +16,7 @@ use crate::sparql::{
     format_term_with_namespace_aliases, lowered_sparql_query_kind, parse_prefix_lines,
     required_this_predicates, validate_prebound_variable_usage,
 };
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, Path, Severity, TraceItem};
 use log::debug;
 use oxigraph::model::vocab::rdfs;
@@ -1308,6 +1309,8 @@ impl ValidateComponent for SPARQLConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let shacl = SHACL::new();
         let sparql_services = context.sparql_services();
@@ -1854,6 +1857,8 @@ impl ValidateComponent for CustomConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let sparql_services = context.sparql_services();
         let is_prop_shape = c.source_shape().as_prop_id().is_some();

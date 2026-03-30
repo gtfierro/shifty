@@ -1,5 +1,6 @@
 use crate::context::{Context, ValidationContext, format_term_for_label, sanitize_graphviz_string};
 use crate::runtime::Component;
+use crate::trace::TraceEvent;
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
 use log::debug;
@@ -18,6 +19,8 @@ impl ValidateComponent for InConstraintComponent {
         c: &mut Context,
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if self.values.is_empty() {
             // According to SHACL spec, if sh:in has an empty list, no value nodes can conform.
@@ -127,6 +130,8 @@ impl ValidateComponent for ClosedConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if !self.closed {
             return Ok(vec![]);
@@ -258,6 +263,8 @@ impl ValidateComponent for HasValueConstraintComponent {
         c: &mut Context,
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         match c.value_nodes() {
             Some(value_nodes) => {

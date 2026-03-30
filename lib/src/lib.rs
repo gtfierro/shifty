@@ -15,6 +15,7 @@ pub(crate) mod skolem;
 pub mod trace;
 pub mod types;
 
+pub use crate::context::SourceShape;
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
 pub use optimize::InferenceOptimizationConfig;
 pub use report::{ValidationReport, ValidationReportOptions};
@@ -22,7 +23,7 @@ pub use types::ComponentID;
 
 // Internal modules.
 pub mod canonicalization;
-pub(crate) mod context;
+pub mod context;
 pub(crate) mod named_nodes;
 pub(crate) mod parser;
 pub(crate) mod planning;
@@ -1851,12 +1852,16 @@ impl Validator {
             self.context.new_trace(),
         );
         let mut trace = Vec::new();
+        let mut events = Vec::new();
         let report = crate::runtime::component::check_conformance_for_node(
             &mut context,
             shape,
             &self.context,
             &mut trace,
+            &mut events,
+            None,
         )?;
+        self.context.trace_sink.record_batch(events);
         Ok(matches!(
             report,
             crate::runtime::component::ConformanceReport::Conforms

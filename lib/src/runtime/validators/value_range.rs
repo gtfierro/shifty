@@ -3,6 +3,7 @@ use crate::runtime::validators::compare_terms_fast;
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
 };
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{Literal, NamedNode, NamedOrBlankNode, Term};
 use oxigraph::sparql::QueryResults;
@@ -105,6 +106,8 @@ impl ValidateComponent for MinExclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -214,6 +217,8 @@ impl ValidateComponent for MinInclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -323,6 +328,8 @@ impl ValidateComponent for MaxExclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -433,6 +440,8 @@ impl ValidateComponent for MaxInclusiveConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),

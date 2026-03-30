@@ -1,8 +1,8 @@
 use crate::context::{Context, SourceShape, ValidationContext, format_term_for_label};
 use crate::shape::NodeShape;
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, ID, PropShapeID, TraceItem};
-use oxigraph::model::NamedNode;
-// Removed: use oxigraph::model::Term;
+use oxigraph::model::{NamedNode, Term};
 
 use crate::runtime::Component;
 use crate::runtime::validators::sparql::should_batch_sparql_focuses;
@@ -10,6 +10,7 @@ use crate::runtime::{
     ComponentValidationResult, ConformanceReport, GraphvizOutput, ValidateComponent,
     ValidationFailure, check_conformance_for_node,
 };
+use crate::validate::is_path_summary_able;
 
 #[derive(Debug)]
 pub struct NodeConstraintComponent {
@@ -55,6 +56,8 @@ impl ValidateComponent for NodeConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let Some(value_nodes) = c.value_nodes() else {
             return Ok(vec![]);
@@ -83,6 +86,8 @@ impl ValidateComponent for NodeConstraintComponent {
                 target_node_shape,
                 validation_context,
                 trace,
+                events,
+                prefetched_values.clone(),
             )?;
             match outcome {
                 ConformanceReport::Conforms => {
@@ -136,8 +141,41 @@ impl ValidateComponent for PropertyConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if let Some(property_shape) = validation_context.model.get_prop_shape_by_id(&self.shape) {
+            let parent_shape = c.source_shape();
+            let mut prefetched_for_this_focus = prefetched_values;
+
+            if prefetched_for_this_focus.is_none()
+                && let Some(parent_node_shape_id) = parent_shape.as_node_id()
+                && let Some(focus_nodes) =
+                    validation_context.cached_node_targets(parent_node_shape_id)
+                && focus_nodes.len() > 1
+                && !is_path_summary_able(property_shape.path())
+            {
+                if let Ok(path_str) = property_shape.path().to_sparql_path() {
+                    let batched_values = validation_context.get_or_compute_property_value_batch(
+                        self.shape,
+                        parent_shape.clone(),
+                        || {
+                            property_shape.pre_fetch_value_nodes(
+                                focus_nodes.as_ref(),
+                                &path_str,
+                                validation_context,
+                            )
+                        },
+                    );
+                    match batched_values.as_ref() {
+                        Ok(map) => {
+                            prefetched_for_this_focus = map.get(c.focus_node()).cloned();
+                        }
+                        Err(err) => return Err(err.clone()),
+                    }
+                }
+            }
+
             if let Some(parent_node_shape) = c.source_shape().as_node_id()
                 && let Some(focus_nodes) = validation_context.cached_node_targets(parent_node_shape)
                 && should_batch_sparql_focuses(focus_nodes.len())
@@ -162,11 +200,19 @@ impl ValidateComponent for PropertyConstraintComponent {
                     validation_context,
                     trace,
                     Some(batched),
+                    events,
+                    prefetched_for_this_focus,
                 );
             }
             // Per SHACL spec for sh:property, the validation results from the property shape
             // are the results of this constraint.
-            property_shape.validate(c, validation_context, trace)
+            property_shape.validate(
+                c,
+                validation_context,
+                trace,
+                events,
+                prefetched_for_this_focus,
+            )
         } else {
             Err(format!(
                 "Referenced property shape not found for ID: {:?}",
@@ -280,6 +326,8 @@ impl ValidateComponent for QualifiedValueShapeComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         trace: &mut Vec<TraceItem>,
+        events: &mut Vec<TraceEvent>,
+        prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes = c.value_nodes().cloned().unwrap_or_default();
 
@@ -365,6 +413,8 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                 target_node_shape,
                 validation_context,
                 trace,
+                events,
+                prefetched_values.clone(),
             )?;
 
             let conforms_to_target = match result {
@@ -394,6 +444,8 @@ impl ValidateComponent for QualifiedValueShapeComponent {
                         sibling_shape,
                         validation_context,
                         trace,
+                        events,
+                        prefetched_values.clone(),
                     )?;
 
                     match result {

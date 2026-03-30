@@ -1,6 +1,7 @@
 use crate::context::{Context, ValidationContext, format_term_for_label};
 use crate::named_nodes::SHACL;
 use crate::runtime::ToSubjectRef;
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::vocab::{rdf, xsd};
 use oxigraph::model::{NamedNode, NamedNodeRef, Term, TermRef};
@@ -68,6 +69,8 @@ impl ValidateComponent for ClassConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let cc_var = Variable::new("value_node").unwrap();
         if c.value_nodes().is_none() {
@@ -340,6 +343,8 @@ impl ValidateComponent for DatatypeConstraintComponent {
         c: &mut Context,
         _context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>, // Added parameter
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let target_datatype_iri = match self.datatype.as_ref() {
             TermRef::NamedNode(nn) => nn,
@@ -479,6 +484,8 @@ impl ValidateComponent for NodeKindConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let sh = SHACL::new();
         let expected_node_kind_term = self.node_kind.as_ref();
@@ -657,12 +664,15 @@ mod tests {
         let component = NodeKindConstraintComponent::new(iri_or_literal);
 
         let mut trace = Vec::new();
+        let mut events = Vec::new();
         let results = component
             .validate(
                 ComponentID(0),
                 &mut context,
                 &validation_context,
                 &mut trace,
+                &mut events,
+                None,
             )
             .expect("validation should succeed");
 
@@ -697,12 +707,15 @@ mod tests {
         let datatype_component = DatatypeConstraintComponent::new(Term::NamedNode(byte_datatype));
 
         let mut trace = Vec::new();
+        let mut events = Vec::new();
         let results = datatype_component
             .validate(
                 ComponentID(0),
                 &mut context,
                 &validation_context,
                 &mut trace,
+                &mut events,
+                None,
             )
             .expect("validation should succeed");
 
@@ -737,12 +750,15 @@ mod tests {
         let datatype_component = DatatypeConstraintComponent::new(Term::NamedNode(target_datatype));
 
         let mut trace = Vec::new();
+        let mut events = Vec::new();
         datatype_component
             .validate(
                 ComponentID(0),
                 &mut context,
                 &validation_context,
                 &mut trace,
+                &mut events,
+                None,
             )
             .expect("validation should succeed")
     }
