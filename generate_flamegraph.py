@@ -2,7 +2,10 @@
 import argparse
 import json
 from collections import defaultdict
+from pathlib import Path
 from typing import Optional
+import html
+import re
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,6 +27,11 @@ def parse_args() -> argparse.Namespace:
         "--include-rules",
         action="store_true",
         help="Include SHACL rule execution frames in the folded output.",
+    )
+    parser.add_argument(
+        "--inject-tooltips",
+        metavar="SVG",
+        help="Patch an inferno flamegraph SVG in place using <trace>.shapes.json metadata.",
     )
     return parser.parse_args()
 
@@ -60,6 +68,53 @@ def frame_name(event: dict, fallback: str) -> str:
     if isinstance(frame, str) and frame:
         return frame
     return fallback
+
+
+
+
+def load_shape_metadata(input_file: str) -> dict[str, dict]:
+    metadata_path = input_file.removesuffix(".jsonl") + ".shapes.json"
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    shapes = payload.get("shapes", [])
+    return {
+        item["frame"]: item
+        for item in shapes
+        if isinstance(item, dict) and isinstance(item.get("frame"), str)
+    }
+
+
+def inject_tooltips(input_file: str, svg_path: str) -> None:
+    metadata = load_shape_metadata(input_file)
+    if not metadata:
+        return
+    svg_file = Path(svg_path)
+    content = svg_file.read_text(encoding="utf-8")
+
+    def replace_title(match: re.Match[str]) -> str:
+        title_text = match.group(1)
+        if title_text == "all" or title_text.startswith("all ("):
+            return match.group(0)
+        frame, sep, suffix = title_text.partition(" (")
+        shape = metadata.get(frame)
+        if shape is None:
+            return match.group(0)
+        tooltip = frame
+        if sep:
+            tooltip += f" ({suffix}"
+        term = shape.get("term", "")
+        if term:
+            tooltip += f"\nTerm: {term}"
+        cbd = shape.get("cbd_ttl", "").strip()
+        if cbd:
+            tooltip += f"\n\nCBD:\n{cbd}"
+        return f"<title>{html.escape(tooltip)}</title>"
+
+    updated = re.sub(r"<title>(.*?)</title>", replace_title, content, flags=re.DOTALL)
+    svg_file.write_text(updated, encoding="utf-8")
 
 
 def generate_flamegraph(input_file: str, shape_source: str, include_rules: bool) -> None:
@@ -113,4 +168,7 @@ def generate_flamegraph(input_file: str, shape_source: str, include_rules: bool)
 
 if __name__ == "__main__":
     args = parse_args()
-    generate_flamegraph(args.input_file, args.shape_source, args.include_rules)
+    if args.inject_tooltips:
+        inject_tooltips(args.input_file, args.inject_tooltips)
+    else:
+        generate_flamegraph(args.input_file, args.shape_source, args.include_rules)

@@ -921,6 +921,54 @@ fn subject_matches_term(subject: &NamedOrBlankNode, term: &Term) -> bool {
     }
 }
 
+fn collect_shape_cbd_graph(root: &Term, shape_ir: &ShapeIR) -> Graph {
+    let mut queue: VecDeque<Term> = VecDeque::from([root.clone()]);
+    let mut seen_subjects: HashSet<Term> = HashSet::new();
+    let mut graph = Graph::new();
+
+    while let Some(subject_term) = queue.pop_front() {
+        if !seen_subjects.insert(subject_term.clone()) {
+            continue;
+        }
+        for quad in &shape_ir.shape_quads {
+            if subject_matches_term(&quad.subject, &subject_term) {
+                let triple = Triple::new(
+                    quad.subject.clone(),
+                    quad.predicate.clone(),
+                    quad.object.clone(),
+                );
+                graph.insert(&triple);
+                if let Term::BlankNode(bn) = &quad.object {
+                    queue.push_back(Term::BlankNode(bn.clone()));
+                }
+            }
+        }
+    }
+
+    graph
+}
+
+fn serialize_graph_to_turtle(graph: &Graph) -> Result<String, String> {
+    let mut writer = Vec::new();
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
+        .with_prefix("sh", "http://www.w3.org/ns/shacl#")
+        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
+        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
+        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")
+        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
+        .for_writer(&mut writer);
+    for triple in graph.iter() {
+        serializer
+            .serialize_triple(triple)
+            .map_err(|e| format!("Failed to serialise Turtle triple: {}", e))?;
+    }
+    serializer
+        .finish()
+        .map_err(|e| format!("Failed to finish Turtle serialisation: {}", e))?;
+    String::from_utf8(writer).map_err(|e| format!("Failed to decode Turtle bytes: {}", e))
+}
+
 fn write_traced_shape_sidecars(
     events: &[TraceEvent],
     validator: &Validator,
@@ -975,15 +1023,29 @@ fn write_traced_shape_sidecars(
     let metadata_path = trace_sidecar_path(trace_jsonl_path, ".shapes.json");
     let cbd_path = trace_sidecar_path(trace_jsonl_path, ".shape-cbd.ttl");
 
+    let mut combined_graph = Graph::new();
+    let mut shape_entries = Vec::with_capacity(subjects.len());
+    for (frame, kind, term) in &subjects {
+        let cbd_graph = collect_shape_cbd_graph(term, shape_ir);
+        for triple in cbd_graph.iter() {
+            let owned = Triple::new(
+                triple.subject.into_owned(),
+                triple.predicate.into_owned(),
+                triple.object.into_owned(),
+            );
+            combined_graph.insert(&owned);
+        }
+        let cbd_ttl = serialize_graph_to_turtle(&cbd_graph)?;
+        shape_entries.push(json!({
+            "frame": frame,
+            "kind": kind,
+            "term": term.to_string(),
+            "cbd_ttl": cbd_ttl,
+        }));
+    }
+
     let metadata = json!({
-        "shapes": subjects
-            .iter()
-            .map(|(frame, kind, term)| json!({
-                "frame": frame,
-                "kind": kind,
-                "term": term.to_string(),
-            }))
-            .collect::<Vec<_>>(),
+        "shapes": shape_entries,
         "cbd_ttl": cbd_path.to_string_lossy(),
     });
     fs::write(
@@ -993,47 +1055,8 @@ fn write_traced_shape_sidecars(
     )
     .map_err(|e| format!("Failed to write shape metadata {}: {}", metadata_path.display(), e))?;
 
-    let mut queue: VecDeque<Term> = subjects.iter().map(|(_, _, term)| term.clone()).collect();
-    let mut seen_subjects: HashSet<Term> = HashSet::new();
-    let mut graph = Graph::new();
-
-    while let Some(subject_term) = queue.pop_front() {
-        if !seen_subjects.insert(subject_term.clone()) {
-            continue;
-        }
-        for quad in &shape_ir.shape_quads {
-            if subject_matches_term(&quad.subject, &subject_term) {
-                let triple = Triple::new(
-                    quad.subject.clone(),
-                    quad.predicate.clone(),
-                    quad.object.clone(),
-                );
-                graph.insert(&triple);
-                if let Term::BlankNode(bn) = &quad.object {
-                    queue.push_back(Term::BlankNode(bn.clone()));
-                }
-            }
-        }
-    }
-
-    let mut writer = Vec::new();
-    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
-        .with_prefix("sh", "http://www.w3.org/ns/shacl#")
-        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
-        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
-        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
-        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")
-        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
-        .for_writer(&mut writer);
-    for triple in graph.iter() {
-        serializer
-            .serialize_triple(triple)
-            .map_err(|e| format!("Failed to serialise shape CBD triple: {}", e))?;
-    }
-    serializer
-        .finish()
-        .map_err(|e| format!("Failed to finish shape CBD Turtle serialisation: {}", e))?;
-    fs::write(&cbd_path, &writer)
+    let turtle = serialize_graph_to_turtle(&combined_graph)?;
+    fs::write(&cbd_path, turtle)
         .map_err(|e| format!("Failed to write shape CBD {}: {}", cbd_path.display(), e))?;
 
     Ok(())

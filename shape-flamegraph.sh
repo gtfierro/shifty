@@ -55,6 +55,7 @@ python3 generate_flamegraph.py "$TRACE_FILE" "${GENERATOR_ARGS[@]}" > "$FOLDED_F
 
 echo "Generating flamegraph SVG..."
 inferno-flamegraph < "$FOLDED_FILE" > "$SVG_FILE"
+python3 generate_flamegraph.py "$TRACE_FILE" --inject-tooltips "$SVG_FILE"
 
 echo "Success! Flamegraph generated: $SVG_FILE"
 echo "Shape metadata: $SHAPES_JSON_FILE"
