@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import re
-import sys
 from collections import defaultdict
 from typing import Optional
-
-SOURCE_PATTERN = re.compile(r"(\w+)\((\w+)\((\d+)\)\)")
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,7 +16,7 @@ def parse_args() -> argparse.Namespace:
         default="shape-execution",
         help=(
             "Which shape events to convert into stack frames. "
-            "Use shape-execution to avoid double-counting when both generic and typed "
+            "Use 'shape-execution' to avoid double-counting when both generic and typed "
             "shape events are present."
         ),
     )
@@ -46,27 +42,24 @@ def load_events(input_file: str) -> list[dict]:
     return events
 
 
-def source_to_frame(raw_source: str) -> str:
-    match = SOURCE_PATTERN.fullmatch(raw_source)
-    if not match:
-        return raw_source
-    shape_type, _id_type, id_value = match.groups()
-    return f"{shape_type}_{id_value}"
-
-
 def pop_frame(stack: list[str], expected: Optional[str] = None) -> None:
     if not stack:
         return
     if expected is None or stack[-1] == expected:
         stack.pop()
         return
-
     for index in range(len(stack) - 1, -1, -1):
         if stack[index] == expected:
             del stack[index:]
             return
-
     stack.pop()
+
+
+def frame_name(event: dict, fallback: str) -> str:
+    frame = event.get("frame")
+    if isinstance(frame, str) and frame:
+        return frame
+    return fallback
 
 
 def generate_flamegraph(input_file: str, shape_source: str, include_rules: bool) -> None:
@@ -89,24 +82,29 @@ def generate_flamegraph(input_file: str, shape_source: str, include_rules: bool)
 
         if shape_source == "shape-execution":
             if event_type == "EnterShapeExecution":
-                current_stack.append(source_to_frame(event["source"]))
+                current_stack.append(frame_name(event, str(event.get("source", "shape"))))
             elif event_type == "ExitShapeExecution":
-                pop_frame(current_stack, source_to_frame(event["source"]))
+                pop_frame(current_stack, frame_name(event, str(event.get("source", "shape"))))
         else:
             if event_type == "EnterNodeShape":
-                current_stack.append(f"NodeShape_{event['node_shape_id']}")
+                current_stack.append(frame_name(event, f"NodeShape_{event['node_shape_id']}"))
             elif event_type == "ExitNodeShape":
-                pop_frame(current_stack, f"NodeShape_{event['node_shape_id']}")
+                pop_frame(current_stack, frame_name(event, f"NodeShape_{event['node_shape_id']}"))
             elif event_type == "EnterPropertyShape":
-                current_stack.append(f"PropertyShape_{event['property_shape_id']}")
+                current_stack.append(
+                    frame_name(event, f"PropertyShape_{event['property_shape_id']}")
+                )
             elif event_type == "ExitPropertyShape":
-                pop_frame(current_stack, f"PropertyShape_{event['property_shape_id']}")
+                pop_frame(
+                    current_stack,
+                    frame_name(event, f"PropertyShape_{event['property_shape_id']}"),
+                )
 
         if include_rules:
             if event_type == "EnterRule":
-                current_stack.append(f"Rule_{event['rule_id']}")
+                current_stack.append(frame_name(event, f"Rule_{event['rule_id']}"))
             elif event_type == "ExitRule":
-                pop_frame(current_stack, f"Rule_{event['rule_id']}")
+                pop_frame(current_stack, frame_name(event, f"Rule_{event['rule_id']}"))
 
     for stack, duration in sorted(folded.items()):
         if duration > 0:

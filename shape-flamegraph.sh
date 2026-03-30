@@ -36,14 +36,14 @@ if ! command -v inferno-flamegraph >/dev/null 2>&1; then
 fi
 
 GENERATOR_ARGS=()
-VALIDATE_ARGS=(--run-inference=false)
+VALIDATE_ARGS=()
 if [ -n "$INCLUDE_RULES" ]; then
     if [ "$INCLUDE_RULES" != "--include-rules" ]; then
         echo "Error: unsupported optional argument. Use --include-rules"
         echo "Usage: $0 <shapes.ttl> <data.ttl> [--include-rules]"
         exit 1
     fi
-    VALIDATE_ARGS=(--run-inference=true)
+    VALIDATE_ARGS+=(--run-inference)
     GENERATOR_ARGS+=(--include-rules)
 fi
 

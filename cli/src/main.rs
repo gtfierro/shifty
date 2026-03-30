@@ -3,9 +3,7 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-#[cfg(feature = "srcgen-compiler")]
-use oxigraph::model::{Graph, Triple};
-use oxigraph::model::{Quad, Term, TripleRef};
+use oxigraph::model::{Graph, NamedOrBlankNode, Quad, Term, Triple, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
@@ -14,11 +12,10 @@ use shacl_srcgen_compiler::{
     lower_shape_ir as lower_shape_ir_to_srcgen_ir,
 };
 use shifty::ir_cache;
-#[cfg(feature = "srcgen-compiler")]
 use shifty::shacl_ir::ShapeIR;
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -377,7 +374,7 @@ struct ValidateArgs {
     follow_bnodes: bool,
 
     /// Run SHACL rule inference before validation (default: true, set false via --run-inference=false)
-    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
+    #[arg(long, default_value_t = true, require_equals = true, num_args = 1, value_parser = clap::value_parser!(bool))]
     run_inference: bool,
 
     /// Minimum iterations for inference
@@ -689,55 +686,364 @@ fn serialize_quads_to_turtle(quads: &[Quad]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to finish Turtle serialization: {}", e))
 }
 
+use std::sync::Mutex;
+
+static START_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn get_ts_nanos(ts: Instant) -> u64 {
+    let mut guard = START_INSTANT.lock().unwrap();
+    let start = *guard.get_or_insert(ts);
+    if ts >= start {
+        ts.duration_since(start).as_nanos() as u64
+    } else {
+        // if for some reason ts is before start, we update start
+        *guard = Some(ts);
+        0
+    }
+}
+
 fn term_to_string(term: &Term) -> String {
     term.to_string()
 }
 
-fn trace_event_to_json(event: &TraceEvent) -> serde_json::Value {
+use shifty::SourceShape;
+
+fn readable_term_label(term: &Term) -> String {
+    match term {
+        Term::NamedNode(nn) => {
+            let iri = nn.as_str();
+            iri.rsplit(['#', '/'])
+                .next()
+                .filter(|segment| !segment.is_empty())
+                .unwrap_or(iri)
+                .to_string()
+        }
+        Term::BlankNode(bn) => format!("_:{}", bn.as_str()),
+        _ => term.to_string(),
+    }
+}
+
+fn shape_kind_label(source: &SourceShape) -> &'static str {
+    match source {
+        SourceShape::NodeShape(_) => "NodeShape",
+        SourceShape::PropertyShape(_) => "PropertyShape",
+    }
+}
+
+fn shape_term_for_source<'a>(source: &SourceShape, shape_ir: &'a ShapeIR) -> Option<&'a Term> {
+    match source {
+        SourceShape::NodeShape(id) => shape_ir.node_shape_terms.get(id),
+        SourceShape::PropertyShape(id) => shape_ir.property_shape_terms.get(id),
+    }
+}
+
+fn shape_term_for_node<'a>(id: shifty::shacl_ir::ID, shape_ir: &'a ShapeIR) -> Option<&'a Term> {
+    shape_ir.node_shape_terms.get(&id)
+}
+
+fn shape_term_for_property<'a>(
+    id: shifty::shacl_ir::PropShapeID,
+    shape_ir: &'a ShapeIR,
+) -> Option<&'a Term> {
+    shape_ir.property_shape_terms.get(&id)
+}
+
+fn shape_frame_name(kind: &str, term: Option<&Term>, fallback: &str) -> String {
+    term.map(|value| format!("{}:{}", kind, readable_term_label(value)))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn annotate_shape_value(
+    mut value: serde_json::Value,
+    kind: &str,
+    frame: String,
+    term: Option<&Term>,
+) -> serde_json::Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("shape_kind".to_string(), json!(kind));
+        object.insert("frame".to_string(), json!(frame));
+        if let Some(term) = term {
+            object.insert("shape_term".to_string(), json!(term.to_string()));
+        }
+    }
+    value
+}
+
+fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json::Value {
+    let shape_ir = validator.shape_ir();
     match event {
-        TraceEvent::EnterNodeShape(id) => json!({
-            "type": "EnterNodeShape",
-            "node_shape_id": id.0,
+        TraceEvent::EnterShapeExecution(source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "EnterShapeExecution",
+                    "source": fallback,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::ExitShapeExecution(source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "ExitShapeExecution",
+                    "source": fallback,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::EnterNodeShape(id, ts) => {
+            let term = shape_term_for_node(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "EnterNodeShape",
+                    "node_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "NodeShape",
+                shape_frame_name("NodeShape", term, &format!("NodeShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::ExitNodeShape(id, ts) => {
+            let term = shape_term_for_node(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "ExitNodeShape",
+                    "node_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "NodeShape",
+                shape_frame_name("NodeShape", term, &format!("NodeShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::EnterPropertyShape(id, ts) => {
+            let term = shape_term_for_property(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "EnterPropertyShape",
+                    "property_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "PropertyShape",
+                shape_frame_name("PropertyShape", term, &format!("PropertyShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::ExitPropertyShape(id, ts) => {
+            let term = shape_term_for_property(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "ExitPropertyShape",
+                    "property_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "PropertyShape",
+                shape_frame_name("PropertyShape", term, &format!("PropertyShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::EnterRule(id, ts) => json!({
+            "type": "EnterRule",
+            "rule_id": id.0,
+            "frame": format!("Rule:{}", id.0),
+            "ts": get_ts_nanos(*ts),
         }),
-        TraceEvent::EnterPropertyShape(id) => json!({
-            "type": "EnterPropertyShape",
-            "property_shape_id": id.0,
+        TraceEvent::ExitRule(id, inserted, ts) => json!({
+            "type": "ExitRule",
+            "rule_id": id.0,
+            "frame": format!("Rule:{}", id.0),
+            "inserted": inserted,
+            "ts": get_ts_nanos(*ts),
         }),
         TraceEvent::ComponentPassed {
             component,
             focus,
             value,
+            ts,
         } => json!({
             "type": "ComponentPassed",
             "component_id": component.0,
             "focus": term_to_string(focus),
             "value": value.as_ref().map(term_to_string),
+            "ts": get_ts_nanos(*ts),
         }),
         TraceEvent::ComponentFailed {
             component,
             focus,
             value,
             message,
+            ts,
         } => json!({
             "type": "ComponentFailed",
             "component_id": component.0,
             "focus": term_to_string(focus),
             "value": value.as_ref().map(term_to_string),
             "message": message,
+            "ts": get_ts_nanos(*ts),
         }),
-        TraceEvent::SparqlQuery { label } => json!({
+        TraceEvent::SparqlQuery { label, ts } => json!({
             "type": "SparqlQuery",
             "label": label,
+            "ts": get_ts_nanos(*ts),
         }),
-        TraceEvent::RuleApplied { rule, inserted } => json!({
+        TraceEvent::RuleApplied { rule, inserted, ts } => json!({
             "type": "RuleApplied",
             "rule_id": rule.0,
             "inserted": inserted,
+            "ts": get_ts_nanos(*ts),
         }),
     }
 }
 
-fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(), String> {
+fn trace_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let rendered = path.to_string_lossy();
+    let base = rendered.strip_suffix(".jsonl").unwrap_or(&rendered);
+    PathBuf::from(format!("{}{}", base, suffix))
+}
+
+fn subject_matches_term(subject: &NamedOrBlankNode, term: &Term) -> bool {
+    match (subject, term) {
+        (NamedOrBlankNode::NamedNode(left), Term::NamedNode(right)) => left == right,
+        (NamedOrBlankNode::BlankNode(left), Term::BlankNode(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn write_traced_shape_sidecars(
+    events: &[TraceEvent],
+    validator: &Validator,
+    trace_jsonl_path: &Path,
+) -> Result<(), String> {
+    let shape_ir = validator.shape_ir();
+    let mut traced_shapes: HashMap<String, (String, Term)> = HashMap::new();
+
+    for event in events {
+        match event {
+            TraceEvent::EnterShapeExecution(source, _)
+            | TraceEvent::ExitShapeExecution(source, _) => {
+                if let Some(term) = shape_term_for_source(source, shape_ir) {
+                    let kind = shape_kind_label(source).to_string();
+                    let frame = shape_frame_name(&kind, Some(term), &format!("{:?}", source));
+                    traced_shapes.entry(frame).or_insert((kind, term.clone()));
+                }
+            }
+            TraceEvent::EnterNodeShape(id, _) | TraceEvent::ExitNodeShape(id, _) => {
+                if let Some(term) = shape_term_for_node(*id, shape_ir) {
+                    let kind = "NodeShape".to_string();
+                    let frame = shape_frame_name(&kind, Some(term), &format!("NodeShape_{}", id.0));
+                    traced_shapes.entry(frame).or_insert((kind, term.clone()));
+                }
+            }
+            TraceEvent::EnterPropertyShape(id, _)
+            | TraceEvent::ExitPropertyShape(id, _) => {
+                if let Some(term) = shape_term_for_property(*id, shape_ir) {
+                    let kind = "PropertyShape".to_string();
+                    let frame = shape_frame_name(
+                        &kind,
+                        Some(term),
+                        &format!("PropertyShape_{}", id.0),
+                    );
+                    traced_shapes.entry(frame).or_insert((kind, term.clone()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if traced_shapes.is_empty() {
+        return Ok(());
+    }
+
+    let mut subjects: Vec<(String, String, Term)> = traced_shapes
+        .into_iter()
+        .map(|(frame, (kind, term))| (frame, kind, term))
+        .collect();
+    subjects.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let metadata_path = trace_sidecar_path(trace_jsonl_path, ".shapes.json");
+    let cbd_path = trace_sidecar_path(trace_jsonl_path, ".shape-cbd.ttl");
+
+    let metadata = json!({
+        "shapes": subjects
+            .iter()
+            .map(|(frame, kind, term)| json!({
+                "frame": frame,
+                "kind": kind,
+                "term": term.to_string(),
+            }))
+            .collect::<Vec<_>>(),
+        "cbd_ttl": cbd_path.to_string_lossy(),
+    });
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&metadata)
+            .map_err(|e| format!("Failed to serialise shape metadata JSON: {}", e))?,
+    )
+    .map_err(|e| format!("Failed to write shape metadata {}: {}", metadata_path.display(), e))?;
+
+    let mut queue: VecDeque<Term> = subjects.iter().map(|(_, _, term)| term.clone()).collect();
+    let mut seen_subjects: HashSet<Term> = HashSet::new();
+    let mut graph = Graph::new();
+
+    while let Some(subject_term) = queue.pop_front() {
+        if !seen_subjects.insert(subject_term.clone()) {
+            continue;
+        }
+        for quad in &shape_ir.shape_quads {
+            if subject_matches_term(&quad.subject, &subject_term) {
+                let triple = Triple::new(
+                    quad.subject.clone(),
+                    quad.predicate.clone(),
+                    quad.object.clone(),
+                );
+                graph.insert(&triple);
+                if let Term::BlankNode(bn) = &quad.object {
+                    queue.push_back(Term::BlankNode(bn.clone()));
+                }
+            }
+        }
+    }
+
+    let mut writer = Vec::new();
+    let mut serializer = RdfSerializer::from_format(RdfFormat::Turtle)
+        .with_prefix("sh", "http://www.w3.org/ns/shacl#")
+        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
+        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
+        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")
+        .map_err(|e| format!("Failed to configure Turtle serializer: {}", e))?
+        .for_writer(&mut writer);
+    for triple in graph.iter() {
+        serializer
+            .serialize_triple(triple)
+            .map_err(|e| format!("Failed to serialise shape CBD triple: {}", e))?;
+    }
+    serializer
+        .finish()
+        .map_err(|e| format!("Failed to finish shape CBD Turtle serialisation: {}", e))?;
+    fs::write(&cbd_path, &writer)
+        .map_err(|e| format!("Failed to write shape CBD {}: {}", cbd_path.display(), e))?;
+
+    Ok(())
+}
+
+fn emit_trace_outputs(
+    events: &[TraceEvent],
+    args: &TraceOutputArgs,
+    validator: &Validator,
+) -> Result<(), String> {
     if events.is_empty()
         || (!args.trace_events && args.trace_file.is_none() && args.trace_jsonl.is_none())
     {
@@ -764,7 +1070,7 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
     if let Some(path) = args.trace_jsonl.as_ref() {
         let mut buf = String::new();
         for ev in events {
-            let value = trace_event_to_json(ev);
+            let value = trace_event_to_json(ev, validator);
             let line = serde_json::to_string(&value)
                 .map_err(|e| format!("Failed to serialise trace event to JSON: {}", e))?;
             buf.push_str(&line);
@@ -772,6 +1078,7 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
         }
         fs::write(path, buf)
             .map_err(|e| format!("Failed to write trace jsonl {}: {}", path.display(), e))?;
+        write_traced_shape_sidecars(events, validator, path)?;
         info!("Wrote trace events (JSONL) to {}", path.display());
     }
 
@@ -815,7 +1122,8 @@ fn emit_validator_traces(validator: &Validator, args: &TraceOutputArgs) -> Resul
         .map(|guard| guard.clone())
         .unwrap_or_default();
 
-    emit_trace_outputs(&events, args).map_err(|e| format!("Failed to emit trace outputs: {}", e))
+    emit_trace_outputs(&events, args, validator)
+        .map_err(|e| format!("Failed to emit trace outputs: {}", e))
 }
 
 fn elapsed_ms(start: Instant) -> f64 {
