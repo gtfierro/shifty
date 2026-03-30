@@ -49,25 +49,12 @@ def load_events(input_file: str) -> list[dict]:
                 continue
     return events
 
-
-def pop_frame(stack: list[str], expected: Optional[str] = None) -> None:
-    if not stack:
-        return
-    if expected is None or stack[-1] == expected:
-        stack.pop()
-        return
-    for index in range(len(stack) - 1, -1, -1):
-        if stack[index] == expected:
-            del stack[index:]
-            return
-    stack.pop()
-
-
 def frame_name(event: dict, fallback: str) -> str:
     frame = event.get("frame")
     if isinstance(frame, str) and frame:
         return frame
     return fallback
+
 
 def load_frame_metadata(input_file: str) -> dict[str, dict]:
     metadata_path = input_file.removesuffix(".jsonl") + ".shapes.json"
@@ -124,54 +111,117 @@ def inject_tooltips(input_file: str, svg_path: str) -> None:
     svg_file.write_text(updated, encoding="utf-8")
 
 
+def event_frame(event: dict, shape_source: str, include_rules: bool) -> Optional[str]:
+    event_type = event.get("type")
+    if shape_source == "shape-execution":
+        if event_type in ("EnterShapeExecution", "ExitShapeExecution"):
+            return frame_name(event, str(event.get("source", "shape")))
+    else:
+        if event_type in ("EnterNodeShape", "ExitNodeShape"):
+            return frame_name(event, f"NodeShape_{event['node_shape_id']}")
+        if event_type in ("EnterPropertyShape", "ExitPropertyShape"):
+            return frame_name(event, f"PropertyShape_{event['property_shape_id']}")
+
+    if event_type in ("EnterComponent", "ExitComponent"):
+        return frame_name(event, f"Component_{event['component_id']}")
+
+    if include_rules and event_type in ("EnterRule", "ExitRule"):
+        return frame_name(event, f"Rule_{event['rule_id']}")
+
+    return None
+
+
+def is_enter_event(event: dict, shape_source: str, include_rules: bool) -> bool:
+    event_type = event.get("type")
+    if event_type == "EnterShapeExecution" and shape_source == "shape-execution":
+        return True
+    if event_type in ("EnterNodeShape", "EnterPropertyShape") and shape_source != "shape-execution":
+        return True
+    if event_type == "EnterComponent":
+        return True
+    if include_rules and event_type == "EnterRule":
+        return True
+    return False
+
+
+def is_exit_event(event: dict, shape_source: str, include_rules: bool) -> bool:
+    event_type = event.get("type")
+    if event_type == "ExitShapeExecution" and shape_source == "shape-execution":
+        return True
+    if event_type in ("ExitNodeShape", "ExitPropertyShape") and shape_source != "shape-execution":
+        return True
+    if event_type == "ExitComponent":
+        return True
+    if include_rules and event_type == "ExitRule":
+        return True
+    return False
+
+
+def close_frame(
+    active_stack: list[dict[str, int | str]],
+    folded: defaultdict[str, int],
+    expected_frame: Optional[str],
+    ts: int,
+) -> None:
+    if not active_stack:
+        return
+
+    match_index: Optional[int] = None
+    if expected_frame is None:
+        match_index = len(active_stack) - 1
+    else:
+        for index in range(len(active_stack) - 1, -1, -1):
+            if active_stack[index]["frame"] == expected_frame:
+                match_index = index
+                break
+
+    if match_index is None:
+        return
+
+    while len(active_stack) - 1 > match_index:
+        orphan = active_stack.pop()
+        parent_path = [str(item["frame"]) for item in active_stack]
+        total_duration = max(0, ts - int(orphan["start_ts"]))
+        self_duration = max(0, total_duration - int(orphan["child_time"]))
+        if self_duration > 0:
+            folded[";".join(parent_path + [str(orphan["frame"])])] += self_duration
+        if active_stack:
+            active_stack[-1]["child_time"] += total_duration
+
+    frame = active_stack.pop()
+    parent_path = [str(item["frame"]) for item in active_stack]
+    total_duration = max(0, ts - int(frame["start_ts"]))
+    self_duration = max(0, total_duration - int(frame["child_time"]))
+    if self_duration > 0:
+        folded[";".join(parent_path + [str(frame["frame"])])] += self_duration
+    if active_stack:
+        active_stack[-1]["child_time"] += total_duration
+
+
 def generate_flamegraph(input_file: str, shape_source: str, include_rules: bool) -> None:
     events = load_events(input_file)
-    current_stack: list[str] = []
+    active_stack: list[dict[str, int | str]] = []
     folded: defaultdict[str, int] = defaultdict(int)
-    last_ts: Optional[int] = None
 
     for event in events:
-        event_type = event.get("type")
         ts = event.get("ts")
-        if event_type is None or ts is None:
+        if ts is None:
             continue
 
-        if last_ts is not None and current_stack:
-            duration = ts - last_ts
-            if duration > 0:
-                folded[";".join(current_stack)] += duration
-        last_ts = ts
+        frame = event_frame(event, shape_source, include_rules)
+        if frame is None:
+            continue
 
-        if shape_source == "shape-execution":
-            if event_type == "EnterShapeExecution":
-                current_stack.append(frame_name(event, str(event.get("source", "shape"))))
-            elif event_type == "ExitShapeExecution":
-                pop_frame(current_stack, frame_name(event, str(event.get("source", "shape"))))
-        else:
-            if event_type == "EnterNodeShape":
-                current_stack.append(frame_name(event, f"NodeShape_{event['node_shape_id']}"))
-            elif event_type == "ExitNodeShape":
-                pop_frame(current_stack, frame_name(event, f"NodeShape_{event['node_shape_id']}"))
-            elif event_type == "EnterPropertyShape":
-                current_stack.append(
-                    frame_name(event, f"PropertyShape_{event['property_shape_id']}")
-                )
-            elif event_type == "ExitPropertyShape":
-                pop_frame(
-                    current_stack,
-                    frame_name(event, f"PropertyShape_{event['property_shape_id']}"),
-                )
-
-        if event_type == "EnterComponent":
-            current_stack.append(frame_name(event, f"Component_{event['component_id']}"))
-        elif event_type == "ExitComponent":
-            pop_frame(current_stack, frame_name(event, f"Component_{event['component_id']}"))
-
-        if include_rules:
-            if event_type == "EnterRule":
-                current_stack.append(frame_name(event, f"Rule_{event['rule_id']}"))
-            elif event_type == "ExitRule":
-                pop_frame(current_stack, frame_name(event, f"Rule_{event['rule_id']}"))
+        if is_enter_event(event, shape_source, include_rules):
+            active_stack.append(
+                {
+                    "frame": frame,
+                    "start_ts": ts,
+                    "child_time": 0,
+                }
+            )
+        elif is_exit_event(event, shape_source, include_rules):
+            close_frame(active_stack, folded, frame, ts)
 
     for stack, duration in sorted(folded.items()):
         if duration > 0:
