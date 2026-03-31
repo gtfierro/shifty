@@ -338,7 +338,11 @@ impl ValidatorBuilder {
         self
     }
 
-    /// Force-refresh ontologies instead of using cached entries (default: use cache).
+    /// Force-refresh OntoEnv-backed sources instead of using cached entries.
+    ///
+    /// When `false`, successful OntoEnv loads are trusted as the source of truth for the
+    /// root graphs and any resolved imports closure. The validator may still materialize
+    /// a separate working store for validation-time mutations.
     pub fn with_force_refresh(mut self, force_refresh: bool) -> Self {
         self.refresh_strategy = if force_refresh {
             RefreshStrategy::Force
@@ -354,8 +358,12 @@ impl ValidatorBuilder {
         self
     }
 
-    /// Store OntoEnv data in a temporary directory (default: true). Set to false to
-    /// reuse a local OntoEnv cache if present.
+    /// Store OntoEnv data in a temporary directory (default: true).
+    ///
+    /// Set to `false` to reuse a local OntoEnv cache if present. Persistent OntoEnv
+    /// workspaces are treated as cached sources of named graphs; validation still uses a
+    /// mutable working store so later steps like skolemization, graph unioning, and store
+    /// optimization do not mutate the cached workspace.
     pub fn with_temporary_env(mut self, temporary_env: bool) -> Self {
         self.temporary_env = temporary_env;
         self
@@ -589,6 +597,9 @@ impl ValidatorBuilder {
                 }
             }
 
+            // OntoEnv is the cached source of named graphs and imports closures.
+            // The validator builds or selects a working store from those loaded graphs.
+            // Persistent OntoEnv workspaces are not mutated during validation.
             let store = if do_imports {
                 if let Some(ids) = &merged_closure_ids {
                     let can_reuse_env_store = Self::can_reuse_ontoenv_store_for_imports(

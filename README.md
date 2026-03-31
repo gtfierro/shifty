@@ -22,6 +22,12 @@ The workspace also ships with Python bindings (`python/`) so the same validator 
 - All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, `--no-imports`, and `--no-union-graphs`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`infer` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
 - `ARCHITECTURE.md` documents the validation pipeline end-to-end, and `AGENTS.md` captures the repository contribution guidelines.
 
+Graph loading policy:
+- OntoEnv is the cached source of shapes/data graphs and resolved `owl:imports` closures.
+- `--force-refresh` is the mechanism that should bypass cached OntoEnv entries.
+- Persistent OntoEnv workspaces are treated as read-mostly caches; validation builds a mutable working store from those loaded graphs.
+- After a successful OntoEnv load, Shifty does not reparse the root RDF sources again just to overwrite those graphs in the working store.
+
 ## Building
 
 ```bash

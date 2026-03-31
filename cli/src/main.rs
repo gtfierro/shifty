@@ -166,7 +166,7 @@ struct GenerateIrArgs {
     #[arg(long, default_value_t = -1)]
     import_depth: i32,
 
-    /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
+    /// Use a temporary OntoEnv workspace (set to false to reuse the local OntoEnv cache)
     #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
 
