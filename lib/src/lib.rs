@@ -53,8 +53,6 @@ use oxigraph::model::{BlankNode, GraphName, GraphNameRef, NamedNode, Quad, Term}
 use oxigraph::store::Store;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use url::Url;
@@ -684,15 +682,11 @@ impl ValidatorBuilder {
         Self::dedup_graphs(&mut shape_graphs_for_union);
 
         if shape_ir.is_none() {
-            let shapes_source = shapes_source.as_ref().ok_or_else(|| {
+            let _ = shapes_source.as_ref().ok_or_else(|| {
                 Box::new(std::io::Error::other(
                     "shapes source must be specified when shape IR is absent",
                 )) as Box<dyn Error>
             })?;
-            Self::overwrite_graph_from_source(&store, shapes_source, &shapes_graph_iri, "shapes")?;
-        }
-        if !matches!(data_source, Source::Empty) {
-            Self::overwrite_graph_from_source(&store, &data_source, &data_graph_iri, "data")?;
         }
 
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
@@ -1383,141 +1377,6 @@ impl ValidatorBuilder {
         );
         skolemize(store, GraphNameRef::NamedNode(graph_iri.as_ref()), &base)?;
         Ok(())
-    }
-
-    fn clear_named_graph(store: &Store, graph_iri: &NamedNode) -> Result<(), Box<dyn Error>> {
-        let quads: Vec<_> = store
-            .quads_for_pattern(
-                None,
-                None,
-                None,
-                Some(GraphNameRef::NamedNode(graph_iri.as_ref())),
-            )
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Failed to read quads from graph {}: {}",
-                    graph_iri, e
-                ))) as Box<dyn Error>
-            })?;
-
-        if quads.is_empty() {
-            return Ok(());
-        }
-
-        let mut transaction = store.start_transaction().map_err(|e| {
-            Box::new(std::io::Error::other(format!(
-                "Failed to start transaction for graph {}: {}",
-                graph_iri, e
-            ))) as Box<dyn Error>
-        })?;
-        for quad in &quads {
-            transaction.remove(quad.as_ref());
-        }
-        transaction.commit().map_err(|e| {
-            Box::new(std::io::Error::other(format!(
-                "Failed to clear graph {}: {}",
-                graph_iri, e
-            ))) as Box<dyn Error>
-        })?;
-        Ok(())
-    }
-
-    fn rdf_format_for_path(path: &std::path::Path) -> Option<RdfFormat> {
-        match path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("ttl") | Some("turtle") => Some(RdfFormat::Turtle),
-            Some("nt") => Some(RdfFormat::NTriples),
-            Some("rdf") | Some("xml") => Some(RdfFormat::RdfXml),
-            _ => None,
-        }
-    }
-
-    fn overwrite_graph_from_source(
-        store: &Store,
-        source: &Source,
-        graph_iri: &NamedNode,
-        label: &str,
-    ) -> Result<(), Box<dyn Error>> {
-        match source {
-            Source::File(path) => {
-                let format = Self::rdf_format_for_path(path).ok_or_else(|| {
-                    Box::new(std::io::Error::other(format!(
-                        "Unsupported RDF format for {} source {}",
-                        label,
-                        path.display()
-                    ))) as Box<dyn Error>
-                })?;
-                let file = File::open(path).map_err(|e| {
-                    Box::new(std::io::Error::other(format!(
-                        "Failed to open {} source {}: {}",
-                        label,
-                        path.display(),
-                        e
-                    ))) as Box<dyn Error>
-                })?;
-                let reader = BufReader::new(file);
-                let mut parser = RdfParser::from_format(format);
-                if let Ok(base) = Url::from_file_path(path) {
-                    parser = parser.with_base_iri(base.as_str()).map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to set base IRI for {} source {}: {}",
-                            label,
-                            path.display(),
-                            e
-                        ))) as Box<dyn Error>
-                    })?;
-                }
-
-                Self::clear_named_graph(store, graph_iri)?;
-                for quad in parser.without_named_graphs().for_reader(reader) {
-                    let quad = quad.map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to parse {} source {}: {}",
-                            label,
-                            path.display(),
-                            e
-                        ))) as Box<dyn Error>
-                    })?;
-                    let quad = Quad::new(
-                        quad.subject,
-                        quad.predicate,
-                        quad.object,
-                        GraphName::NamedNode(graph_iri.clone()),
-                    );
-                    store.insert(quad.as_ref()).map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to insert quad into {} graph {}: {}",
-                            label, graph_iri, e
-                        ))) as Box<dyn Error>
-                    })?;
-                }
-                Ok(())
-            }
-            Source::Quads { quads, .. } => {
-                Self::clear_named_graph(store, graph_iri)?;
-                for quad in quads {
-                    let quad = Quad::new(
-                        quad.subject.clone(),
-                        quad.predicate.clone(),
-                        quad.object.clone(),
-                        GraphName::NamedNode(graph_iri.clone()),
-                    );
-                    store.insert(quad.as_ref()).map_err(|e| {
-                        Box::new(std::io::Error::other(format!(
-                            "Failed to insert in-memory quad into {} graph {}: {}",
-                            label, graph_iri, e
-                        ))) as Box<dyn Error>
-                    })?;
-                }
-                Ok(())
-            }
-            Source::Empty | Source::Graph(_) => Ok(()),
-        }
     }
 
     fn build_shapes_model(
