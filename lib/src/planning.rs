@@ -4,7 +4,7 @@
 //! run in parallel without violating shape dependencies (e.g., shapes referenced by other shapes).
 
 use crate::shacl_ir::{ComponentDescriptor, ShapeIR};
-use crate::types::{ComponentID, PropShapeID, ID};
+use crate::types::{ComponentID, ID, PropShapeID};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,11 +71,13 @@ pub(crate) fn build_validation_plan(shape_ir: &ShapeIR) -> ValidationPlan {
         .collect();
 
     for shape in topo_order {
-        if let Some(&tree_id) = tree_assignments.get(&shape) {
-            if let Some(tree) = trees.get_mut(tree_id) {
-                tree.shapes.push(shape);
-            }
-        }
+        let Some(&tree_id) = tree_assignments.get(&shape) else {
+            continue;
+        };
+        let Some(tree) = trees.get_mut(tree_id) else {
+            continue;
+        };
+        tree.shapes.push(shape);
     }
 
     ValidationPlan { trees }
@@ -147,8 +149,8 @@ fn topological_sort(
 
     let mut queue: VecDeque<ShapeRef> = indegree
         .iter()
-        .filter(|(_, &count)| count == 0)
-        .map(|(&shape, _)| shape)
+        .filter(|&(_, &count)| count == 0)
+        .map(|(shape, _)| *shape)
         .collect();
     let mut order = Vec::new();
 

@@ -3,15 +3,15 @@ members = [
     "lib",
     "cli",
     "python",
-    "crates/shacl-compiler"
+    "crates/shacl-srcgen-compiler"
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.9"
+version = "0.0.12"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
-edition = "2021"
+edition = "2024"
 description = "A Shapes Constraint Language (SHACL) validator written in Rust"
 readme = "README.md"
 repository = "https://github.com/gtfierro/shifty"
@@ -19,9 +19,9 @@ homepage = "https://github.com/gtfierro/shifty"
 documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
-oxigraph = { version = "0.5" }
+oxigraph = { version = "0.5.5" }
 petgraph = "0.6"
-shifty = { version = "0.0.9", path = "lib", package = "shifty-shacl" }
+shifty = { version = "0.0.12", path = "lib", package = "shifty-shacl" }
 clap = { version = "4.5.39", features = ["derive"] }
 graphviz-rust = "0.9.5"
 regex = "1"
@@ -31,8 +31,9 @@ url = "2"
 sha2 = "0.10.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+bincode = { version = "2.0.1", features = ["serde"] }
 tempfile = "3"
-oxrdf = { version = "=0.3.1", features = ["serde", "oxsdatatypes"] }
+oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 
 [profile.release]
 debug = true

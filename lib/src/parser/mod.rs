@@ -11,13 +11,13 @@ mod rules;
 use crate::context::ParsingContext;
 use crate::named_nodes::{OWL, RDF, RDFS, SHACL};
 use crate::shape::{NodeShape, PropertyShape};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, Severity, SeverityExt, ID};
+use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, Severity, SeverityExt};
 use components::parse_components;
 use log::{debug, info, warn};
 use ontoenv::ontology::OntologyLocation;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{
-    vocab::xsd, GraphName, GraphNameRef, NamedOrBlankNodeRef as SubjectRef, QuadRef, Term, TermRef,
+    GraphName, GraphNameRef, NamedOrBlankNodeRef as SubjectRef, Term, TermRef, vocab::xsd,
 };
 use rules::parse_rules_for_shape;
 use std::collections::{HashMap, HashSet};
@@ -50,35 +50,71 @@ impl ToSubjectRef for TermRef<'_> {
     }
 }
 
+fn term_is_class_like(
+    term: &Term,
+    context: &ParsingContext,
+    visited: &mut HashSet<Term>,
+) -> Result<bool, String> {
+    if !visited.insert(term.clone()) {
+        return Ok(false);
+    }
+
+    let rdfs = RDFS::new();
+    let owl = OWL::new();
+    if term == &rdfs.class.into() || term == &owl.class.into() {
+        return Ok(true);
+    }
+
+    let subject = match term {
+        Term::NamedNode(node) => SubjectRef::NamedNode(node.as_ref()),
+        Term::BlankNode(node) => SubjectRef::BlankNode(node.as_ref()),
+        _ => return Ok(false),
+    };
+
+    for quad in context
+        .store
+        .quads_for_pattern(Some(subject), Some(rdfs.sub_class_of), None, None)
+        .flatten()
+    {
+        let parent: Term = quad.object;
+        if term_is_class_like(&parent, context, visited)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> {
     let mut map = HashMap::new();
     let shacl = SHACL::new();
 
     let mut candidate_paths: Vec<std::path::PathBuf> = Vec::new();
 
-    if let Ok(url) = Url::parse(context.shape_graph_iri.as_str()) {
-        if url.scheme() == "file" {
+    match Url::parse(context.shape_graph_iri.as_str()) {
+        Ok(url) if url.scheme() == "file" => {
             if let Ok(path) = url.to_file_path() {
                 candidate_paths.push(path);
             }
         }
+        _ => {}
     }
 
     let env = context.env.read().unwrap();
-    if let Some(ontology) = env
+    if let Some(OntologyLocation::File(path)) = env
         .ontologies()
         .values()
         .find(|ontology| ontology.name() == context.shape_graph_iri)
+        .and_then(|ontology| ontology.location())
     {
-        if let Some(OntologyLocation::File(path)) = ontology.location() {
-            let mut candidate = path.clone();
-            if !candidate.is_absolute() {
-                if let Ok(cwd) = std::env::current_dir() {
-                    candidate = cwd.join(candidate);
-                }
+        let mut candidate = path.clone();
+        match std::env::current_dir() {
+            Ok(cwd) if !candidate.is_absolute() => {
+                candidate = cwd.join(candidate);
             }
-            candidate_paths.push(candidate);
+            _ => {}
         }
+        candidate_paths.push(candidate);
     }
 
     let mut seen = HashSet::new();
@@ -91,10 +127,12 @@ fn load_unique_lang_lexicals(context: &ParsingContext) -> HashMap<Term, String> 
             let reader = BufReader::new(file);
             let parser = RdfParser::from_format(RdfFormat::Turtle).without_named_graphs();
             for quad in parser.for_reader(reader).flatten() {
-                if quad.predicate == shacl.unique_lang {
-                    if let Term::Literal(lit) = quad.object.clone() {
-                        map.insert(quad.subject.clone().into(), lit.value().to_string());
-                    }
+                if quad.predicate != shacl.unique_lang {
+                    continue;
+                }
+
+                if let Term::Literal(lit) = quad.object.clone() {
+                    map.insert(quad.subject.clone().into(), lit.value().to_string());
                 }
             }
         }
@@ -316,7 +354,7 @@ fn get_node_shapes(context: &ParsingContext) -> Vec<Term> {
             .flatten()
         {
             let list_head_term = quad.object; // This is Term
-                                              // parse_rdf_list will also use shape_graph_name_ref internally
+            // parse_rdf_list will also use shape_graph_name_ref internally
             for item_term in parse_rdf_list(context, list_head_term) {
                 node_shapes.insert(item_term);
             }
@@ -375,27 +413,24 @@ pub(crate) fn parse_node_shape(
     // then add a Target::Class for it.
     // use store.contains(quad) to check
     let rdf = RDF::new();
-    let rdfs = RDFS::new();
-    let owl = OWL::new();
-    let is_rdfs_class = context
+    let mut is_class = false;
+    for quad in context
         .store
-        .contains(QuadRef::new(
-            subject,
-            rdf.type_,
-            rdfs.class,
-            shape_graph_name.as_ref(),
-        ))
-        .map_err(|e| e.to_string())?;
-    let is_owl_class = context
-        .store
-        .contains(QuadRef::new(
-            subject,
-            rdf.type_,
-            owl.class,
-            shape_graph_name.as_ref(),
-        ))
-        .map_err(|e| e.to_string())?;
-    if is_rdfs_class || is_owl_class {
+        .quads_for_pattern(
+            Some(subject),
+            Some(rdf.type_),
+            None,
+            Some(shape_graph_name.as_ref()),
+        )
+        .flatten()
+    {
+        let direct_type: Term = quad.object;
+        if term_is_class_like(&direct_type, context, &mut HashSet::new())? {
+            is_class = true;
+            break;
+        }
+    }
+    if is_class {
         targets.push(crate::types::Target::Class(subject.into()));
     }
 

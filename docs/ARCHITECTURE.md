@@ -126,15 +126,15 @@ Validation uses Rayon to:
 Thread-local state (e.g., subclass closures, original value indices) is propagated so
 parallel execution preserves semantics.
 
-## Optimization Parity (Core vs Compiler)
+## Optimization Parity (Core vs Compiled Backend)
 
-The `shacl-compiler` backend tracks the same major optimization themes used by the core
+The srcgen compiled backend tracks the same major optimization themes used by the core
 `lib` validator:
 
 - **Import/cache loading controls**:
   - Core: `ValidatorBuilder` supports imports toggling, refresh strategy, and import depth.
-  - Compiler: `crates/shacl-compiler/src/main.rs` now forwards `--no-imports`,
-    `--force-refresh`, and `--import-depth` into the same builder path before codegen.
+  - Compiled backend: the CLI compile path forwards `--no-imports`, `--force-refresh`,
+    and `--import-depth` into the same builder path before srcgen lowering/codegen.
 - **Data-dependent shape pruning**:
   - Core: shape optimization can prune inactive shapes from runtime execution.
   - Compiler: generated `run` module prunes node/property validators at runtime via

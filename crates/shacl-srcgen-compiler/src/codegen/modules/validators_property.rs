@@ -1,0 +1,2565 @@
+use crate::codegen::render_tokens_as_module;
+use crate::ir::{
+    SrcGenComponentKind, SrcGenIR, SrcGenLoweredPropertyPath, SrcGenLoweredSparqlQueryKind,
+    SrcGenPath,
+};
+use oxigraph::model::Term;
+use proc_macro2::{Span, TokenStream};
+use quote::quote;
+use spargebra::algebra::{GraphPattern, PropertyPathExpression};
+use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
+use spargebra::{Query as AlgebraQuery, SparqlParser};
+use std::collections::{BTreeMap, HashMap};
+use syn::LitStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ThisPredicateDirection {
+    Outgoing,
+    Incoming,
+}
+
+fn term_expr(term: &Term) -> TokenStream {
+    match term {
+        Term::NamedNode(node) => {
+            let iri = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::NamedNode(
+                    oxigraph::model::NamedNode::new_unchecked(#iri),
+                )
+            }
+        }
+        Term::BlankNode(node) => {
+            let id = LitStr::new(node.as_str(), Span::call_site());
+            quote! {
+                oxigraph::model::Term::BlankNode(
+                    oxigraph::model::BlankNode::new_unchecked(#id),
+                )
+            }
+        }
+        Term::Literal(literal) => {
+            let value = LitStr::new(literal.value(), Span::call_site());
+            if let Some(language) = literal.language() {
+                let language_lit = LitStr::new(language, Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_language_tagged_literal(
+                            #value,
+                            #language_lit,
+                        ).expect("invalid language-tagged literal in srcgen property path"),
+                    )
+                }
+            } else if literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#string" {
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_simple_literal(#value),
+                    )
+                }
+            } else {
+                let datatype = LitStr::new(literal.datatype().as_str(), Span::call_site());
+                quote! {
+                    oxigraph::model::Term::Literal(
+                        oxigraph::model::Literal::new_typed_literal(
+                            #value,
+                            oxigraph::model::NamedNode::new_unchecked(#datatype),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+fn lowered_property_path_expr(path: &SrcGenLoweredPropertyPath) -> TokenStream {
+    match path {
+        SrcGenLoweredPropertyPath::SelfNode => quote! { LoweredPropertyPathRuntime::SelfNode },
+        SrcGenLoweredPropertyPath::NamedNode { predicate_iri } => {
+            let iri = LitStr::new(predicate_iri, Span::call_site());
+            quote! { LoweredPropertyPathRuntime::NamedNode(#iri) }
+        }
+        SrcGenLoweredPropertyPath::ReverseNamedNode { predicate_iri } => {
+            let iri = LitStr::new(predicate_iri, Span::call_site());
+            quote! { LoweredPropertyPathRuntime::ReverseNamedNode(#iri) }
+        }
+        SrcGenLoweredPropertyPath::ZeroOrOne { inner } => {
+            let inner_expr = lowered_property_path_expr(inner.as_ref());
+            quote! { LoweredPropertyPathRuntime::ZeroOrOne(Box::new(#inner_expr)) }
+        }
+        SrcGenLoweredPropertyPath::ZeroOrMore { inner } => {
+            let inner_expr = lowered_property_path_expr(inner.as_ref());
+            quote! { LoweredPropertyPathRuntime::ZeroOrMore(Box::new(#inner_expr)) }
+        }
+        SrcGenLoweredPropertyPath::OneOrMore { inner } => {
+            let inner_expr = lowered_property_path_expr(inner.as_ref());
+            quote! { LoweredPropertyPathRuntime::OneOrMore(Box::new(#inner_expr)) }
+        }
+        SrcGenLoweredPropertyPath::Sequence { items } => {
+            let item_exprs: Vec<TokenStream> =
+                items.iter().map(lowered_property_path_expr).collect();
+            quote! { LoweredPropertyPathRuntime::Sequence(vec![#(#item_exprs),*]) }
+        }
+        SrcGenLoweredPropertyPath::Alternative { items } => {
+            let item_exprs: Vec<TokenStream> =
+                items.iter().map(lowered_property_path_expr).collect();
+            quote! { LoweredPropertyPathRuntime::Alternative(vec![#(#item_exprs),*]) }
+        }
+    }
+}
+
+fn path_expr(path: &SrcGenPath) -> TokenStream {
+    match path {
+        SrcGenPath::SimplePredicate { predicate_iri } => {
+            let iri = LitStr::new(predicate_iri, Span::call_site());
+            quote! {
+                CompiledPath::SimplePredicate {
+                    predicate_iri: #iri.to_string(),
+                }
+            }
+        }
+        SrcGenPath::Inverse { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::Inverse {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+        SrcGenPath::Sequence { items } => {
+            let items: Vec<TokenStream> = items.iter().map(path_expr).collect();
+            quote! {
+                CompiledPath::Sequence {
+                    items: vec![#(#items),*],
+                }
+            }
+        }
+        SrcGenPath::Alternative { items } => {
+            let items: Vec<TokenStream> = items.iter().map(path_expr).collect();
+            quote! {
+                CompiledPath::Alternative {
+                    items: vec![#(#items),*],
+                }
+            }
+        }
+        SrcGenPath::ZeroOrMore { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::ZeroOrMore {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+        SrcGenPath::OneOrMore { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::OneOrMore {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+        SrcGenPath::ZeroOrOne { inner } => {
+            let inner = path_expr(inner);
+            quote! {
+                CompiledPath::ZeroOrOne {
+                    inner: Box::new(#inner),
+                }
+            }
+        }
+    }
+}
+
+fn sparql_required_this_predicates(
+    query: &str,
+    prefixes: &str,
+) -> Vec<(ThisPredicateDirection, String)> {
+    let full_query = if prefixes.trim().is_empty() {
+        query.to_string()
+    } else {
+        format!("{prefixes}\n{query}")
+    };
+    let Ok(algebra) = SparqlParser::new().parse_query(&full_query) else {
+        return Vec::new();
+    };
+    required_this_predicates_in_query(&algebra)
+        .into_iter()
+        .collect()
+}
+
+fn required_this_predicates_in_query(
+    query: &AlgebraQuery,
+) -> std::collections::BTreeSet<(ThisPredicateDirection, String)> {
+    match query {
+        AlgebraQuery::Select { pattern, .. }
+        | AlgebraQuery::Ask { pattern, .. }
+        | AlgebraQuery::Construct { pattern, .. }
+        | AlgebraQuery::Describe { pattern, .. } => {
+            required_this_predicates_in_graph_pattern(pattern)
+        }
+    }
+}
+
+fn required_this_predicates_in_graph_pattern(
+    pattern: &GraphPattern,
+) -> std::collections::BTreeSet<(ThisPredicateDirection, String)> {
+    match pattern {
+        GraphPattern::Bgp { patterns } => patterns
+            .iter()
+            .filter_map(required_this_predicate_in_triple_pattern)
+            .collect(),
+        GraphPattern::Path {
+            subject,
+            path,
+            object,
+        } => required_this_predicate_in_path_pattern(subject, path, object)
+            .into_iter()
+            .collect(),
+        GraphPattern::Join { left, right } => {
+            let mut requirements = required_this_predicates_in_graph_pattern(left);
+            requirements.extend(required_this_predicates_in_graph_pattern(right));
+            requirements
+        }
+        GraphPattern::Lateral { left, right } => {
+            let mut requirements = required_this_predicates_in_graph_pattern(left);
+            requirements.extend(required_this_predicates_in_graph_pattern(right));
+            requirements
+        }
+        GraphPattern::Union { left, right } => {
+            let left_requirements = required_this_predicates_in_graph_pattern(left);
+            let right_requirements = required_this_predicates_in_graph_pattern(right);
+            left_requirements
+                .intersection(&right_requirements)
+                .cloned()
+                .collect()
+        }
+        GraphPattern::LeftJoin { left, .. } | GraphPattern::Minus { left, .. } => {
+            required_this_predicates_in_graph_pattern(left)
+        }
+        GraphPattern::Graph { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. }
+        | GraphPattern::Filter { inner, .. }
+        | GraphPattern::Extend { inner, .. }
+        | GraphPattern::OrderBy { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Group { inner, .. }
+        | GraphPattern::Service { inner, .. } => required_this_predicates_in_graph_pattern(inner),
+        GraphPattern::Values { .. } => std::collections::BTreeSet::new(),
+    }
+}
+
+fn required_this_predicate_in_triple_pattern(
+    pattern: &TriplePattern,
+) -> Option<(ThisPredicateDirection, String)> {
+    let predicate = match &pattern.predicate {
+        NamedNodePattern::NamedNode(predicate) => predicate.as_str().to_string(),
+        NamedNodePattern::Variable(_) => return None,
+    };
+
+    if term_pattern_is_this(&pattern.subject) {
+        return Some((ThisPredicateDirection::Outgoing, predicate));
+    }
+    if term_pattern_is_this(&pattern.object) {
+        return Some((ThisPredicateDirection::Incoming, predicate));
+    }
+    None
+}
+
+fn required_this_predicate_in_path_pattern(
+    subject: &TermPattern,
+    path: &PropertyPathExpression,
+    object: &TermPattern,
+) -> Option<(ThisPredicateDirection, String)> {
+    match (
+        term_pattern_is_this(subject),
+        path,
+        term_pattern_is_this(object),
+    ) {
+        (true, PropertyPathExpression::NamedNode(predicate), _) => Some((
+            ThisPredicateDirection::Outgoing,
+            predicate.as_str().to_string(),
+        )),
+        (true, PropertyPathExpression::Reverse(inner), _) => match inner.as_ref() {
+            PropertyPathExpression::NamedNode(predicate) => Some((
+                ThisPredicateDirection::Incoming,
+                predicate.as_str().to_string(),
+            )),
+            _ => None,
+        },
+        (_, PropertyPathExpression::NamedNode(predicate), true) => Some((
+            ThisPredicateDirection::Incoming,
+            predicate.as_str().to_string(),
+        )),
+        (_, PropertyPathExpression::Reverse(inner), true) => match inner.as_ref() {
+            PropertyPathExpression::NamedNode(predicate) => Some((
+                ThisPredicateDirection::Outgoing,
+                predicate.as_str().to_string(),
+            )),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn term_pattern_is_this(term: &TermPattern) -> bool {
+    matches!(term, TermPattern::Variable(var) if var.as_str() == "this")
+}
+
+pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
+    let component_by_id: HashMap<u64, &SrcGenComponentKind> = ir
+        .components
+        .iter()
+        .map(|component| (component.id, &component.kind))
+        .collect();
+    let property_shape_by_id: HashMap<u64, _> = ir
+        .property_shapes
+        .iter()
+        .map(|shape| (shape.id, shape))
+        .collect();
+
+    let mut qvs_sibling_map: BTreeMap<(u64, u64), Vec<String>> = BTreeMap::new();
+    for node_shape in &ir.node_shapes {
+        let mut qvs_components: Vec<(u64, String)> = Vec::new();
+        for property_shape_id in &node_shape.property_shapes {
+            let Some(property_shape) = property_shape_by_id.get(property_shape_id) else {
+                continue;
+            };
+            for component_id in &property_shape.constraints {
+                if let Some(SrcGenComponentKind::QualifiedValueShape { shape_iri, .. }) =
+                    component_by_id.get(component_id)
+                {
+                    qvs_components.push((*component_id, shape_iri.clone()));
+                }
+            }
+        }
+        for (component_id, _) in &qvs_components {
+            let mut sibling_shapes: Vec<String> = qvs_components
+                .iter()
+                .filter(|(other_component_id, _)| other_component_id != component_id)
+                .map(|(_, shape_iri)| shape_iri.clone())
+                .collect();
+            sibling_shapes.sort();
+            sibling_shapes.dedup();
+            if !sibling_shapes.is_empty() {
+                qvs_sibling_map.insert((node_shape.id, *component_id), sibling_shapes);
+            }
+        }
+    }
+    let qvs_sibling_arms: Vec<TokenStream> = qvs_sibling_map
+        .iter()
+        .map(|((parent_shape_id, component_id), sibling_shapes)| {
+            let sibling_literals: Vec<LitStr> = sibling_shapes
+                .iter()
+                .map(|shape| LitStr::new(shape, Span::call_site()))
+                .collect();
+            quote! {
+                (#parent_shape_id, #component_id) => &[#(#sibling_literals),*],
+            }
+        })
+        .collect();
+
+    let mut match_arms: Vec<TokenStream> = Vec::new();
+    let mut supported_shapes = 0usize;
+
+    for shape in ir.property_shapes.iter().filter(|shape| shape.supported) {
+        supported_shapes += 1;
+
+        let shape_id = shape.id;
+        let path_expr = path_expr(&shape.path);
+        let path_term_expr = term_expr(&shape.path_term);
+        let path_sparql_lit = LitStr::new(&shape.path_sparql, Span::call_site());
+
+        let mut constraint_checks: Vec<TokenStream> = Vec::new();
+        for component_id in &shape.supported_constraints {
+            let component_id_value = *component_id;
+            let Some(kind) = component_by_id.get(component_id) else {
+                continue;
+            };
+
+            match kind {
+                SrcGenComponentKind::MinCount { min_count } => {
+                    let min_count = *min_count as usize;
+                    constraint_checks.push(quote! {
+                        if values.len() < #min_count {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: Some(ResultPath::Term(predicate_term.clone())),
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxCount { max_count } => {
+                    let max_count = *max_count as usize;
+                    constraint_checks.push(quote! {
+                        if values.len() > #max_count {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: Some(ResultPath::Term(predicate_term.clone())),
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::Datatype { datatype_iri } => {
+                    let datatype_lit = LitStr::new(datatype_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = match value {
+                                oxigraph::model::Term::Literal(literal) => {
+                                    literal.datatype().as_str() == #datatype_lit
+                                        && literal_has_valid_lexical_form_for_datatype(
+                                            literal.as_ref(),
+                                            #datatype_lit,
+                                        )
+                                }
+                                _ => false,
+                            };
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::NodeKind { node_kind_iri } => {
+                    let node_kind_lit = LitStr::new(node_kind_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = shacl_node_kind_matches(value, #node_kind_lit);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Class { class_iri } => {
+                    let class_lit = LitStr::new(class_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = term_has_rdf_type(store, data_graph, value, #class_lit)?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MinLength { min_length } => {
+                    let min_length = *min_length as usize;
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = term_string_for_text_constraints(value)
+                                .map(|text| text.chars().count() >= #min_length)
+                                .unwrap_or(false);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxLength { max_length } => {
+                    let max_length = *max_length as usize;
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = term_string_for_text_constraints(value)
+                                .map(|text| text.chars().count() <= #max_length)
+                                .unwrap_or(false);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MinExclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                "<",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MinInclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                "<=",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxExclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                ">",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::MaxInclusive { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = compare_serialized_term_with_operator(
+                                store,
+                                #value_lit,
+                                value,
+                                ">=",
+                                true,
+                            )?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Pattern { pattern, flags } => {
+                    let pattern_lit = LitStr::new(pattern, Span::call_site());
+                    let flags_token = if let Some(flags) = flags {
+                        let flags_lit = LitStr::new(flags, Span::call_site());
+                        quote! { Some(#flags_lit) }
+                    } else {
+                        quote! { None }
+                    };
+                    constraint_checks.push(quote! {
+                        let regex = build_pattern_regex(#pattern_lit, #flags_token)?;
+                        for value in &values {
+                            let valid = term_string_for_text_constraints(value)
+                                .map(|text| regex.is_match(&text))
+                                .unwrap_or(false);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::HasValue { value_sparql } => {
+                    let value_lit = LitStr::new(value_sparql, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let required_value = #value_lit;
+                        let has_required_value = values
+                            .iter()
+                            .any(|value| term_to_sparql(value) == required_value);
+                        if !has_required_value {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: None,
+                                path: Some(ResultPath::Term(predicate_term.clone())),
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::In { values_sparql } => {
+                    let value_literals: Vec<LitStr> = values_sparql
+                        .iter()
+                        .map(|value| LitStr::new(value, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let allowed_values: std::collections::HashSet<&str> =
+                            [#(#value_literals),*].into_iter().collect();
+                        if allowed_values.is_empty() {
+                            if !values.is_empty() {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        } else {
+                            for value in &values {
+                                if !allowed_values.contains(term_to_sparql(value).as_str()) {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Sparql {
+                    query,
+                    prefixes,
+                    requires_path: _,
+                    lowered_query,
+                    ..
+                } => {
+                    let query_lit = LitStr::new(query, Span::call_site());
+                    let prefixes_lit = LitStr::new(prefixes, Span::call_site());
+                    let required_predicates = sparql_required_this_predicates(query, prefixes);
+                    let required_predicate_exprs: Vec<TokenStream> = required_predicates
+                        .iter()
+                        .map(|(direction, predicate_iri)| {
+                            let predicate_lit = LitStr::new(predicate_iri, Span::call_site());
+                            let direction_expr = match direction {
+                                ThisPredicateDirection::Outgoing => {
+                                    quote! { SparqlThisPredicateDirection::Outgoing }
+                                }
+                                ThisPredicateDirection::Incoming => {
+                                    quote! { SparqlThisPredicateDirection::Incoming }
+                                }
+                            };
+                            quote! { (#direction_expr, #predicate_lit) }
+                        })
+                        .collect();
+                    let lowered_query_expr = match lowered_query {
+                        Some(SrcGenLoweredSparqlQueryKind::AdjacentPredicateWhitelist {
+                            anchor_path,
+                            allowed_predicate_iris,
+                        }) => {
+                            let anchor_path_expr = lowered_property_path_expr(anchor_path);
+                            let allowed_predicate_lits: Vec<LitStr> = allowed_predicate_iris
+                                .iter()
+                                .map(|iri| LitStr::new(iri, Span::call_site()))
+                                .collect();
+                            quote! {
+                                if lowered_adjacent_predicate_whitelist_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#anchor_path_expr,
+                                    &[#(#allowed_predicate_lits),*],
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(focus.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                        Some(SrcGenLoweredSparqlQueryKind::PathValueEqualsConstant {
+                            value_path,
+                            expected_value,
+                        }) => {
+                            let value_path_expr = lowered_property_path_expr(value_path);
+                            let expected_value_expr = term_expr(expected_value);
+                            quote! {
+                                if lowered_path_value_equals_constant_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#value_path_expr,
+                                    &#expected_value_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: None,
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                        Some(SrcGenLoweredSparqlQueryKind::MissingRelatedNode {
+                            related_path,
+                            related_class,
+                            required_path,
+                            ..
+                        }) => {
+                            let related_path_expr = lowered_property_path_expr(related_path);
+                            let related_class_expr = related_class.as_ref().map(term_expr);
+                            let required_path_expr = lowered_property_path_expr(required_path);
+                            let related_class_arg = if let Some(expr) = related_class_expr {
+                                quote! { Some(&#expr) }
+                            } else {
+                                quote! { None }
+                            };
+                            quote! {
+                                if lowered_missing_related_node_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#related_path_expr,
+                                    #related_class_arg,
+                                    &#required_path_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: None,
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                        Some(SrcGenLoweredSparqlQueryKind::RequiredPathSupport {
+                            source_predicate_iri,
+                            required_path,
+                        }) => {
+                            let source_predicate_lit =
+                                LitStr::new(source_predicate_iri, Span::call_site());
+                            let required_path_expr = lowered_property_path_expr(required_path);
+                            quote! {
+                                if lowered_required_path_support_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    #source_predicate_lit,
+                                    &#required_path_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: None,
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                        Some(SrcGenLoweredSparqlQueryKind::LocalSetCompatibility {
+                            left_anchor_path,
+                            right_anchor_path,
+                            left_class,
+                            right_class,
+                            left_value_path,
+                            right_value_path,
+                            distinct_anchors,
+                            composed_of_predicate_iri,
+                            constituent_path,
+                            mode,
+                            ..
+                        }) => {
+                            let left_anchor_path_expr =
+                                lowered_property_path_expr(left_anchor_path);
+                            let right_anchor_path_expr =
+                                lowered_property_path_expr(right_anchor_path);
+                            let left_class_expr = left_class.as_ref().map(term_expr);
+                            let right_class_expr = right_class.as_ref().map(term_expr);
+                            let left_value_path_expr = lowered_property_path_expr(left_value_path);
+                            let right_value_path_expr =
+                                lowered_property_path_expr(right_value_path);
+                            let distinct_anchors_lit =
+                                syn::LitBool::new(*distinct_anchors, Span::call_site());
+                            let composed_of_predicate_lit =
+                                LitStr::new(composed_of_predicate_iri, Span::call_site());
+                            let constituent_path_arg =
+                                if let Some(constituent_path) = constituent_path.as_ref() {
+                                    let constituent_path_expr =
+                                        lowered_property_path_expr(constituent_path);
+                                    quote! { Some(&#constituent_path_expr) }
+                                } else {
+                                    quote! { None }
+                                };
+                            let (mode_lit, composite_side_expr) = match mode {
+                                crate::ir::SrcGenLocalSetCompatibilityMode::PurePure => (
+                                    LitStr::new("pure_pure", Span::call_site()),
+                                    quote! { None },
+                                ),
+                                crate::ir::SrcGenLocalSetCompatibilityMode::CompositeVsPure {
+                                    composite_side,
+                                } => {
+                                    let side = match composite_side {
+                                        crate::ir::SrcGenCompatibilitySide::Left => {
+                                            LitStr::new("left", Span::call_site())
+                                        }
+                                        crate::ir::SrcGenCompatibilitySide::Right => {
+                                            LitStr::new("right", Span::call_site())
+                                        }
+                                    };
+                                    (
+                                        LitStr::new("composite_vs_pure", Span::call_site()),
+                                        quote! { Some(#side) },
+                                    )
+                                }
+                                crate::ir::SrcGenLocalSetCompatibilityMode::CompositeVsComposite => (
+                                    LitStr::new("composite_vs_composite", Span::call_site()),
+                                    quote! { None },
+                                ),
+                            };
+                            let left_class_arg = if let Some(expr) = left_class_expr {
+                                quote! { Some(&#expr) }
+                            } else {
+                                quote! { None }
+                            };
+                            let right_class_arg = if let Some(expr) = right_class_expr {
+                                quote! { Some(&#expr) }
+                            } else {
+                                quote! { None }
+                            };
+                            quote! {
+                                if lowered_local_set_compatibility_violation(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    &#left_anchor_path_expr,
+                                    &#right_anchor_path_expr,
+                                    #left_class_arg,
+                                    #right_class_arg,
+                                    &#left_value_path_expr,
+                                    &#right_value_path_expr,
+                                    #distinct_anchors_lit,
+                                    #composed_of_predicate_lit,
+                                    #constituent_path_arg,
+                                    #mode_lit,
+                                    #composite_side_expr,
+                                )? {
+                                    record_fast_path_hit();
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: None,
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                        None => quote! {
+                            record_fallback_dispatch();
+                            let required_predicates: &[(SparqlThisPredicateDirection, &str)] =
+                                &[#(#required_predicate_exprs),*];
+                            if required_predicates.is_empty()
+                                || focus_satisfies_required_sparql_predicates(
+                                    store,
+                                    data_graph,
+                                    focus,
+                                    required_predicates,
+                                )?
+                            {
+                                let mut query = String::from(#query_lit);
+                                if query.contains("$PATH") {
+                                    query = query.replace("$PATH", #path_sparql_lit);
+                                }
+
+                                let mut bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                                bindings.push(("this", focus.clone()));
+                                if query_mentions_var(&query, "currentShape") {
+                                    if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                        bindings.push(("currentShape", current_shape_term));
+                                    }
+                                }
+                                if query_mentions_var(&query, "shapesGraph") {
+                                    if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                        bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                                    }
+                                }
+
+                                let solutions = sparql_select_solutions_with_bindings(
+                                    &query,
+                                    #prefixes_lit,
+                                    store,
+                                    data_graph,
+                                    &bindings,
+                                )?;
+                                let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
+                                let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
+                                    std::collections::HashSet::new();
+                                for row in solutions {
+                                    if let Some(failure_term) = row.get("failure") {
+                                        if term_is_true_boolean(failure_term) {
+                                            return Err(format!(
+                                                "SPARQL constraint query reported failure for shape {} component {}",
+                                                #shape_id, #component_id_value
+                                            ));
+                                        }
+                                    }
+                                    let value = row.get("value").cloned();
+                                    let row_signature = sparql_row_signature(&row);
+                                    if !seen.insert(row_signature) {
+                                        continue;
+                                    }
+                                    let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                        Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
+                                    } else {
+                                        default_path.clone()
+                                    };
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value,
+                                        path,
+                                    });
+                                }
+                            }
+                        },
+                    };
+                    constraint_checks.push(quote! {
+                        #lowered_query_expr
+                    });
+                }
+                SrcGenComponentKind::CustomSparql {
+                    query,
+                    prefixes,
+                    is_ask,
+                    bind_value,
+                    parameter_bindings,
+                    ..
+                } => {
+                    let query_lit = LitStr::new(query, Span::call_site());
+                    let prefixes_lit = LitStr::new(prefixes, Span::call_site());
+                    let is_ask_lit = syn::LitBool::new(*is_ask, Span::call_site());
+                    let bind_value_lit = syn::LitBool::new(*bind_value, Span::call_site());
+                    let parameter_binding_pushes: Vec<TokenStream> = parameter_bindings
+                        .iter()
+                        .map(|binding| {
+                            let var_name_lit = LitStr::new(&binding.var_name, Span::call_site());
+                            let value_expr = term_expr(&binding.value);
+                            quote! {
+                                base_bindings.push((#var_name_lit, #value_expr));
+                            }
+                        })
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let mut query = String::from(#query_lit);
+                        if query.contains("$PATH") {
+                            query = query.replace("$PATH", #path_sparql_lit);
+                        }
+
+                        let mut base_bindings: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+                        base_bindings.push(("this", focus.clone()));
+                        if query_mentions_var(&query, "currentShape") {
+                            if let Some(current_shape_term) = shape_term_for_id(#shape_id) {
+                                base_bindings.push(("currentShape", current_shape_term));
+                            }
+                        }
+                        if query_mentions_var(&query, "shapesGraph") {
+                            if let Ok(shape_graph_node) = oxigraph::model::NamedNode::new(SHAPE_GRAPH) {
+                                base_bindings.push(("shapesGraph", oxigraph::model::Term::NamedNode(shape_graph_node)));
+                            }
+                        }
+                        #(#parameter_binding_pushes)*
+
+                        let default_path: Option<ResultPath> = Some(ResultPath::Term(predicate_term.clone()));
+                        if #is_ask_lit {
+                            for value in &values {
+                                let mut bindings = base_bindings.clone();
+                                if #bind_value_lit {
+                                    bindings.push(("value", value.clone()));
+                                }
+                                let conforms = sparql_ask_with_bindings(
+                                    &query,
+                                    #prefixes_lit,
+                                    store,
+                                    data_graph,
+                                    &bindings,
+                                )?;
+                                if !conforms {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: default_path.clone(),
+                                    });
+                                }
+                            }
+                        } else {
+                            let solutions = sparql_select_solutions_with_bindings(
+                                &query,
+                                #prefixes_lit,
+                                store,
+                                data_graph,
+                                &base_bindings,
+                            )?;
+                            let mut seen: std::collections::HashSet<Vec<(String, oxigraph::model::Term)>> =
+                                std::collections::HashSet::new();
+                            for row in solutions {
+                                if let Some(failure_term) = row.get("failure") {
+                                    if term_is_true_boolean(failure_term) {
+                                        return Err(format!(
+                                            "SPARQL constraint query reported failure for shape {} component {}",
+                                            #shape_id, #component_id_value
+                                        ));
+                                    }
+                                }
+                                let value = row.get("value").cloned();
+                                let row_signature = sparql_row_signature(&row);
+                                if !seen.insert(row_signature) {
+                                    continue;
+                                }
+                                let path = if let Some(oxigraph::model::Term::NamedNode(path_iri)) = row.get("path") {
+                                    Some(ResultPath::Term(oxigraph::model::Term::NamedNode(path_iri.clone())))
+                                } else {
+                                    default_path.clone()
+                                };
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value,
+                                    path,
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Node { shape_iri } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let valid = runtime_shape_conforms(store, data_graph, #shape_lit, value)?;
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Not { shape_iri } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        for value in &values {
+                            let conforms = runtime_shape_conforms(store, data_graph, #shape_lit, value)?;
+                            if conforms {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::And { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let conjunct_shapes: &[&str] = &[#(#shape_literals),*];
+                        for value in &values {
+                            let mut all_conform = true;
+                            for conjunct in conjunct_shapes {
+                                if !runtime_shape_conforms(store, data_graph, conjunct, value)? {
+                                    all_conform = false;
+                                    break;
+                                }
+                            }
+                            if !all_conform {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Or { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let disjunct_shapes: &[&str] = &[#(#shape_literals),*];
+                        if disjunct_shapes.is_empty() {
+                            if !values.is_empty() {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: values.first().cloned(),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        } else {
+                            for value in &values {
+                                let mut any_conforms = false;
+                                for disjunct in disjunct_shapes {
+                                    if runtime_shape_conforms(store, data_graph, disjunct, value)? {
+                                        any_conforms = true;
+                                        break;
+                                    }
+                                }
+                                if !any_conforms {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::Xone { shape_iris } => {
+                    let shape_literals: Vec<LitStr> = shape_iris
+                        .iter()
+                        .map(|shape| LitStr::new(shape, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let xone_shapes: &[&str] = &[#(#shape_literals),*];
+                        for value in &values {
+                            let mut conforms_count = 0usize;
+                            for disjunct in xone_shapes {
+                                if runtime_shape_conforms(store, data_graph, disjunct, value)? {
+                                    conforms_count += 1;
+                                }
+                            }
+                            if conforms_count != 1 {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::QualifiedValueShape {
+                    shape_iri,
+                    min_count,
+                    max_count,
+                    disjoint,
+                } => {
+                    let shape_lit = LitStr::new(shape_iri, Span::call_site());
+                    let disjoint_value = *disjoint;
+                    let min_count_check = if let Some(min_count) = min_count {
+                        let min_count = *min_count as usize;
+                        quote! {
+                            if qualified_nodes_count < #min_count {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    } else {
+                        quote! {}
+                    };
+                    let max_count_check = if let Some(max_count) = max_count {
+                        let max_count = *max_count as usize;
+                        quote! {
+                            if qualified_nodes_count > #max_count {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    } else {
+                        quote! {}
+                    };
+                    constraint_checks.push(quote! {
+                        let sibling_shapes: &[&str] = if #disjoint_value {
+                            qualified_sibling_shapes(parent_node_shape_id, #component_id_value)
+                        } else {
+                            &[]
+                        };
+                        let mut qualified_nodes_count: usize = 0;
+                        for value in &values {
+                            if !runtime_shape_conforms(store, data_graph, #shape_lit, value)? {
+                                continue;
+                            }
+                            let mut conforms_to_sibling = false;
+                            if #disjoint_value && !sibling_shapes.is_empty() {
+                                for sibling_shape in sibling_shapes {
+                                    if runtime_shape_conforms(
+                                        store,
+                                        data_graph,
+                                        sibling_shape,
+                                        value,
+                                    )? {
+                                        conforms_to_sibling = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !conforms_to_sibling {
+                                qualified_nodes_count += 1;
+                            }
+                        }
+                        #min_count_check
+                        #max_count_check
+                    });
+                }
+                SrcGenComponentKind::LanguageIn { languages } => {
+                    let language_literals: Vec<LitStr> = languages
+                        .iter()
+                        .map(|language| LitStr::new(language, Span::call_site()))
+                        .collect();
+                    constraint_checks.push(quote! {
+                        let allowed_languages: &[&str] = &[#(#language_literals),*];
+                        for value in &values {
+                            let valid = term_matches_language_in(value, allowed_languages);
+                            if !valid {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::UniqueLang { enabled } => {
+                    if *enabled {
+                        constraint_checks.push(quote! {
+                            let mut seen_language_tags: std::collections::HashSet<String> =
+                                std::collections::HashSet::new();
+                            let mut duplicated_language_tags: std::collections::HashSet<String> =
+                                std::collections::HashSet::new();
+                            for value in &values {
+                                if let oxigraph::model::Term::Literal(literal) = value {
+                                    if let Some(language) = literal.language() {
+                                        if !language.is_empty() {
+                                            let lowered = language.to_ascii_lowercase();
+                                            if !seen_language_tags.insert(lowered.clone()) {
+                                                duplicated_language_tags.insert(lowered);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            for _tag in duplicated_language_tags {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: None,
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        });
+                    }
+                }
+                SrcGenComponentKind::Equals { property_iri } => {
+                    let property_lit = LitStr::new(property_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let other_values =
+                            values_for_predicate(store, data_graph, focus, #property_lit)?;
+                        let own_set: std::collections::HashSet<oxigraph::model::Term> =
+                            values.iter().cloned().collect();
+                        let other_set: std::collections::HashSet<oxigraph::model::Term> =
+                            other_values.into_iter().collect();
+
+                        for missing_other in own_set.difference(&other_set) {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(missing_other.clone()),
+                                path: Some(ResultPath::Term(predicate_term.clone())),
+                            });
+                        }
+
+                        for missing_self in other_set.difference(&own_set) {
+                            violations.push(Violation {
+                                shape_id: #shape_id,
+                                component_id: #component_id_value,
+                                focus: focus.clone(),
+                                value: Some(missing_self.clone()),
+                                path: Some(ResultPath::Term(predicate_term.clone())),
+                            });
+                        }
+                    });
+                }
+                SrcGenComponentKind::Disjoint { property_iri } => {
+                    let property_lit = LitStr::new(property_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let other_values =
+                            values_for_predicate(store, data_graph, focus, #property_lit)?;
+                        let other_set: std::collections::HashSet<oxigraph::model::Term> =
+                            other_values.into_iter().collect();
+                        for value in &values {
+                            if other_set.contains(value) {
+                                violations.push(Violation {
+                                    shape_id: #shape_id,
+                                    component_id: #component_id_value,
+                                    focus: focus.clone(),
+                                    value: Some(value.clone()),
+                                    path: Some(ResultPath::Term(predicate_term.clone())),
+                                });
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::LessThan { property_iri } => {
+                    let property_lit = LitStr::new(property_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let other_values =
+                            values_for_predicate(store, data_graph, focus, #property_lit)?;
+                        for value in &values {
+                            for other_value in &other_values {
+                                let valid = compare_terms_with_operator(
+                                    store,
+                                    value,
+                                    other_value,
+                                    "<",
+                                    false,
+                                )?;
+                                if !valid {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::LessThanOrEquals { property_iri } => {
+                    let property_lit = LitStr::new(property_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        let other_values =
+                            values_for_predicate(store, data_graph, focus, #property_lit)?;
+                        for value in &values {
+                            for other_value in &other_values {
+                                let valid = compare_terms_with_operator(
+                                    store,
+                                    value,
+                                    other_value,
+                                    "<=",
+                                    false,
+                                )?;
+                                if !valid {
+                                    violations.push(Violation {
+                                        shape_id: #shape_id,
+                                        component_id: #component_id_value,
+                                        focus: focus.clone(),
+                                        value: Some(value.clone()),
+                                        path: Some(ResultPath::Term(predicate_term.clone())),
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::PropertyLink { property_shape_iri } => {
+                    let property_shape_lit = LitStr::new(property_shape_iri, Span::call_site());
+                    constraint_checks.push(quote! {
+                        if let Some(linked_shape_id) = shape_id_for_iri(#property_shape_lit) {
+                            if linked_shape_id != #shape_id {
+                                for value in &values {
+                                    validate_supported_property_shape(
+                                        linked_shape_id,
+                                        parent_node_shape_id,
+                                        store,
+                                        data_graph,
+                                        value,
+                                        violations,
+                                    )?;
+                                }
+                            }
+                        }
+                    });
+                }
+                SrcGenComponentKind::ExpressionThis => {}
+                SrcGenComponentKind::Closed { .. } => {}
+                SrcGenComponentKind::Unsupported { .. } => {}
+            }
+        }
+
+        match_arms.push(quote! {
+            #shape_id => {
+                let path = #path_expr;
+                let values = values_for_compiled_path(store, data_graph, focus, &path)?;
+                let predicate_term = #path_term_expr;
+                #(#constraint_checks)*
+            }
+        });
+    }
+
+    let tokens = quote! {
+        pub const GENERATED_PROPERTY_VALIDATORS: usize = #supported_shapes;
+
+        #[derive(Debug, Clone)]
+        enum CompiledPath {
+            SimplePredicate { predicate_iri: String },
+            Inverse { inner: Box<CompiledPath> },
+            Sequence { items: Vec<CompiledPath> },
+            Alternative { items: Vec<CompiledPath> },
+            ZeroOrMore { inner: Box<CompiledPath> },
+            OneOrMore { inner: Box<CompiledPath> },
+            ZeroOrOne { inner: Box<CompiledPath> },
+        }
+
+        fn qualified_sibling_shapes(
+            parent_node_shape_id: u64,
+            component_id: u64,
+        ) -> &'static [&'static str] {
+            match (parent_node_shape_id, component_id) {
+                #(#qvs_sibling_arms)*
+                _ => &[],
+            }
+        }
+
+        fn validation_graphs(
+            data_graph: &oxigraph::model::NamedNode,
+        ) -> Result<Vec<oxigraph::model::NamedNode>, String> {
+            let mut graphs = vec![data_graph.clone()];
+            let shape_graph = oxigraph::model::NamedNode::new(SHAPE_GRAPH)
+                .map_err(|err| format!("invalid SHAPE_GRAPH IRI: {err}"))?;
+            if shape_graph.as_str() != data_graph.as_str() {
+                graphs.push(shape_graph);
+            }
+            Ok(graphs)
+        }
+
+        fn subject_ref_from_term<'a>(
+            term: &'a oxigraph::model::Term,
+        ) -> Option<oxigraph::model::NamedOrBlankNodeRef<'a>> {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => {
+                    Some(oxigraph::model::NamedOrBlankNodeRef::NamedNode(node.as_ref()))
+                }
+                oxigraph::model::Term::BlankNode(node) => {
+                    Some(oxigraph::model::NamedOrBlankNodeRef::BlankNode(node.as_ref()))
+                }
+                _ => None,
+            }
+        }
+
+        fn objects_for_simple_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            start: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let Some(subject_ref) = subject_ref_from_term(start) else {
+                return Ok(Vec::new());
+            };
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri)
+                .map_err(|err| format!("invalid path predicate IRI {predicate_iri}: {err}"))?;
+            let mut values = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    Some(subject_ref),
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    values.push(quad.object);
+                }
+            }
+            Ok(sort_and_dedup_terms(values))
+        }
+
+        fn subjects_for_simple_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            end: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri)
+                .map_err(|err| format!("invalid path predicate IRI {predicate_iri}: {err}"))?;
+            let mut subjects = Vec::new();
+            for graph in validation_graphs(data_graph)? {
+                let graph_ref = oxigraph::model::GraphNameRef::NamedNode(graph.as_ref());
+                for quad in store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    Some(end.as_ref()),
+                    Some(graph_ref),
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    subjects.push(oxigraph::model::Term::from(quad.subject));
+                }
+            }
+            Ok(sort_and_dedup_terms(subjects))
+        }
+
+        fn closure_objects_for_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            start: &oxigraph::model::Term,
+            inner: &CompiledPath,
+            include_start: bool,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let mut visited: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            let mut queue: std::collections::VecDeque<oxigraph::model::Term> =
+                std::collections::VecDeque::new();
+            visited.insert(start.clone());
+            queue.push_back(start.clone());
+
+            while let Some(current) = queue.pop_front() {
+                let next_nodes = objects_for_compiled_path(store, data_graph, &current, inner)?;
+                for next in next_nodes {
+                    if visited.insert(next.clone()) {
+                        queue.push_back(next);
+                    }
+                }
+            }
+
+            let mut out: Vec<oxigraph::model::Term> = visited.into_iter().collect();
+            if !include_start {
+                out.retain(|term| term != start);
+            }
+            Ok(sort_and_dedup_terms(out))
+        }
+
+        fn closure_subjects_for_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            end: &oxigraph::model::Term,
+            inner: &CompiledPath,
+            include_end: bool,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            let mut visited: std::collections::HashSet<oxigraph::model::Term> =
+                std::collections::HashSet::new();
+            let mut queue: std::collections::VecDeque<oxigraph::model::Term> =
+                std::collections::VecDeque::new();
+            visited.insert(end.clone());
+            queue.push_back(end.clone());
+
+            while let Some(current) = queue.pop_front() {
+                let prev_nodes = subjects_for_compiled_path(store, data_graph, &current, inner)?;
+                for prev in prev_nodes {
+                    if visited.insert(prev.clone()) {
+                        queue.push_back(prev);
+                    }
+                }
+            }
+
+            let mut out: Vec<oxigraph::model::Term> = visited.into_iter().collect();
+            if !include_end {
+                out.retain(|term| term != end);
+            }
+            Ok(sort_and_dedup_terms(out))
+        }
+
+        fn objects_for_compiled_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            start: &oxigraph::model::Term,
+            path: &CompiledPath,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            match path {
+                CompiledPath::SimplePredicate { predicate_iri } => {
+                    objects_for_simple_predicate(store, data_graph, start, predicate_iri)
+                }
+                CompiledPath::Inverse { inner } => {
+                    subjects_for_compiled_path(store, data_graph, start, inner)
+                }
+                CompiledPath::Sequence { items } => {
+                    let mut frontier = vec![start.clone()];
+                    for item in items {
+                        let mut next = Vec::new();
+                        for node in &frontier {
+                            next.extend(objects_for_compiled_path(store, data_graph, node, item)?);
+                        }
+                        frontier = sort_and_dedup_terms(next);
+                        if frontier.is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(frontier)
+                }
+                CompiledPath::Alternative { items } => {
+                    let mut values = Vec::new();
+                    for item in items {
+                        values.extend(objects_for_compiled_path(store, data_graph, start, item)?);
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+                CompiledPath::ZeroOrMore { inner } => {
+                    closure_objects_for_path(store, data_graph, start, inner, true)
+                }
+                CompiledPath::OneOrMore { inner } => {
+                    closure_objects_for_path(store, data_graph, start, inner, false)
+                }
+                CompiledPath::ZeroOrOne { inner } => {
+                    let mut values = vec![start.clone()];
+                    values.extend(objects_for_compiled_path(store, data_graph, start, inner)?);
+                    Ok(sort_and_dedup_terms(values))
+                }
+            }
+        }
+
+        fn subjects_for_compiled_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            end: &oxigraph::model::Term,
+            path: &CompiledPath,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            match path {
+                CompiledPath::SimplePredicate { predicate_iri } => {
+                    subjects_for_simple_predicate(store, data_graph, end, predicate_iri)
+                }
+                CompiledPath::Inverse { inner } => {
+                    objects_for_compiled_path(store, data_graph, end, inner)
+                }
+                CompiledPath::Sequence { items } => {
+                    let mut frontier = vec![end.clone()];
+                    for item in items.iter().rev() {
+                        let mut prev = Vec::new();
+                        for node in &frontier {
+                            prev.extend(subjects_for_compiled_path(store, data_graph, node, item)?);
+                        }
+                        frontier = sort_and_dedup_terms(prev);
+                        if frontier.is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(frontier)
+                }
+                CompiledPath::Alternative { items } => {
+                    let mut values = Vec::new();
+                    for item in items {
+                        values.extend(subjects_for_compiled_path(store, data_graph, end, item)?);
+                    }
+                    Ok(sort_and_dedup_terms(values))
+                }
+                CompiledPath::ZeroOrMore { inner } => {
+                    closure_subjects_for_path(store, data_graph, end, inner, true)
+                }
+                CompiledPath::OneOrMore { inner } => {
+                    closure_subjects_for_path(store, data_graph, end, inner, false)
+                }
+                CompiledPath::ZeroOrOne { inner } => {
+                    let mut values = vec![end.clone()];
+                    values.extend(subjects_for_compiled_path(store, data_graph, end, inner)?);
+                    Ok(sort_and_dedup_terms(values))
+                }
+            }
+        }
+
+        fn values_for_compiled_path(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            path: &CompiledPath,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            objects_for_compiled_path(store, data_graph, focus, path)
+        }
+
+        fn values_for_predicate(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<Vec<oxigraph::model::Term>, String> {
+            objects_for_simple_predicate(store, data_graph, focus, predicate_iri)
+        }
+
+        pub fn term_has_rdf_type(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            term: &oxigraph::model::Term,
+            class_iri: &str,
+        ) -> Result<bool, String> {
+            let _ = data_graph;
+            let Some(subject_ref) = subject_ref_from_term(term) else {
+                return Ok(false);
+            };
+
+            let mut direct_types: Vec<oxigraph::model::NamedNode> = Vec::new();
+            for quad in store.quads_for_pattern(
+                Some(subject_ref),
+                Some(oxigraph::model::vocab::rdf::TYPE),
+                None,
+                None,
+            ) {
+                let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                if let oxigraph::model::Term::NamedNode(node) = quad.object {
+                    if node.as_str() == class_iri {
+                        return Ok(true);
+                    }
+                    direct_types.push(node);
+                }
+            }
+
+            if direct_types.is_empty() {
+                return Ok(false);
+            }
+
+            let sub_class_of = oxigraph::model::NamedNodeRef::new_unchecked(
+                "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+            );
+            let mut queue: std::collections::VecDeque<oxigraph::model::NamedNode> =
+                direct_types.into_iter().collect();
+            let mut visited: std::collections::HashSet<oxigraph::model::NamedNode> =
+                std::collections::HashSet::new();
+
+            while let Some(current) = queue.pop_front() {
+                if !visited.insert(current.clone()) {
+                    continue;
+                }
+
+                let current_ref = oxigraph::model::NamedOrBlankNodeRef::NamedNode(current.as_ref());
+                for quad in store.quads_for_pattern(
+                    Some(current_ref),
+                    Some(sub_class_of),
+                    None,
+                    None,
+                ) {
+                    let quad = quad.map_err(|err| format!("store query failed: {err}"))?;
+                    if let oxigraph::model::Term::NamedNode(superclass) = quad.object {
+                        if superclass.as_str() == class_iri {
+                            return Ok(true);
+                        }
+                        queue.push_back(superclass);
+                    }
+                }
+            }
+
+            Ok(false)
+        }
+
+        pub fn shacl_node_kind_matches(term: &oxigraph::model::Term, node_kind_iri: &str) -> bool {
+            let is_iri = matches!(term, oxigraph::model::Term::NamedNode(_));
+            let is_blank = matches!(term, oxigraph::model::Term::BlankNode(_));
+            let is_literal = matches!(term, oxigraph::model::Term::Literal(_));
+            match node_kind_iri {
+                "http://www.w3.org/ns/shacl#IRI" => is_iri,
+                "http://www.w3.org/ns/shacl#BlankNode" => is_blank,
+                "http://www.w3.org/ns/shacl#Literal" => is_literal,
+                "http://www.w3.org/ns/shacl#BlankNodeOrIRI" => is_blank || is_iri,
+                "http://www.w3.org/ns/shacl#BlankNodeOrLiteral" => is_blank || is_literal,
+                "http://www.w3.org/ns/shacl#IRIOrLiteral" => is_iri || is_literal,
+                _ => false,
+            }
+        }
+
+        pub fn term_string_for_text_constraints(term: &oxigraph::model::Term) -> Option<String> {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => Some(node.as_str().to_string()),
+                oxigraph::model::Term::Literal(literal) => Some(literal.value().to_string()),
+                oxigraph::model::Term::BlankNode(_) => None,
+            }
+        }
+
+        pub fn build_pattern_regex(
+            pattern: &str,
+            flags: Option<&str>,
+        ) -> Result<regex::Regex, String> {
+            let mut pattern_builder = regex::RegexBuilder::new(pattern);
+            if let Some(flags) = flags {
+                if flags.contains('i') {
+                    pattern_builder.case_insensitive(true);
+                }
+            }
+            pattern_builder
+                .build()
+                .map_err(|err| format!("invalid regex pattern {pattern:?}: {err}"))
+        }
+
+        fn lang_matches(tag: &str, range: &str) -> bool {
+            if range == "*" {
+                return !tag.is_empty();
+            }
+            let tag_lower = tag.to_ascii_lowercase();
+            let range_lower = range.to_ascii_lowercase();
+            if tag_lower == range_lower {
+                return true;
+            }
+            tag_lower.starts_with(&format!("{range_lower}-"))
+        }
+
+        fn term_matches_language_in(term: &oxigraph::model::Term, allowed_languages: &[&str]) -> bool {
+            let oxigraph::model::Term::Literal(literal) = term else {
+                return false;
+            };
+            let literal_language = literal.language().unwrap_or("");
+            if allowed_languages.is_empty() {
+                return false;
+            }
+            allowed_languages
+                .iter()
+                .any(|allowed| lang_matches(literal_language, allowed))
+        }
+
+        #[derive(Debug, Clone, Copy)]
+        struct ParsedInteger<'a> {
+            negative: bool,
+            digits: &'a str,
+        }
+
+        impl<'a> ParsedInteger<'a> {
+            fn normalized_digits(self) -> &'a str {
+                let trimmed = self.digits.trim_start_matches('0');
+                if trimmed.is_empty() {
+                    "0"
+                } else {
+                    trimmed
+                }
+            }
+
+            fn is_zero(self) -> bool {
+                self.normalized_digits() == "0"
+            }
+
+            fn is_negative_non_zero(self) -> bool {
+                self.negative && !self.is_zero()
+            }
+        }
+
+        fn parse_integer_lexical(input: &str) -> Option<ParsedInteger<'_>> {
+            if input.is_empty() {
+                return None;
+            }
+            let (negative, digits) = match input.as_bytes().first() {
+                Some(b'+') => (false, &input[1..]),
+                Some(b'-') => (true, &input[1..]),
+                _ => (false, input),
+            };
+            if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            Some(ParsedInteger { negative, digits })
+        }
+
+        fn compare_unsigned_decimal(left: &str, right: &str) -> std::cmp::Ordering {
+            let left = left.trim_start_matches('0');
+            let right = right.trim_start_matches('0');
+            let left = if left.is_empty() { "0" } else { left };
+            let right = if right.is_empty() { "0" } else { right };
+            left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+        }
+
+        fn is_valid_decimal_lexical(input: &str) -> bool {
+            if input.is_empty() {
+                return false;
+            }
+            let mut chars = input.chars().peekable();
+            if matches!(chars.peek(), Some('+') | Some('-')) {
+                chars.next();
+            }
+            let mut digits_before = 0usize;
+            while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
+                digits_before += 1;
+                chars.next();
+            }
+            if matches!(chars.peek(), Some('.')) {
+                chars.next();
+                let mut digits_after = 0usize;
+                while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
+                    digits_after += 1;
+                    chars.next();
+                }
+                chars.peek().is_none() && (digits_before > 0 || digits_after > 0)
+            } else {
+                chars.peek().is_none() && digits_before > 0
+            }
+        }
+
+        fn is_integer_within_signed_bounds(input: &str, min_abs: &str, max: &str) -> bool {
+            let Some(parsed) = parse_integer_lexical(input) else {
+                return false;
+            };
+            if parsed.is_negative_non_zero() {
+                compare_unsigned_decimal(parsed.normalized_digits(), min_abs)
+                    != std::cmp::Ordering::Greater
+            } else {
+                compare_unsigned_decimal(parsed.normalized_digits(), max)
+                    != std::cmp::Ordering::Greater
+            }
+        }
+
+        fn is_integer_within_unsigned_bound(input: &str, max: &str) -> bool {
+            let Some(parsed) = parse_integer_lexical(input) else {
+                return false;
+            };
+            if parsed.is_negative_non_zero() {
+                return false;
+            }
+            compare_unsigned_decimal(parsed.normalized_digits(), max)
+                != std::cmp::Ordering::Greater
+        }
+
+        fn literal_has_valid_lexical_form_for_datatype(
+            literal: oxigraph::model::LiteralRef<'_>,
+            target_datatype_iri: &str,
+        ) -> bool {
+            use std::str::FromStr;
+            let value = literal.value();
+            if target_datatype_iri == oxigraph::model::vocab::xsd::STRING.as_str() {
+                true
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::BOOLEAN.as_str() {
+                oxsdatatypes::Boolean::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DECIMAL.as_str() {
+                is_valid_decimal_lexical(value)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::INTEGER.as_str() {
+                parse_integer_lexical(value).is_some()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::LONG.as_str() {
+                is_integer_within_signed_bounds(value, "9223372036854775808", "9223372036854775807")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::INT.as_str() {
+                is_integer_within_signed_bounds(value, "2147483648", "2147483647")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::SHORT.as_str() {
+                is_integer_within_signed_bounds(value, "32768", "32767")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::BYTE.as_str() {
+                is_integer_within_signed_bounds(value, "128", "127")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_LONG.as_str() {
+                is_integer_within_unsigned_bound(value, "18446744073709551615")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_INT.as_str() {
+                is_integer_within_unsigned_bound(value, "4294967295")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_SHORT.as_str() {
+                is_integer_within_unsigned_bound(value, "65535")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::UNSIGNED_BYTE.as_str() {
+                is_integer_within_unsigned_bound(value, "255")
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::NON_NEGATIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| !parsed.is_negative_non_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::POSITIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| !parsed.is_negative_non_zero() && !parsed.is_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::NON_POSITIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| parsed.is_negative_non_zero() || parsed.is_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::NEGATIVE_INTEGER.as_str() {
+                parse_integer_lexical(value)
+                    .map(|parsed| parsed.is_negative_non_zero())
+                    .unwrap_or(false)
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DOUBLE.as_str() {
+                oxsdatatypes::Double::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::FLOAT.as_str() {
+                oxsdatatypes::Float::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DATE.as_str() {
+                oxsdatatypes::Date::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::TIME.as_str() {
+                oxsdatatypes::Time::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DATE_TIME.as_str() {
+                oxsdatatypes::DateTime::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_YEAR.as_str() {
+                oxsdatatypes::GYear::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_MONTH.as_str() {
+                oxsdatatypes::GMonth::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_DAY.as_str() {
+                oxsdatatypes::GDay::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_YEAR_MONTH.as_str() {
+                oxsdatatypes::GYearMonth::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::G_MONTH_DAY.as_str() {
+                oxsdatatypes::GMonthDay::from_str(value).is_ok()
+            } else if target_datatype_iri == oxigraph::model::vocab::xsd::DURATION.as_str() {
+                oxsdatatypes::Duration::from_str(value).is_ok()
+            } else if target_datatype_iri
+                == oxigraph::model::vocab::xsd::YEAR_MONTH_DURATION.as_str()
+            {
+                oxsdatatypes::YearMonthDuration::from_str(value).is_ok()
+            } else if target_datatype_iri
+                == oxigraph::model::vocab::xsd::DAY_TIME_DURATION.as_str()
+            {
+                oxsdatatypes::DayTimeDuration::from_str(value).is_ok()
+            } else {
+                true
+            }
+        }
+
+        fn decimal_from_literal(literal: oxigraph::model::LiteralRef<'_>) -> Option<oxsdatatypes::Decimal> {
+            let datatype = literal.datatype();
+            if datatype == oxigraph::model::vocab::xsd::INTEGER
+                || datatype == oxigraph::model::vocab::xsd::DECIMAL
+            {
+                use std::str::FromStr;
+                oxsdatatypes::Decimal::from_str(literal.value()).ok()
+            } else {
+                None
+            }
+        }
+
+        fn float_from_literal(literal: oxigraph::model::LiteralRef<'_>) -> Option<f64> {
+            let datatype = literal.datatype();
+            if datatype == oxigraph::model::vocab::xsd::FLOAT
+                || datatype == oxigraph::model::vocab::xsd::DOUBLE
+            {
+                literal
+                    .value()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|value| !value.is_nan())
+            } else {
+                None
+            }
+        }
+
+        fn compare_terms_fast(
+            left: &oxigraph::model::Term,
+            right: &oxigraph::model::Term,
+        ) -> Option<std::cmp::Ordering> {
+            let (oxigraph::model::Term::Literal(left_literal), oxigraph::model::Term::Literal(right_literal)) =
+                (left, right)
+            else {
+                return None;
+            };
+
+            if let (Some(left_decimal), Some(right_decimal)) = (
+                decimal_from_literal(left_literal.as_ref()),
+                decimal_from_literal(right_literal.as_ref()),
+            ) {
+                return left_decimal.partial_cmp(&right_decimal);
+            }
+
+            if let (Some(left_float), Some(right_float)) = (
+                float_from_literal(left_literal.as_ref()),
+                float_from_literal(right_literal.as_ref()),
+            ) {
+                return left_float.partial_cmp(&right_float);
+            }
+
+            None
+        }
+
+        fn escape_sparql_string(value: &str) -> String {
+            let mut out = String::with_capacity(value.len());
+            for ch in value.chars() {
+                match ch {
+                    '\\' => out.push_str("\\\\"),
+                    '"' => out.push_str("\\\""),
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
+                    c => out.push(c),
+                }
+            }
+            out
+        }
+
+        fn term_to_sparql(term: &oxigraph::model::Term) -> String {
+            match term {
+                oxigraph::model::Term::NamedNode(node) => format!("<{}>", node.as_str()),
+                oxigraph::model::Term::BlankNode(node) => format!("_:{}", node.as_str()),
+                oxigraph::model::Term::Literal(literal) => {
+                    if let Some(language) = literal.language() {
+                        format!("\"{}\"@{}", escape_sparql_string(literal.value()), language)
+                    } else {
+                        format!(
+                            "\"{}\"^^<{}>",
+                            escape_sparql_string(literal.value()),
+                            literal.datatype().as_str(),
+                        )
+                    }
+                }
+            }
+        }
+
+        fn term_to_sparql_ground(term: &oxigraph::model::Term) -> Option<String> {
+            match term {
+                oxigraph::model::Term::NamedNode(_) | oxigraph::model::Term::Literal(_) => {
+                    Some(term_to_sparql(term))
+                }
+                oxigraph::model::Term::BlankNode(_) => None,
+            }
+        }
+
+        fn shape_term_for_id(shape_id: u64) -> Option<oxigraph::model::Term> {
+            let iri = shape_iri(shape_id);
+            if iri.is_empty() {
+                return None;
+            }
+            if let Some(blank_id) = iri.strip_prefix("_:") {
+                return oxigraph::model::BlankNode::new(blank_id)
+                    .ok()
+                    .map(oxigraph::model::Term::BlankNode);
+            }
+            oxigraph::model::NamedNode::new(iri)
+                .ok()
+                .map(oxigraph::model::Term::NamedNode)
+        }
+
+        fn contains_variable_token(query: &str, sigil: char, var: &str) -> bool {
+            let pattern = format!("{sigil}{var}");
+            let query_bytes = query.as_bytes();
+            let pattern_len = pattern.len();
+            for (idx, _) in query.match_indices(&pattern) {
+                let boundary_before = if idx == 0 {
+                    true
+                } else {
+                    let prev = query_bytes[idx - 1];
+                    !(prev.is_ascii_alphanumeric() || prev == b'_')
+                };
+                let boundary_after = if idx + pattern_len >= query_bytes.len() {
+                    true
+                } else {
+                    let next = query_bytes[idx + pattern_len];
+                    !(next.is_ascii_alphanumeric() || next == b'_')
+                };
+                if boundary_before && boundary_after {
+                    return true;
+                }
+            }
+            false
+        }
+
+        fn query_mentions_var(query: &str, var: &str) -> bool {
+            contains_variable_token(query, '?', var) || contains_variable_token(query, '$', var)
+        }
+
+        #[derive(Clone, Copy)]
+        enum SparqlThisPredicateDirection {
+            Outgoing,
+            Incoming,
+        }
+
+        fn focus_satisfies_required_sparql_predicates(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            requirements: &[(SparqlThisPredicateDirection, &str)],
+        ) -> Result<bool, String> {
+            for (direction, predicate_iri) in requirements {
+                let present = match direction {
+                    SparqlThisPredicateDirection::Outgoing => {
+                        focus_has_outgoing_predicate_in_validation_graphs(
+                            store,
+                            data_graph,
+                            focus,
+                            predicate_iri,
+                        )?
+                    }
+                    SparqlThisPredicateDirection::Incoming => {
+                        focus_has_incoming_predicate_in_validation_graphs(
+                            store,
+                            data_graph,
+                            focus,
+                            predicate_iri,
+                        )?
+                    }
+                };
+                if !present {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+
+        fn focus_has_outgoing_predicate_in_validation_graphs(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<bool, String> {
+            let subject = match focus {
+                oxigraph::model::Term::NamedNode(node) => node.as_ref().into(),
+                oxigraph::model::Term::BlankNode(node) => node.as_ref().into(),
+                _ => return Ok(false),
+            };
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri)
+                .map_err(|err| format!("invalid required SPARQL predicate IRI: {err}"))?;
+            for graph in validation_graphs(data_graph)? {
+                let mut matches = store.quads_for_pattern(
+                    Some(subject),
+                    Some(predicate.as_ref()),
+                    None,
+                    Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                );
+                if let Some(quad) = matches.next() {
+                    quad.map_err(|err| {
+                        format!("failed to scan outgoing predicate prefilter: {err}")
+                    })?;
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        fn focus_has_incoming_predicate_in_validation_graphs(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            predicate_iri: &str,
+        ) -> Result<bool, String> {
+            let predicate = oxigraph::model::NamedNode::new(predicate_iri)
+                .map_err(|err| format!("invalid required SPARQL predicate IRI: {err}"))?;
+            for graph in validation_graphs(data_graph)? {
+                let mut matches = store.quads_for_pattern(
+                    None,
+                    Some(predicate.as_ref()),
+                    Some(focus.as_ref()),
+                    Some(oxigraph::model::GraphNameRef::NamedNode(graph.as_ref())),
+                );
+                if let Some(quad) = matches.next() {
+                    quad.map_err(|err| {
+                        format!("failed to scan incoming predicate prefilter: {err}")
+                    })?;
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        fn brace_starts_subquery(query: &str, brace_byte_idx: usize) -> bool {
+            let rest = match query.get(brace_byte_idx + 1..) {
+                Some(slice) => slice,
+                None => return false,
+            };
+            let rest = rest.trim_start();
+            let upper = rest.to_ascii_uppercase();
+            upper.starts_with("SELECT")
+                || upper.starts_with("CONSTRUCT")
+                || upper.starts_with("ASK")
+                || upper.starts_with("DESCRIBE")
+        }
+
+        fn inject_bindings_everywhere(query: &str, bindings_clause: &str) -> String {
+            let mut out = String::with_capacity(
+                query.len() + bindings_clause.len().saturating_mul(4),
+            );
+            let mut chars = query.char_indices().peekable();
+            while let Some((idx, ch)) = chars.next() {
+                out.push(ch);
+                if ch == '{' {
+                    if brace_starts_subquery(query, idx) {
+                        continue;
+                    }
+                    out.push('\n');
+                    out.push_str(bindings_clause);
+                    out.push('\n');
+                    while let Some((_, next)) = chars.peek() {
+                        if next.is_whitespace() {
+                            out.push(*next);
+                            let _ = chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            out
+        }
+
+        fn term_is_true_boolean(term: &oxigraph::model::Term) -> bool {
+            match term {
+                oxigraph::model::Term::Literal(literal) => {
+                    literal.datatype() == oxigraph::model::vocab::xsd::BOOLEAN
+                        && literal.value() == "true"
+                }
+                _ => false,
+            }
+        }
+
+        thread_local! {
+            static SPARQL_PREPARED_CACHE: std::cell::RefCell<
+                std::collections::HashMap<String, oxigraph::sparql::PreparedSparqlQuery>
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+
+        fn sparql_with_bindings<T, F>(
+            query: &str,
+            prefixes: &str,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            bindings: &[(&str, oxigraph::model::Term)],
+            handler: F,
+        ) -> Result<T, String>
+        where
+            F: FnOnce(oxigraph::sparql::QueryResults) -> Result<T, String>,
+        {
+            let mut normalized_query = query.replace('$', "?");
+            let mut bind_lines: Vec<String> = Vec::new();
+            let mut remaining: Vec<(&str, oxigraph::model::Term)> = Vec::new();
+            for (name, term) in bindings {
+                if !query_mentions_var(query, name) {
+                    continue;
+                }
+                if let Some(ground) = term_to_sparql_ground(term) {
+                    bind_lines.push(format!("BIND({ground} AS ?{name})"));
+                } else {
+                    remaining.push((*name, term.clone()));
+                }
+            }
+            if !bind_lines.is_empty() {
+                normalized_query =
+                    inject_bindings_everywhere(&normalized_query, &bind_lines.join("\n"));
+            }
+            let query_str = if prefixes.trim().is_empty() {
+                normalized_query
+            } else {
+                format!("{prefixes}\n{normalized_query}")
+            };
+
+            let mut prepared = SPARQL_PREPARED_CACHE.with(
+                |cache| -> Result<oxigraph::sparql::PreparedSparqlQuery, String> {
+                    let mut cache = cache.borrow_mut();
+                    if let Some(cached) = cache.get(&query_str) {
+                        return Ok(cached.clone());
+                    }
+                    let parsed = oxigraph::sparql::SparqlEvaluator::new()
+                        .parse_query(&query_str)
+                        .map_err(|err| format!("failed to parse SPARQL query: {err}"))?;
+                    cache.insert(query_str.clone(), parsed.clone());
+                    Ok(parsed)
+                }
+            )?;
+
+            let default_graphs: Vec<oxigraph::model::GraphName> = validation_graphs(data_graph)?
+                .into_iter()
+                .map(oxigraph::model::GraphName::NamedNode)
+                .collect();
+            prepared.dataset_mut().set_default_graph(default_graphs);
+
+            let mut bound = prepared.on_store(store);
+            for (name, term) in remaining {
+                bound = bound.substitute_variable(
+                    oxigraph::sparql::Variable::new_unchecked(name),
+                    term,
+                );
+            }
+            let results = bound
+                .execute()
+                .map_err(|err| format!("failed to execute SPARQL query: {err}"))?;
+            handler(results)
+        }
+
+        fn sparql_select_solutions_with_bindings(
+            query: &str,
+            prefixes: &str,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            bindings: &[(&str, oxigraph::model::Term)],
+        ) -> Result<Vec<std::collections::HashMap<String, oxigraph::model::Term>>, String> {
+            sparql_with_bindings(
+                query,
+                prefixes,
+                store,
+                data_graph,
+                bindings,
+                |results| {
+                    let mut rows = Vec::new();
+                    match results {
+                        oxigraph::sparql::QueryResults::Solutions(solutions) => {
+                            for solution in solutions {
+                                let solution =
+                                    solution.map_err(|err| format!("SPARQL solution error: {err}"))?;
+                                let mut row = std::collections::HashMap::new();
+                                for variable in solution.variables() {
+                                    if let Some(term) = solution.get(variable) {
+                                        row.insert(variable.as_str().to_string(), term.clone());
+                                    }
+                                }
+                                rows.push(row);
+                            }
+                            Ok(rows)
+                        }
+                        _ => Ok(Vec::new()),
+                    }
+                },
+            )
+        }
+
+        fn sparql_ask_with_bindings(
+            query: &str,
+            prefixes: &str,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            bindings: &[(&str, oxigraph::model::Term)],
+        ) -> Result<bool, String> {
+            sparql_with_bindings(
+                query,
+                prefixes,
+                store,
+                data_graph,
+                bindings,
+                |results| match results {
+                    oxigraph::sparql::QueryResults::Boolean(result) => Ok(result),
+                    oxigraph::sparql::QueryResults::Solutions(_) => Ok(false),
+                    oxigraph::sparql::QueryResults::Graph(_) => Ok(false),
+                },
+            )
+        }
+
+        fn compare_terms_with_operator(
+            store: &oxigraph::store::Store,
+            left: &oxigraph::model::Term,
+            right: &oxigraph::model::Term,
+            operator: &str,
+            incomparable_is_valid: bool,
+        ) -> Result<bool, String> {
+            if let Some(ordering) = compare_terms_fast(left, right) {
+                let result = match operator {
+                    "<" => ordering == std::cmp::Ordering::Less,
+                    "<=" => {
+                        ordering == std::cmp::Ordering::Less || ordering == std::cmp::Ordering::Equal
+                    }
+                    ">" => ordering == std::cmp::Ordering::Greater,
+                    ">=" => {
+                        ordering == std::cmp::Ordering::Greater
+                            || ordering == std::cmp::Ordering::Equal
+                    }
+                    _ => false,
+                };
+                return Ok(result);
+            }
+
+            let query = format!(
+                "ASK {{ FILTER({} {} {}) }}",
+                term_to_sparql(left),
+                operator,
+                term_to_sparql(right),
+            );
+
+            #[allow(deprecated)]
+            let result = store.query(query.as_str());
+            match result {
+                Ok(oxigraph::sparql::QueryResults::Boolean(valid)) => Ok(valid),
+                Ok(_) => Ok(false),
+                Err(_) => Ok(incomparable_is_valid),
+            }
+        }
+
+        fn compare_serialized_term_with_operator(
+            store: &oxigraph::store::Store,
+            left_serialized_term: &str,
+            right_term: &oxigraph::model::Term,
+            operator: &str,
+            incomparable_is_valid: bool,
+        ) -> Result<bool, String> {
+            let query = format!(
+                "ASK {{ FILTER({} {} {}) }}",
+                left_serialized_term,
+                operator,
+                term_to_sparql(right_term),
+            );
+            #[allow(deprecated)]
+            let result = store.query(query.as_str());
+            match result {
+                Ok(oxigraph::sparql::QueryResults::Boolean(valid)) => Ok(valid),
+                Ok(_) => Ok(false),
+                Err(_) => Ok(incomparable_is_valid),
+            }
+        }
+
+        pub fn reset_runtime_shape_conformance_cache() {
+            reset_srcgen_shape_conformance_cache();
+        }
+
+        pub fn runtime_shape_conforms(
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            shape_iri: &str,
+            focus: &oxigraph::model::Term,
+        ) -> Result<bool, String> {
+            srcgen_shape_conforms(store, data_graph, shape_iri, focus)
+        }
+
+        pub fn validate_supported_property_shape(
+            shape_id: u64,
+            parent_node_shape_id: u64,
+            store: &oxigraph::store::Store,
+            data_graph: &oxigraph::model::NamedNode,
+            focus: &oxigraph::model::Term,
+            violations: &mut Vec<Violation>,
+        ) -> Result<(), String> {
+            match shape_id {
+                #(#match_arms,)*
+                _ => {}
+            }
+            Ok(())
+        }
+    };
+
+    render_tokens_as_module(tokens)
+}

@@ -7,11 +7,13 @@
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::named_nodes::SHACL;
 use crate::runtime::ValidationFailure;
+use crate::runtime::component::Component;
 use crate::types::{Path, Severity};
+use crate::{canonicalization::deskolemize_graph, skolem::skolem_base};
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::vocab::rdf;
 use oxigraph::model::{
-    BlankNode, Graph, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject,
+    BlankNode, Graph, GraphNameRef, Literal, NamedOrBlankNode, NamedOrBlankNode as Subject,
     NamedOrBlankNodeRef as SubjectRef, Quad, Term, TermRef, Triple,
 };
 use std::collections::{HashMap, HashSet}; // For using Term as a HashMap key
@@ -145,38 +147,68 @@ pub struct ValidationReportBuilder {
 }
 
 impl ValidationReportBuilder {
+    fn default_message_term(
+        failure: &ValidationFailure,
+        validation_context: &ValidationContext,
+    ) -> Option<Term> {
+        let component = validation_context.get_component(&failure.component_id)?;
+        match component {
+            Component::ClassConstraint(class_constraint) => {
+                if !failure.message.is_empty() {
+                    Some(Term::from(Literal::new_simple_literal(
+                        failure.message.clone(),
+                    )))
+                } else {
+                    Some(Term::from(Literal::new_simple_literal(format!(
+                        "Value must be an instance of {}",
+                        class_constraint.class_term()
+                    ))))
+                }
+            }
+            _ if !failure.message.is_empty() => Some(Term::from(Literal::new_simple_literal(
+                failure.message.clone(),
+            ))),
+            _ => None,
+        }
+    }
+
     fn effective_severity(
         context: &Context,
         failure: &ValidationFailure,
         validation_context: &ValidationContext,
     ) -> Severity {
         if let Some(severity) = &failure.severity {
-            return severity.clone();
+            severity.clone()
+        } else {
+            match context.source_shape() {
+                SourceShape::NodeShape(id) => validation_context
+                    .model
+                    .get_node_shape_by_id(&id)
+                    .map(|s| s.severity().clone())
+                    .unwrap_or(Severity::Violation),
+                SourceShape::PropertyShape(id) => validation_context
+                    .model
+                    .get_prop_shape_by_id(&id)
+                    .map(|s| s.severity().clone())
+                    .unwrap_or(Severity::Violation),
+            }
         }
+    }
 
-        match context.source_shape() {
-            SourceShape::NodeShape(id) => validation_context
-                .model
-                .get_node_shape_by_id(&id)
-                .map(|s| s.severity().clone())
-                .unwrap_or(Severity::Violation),
-            SourceShape::PropertyShape(id) => validation_context
-                .model
-                .get_prop_shape_by_id(&id)
-                .map(|s| s.severity().clone())
-                .unwrap_or(Severity::Violation),
+    fn causes_nonconformance(
+        context: &Context,
+        failure: &ValidationFailure,
+        validation_context: &ValidationContext,
+    ) -> bool {
+        match Self::effective_severity(context, failure, validation_context) {
+            Severity::Info | Severity::Warning => validation_context.warnings_are_errors(),
+            _ => true,
         }
     }
 
     pub(crate) fn conforms(&self, validation_context: &ValidationContext) -> bool {
-        self.results.iter().all(|(ctx, failure)| {
-            let sev = Self::effective_severity(ctx, failure, validation_context);
-            match sev {
-                Severity::Violation => false,
-                Severity::Warning => !validation_context.warnings_are_errors(),
-                Severity::Info => true,
-                Severity::Custom(_) => false,
-            }
+        !self.results.iter().any(|(context, failure)| {
+            Self::causes_nonconformance(context, failure, validation_context)
         })
     }
 
@@ -243,24 +275,7 @@ impl ValidationReportBuilder {
         vc: &ValidationContext,
     ) -> Term {
         let sh = SHACL::new();
-        let default_violation = Term::from(sh.violation);
-
-        if let Some(severity) = &failure.severity {
-            return severity_to_term(severity, &sh);
-        }
-
-        match context.source_shape() {
-            SourceShape::PropertyShape(prop_id) => vc
-                .model
-                .get_prop_shape_by_id(&prop_id)
-                .map(|ps| severity_to_term(ps.severity(), &sh))
-                .unwrap_or(default_violation),
-            SourceShape::NodeShape(node_id) => vc
-                .model
-                .get_node_shape_by_id(&node_id)
-                .map(|ns| severity_to_term(ns.severity(), &sh))
-                .unwrap_or(default_violation),
-        }
+        severity_to_term(&Self::effective_severity(context, failure, vc), &sh)
     }
 
     /// Constructs an `oxigraph::model::Graph` representing the validation report.
@@ -291,7 +306,7 @@ impl ValidationReportBuilder {
             Term::from(Literal::from(conforms)),
         ));
 
-        if !conforms {
+        if !self.results.is_empty() {
             for (context, failure) in &self.results {
                 let result_node: Subject = BlankNode::default().into();
                 graph.insert(&Triple::new(
@@ -316,21 +331,26 @@ impl ValidationReportBuilder {
                 // sh:resultMessage
                 let mut message_terms = Vec::new();
 
-                if let Some(shape_term) = context.source_shape().get_term(validation_context) {
-                    message_terms.extend(fetch_shape_messages(validation_context, &shape_term));
-                }
+                if !failure.message_terms.is_empty() {
+                    message_terms.extend(failure.message_terms.iter().cloned());
+                } else {
+                    if let Some(shape_term) = context.source_shape().get_term(validation_context) {
+                        message_terms.extend(fetch_shape_messages(validation_context, &shape_term));
+                    }
 
-                if message_terms.is_empty() {
-                    if let Some(constraint_term) = &failure.source_constraint {
+                    if message_terms.is_empty()
+                        && let Some(constraint_term) = &failure.source_constraint
+                    {
                         message_terms
                             .extend(fetch_shape_messages(validation_context, constraint_term));
                     }
                 }
 
-                for term in &failure.message_terms {
-                    if !message_terms.contains(term) {
-                        message_terms.push(term.clone());
-                    }
+                if message_terms.is_empty()
+                    && let Some(default_message) =
+                        Self::default_message_term(failure, validation_context)
+                {
+                    message_terms.push(default_message);
                 }
 
                 if !message_terms.is_empty() {
@@ -443,7 +463,17 @@ impl ValidationReportBuilder {
             follow_bnodes_in_report(&mut graph, validation_context);
         }
 
-        graph
+        let mut deskolemized = graph;
+        if let GraphNameRef::NamedNode(data_graph) = validation_context.data_graph_iri_ref() {
+            let base = skolem_base(&data_graph.into_owned());
+            deskolemized = deskolemize_graph(&deskolemized, &base);
+        }
+        if let GraphNameRef::NamedNode(shape_graph) = validation_context.shape_graph_iri_ref() {
+            let base = skolem_base(&shape_graph.into_owned());
+            deskolemized = deskolemize_graph(&deskolemized, &base);
+        }
+
+        deskolemized
     }
 
     /// Serializes the validation report to a string in the specified RDF format.

@@ -3,37 +3,40 @@
 
 // Publicly visible items
 pub mod backend;
+pub mod compiled_runtime;
 pub mod inference;
 pub mod ir;
 pub mod ir_cache;
 pub mod model;
+pub mod optimize;
 pub mod shacl_ir;
 pub mod shape;
 pub(crate) mod skolem;
 pub mod trace;
 pub mod types;
 
+pub use crate::context::SourceShape;
 pub use inference::{InferenceConfig, InferenceError, InferenceOutcome};
+pub use optimize::InferenceOptimizationConfig;
 pub use report::{ValidationReport, ValidationReportOptions};
 pub use types::ComponentID;
 
 // Internal modules.
 pub mod canonicalization;
-pub(crate) mod context;
+pub mod context;
 pub(crate) mod named_nodes;
-pub(crate) mod optimize;
 pub(crate) mod parser;
 pub(crate) mod planning;
 pub(crate) mod report;
 pub(crate) mod runtime;
-pub(crate) mod sparql;
+pub mod sparql;
 pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
 use crate::canonicalization::skolemize;
 use crate::context::model::OriginalValueIndex;
 use crate::context::{
-    render_heatmap_graphviz, render_shapes_graphviz, ParsingContext, ShapesModel, ValidationContext,
+    ParsingContext, ShapesModel, ValidationContext, render_heatmap_graphviz, render_shapes_graphviz,
 };
 use crate::optimize::Optimizer;
 use crate::parser as shacl_parser;
@@ -46,7 +49,7 @@ use ontoenv::ontology::{GraphIdentifier, OntologyLocation};
 use ontoenv::options::CacheMode;
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad, Term};
+use oxigraph::model::{BlankNode, GraphName, GraphNameRef, NamedNode, Quad, Term};
 use oxigraph::store::Store;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -68,6 +71,13 @@ pub enum Source {
     Quads { graph: String, quads: Vec<Quad> },
     /// An in-memory empty graph (used when a data graph is not needed).
     Empty,
+}
+
+#[derive(Debug, Clone)]
+struct LoadedSource {
+    graph_iri: NamedNode,
+    in_env: bool,
+    graph_id: Option<GraphIdentifier>,
 }
 
 /// Aggregated graph-call counters for a specific constraint component execution context.
@@ -328,7 +338,11 @@ impl ValidatorBuilder {
         self
     }
 
-    /// Force-refresh ontologies instead of using cached entries (default: use cache).
+    /// Force-refresh OntoEnv-backed sources instead of using cached entries.
+    ///
+    /// When `false`, successful OntoEnv loads are trusted as the source of truth for the
+    /// root graphs and any resolved imports closure. The validator may still materialize
+    /// a separate working store for validation-time mutations.
     pub fn with_force_refresh(mut self, force_refresh: bool) -> Self {
         self.refresh_strategy = if force_refresh {
             RefreshStrategy::Force
@@ -344,8 +358,12 @@ impl ValidatorBuilder {
         self
     }
 
-    /// Store OntoEnv data in a temporary directory (default: true). Set to false to
-    /// reuse a local OntoEnv cache if present.
+    /// Store OntoEnv data in a temporary directory (default: true).
+    ///
+    /// Set to `false` to reuse a local OntoEnv cache if present. Persistent OntoEnv
+    /// workspaces are treated as cached sources of named graphs; validation still uses a
+    /// mutable working store so later steps like skolemization, graph unioning, and store
+    /// optimization do not mutate the cached workspace.
     pub fn with_temporary_env(mut self, temporary_env: bool) -> Self {
         self.temporary_env = temporary_env;
         self
@@ -422,6 +440,7 @@ impl ValidatorBuilder {
 
         let (
             shapes_graph_iri,
+            shapes_graph_id,
             data_graph_iri,
             mut shape_graphs_for_union,
             _merged_closure_ids,
@@ -429,8 +448,12 @@ impl ValidatorBuilder {
         ) = {
             let mut env = env_handle.write().unwrap();
             let include_imports_on_add = do_imports && import_depth != 0;
-            let (shapes_graph_iri, shapes_in_env) = if let Some(ir) = shape_ir.as_ref() {
-                (ir.shape_graph.clone(), false)
+            let shapes_source_info = if let Some(ir) = shape_ir.as_ref() {
+                LoadedSource {
+                    graph_iri: ir.shape_graph.clone(),
+                    in_env: false,
+                    graph_id: None,
+                }
             } else {
                 let source = shapes_source
                     .as_ref()
@@ -444,24 +467,29 @@ impl ValidatorBuilder {
                     import_depth,
                 )?
             };
-            let (data_graph_iri, data_in_env) = match &data_source {
-                Source::Empty => (
-                    NamedNode::new("urn:shifty:null-data")
+            let shapes_graph_iri = shapes_source_info.graph_iri.clone();
+            let shapes_in_env = shapes_source_info.in_env;
+            let shapes_graph_id = shapes_source_info.graph_id.clone();
+
+            let data_source_info = match &data_source {
+                Source::Empty => LoadedSource {
+                    graph_iri: NamedNode::new("urn:shifty:null-data")
                         .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn Error>)?,
-                    false,
-                ),
-                _ => {
-                    let (iri, in_env) = Self::add_source(
-                        &mut env,
-                        &data_source,
-                        "data",
-                        include_imports_on_add,
-                        refresh_strategy,
-                        import_depth,
-                    )?;
-                    (iri, in_env)
-                }
+                    in_env: false,
+                    graph_id: None,
+                },
+                _ => Self::add_source(
+                    &mut env,
+                    &data_source,
+                    "data",
+                    include_imports_on_add,
+                    refresh_strategy,
+                    import_depth,
+                )?,
             };
+            let data_graph_iri = data_source_info.graph_iri.clone();
+            let data_in_env = data_source_info.in_env;
+            let data_graph_id = data_source_info.graph_id.clone();
 
             let shapes_quads_import_graphs = if do_imports && !shapes_in_env {
                 if let Some(Source::Quads { quads, .. }) = shapes_source.as_ref() {
@@ -481,6 +509,7 @@ impl ValidatorBuilder {
             let data_closure_ids = if do_imports && data_in_env {
                 Some(Self::resolve_closure_ids_for_graph(
                     &mut env,
+                    data_graph_id.as_ref(),
                     &data_graph_iri,
                     import_depth,
                     "data",
@@ -488,16 +517,17 @@ impl ValidatorBuilder {
             } else {
                 None
             };
-            if do_imports && !data_in_env {
-                if let Source::Quads { quads, .. } = &data_source {
-                    let _ = Self::load_import_graphs_for_quads(
-                        &mut env,
-                        quads,
-                        import_depth,
-                        "data",
-                        refresh_strategy,
-                    )?;
-                }
+            if do_imports
+                && !data_in_env
+                && let Source::Quads { quads, .. } = &data_source
+            {
+                let _ = Self::load_import_graphs_for_quads(
+                    &mut env,
+                    quads,
+                    import_depth,
+                    "data",
+                    refresh_strategy,
+                )?;
             }
             let data_contains_shapes = data_closure_ids
                 .as_ref()
@@ -512,6 +542,7 @@ impl ValidatorBuilder {
                 } else {
                     Some(Self::resolve_closure_ids_for_graph(
                         &mut env,
+                        shapes_graph_id.as_ref(),
                         &shapes_graph_iri,
                         import_depth,
                         "shapes",
@@ -566,6 +597,9 @@ impl ValidatorBuilder {
                 }
             }
 
+            // OntoEnv is the cached source of named graphs and imports closures.
+            // The validator builds or selects a working store from those loaded graphs.
+            // Persistent OntoEnv workspaces are not mutated during validation.
             let store = if do_imports {
                 if let Some(ids) = &merged_closure_ids {
                     let can_reuse_env_store = Self::can_reuse_ontoenv_store_for_imports(
@@ -632,6 +666,7 @@ impl ValidatorBuilder {
 
             (
                 shapes_graph_iri,
+                shapes_graph_id,
                 data_graph_iri,
                 shape_graphs_for_union,
                 merged_closure_ids,
@@ -657,8 +692,21 @@ impl ValidatorBuilder {
         }
         Self::dedup_graphs(&mut shape_graphs_for_union);
 
+        if shape_ir.is_none() {
+            let _ = shapes_source.as_ref().ok_or_else(|| {
+                Box::new(std::io::Error::other(
+                    "shapes source must be specified when shape IR is absent",
+                )) as Box<dyn Error>
+            })?;
+        }
+
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
+
+        if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
+            let root_shape_graph = std::slice::from_ref(&shapes_graph_iri);
+            Self::union_shapes_into_data_graph(&store, root_shape_graph, &data_graph_iri)?;
+        }
 
         let data_skolem_base = if skolemize_data {
             Some(Self::skolem_base(&data_graph_iri))
@@ -711,6 +759,7 @@ impl ValidatorBuilder {
                 Arc::clone(&env_handle),
                 store,
                 shapes_graph_iri.clone(),
+                shapes_graph_id.clone(),
                 data_graph_iri.clone(),
                 model_config,
             )?;
@@ -727,14 +776,6 @@ impl ValidatorBuilder {
             })?;
             (model, Arc::new(shape_ir))
         };
-
-        if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
-            Self::union_shapes_into_data_graph(
-                &model.store,
-                &shape_graphs_for_union,
-                &data_graph_iri,
-            )?;
-        }
 
         if optimize_store {
             info!(
@@ -760,6 +801,7 @@ impl ValidatorBuilder {
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
+            use_shapes_graph_union,
             warnings_are_errors,
             skip_sparql_blank_targets,
             shape_ir_arc,
@@ -819,7 +861,7 @@ impl ValidatorBuilder {
         include_imports: bool,
         refresh_strategy: RefreshStrategy,
         import_depth: i32,
-    ) -> Result<(NamedNode, bool), Box<dyn Error>> {
+    ) -> Result<LoadedSource, Box<dyn Error>> {
         let file_path = match source {
             Source::File(path) => {
                 let abs = if path.is_absolute() {
@@ -880,7 +922,11 @@ impl ValidatorBuilder {
                 quads.len()
             );
             info!("Added {} graph from in-memory quads: {}", label, graph_iri);
-            return Ok((graph_iri, false));
+            return Ok(LoadedSource {
+                graph_iri,
+                in_env: false,
+                graph_id: None,
+            });
         }
 
         // Try OntoEnv first.
@@ -917,26 +963,30 @@ impl ValidatorBuilder {
                 return Err(Box::new(std::io::Error::other(format!(
                     "Empty source is not loadable for {} graph",
                     label
-                ))))
+                ))));
             }
             Source::Quads { .. } => unreachable!("in-memory quads handled above"),
         };
 
         // Resolve through OntoEnv when possible.
-        if let Ok(graph_id) = from_env {
-            if let Ok(ontology) = env.get_ontology(&graph_id) {
-                let graph_iri = ontology.name().clone();
-                let location = ontology
-                    .location()
-                    .map(|loc| loc.as_str().to_string())
-                    .unwrap_or_else(|| "<unknown>".into());
-                debug!(
-                    "Loaded {} graph {} (location {})",
-                    label, graph_iri, location
-                );
-                info!("Added {} graph: {}", label, graph_iri);
-                return Ok((graph_iri, true));
-            }
+        if let Ok(graph_id) = from_env
+            && let Ok(ontology) = env.get_ontology(&graph_id)
+        {
+            let graph_iri = ontology.name().clone();
+            let location = ontology
+                .location()
+                .map(|loc| loc.as_str().to_string())
+                .unwrap_or_else(|| "<unknown>".into());
+            debug!(
+                "Loaded {} graph {} (location {})",
+                label, graph_iri, location
+            );
+            info!("Added {} graph: {}", label, graph_iri);
+            return Ok(LoadedSource {
+                graph_iri,
+                in_env: true,
+                graph_id: Some(graph_id),
+            });
         }
 
         // Fallback: manual Turtle parse into the env store (keeps the graph name stable).
@@ -946,7 +996,7 @@ impl ValidatorBuilder {
                 return Err(Box::new(std::io::Error::other(format!(
                     "Failed to resolve {} graph {} via OntoEnv",
                     label, fallback_location
-                ))))
+                ))));
             }
         };
         let iri = Url::from_file_path(path)
@@ -1033,7 +1083,11 @@ impl ValidatorBuilder {
             label, graph_iri, fallback_location
         );
 
-        Ok((graph_iri, false))
+        Ok(LoadedSource {
+            graph_iri,
+            in_env: false,
+            graph_id: None,
+        })
     }
 
     fn extract_import_iris_from_quads(quads: &[Quad]) -> Vec<String> {
@@ -1108,21 +1162,6 @@ impl ValidatorBuilder {
             };
             let imported_graph_iri = graph_id.name().into_owned();
 
-            let graph_id = match env.resolve(ResolveTarget::Graph(imported_graph_iri.clone())) {
-                Some(id) => id,
-                None => {
-                    let message = format!(
-                        "Failed to resolve imported {} graph {} after loading",
-                        label, imported_graph_iri
-                    );
-                    if strict {
-                        return Err(std::io::Error::other(message).into());
-                    }
-                    warn!("{}", message);
-                    continue;
-                }
-            };
-
             let closure = match env.get_closure(&graph_id, closure_depth) {
                 Ok(ids) => ids,
                 Err(err) => {
@@ -1186,18 +1225,22 @@ impl ValidatorBuilder {
 
     fn resolve_closure_ids_for_graph(
         env: &mut OntoEnv,
+        graph_id: Option<&GraphIdentifier>,
         graph_iri: &NamedNode,
         import_depth: i32,
         label: &str,
     ) -> Result<Vec<GraphIdentifier>, Box<dyn Error>> {
-        let graph_id = env
-            .resolve(ResolveTarget::Graph(graph_iri.clone()))
-            .ok_or_else(|| {
-                Box::new(std::io::Error::other(format!(
-                    "Ontology not found for {} graph {}",
-                    label, graph_iri
-                ))) as Box<dyn Error>
-            })?;
+        let graph_id = match graph_id {
+            Some(id) => id.clone(),
+            None => env
+                .resolve(ResolveTarget::Graph(graph_iri.clone()))
+                .ok_or_else(|| {
+                    Box::new(std::io::Error::other(format!(
+                        "Ontology not found for {} graph {}",
+                        label, graph_iri
+                    ))) as Box<dyn Error>
+                })?,
+        };
         let mut closure_ids = env.get_closure(&graph_id, import_depth).map_err(|e| {
             Box::new(std::io::Error::other(format!(
                 "Failed to build imports closure for {} graph {}: {}",
@@ -1228,10 +1271,10 @@ impl ValidatorBuilder {
         }
         if let Some(ids) = secondary_ids {
             for id in ids {
-                if let Some(primary) = primary_by_uri.get(id.name().as_str()) {
-                    if *primary != id {
-                        return true;
-                    }
+                if let Some(primary) = primary_by_uri.get(id.name().as_str())
+                    && *primary != id
+                {
+                    return true;
                 }
             }
         }
@@ -1351,6 +1394,7 @@ impl ValidatorBuilder {
         env: SharedEnvHandle,
         store: Store,
         shape_graph_iri: NamedNode,
+        shape_graph_id: Option<GraphIdentifier>,
         data_graph_iri: NamedNode,
         config: BuildShapesModelConfig,
     ) -> Result<ShapesModel, Box<dyn Error>> {
@@ -1390,6 +1434,7 @@ impl ValidatorBuilder {
             rule_id_lookup: final_ctx.rule_id_lookup,
             store: final_ctx.store,
             shape_graph_iri: final_ctx.shape_graph_iri,
+            shape_graph_id,
             node_shapes: final_ctx.node_shapes,
             prop_shapes: final_ctx.prop_shapes,
             component_descriptors: final_ctx.component_descriptors,
@@ -1636,11 +1681,70 @@ impl Validator {
         self.context.shape_ir()
     }
 
+    /// Evaluates whether a specific focus node conforms to the given node shape identifier.
+    ///
+    /// `shape_id` accepts either a node-shape IRI or a blank-node label in `_:label` form.
+    pub fn node_conforms_to_shape_id(
+        &self,
+        focus_node: &Term,
+        shape_id: &str,
+    ) -> Result<bool, String> {
+        let shape_term = if let Some(blank_id) = shape_id.strip_prefix("_:") {
+            let blank = BlankNode::new(blank_id)
+                .map_err(|err| format!("invalid node shape blank node id {shape_id}: {err}"))?;
+            Term::BlankNode(blank)
+        } else {
+            let named = NamedNode::new(shape_id)
+                .map_err(|err| format!("invalid node shape IRI {shape_id}: {err}"))?;
+            Term::NamedNode(named)
+        };
+
+        let shape_ir = self.context.shape_ir();
+        let Some(node_shape_id) = shape_ir.node_shape_terms.iter().find_map(|(id, term)| {
+            if term == &shape_term { Some(*id) } else { None }
+        }) else {
+            return Err(format!(
+                "node shape identifier {shape_id} was not found in the loaded shape graph"
+            ));
+        };
+        let Some(shape) = self.context.model.get_node_shape_by_id(&node_shape_id) else {
+            return Err(format!(
+                "node shape {:?} for identifier {shape_id} is missing from the runtime model",
+                node_shape_id
+            ));
+        };
+
+        let mut context = crate::context::Context::new(
+            focus_node.clone(),
+            None,
+            Some(vec![focus_node.clone()]),
+            crate::context::SourceShape::NodeShape(node_shape_id),
+            self.context.new_trace(),
+        );
+        let mut trace = Vec::new();
+        let mut events = Vec::new();
+        let report = crate::runtime::component::check_conformance_for_node(
+            &mut context,
+            shape,
+            &self.context,
+            &mut trace,
+            &mut events,
+            None,
+        )?;
+        self.context.trace_sink.record_batch(events);
+        Ok(matches!(
+            report,
+            crate::runtime::component::ConformanceReport::Conforms
+        ))
+    }
+
     /// Returns a SHACL-IR copy with owl:imports resolved into the shapes graph.
     pub fn shape_ir_with_imports(&self, import_depth: i32) -> Result<ShapeIR, String> {
         let mut shape_ir = self.context.shape_ir().clone();
         let shapes_graph = shape_ir.shape_graph.clone();
-        let graph_id = {
+        let graph_id = if let Some(id) = self.context.model.shape_graph_id.as_ref() {
+            id.clone()
+        } else {
             let env = self.context.model.env.read().unwrap();
             env.resolve(ResolveTarget::Graph(shapes_graph.clone()))
                 .ok_or_else(|| format!("Ontology not found for shapes graph {}", shapes_graph))?
@@ -1808,12 +1912,13 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::canonicalization::are_isomorphic;
     use crate::named_nodes::SHACL;
     use crate::runtime::Component;
     use crate::sparql::validate_prebound_variable_usage;
     use oxigraph::model::vocab::rdf;
     use oxigraph::model::{
-        GraphName, GraphNameRef, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
+        Graph, GraphName, GraphNameRef, Literal, NamedNode, NamedOrBlankNode, Quad, Term, TermRef,
     };
     use std::error::Error;
     use std::fs;
@@ -1846,6 +1951,21 @@ mod tests {
             })
     }
 
+    fn persistent_env_config(root: &Path) -> Result<Config, Box<dyn Error>> {
+        Config::builder()
+            .root(root.to_path_buf())
+            .locations(vec![root.to_path_buf()])
+            .offline(false)
+            .temporary(false)
+            .build()
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to build persistent test OntoEnv config: {}",
+                    e
+                ))) as Box<dyn Error>
+            })
+    }
+
     fn store_has_graph(store: &Store, graph_iri: &NamedNode) -> bool {
         store
             .quads_for_pattern(
@@ -1861,6 +1981,26 @@ mod tests {
     fn validator_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn extract_result_subgraph(report_graph: &Graph, subject: NamedOrBlankNode) -> Graph {
+        let mut subgraph = Graph::new();
+        let mut queue = vec![subject];
+        let mut visited = HashSet::new();
+
+        while let Some(node) = queue.pop() {
+            if !visited.insert(node.clone()) {
+                continue;
+            }
+            for triple in report_graph.triples_for_subject(node.as_ref()) {
+                subgraph.insert(triple);
+                if let TermRef::BlankNode(bn) = triple.object {
+                    queue.push(NamedOrBlankNode::from(bn.into_owned()));
+                }
+            }
+        }
+
+        subgraph
     }
 
     #[test]
@@ -2204,6 +2344,397 @@ mod tests {
     }
 
     #[test]
+    fn shape_ir_with_imports_uses_added_graph_id_when_ontology_iri_collides()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_shape_ir_collision")?;
+
+        let old_shapes_path = temp_dir.join("a_old.ttl");
+        let new_shapes_path = temp_dir.join("z_new.ttl");
+        let ontology_iri = "http://example.com/colliding-ontology";
+
+        let old_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology .\n\
+ex:OldShape a sh:NodeShape ; sh:targetNode ex:Alice .\n"
+        );
+        let new_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology .\n\
+ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
+        );
+
+        fs::write(&old_shapes_path, old_shapes)?;
+        fs::write(&new_shapes_path, new_shapes)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(new_shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let shape_ir = validator.shape_ir_with_imports(-1)?;
+        let has_new_shape = shape_ir
+            .shape_quads
+            .iter()
+            .any(|quad| quad.subject.to_string().contains("NewShape"));
+        let has_old_shape = shape_ir
+            .shape_quads
+            .iter()
+            .any(|quad| quad.subject.to_string().contains("OldShape"));
+
+        assert!(
+            has_new_shape,
+            "shape_ir_with_imports should include the explicitly added shapes file content"
+        );
+        assert!(
+            !has_old_shape,
+            "shape_ir_with_imports should not switch to another graph identifier that only matches by ontology IRI"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn root_graph_is_rewritten_from_requested_source_when_ontology_iri_collides()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_root_graph_collision")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        fs::write(
+            &imported_path,
+            "<http://example.com/imported-s> <http://example.com/imported-p> <http://example.com/imported-o> .\n",
+        )?;
+        let imported_url = format!("file://{}", imported_path.display());
+        let imported_graph = NamedNode::new(imported_url.clone())?;
+
+        let old_shapes_path = temp_dir.join("a_old.ttl");
+        let new_shapes_path = temp_dir.join("z_new.ttl");
+        let ontology_iri = "http://example.com/colliding-ontology";
+
+        let old_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:OldShape a sh:NodeShape ; sh:targetNode ex:Alice ; sh:deactivated true .\n"
+        );
+        let new_shapes = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{ontology_iri}> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:NewShape a sh:NodeShape ; sh:targetNode ex:Bob .\n"
+        );
+
+        fs::write(&old_shapes_path, old_shapes)?;
+        fs::write(&new_shapes_path, new_shapes)?;
+
+        let config = persistent_env_config(&temp_dir)?;
+
+        Validator::builder()
+            .with_shapes_source(Source::File(old_shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(config.clone())
+            .with_do_imports(true)
+            .build()?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(new_shapes_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(config)
+            .with_do_imports(true)
+            .build()?;
+
+        let shape_graph = validator.context.model.shape_graph_iri.clone();
+        let store = &validator.context.model.store;
+        let shape_graph_ref = GraphNameRef::NamedNode(shape_graph.as_ref());
+        let sh = SHACL::new();
+
+        let has_old_shape = store
+            .quads_for_pattern(
+                Some(
+                    NamedNode::new("http://example.com/ns#OldShape")?
+                        .as_ref()
+                        .into(),
+                ),
+                None,
+                None,
+                Some(shape_graph_ref),
+            )
+            .next()
+            .is_some();
+        let has_new_shape = store
+            .quads_for_pattern(
+                Some(
+                    NamedNode::new("http://example.com/ns#NewShape")?
+                        .as_ref()
+                        .into(),
+                ),
+                None,
+                None,
+                Some(shape_graph_ref),
+            )
+            .next()
+            .is_some();
+        let has_deactivated = store
+            .quads_for_pattern(
+                Some(
+                    NamedNode::new("http://example.com/ns#NewShape")?
+                        .as_ref()
+                        .into(),
+                ),
+                Some(sh.deactivated),
+                None,
+                Some(shape_graph_ref),
+            )
+            .next()
+            .is_some();
+
+        assert!(
+            has_new_shape,
+            "working shape graph should include the explicitly requested source graph"
+        );
+        assert!(
+            !has_old_shape,
+            "working shape graph should not retain stale quads from another source with the same ontology IRI"
+        );
+        assert!(
+            !has_deactivated,
+            "working shape graph should reflect the requested source, not a stale deactivated overlay"
+        );
+        assert!(
+            store_has_graph(store, &imported_graph),
+            "rewriting the root graph should preserve imported graphs in the working store"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn shapes_data_union_excludes_imported_shape_graphs() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_shapes_union_excludes_imports")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        let imported_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:UnitClass a <http://www.w3.org/2000/01/rdf-schema#Class> .
+ex:u a ex:UnitClass .
+"#;
+        fs::write(&imported_path, imported_ttl)?;
+        let imported_url = format!("file://{}", imported_path.display());
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<urn:shifty:test:root> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:Shape a sh:NodeShape ;\n\
+    sh:targetNode ex:s ;\n\
+    sh:property [\n\
+        sh:path ex:p ;\n\
+        sh:class ex:UnitClass\n\
+    ] .\n"
+        );
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:u .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let imported_type_quad = Quad::new(
+            NamedNode::new("http://example.com/ns#u")?,
+            rdf::TYPE,
+            NamedNode::new("http://example.com/ns#UnitClass")?,
+            GraphName::NamedNode(validator.context.data_graph_iri.clone()),
+        );
+        let data_quads = validator.data_graph_quads()?;
+        assert!(
+            !data_quads.contains(&imported_type_quad),
+            "shapes-data union should not copy imported ontology graphs into the data graph"
+        );
+
+        let report = validator.validate();
+        assert!(
+            report.conforms(),
+            "validation should still see imported class typing from the merged store"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_validation_uses_shape_data_union_for_property_pair_constraints()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_runtime_union_property_pair")?;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:q ex:o .
+
+ex:Shape a sh:NodeShape ;
+    sh:targetNode ex:s ;
+    sh:property [
+        sh:path ex:p ;
+        sh:equals ex:q
+    ] .
+"#;
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:o .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let union_validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path.clone()))
+            .with_data_source(Source::File(data_path.clone()))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .build()?;
+        assert!(
+            union_validator.validate().conforms(),
+            "runtime property-pair constraints should see values from the shapes+data union"
+        );
+
+        let no_union_validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_shapes_data_union(false)
+            .build()?;
+        assert!(
+            !no_union_validator.validate().conforms(),
+            "disabling the union should hide shapes-only comparison values from runtime validation"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_shape_data_union_deduplicates_identical_triples_for_counts()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_runtime_union_dedup_counts")?;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:o .
+
+ex:Shape a sh:NodeShape ;
+    sh:targetNode ex:s ;
+    sh:property [
+        sh:path ex:p ;
+        sh:maxCount 1
+    ] .
+"#;
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:o .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .build()?;
+        assert!(
+            validator.validate().conforms(),
+            "shape+data union should treat identical triples as one value for count-based constraints"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn imported_class_types_satisfy_class_constraints() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_imported_class_types")?;
+
+        let imported_path = temp_dir.join("imported.ttl");
+        let imported_ttl = r#"@prefix ex: <http://example.com/ns#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:UnitClass a rdfs:Class .
+ex:ImportedUnit a ex:UnitClass .
+"#;
+        fs::write(&imported_path, imported_ttl)?;
+        let imported_url = format!("file://{}", imported_path.display());
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let shapes_ttl = format!(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<urn:shifty:test:root> a owl:Ontology ; owl:imports <{imported_url}> .\n\
+ex:Shape a sh:NodeShape ;\n\
+    sh:targetNode ex:s ;\n\
+    sh:property [\n\
+        sh:path ex:p ;\n\
+        sh:class ex:UnitClass\n\
+    ] .\n"
+        );
+        fs::write(&shapes_path, shapes_ttl)?;
+
+        let data_path = temp_dir.join("data.ttl");
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:s ex:p ex:ImportedUnit .
+"#;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let report = validator.validate();
+        assert!(
+            report.conforms(),
+            "sh:class should accept values typed in imported ontology graphs"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
     fn custom_sparql_message_and_severity() -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_message_test")?;
@@ -2322,6 +2853,69 @@ ex:Alice a ex:Person ;
     }
 
     #[test]
+    fn report_validation_results_are_unique_by_isomorphism() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_report_unique_results")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:property [
+        sh:path ex:name ;
+        sh:minCount 1 ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing .
+ex:Bob a ex:Thing .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let report = validator.validate();
+        assert!(!report.conforms(), "Expected validation to fail");
+
+        let graph = report.to_graph();
+        let sh = SHACL::new();
+        let result_nodes: Vec<NamedOrBlankNode> = graph
+            .iter()
+            .filter(|triple| {
+                triple.predicate == rdf::TYPE
+                    && triple.object == TermRef::NamedNode(sh.validation_result)
+            })
+            .map(|triple| triple.subject.into_owned())
+            .collect();
+        assert_eq!(
+            result_nodes.len(),
+            2,
+            "Expected both named-node violations to be reported"
+        );
+        let result_graphs: Vec<Graph> = result_nodes
+            .into_iter()
+            .map(|node| extract_result_subgraph(&graph, node))
+            .collect();
+        assert!(
+            !are_isomorphic(&result_graphs[0], &result_graphs[1]),
+            "Validation results should remain unique by isomorphism"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
     fn template_definitions_registered_and_executed() -> Result<(), Box<dyn Error>> {
         let _guard = validator_lock().lock().unwrap();
         let temp_dir = unique_temp_dir("shacl_template_test")?;
@@ -2429,9 +3023,11 @@ ex:ThingB a ex:Thing ;
                 _ => None,
             })
             .collect();
-        assert!(custom_components
-            .iter()
-            .any(|c| c.definition.iri == template_iri && c.definition.template.is_some()));
+        assert!(
+            custom_components
+                .iter()
+                .any(|c| c.definition.iri == template_iri && c.definition.template.is_some())
+        );
 
         let shape_template_iri = NamedNode::new("http://example.com/ns#LabelShapeTemplate")?;
         let shape_template = validator
@@ -2480,13 +3076,15 @@ ex:Alice a ex:Person ;
         fs::write(&shapes_path, shapes_ttl).unwrap();
         fs::write(&data_path, data_ttl).unwrap();
 
-        assert!(validate_prebound_variable_usage(
-            "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
-            "unit-test",
-            true,
-            true,
-        )
-        .is_ok());
+        assert!(
+            validate_prebound_variable_usage(
+                "SELECT ?this ?value ?minScore WHERE { ?this ex:score ?value . }",
+                "unit-test",
+                true,
+                true,
+            )
+            .is_ok()
+        );
 
         let result =
             Validator::from_files(&shapes_path.to_string_lossy(), &data_path.to_string_lossy());
@@ -2506,12 +3104,1005 @@ ex:Alice a ex:Person ;
     #[test]
     fn custom_property_validator_allows_missing_path() {
         let _guard = validator_lock().lock().unwrap();
-        assert!(validate_prebound_variable_usage(
-            "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
-            "unit-test",
-            true,
-            true,
-        )
-        .is_ok());
+        assert!(
+            validate_prebound_variable_usage(
+                "SELECT ?this ?value WHERE { ?this ex:score ?value . }",
+                "unit-test",
+                true,
+                true,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn optimizer_prunes_target_subjects_of_when_predicate_absent() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_target_subjects_of")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:SubjectsShape
+    a sh:NodeShape ;
+    sh:targetSubjectsOf ex:missing ;
+    sh:class ex:Thing .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term = Term::NamedNode(NamedNode::new("http://example.com/ns#SubjectsShape")?);
+
+        let shape = validator
+            .context
+            .model
+            .node_shapes
+            .values()
+            .find(|shape| {
+                validator
+                    .context
+                    .model
+                    .nodeshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("shape should exist");
+        assert!(
+            shape.targets.is_empty(),
+            "targetSubjectsOf target should be pruned when its predicate is absent"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_prunes_target_objects_of_when_predicate_absent() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_target_objects_of")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ObjectsShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf ex:missing ;
+    sh:class ex:Thing .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other ex:Bob .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term = Term::NamedNode(NamedNode::new("http://example.com/ns#ObjectsShape")?);
+
+        let shape = validator
+            .context
+            .model
+            .node_shapes
+            .values()
+            .find(|shape| {
+                validator
+                    .context
+                    .model
+                    .nodeshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("shape should exist");
+        assert!(
+            shape.targets.is_empty(),
+            "targetObjectsOf target should be pruned when its predicate is absent"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_prunes_safe_top_level_property_shape_when_path_absent()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_property_safe_absent_path")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:LoosePropertyShape
+    a sh:PropertyShape ;
+    sh:targetClass ex:Thing ;
+    sh:path ex:missing ;
+    sh:datatype xsd:string .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term =
+            Term::NamedNode(NamedNode::new("http://example.com/ns#LoosePropertyShape")?);
+
+        let shape = validator
+            .context
+            .model
+            .prop_shapes
+            .values()
+            .find(|shape: &&crate::model::shapes::PropertyShape| {
+                validator
+                    .context
+                    .model
+                    .propshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("property shape should exist");
+        assert!(
+            shape.targets.is_empty(),
+            "top-level property shape should be pruned when its simple path is absent and all constraints are value-only"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_keeps_min_count_property_shape_when_path_absent() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_opt_property_min_count_absent_path")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:RequiredPropertyShape
+    a sh:PropertyShape ;
+    sh:targetClass ex:Thing ;
+    sh:path ex:missing ;
+    sh:minCount 1 .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+        let shape_term = Term::NamedNode(NamedNode::new(
+            "http://example.com/ns#RequiredPropertyShape",
+        )?);
+
+        let shape = validator
+            .context
+            .model
+            .prop_shapes
+            .values()
+            .find(|shape: &&crate::model::shapes::PropertyShape| {
+                validator
+                    .context
+                    .model
+                    .propshape_id_lookup
+                    .read()
+                    .unwrap()
+                    .get_term(*shape.identifier())
+                    .is_some_and(|term| term == &shape_term)
+            })
+            .expect("property shape should exist");
+        assert_eq!(
+            shape.targets.len(),
+            1,
+            "minCount property shape must not be pruned when the path is absent"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn focus_predicate_summary_detects_present_and_absent_outgoing_predicates()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_focus_predicate_summary")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:present ex:Bob, "label" .
+
+ex:Carol a ex:Thing .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let alice = Term::NamedNode(NamedNode::new("http://example.com/ns#Alice")?);
+        let bob = Term::NamedNode(NamedNode::new("http://example.com/ns#Bob")?);
+        let label = Term::from(Literal::new_simple_literal("label"));
+        let carol = Term::NamedNode(NamedNode::new("http://example.com/ns#Carol")?);
+        let present = Term::NamedNode(NamedNode::new("http://example.com/ns#present")?);
+        let missing = Term::NamedNode(NamedNode::new("http://example.com/ns#missing")?);
+
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&alice, &present)?,
+            2
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&alice, &missing)?,
+            0
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&carol, &present)?,
+            0
+        );
+        assert!(
+            validator
+                .context
+                .focus_has_incoming_predicate(&bob, &present)?
+        );
+        assert!(
+            validator
+                .context
+                .focus_has_incoming_predicate(&label, &present)?
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_incoming_predicate_count(&bob, &present)?,
+            1
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_incoming_predicate_count(&carol, &present)?,
+            0
+        );
+        assert_eq!(
+            validator
+                .context
+                .target_subjects_of(&present)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([alice.clone()])
+        );
+        assert_eq!(
+            validator
+                .context
+                .target_objects_of(&present)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([bob, label])
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_objects_for_predicate(&alice, &present)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([
+                Term::NamedNode(NamedNode::new("http://example.com/ns#Bob")?),
+                Term::from(Literal::new_simple_literal("label")),
+            ])
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_subjects_for_inverse_predicate(
+                    &Term::NamedNode(NamedNode::new("http://example.com/ns#Bob")?),
+                    &present,
+                )?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([alice])
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn sparql_constraints_skip_execution_when_required_this_predicate_is_absent()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_sparql_prefilter")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this <http://example.com/ns#required> ?value .
+                FILTER(?value = \"boom\")
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:other "value" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(report.conforms());
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "required-predicate prefilter should skip impossible SPARQL execution"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn node_sparql_constraints_batch_focuses_with_values() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_sparql_values_batch")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+        sh:sparql [
+            sh:select """
+                SELECT $this
+                WHERE {
+                    $this <http://example.com/ns#required> ?value .
+                    FILTER(str(?value) = \"bad\")
+                }
+            """ ;
+        ] .
+"#;
+
+        let mut data_ttl = String::from("@prefix ex: <http://example.com/ns#> .\n\n");
+        for i in 0..256 {
+            if i < 64 {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:required \"bad\" .\n\n",
+                    i
+                ));
+            } else {
+                data_ttl.push_str(&format!("ex:Thing{0} a ex:Thing .\n\n", i));
+            }
+        }
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 64);
+
+        let stats = validator.sparql_query_call_stats();
+        assert!(
+            stats
+                .iter()
+                .any(|stat| stat.rows_returned_total == 64 && stat.invocations < 64),
+            "expected at least one batched SPARQL stat row, got {:?}",
+            stats
+                .iter()
+                .map(|stat| (stat.invocations, stat.rows_returned_total))
+                .collect::<Vec<_>>()
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn property_sparql_constraints_batch_focuses_with_values() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_property_sparql_values_batch")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+        sh:property [
+            sh:path ex:marker ;
+            sh:sparql [
+                sh:select """
+                    SELECT $this
+                    WHERE {
+                        $this <http://example.com/ns#required> ?value .
+                        FILTER(str(?value) = \"bad\")
+                    }
+                """ ;
+            ] ;
+        ] .
+"#;
+
+        let mut data_ttl = String::from("@prefix ex: <http://example.com/ns#> .\n\n");
+        for i in 0..256 {
+            if i < 64 {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:marker \"m\" ;\n    ex:required \"bad\" .\n\n",
+                    i
+                ));
+            } else {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:marker \"m\" .\n\n",
+                    i
+                ));
+            }
+        }
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let stats = validator.sparql_query_call_stats();
+        assert!(
+            stats
+                .iter()
+                .any(|stat| stat.rows_returned_total == 64 && stat.invocations < 64),
+            "expected at least one batched property-shape SPARQL stat row, got {:?}",
+            stats
+                .iter()
+                .map(|stat| (stat.invocations, stat.rows_returned_total))
+                .collect::<Vec<_>>()
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_adjacent_predicate_whitelist_skips_generic_sparql_execution()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_adjacent_whitelist")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:message "Thing {$this} has disallowed adjacent structure" ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this <http://example.com/ns#hasPart> ?anchor .
+                FILTER NOT EXISTS {
+                    { ?anchor ?p ?o . }
+                    UNION
+                    { ?o ?p ?anchor . }
+                    FILTER (?p NOT IN (
+                        <http://example.com/ns#hasPart>,
+                        <http://example.com/ns#allowed>,
+                        <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>
+                    ))
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:BadThing a ex:Thing ;
+    ex:hasPart ex:Anchor .
+
+ex:Anchor ex:allowed ex:Neighbor ;
+    ex:disallowed ex:Other .
+
+ex:GoodThing a ex:Thing ;
+    ex:hasPart ex:SafeAnchor .
+
+ex:SafeAnchor ex:allowed ex:Neighbor .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered adjacency whitelist should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_required_path_support_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>>
+    {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_required_path_support")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:message "Thing {$this} is connected to {?other} without link support" ;
+        sh:select """
+            SELECT $this ?other
+            WHERE {
+                $this <http://example.com/ns#connected> ?other .
+                FILTER NOT EXISTS {
+                    $this <http://example.com/ns#link>+ ?other .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:BadThing a ex:Thing ;
+    ex:connected ex:Other .
+
+ex:GoodThing a ex:Thing ;
+    ex:connected ex:Reachable ;
+    ex:link ex:Mid .
+
+ex:Mid ex:link ex:Reachable .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered required-path support should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_missing_related_node_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_missing_related_node")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:PropertyShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Property ;
+    sh:sparql [
+        sh:message "Property {$this} is referred to by {?something} with composedOf but has no ofConstituent" ;
+        sh:select """
+            SELECT $this ?something
+            WHERE {
+                ?something <http://example.com/ns#composedOf> $this .
+                FILTER NOT EXISTS {
+                    $this <http://example.com/ns#ofConstituent> ?someSubstance .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:BadProperty a ex:Property .
+ex:Mix ex:composedOf ex:BadProperty .
+
+ex:GoodProperty a ex:Property ;
+    ex:ofConstituent ex:Water .
+ex:OtherMix ex:composedOf ex:GoodProperty .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered missing-related-node should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_local_set_compatibility_skips_generic_sparql_execution() -> Result<(), Box<dyn Error>>
+    {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_local_set_compatibility")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:message "Thing {$this} has incompatible mediums {?m2} and {?m1} via {?cp}" ;
+        sh:select """
+            PREFIX ex: <http://example.com/ns#>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            SELECT $this ?m2 ?cp ?m1
+            WHERE {
+                $this ex:cnx ?cp .
+                ?cp a/rdfs:subClassOf* ex:ConnectionPoint .
+                ?cp ex:hasMedium ?m1 .
+                $this ex:hasMedium ?m2 .
+                ?m2 ex:composedOf/ex:ofConstituent ?s2 .
+                FILTER NOT EXISTS { ?m1 ex:composedOf ?c1 . }
+                FILTER NOT EXISTS {
+                    ?m2 ex:composedOf/ex:ofConstituent ?s12 .
+                    { ?s12 rdfs:subClassOf* ?m1 } UNION { ?m1 rdfs:subClassOf* ?s12 } .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:ConnPointClass rdfs:subClassOf ex:ConnectionPoint .
+ex:Air rdfs:subClassOf ex:Medium .
+ex:Steam rdfs:subClassOf ex:Medium .
+
+ex:BadThing a ex:Thing ;
+    ex:hasMedium ex:BadMix ;
+    ex:cnx ex:BadCp .
+
+ex:BadCp a ex:ConnPointClass ;
+    ex:hasMedium ex:Air .
+
+ex:BadMix ex:composedOf ex:BadConstituent .
+ex:BadConstituent ex:ofConstituent ex:Steam .
+
+ex:GoodThing a ex:Thing ;
+    ex:hasMedium ex:GoodMix ;
+    ex:cnx ex:GoodCp .
+
+ex:GoodCp a ex:ConnPointClass ;
+    ex:hasMedium ex:Air .
+
+ex:GoodMix ex:composedOf ex:GoodConstituent .
+ex:GoodConstituent ex:ofConstituent ex:Air .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered local-set compatibility should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_property_shape_sparql_skips_generic_batch_execution() -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_property_shape_batch_bypass")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:property [
+        sh:path ex:marker ;
+        sh:sparql [
+            sh:message "Thing {$this} has disallowed adjacent structure" ;
+            sh:select """
+                SELECT $this
+                WHERE {
+                    $this <http://example.com/ns#hasPart> ?anchor .
+                    FILTER NOT EXISTS {
+                        { ?anchor ?p ?o . }
+                        UNION
+                        { ?o ?p ?anchor . }
+                        FILTER (?p NOT IN (
+                            <http://example.com/ns#hasPart>,
+                            <http://example.com/ns#allowed>,
+                            <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>
+                        ))
+                    }
+                }
+            """ ;
+        ] ;
+    ] .
+"#;
+
+        let mut data_ttl = String::from("@prefix ex: <http://example.com/ns#> .\n\n");
+        for i in 0..128 {
+            if i < 16 {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:marker \"m\" ;\n    ex:hasPart ex:Anchor{0} .\n\nex:Anchor{0} ex:allowed ex:Neighbor{0} ;\n    ex:disallowed ex:Other{0} .\n\n",
+                    i
+                ));
+            } else {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:marker \"m\" ;\n    ex:hasPart ex:SafeAnchor{0} .\n\nex:SafeAnchor{0} ex:allowed ex:Neighbor{0} .\n\n",
+                    i
+                ));
+            }
+        }
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 16);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered property-shape SPARQL should bypass generic batch execution"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_path_value_equals_constant_skips_generic_sparql_execution()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_path_value_equals_constant")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:message "Thing {$this} has a forbidden required value" ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this <http://example.com/ns#required> ?value .
+                FILTER(?value = \"bad\")
+            }
+        """ ;
+    ] .
+"#;
+
+        let mut data_ttl = String::from("@prefix ex: <http://example.com/ns#> .\n\n");
+        for i in 0..96 {
+            if i < 24 {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:required \"bad\" .\n\n",
+                    i
+                ));
+            } else if i < 48 {
+                data_ttl.push_str(&format!(
+                    "ex:Thing{0} a ex:Thing ;\n    ex:required \"good\" .\n\n",
+                    i
+                ));
+            } else {
+                data_ttl.push_str(&format!("ex:Thing{0} a ex:Thing .\n\n", i));
+            }
+        }
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 24);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered equality-filter SPARQL should bypass generic execution"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
     }
 }

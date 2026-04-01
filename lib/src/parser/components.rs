@@ -7,11 +7,11 @@ use oxigraph::model::{
 };
 
 use super::{
-    component_registry::COMPONENT_REGISTRY, parse_node_shape, ParsingContext, ToSubjectRef,
+    ParsingContext, ToSubjectRef, component_registry::COMPONENT_REGISTRY, parse_node_shape,
 };
 use crate::context::model::CustomComponentCache;
-use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
+use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::templates::{
     ComponentTemplateDefinition, PrefixDeclaration, ShapeTemplateDefinition, TemplateParameter,
     TemplateValidators,
@@ -157,10 +157,10 @@ fn get_or_init_custom_component_cache(
             parse_custom_constraint_components(context)?;
         register_component_templates(context, &custom_component_defs)?;
         for definition in custom_component_defs.values_mut() {
-            if definition.template.is_none() {
-                if let Some(template) = context.component_templates.get(&definition.iri).cloned() {
-                    definition.template = Some(template);
-                }
+            if definition.template.is_none()
+                && let Some(template) = context.component_templates.get(&definition.iri).cloned()
+            {
+                definition.template = Some(template);
             }
         }
         context.custom_component_cache = Some(Arc::new(CustomComponentCache {
@@ -212,7 +212,7 @@ fn validate_sparql_constraint_node(
                 return Err(format!(
                     "SPARQL constraint {} must provide its sh:select query as a literal.",
                     constraint_term
-                ))
+                ));
             }
         };
         crate::sparql::validate_prebound_variable_usage(
@@ -242,7 +242,7 @@ fn validate_sparql_constraint_node(
                 return Err(format!(
                     "SPARQL constraint {} must provide its sh:ask query as a literal.",
                     constraint_term
-                ))
+                ));
             }
         };
         crate::sparql::validate_prebound_variable_usage(
@@ -643,7 +643,7 @@ fn clone_template_body(
             return Err(format!(
                 "Shape template body {:?} must be a named or blank node",
                 root
-            ))
+            ));
         }
     };
     map.insert(root.clone(), initial.clone());
@@ -674,12 +674,12 @@ fn clone_template_body(
             let predicate = quad.predicate;
             let mut object = quad.object;
 
-            if let Term::NamedNode(nn) = &object {
-                if let Some(values) = bindings.get(nn) {
-                    if predicate == shacl.path && !values.is_empty() {
-                        object = values[0].clone();
-                    }
-                }
+            if let Term::NamedNode(nn) = &object
+                && let Some(values) = bindings.get(nn)
+                && predicate == shacl.path
+                && !values.is_empty()
+            {
+                object = values[0].clone();
             }
 
             let new_object = match object.clone() {

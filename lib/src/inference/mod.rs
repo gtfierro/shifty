@@ -6,19 +6,29 @@
 use crate::backend::Binding;
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::model::rules::{Rule, RuleCondition, SparqlRule, TriplePatternTerm, TripleRule};
-use crate::runtime::component::{check_conformance_for_node, ConformanceReport};
-use crate::types::{ComponentID, PropShapeID, RuleID, TargetEvalExt, TraceItem, ID};
+use crate::optimize::InferenceOptimizationConfig;
+use crate::runtime::component::{ConformanceReport, check_conformance_for_node};
+use crate::sparql::{
+    CompiledIndexRequirement, CompiledPathResolver, CompiledSparqlRule, SparqlExecutor,
+    SparqlServices, compiled_sparql_index_requirements, compiled_sparql_rule,
+    execute_compiled_rule,
+};
+use crate::trace::TraceEvent;
+use crate::types::{ComponentID, ID, PropShapeID, RuleID, TargetEvalExt, TraceItem};
 use log::{debug, info};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, Variable};
 use rayon::prelude::*;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 type CandidateTriple = (Term, NamedNode, Term);
 type CandidateBatches = Result<Vec<Vec<CandidateTriple>>, InferenceError>;
+const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
 /// Configuration options governing inference execution.
 #[derive(Debug, Clone)]
@@ -28,6 +38,7 @@ pub struct InferenceConfig {
     pub run_until_converged: bool,
     pub error_on_blank_nodes: bool,
     pub trace: bool,
+    pub optimize: InferenceOptimizationConfig,
 }
 
 impl Default for InferenceConfig {
@@ -38,6 +49,7 @@ impl Default for InferenceConfig {
             run_until_converged: true,
             error_on_blank_nodes: false,
             trace: false,
+            optimize: InferenceOptimizationConfig::default(),
         }
     }
 }
@@ -114,7 +126,11 @@ impl fmt::Display for InferenceError {
                 write!(f, "Rule {} failed to execute: {}", rule_id, message)
             }
             InferenceError::TargetResolution { shape_id, message } => {
-                write!(f, "Failed to resolve targets for shape {}: {}", shape_id, message)
+                write!(
+                    f,
+                    "Failed to resolve targets for shape {}: {}",
+                    shape_id, message
+                )
             }
             InferenceError::PropertyShapeTargetResolution { shape_id, message } => {
                 write!(
@@ -170,7 +186,9 @@ pub struct InferenceEngine<'a> {
     context: &'a ValidationContext,
     config: InferenceConfig,
     graph: InferenceGraph,
-    skipped_rules: Mutex<HashSet<RuleID>>,
+    plans: Vec<RulePlan>,
+    dependency_graph: RuleDependencyGraph,
+    active_plan_indices: Vec<usize>,
 }
 
 impl<'a> InferenceEngine<'a> {
@@ -182,7 +200,18 @@ impl<'a> InferenceEngine<'a> {
             context,
             config,
             graph: InferenceGraph::from_context(context),
-            skipped_rules: Mutex::new(HashSet::new()),
+            plans: Vec::new(),
+            dependency_graph: RuleDependencyGraph::default(),
+            active_plan_indices: Vec::new(),
+        };
+        let plans = engine.build_rule_plans()?;
+        let dependency_graph = RuleDependencyGraph::from_plans(context, &plans, &engine.config);
+        let active_plan_indices = dependency_graph.active_plan_indices();
+        let engine = Self {
+            plans,
+            dependency_graph,
+            active_plan_indices,
+            ..engine
         };
         engine.validate_config()?;
         Ok(engine)
@@ -203,6 +232,7 @@ impl<'a> InferenceEngine<'a> {
         let mut iterations_executed = 0usize;
         let mut converged = false;
         let mut inferred_quads = Vec::new();
+        let mut delta = DeltaIndex::initial();
 
         if self.config.trace {
             info!(
@@ -213,9 +243,9 @@ impl<'a> InferenceEngine<'a> {
         }
 
         for iteration in 1..=self.config.max_iterations {
-            self.context.advanced_target_cache.write().unwrap().clear();
             iterations_executed = iteration;
-            let added_this_round = self.apply_rules_once(&mut inferred_quads)?;
+            let (added_this_round, producer_plan_indices) =
+                self.apply_rules_for_delta(&delta, &mut inferred_quads)?;
             total_added += added_this_round;
             if self.config.trace {
                 info!(
@@ -223,6 +253,10 @@ impl<'a> InferenceEngine<'a> {
                     iteration, added_this_round
                 );
             }
+            delta = DeltaIndex::from_quads(
+                &inferred_quads[inferred_quads.len() - added_this_round..],
+                producer_plan_indices,
+            );
 
             let reached_min = iteration >= self.config.min_iterations;
             if added_this_round == 0 {
@@ -276,143 +310,217 @@ impl<'a> InferenceEngine<'a> {
         Ok(())
     }
 
-    fn apply_rules_once(&self, collected: &mut Vec<Quad>) -> Result<usize, InferenceError> {
-        let mut iteration_added = 0usize;
-        let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
+    fn build_rule_plans(&self) -> Result<Vec<RulePlan>, InferenceError> {
+        let mut plans = Vec::new();
 
         for (shape_id, rule_ids) in &self.graph.node_shape_rules {
-            let Some(shape_ir) = self
+            let shape_ir = self
                 .context
                 .shape_ir()
                 .node_shapes
                 .iter()
                 .find(|s| &s.id == shape_id)
-            else {
-                return Err(InferenceError::Configuration(format!(
-                    "Node shape {:?} referenced in rules but missing from IR",
-                    shape_id
-                )));
-            };
-            let focus_nodes = self.focus_nodes_for_shape(shape_ir)?;
-            if self.config.trace {
-                debug!(
-                    "Node shape {:?} has {} focus node(s) and {} rule(s)",
-                    shape_id,
-                    focus_nodes.len(),
-                    rule_ids.len()
-                );
-            }
+                .ok_or_else(|| {
+                    InferenceError::Configuration(format!(
+                        "Node shape {:?} referenced in rules but missing from IR",
+                        shape_id
+                    ))
+                })?;
             for rule_id in rule_ids {
-                if self.skipped_rules.lock().unwrap().contains(rule_id) {
-                    continue;
-                }
-                let Some(rule) = self.graph.rules.get(rule_id) else {
-                    return Err(InferenceError::Configuration(format!(
+                let rule = self.graph.rules.get(rule_id).ok_or_else(|| {
+                    InferenceError::Configuration(format!(
                         "Rule {:?} referenced by shape {:?} but missing from model",
                         rule_id, shape_id
-                    )));
-                };
+                    ))
+                })?;
                 if rule.is_deactivated() {
                     continue;
                 }
-                if focus_nodes.is_empty() && shape_ir.targets.is_empty() {
-                    if self.config.trace {
-                        debug!(
-                            "Skipping rule {:?} for node shape {:?} (no targets, no focus nodes)",
-                            rule_id, shape_id
-                        );
-                    }
-                    self.skipped_rules.lock().unwrap().insert(*rule_id);
-                    continue;
-                }
-                let added = match rule {
-                    Rule::Sparql(sparql_rule) => {
-                        self.apply_sparql_rule(sparql_rule, &focus_nodes, &mut seen_new, collected)?
-                    }
-                    Rule::Triple(triple_rule) => {
-                        self.apply_triple_rule(triple_rule, &focus_nodes, &mut seen_new, collected)?
-                    }
-                };
-                iteration_added += added;
-                if self.config.trace && added > 0 {
-                    debug!(
-                        "Rule {:?} for node shape {:?} produced {} triple(s)",
-                        rule_id, shape_id, added
-                    );
-                }
+                plans.push(RulePlan::for_node_shape(shape_ir, rule.clone()));
             }
         }
 
         for (shape_id, rule_ids) in &self.graph.property_shape_rules {
-            let Some(shape_ir) = self
+            let shape_ir = self
                 .context
                 .shape_ir()
                 .property_shapes
                 .iter()
                 .find(|s| &s.id == shape_id)
-            else {
-                return Err(InferenceError::Configuration(format!(
-                    "Property shape {:?} referenced in rules but missing from IR",
-                    shape_id
-                )));
-            };
-            let focus_nodes = self.focus_nodes_for_property_shape(shape_ir)?;
-            if self.config.trace {
-                debug!(
-                    "Property shape {:?} has {} focus node(s) and {} rule(s)",
-                    shape_id,
-                    focus_nodes.len(),
-                    rule_ids.len()
-                );
-            }
+                .ok_or_else(|| {
+                    InferenceError::Configuration(format!(
+                        "Property shape {:?} referenced in rules but missing from IR",
+                        shape_id
+                    ))
+                })?;
             for rule_id in rule_ids {
-                if self.skipped_rules.lock().unwrap().contains(rule_id) {
-                    continue;
-                }
-                let Some(rule) = self.graph.rules.get(rule_id) else {
-                    return Err(InferenceError::Configuration(format!(
+                let rule = self.graph.rules.get(rule_id).ok_or_else(|| {
+                    InferenceError::Configuration(format!(
                         "Rule {:?} referenced by property shape {:?} but missing from model",
                         rule_id, shape_id
-                    )));
-                };
+                    ))
+                })?;
                 if rule.is_deactivated() {
                     continue;
                 }
-                if focus_nodes.is_empty() && shape_ir.targets.is_empty() {
-                    if self.config.trace {
-                        debug!(
-                            "Skipping rule {:?} for property shape {:?} (no targets, no focus nodes)",
-                            rule_id, shape_id
-                        );
-                    }
-                    self.skipped_rules.lock().unwrap().insert(*rule_id);
-                    continue;
-                }
-                let added = match rule {
-                    Rule::Sparql(sparql_rule) => {
-                        self.apply_sparql_rule(sparql_rule, &focus_nodes, &mut seen_new, collected)?
-                    }
-                    Rule::Triple(triple_rule) => {
-                        self.apply_triple_rule(triple_rule, &focus_nodes, &mut seen_new, collected)?
-                    }
-                };
-                iteration_added += added;
-                if self.config.trace && added > 0 {
-                    debug!(
-                        "Rule {:?} for property shape {:?} produced {} triple(s)",
-                        rule_id, shape_id, added
-                    );
-                }
+                plans.push(RulePlan::for_property_shape(shape_ir, rule.clone()));
             }
         }
 
-        Ok(iteration_added)
+        Ok(plans)
+    }
+
+    fn apply_rules_for_delta(
+        &self,
+        delta: &DeltaIndex,
+        collected: &mut Vec<Quad>,
+    ) -> Result<(usize, HashSet<usize>), InferenceError> {
+        let mut iteration_added = 0usize;
+        let mut producer_plan_indices = HashSet::new();
+        let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
+        let scheduled = self.scheduled_plan_indices(delta);
+
+        for plan_index in scheduled {
+            let plan = &self.plans[plan_index];
+            let Some(focus_nodes) = self.focus_nodes_for_plan(plan, delta)? else {
+                continue;
+            };
+
+            if self.config.trace {
+                debug!(
+                    "Rule {:?} owner {:?} scheduled for {} focus node(s)",
+                    plan.rule.id(),
+                    plan.owner,
+                    focus_nodes.len()
+                );
+            }
+
+            let rule_id = plan.rule.id();
+            let now = Instant::now();
+            self.context
+                .trace_sink
+                .record(TraceEvent::EnterRule(rule_id, now));
+
+            let added = match &plan.rule {
+                Rule::Sparql(sparql_rule) => {
+                    self.context
+                        .ensure_compiled_sparql_index(&plan.compiled_index_requirements)
+                        .map_err(|message| InferenceError::RuleExecution {
+                            rule_id: sparql_rule.id,
+                            message,
+                        })?;
+                    self.apply_sparql_rule(
+                        sparql_rule,
+                        plan.sparql_prefilter.as_ref(),
+                        plan.native_sparql.as_ref(),
+                        delta,
+                        &focus_nodes,
+                        &mut seen_new,
+                        collected,
+                    )?
+                }
+                Rule::Triple(triple_rule) => self.apply_triple_rule(
+                    triple_rule,
+                    delta,
+                    &focus_nodes,
+                    &mut seen_new,
+                    collected,
+                )?,
+            };
+
+            self.context
+                .trace_sink
+                .record(TraceEvent::ExitRule(rule_id, added, Instant::now()));
+
+            iteration_added += added;
+            if added > 0 {
+                producer_plan_indices.insert(plan_index);
+            }
+
+            if self.config.trace && added > 0 {
+                debug!(
+                    "Rule {:?} owner {:?} produced {} triple(s)",
+                    plan.rule.id(),
+                    plan.owner,
+                    added
+                );
+            }
+        }
+
+        Ok((iteration_added, producer_plan_indices))
+    }
+
+    fn scheduled_plan_indices(&self, delta: &DeltaIndex) -> Vec<usize> {
+        if delta.is_initial {
+            return self.active_plan_indices.clone();
+        }
+        self.dependency_graph.scheduled_plan_indices(delta)
+    }
+
+    fn focus_nodes_for_plan(
+        &self,
+        plan: &RulePlan,
+        delta: &DeltaIndex,
+    ) -> Result<Option<Vec<Term>>, InferenceError> {
+        let trigger = plan.trigger(delta);
+        if trigger.is_none() {
+            return Ok(None);
+        }
+
+        let all_focus_nodes = match plan.owner {
+            RuleOwner::NodeShape(shape_id) => {
+                let shape = self
+                    .context
+                    .shape_ir()
+                    .node_shapes
+                    .iter()
+                    .find(|shape| shape.id == shape_id)
+                    .ok_or_else(|| {
+                        InferenceError::Configuration(format!(
+                            "Node shape {:?} referenced in rules but missing from IR",
+                            shape_id
+                        ))
+                    })?;
+                self.focus_nodes_for_shape(shape)?
+            }
+            RuleOwner::PropertyShape(shape_id) => {
+                let shape = self
+                    .context
+                    .shape_ir()
+                    .property_shapes
+                    .iter()
+                    .find(|shape| shape.id == shape_id)
+                    .ok_or_else(|| {
+                        InferenceError::Configuration(format!(
+                            "Property shape {:?} referenced in rules but missing from IR",
+                            shape_id
+                        ))
+                    })?;
+                self.focus_nodes_for_property_shape(shape)?
+            }
+        };
+
+        let filtered = match trigger {
+            TriggerSet::All => all_focus_nodes,
+            TriggerSet::Nodes(nodes) => all_focus_nodes
+                .into_iter()
+                .filter(|focus| nodes.contains(focus))
+                .collect(),
+        };
+
+        if filtered.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(filtered))
     }
 
     fn focus_nodes_for_shape(
         &self,
         shape: &crate::types::NodeShapeIR,
     ) -> Result<Vec<Term>, InferenceError> {
+        if let Some(cached) = self.context.cached_node_targets(&shape.id) {
+            return Ok(cached.as_ref().to_vec());
+        }
         let mut collected = HashSet::new();
         for target in &shape.targets {
             let contexts = target
@@ -425,13 +533,19 @@ impl<'a> InferenceEngine<'a> {
                 collected.insert(ctx.focus_node().clone());
             }
         }
-        Ok(collected.into_iter().collect())
+        let nodes: Vec<Term> = collected.into_iter().collect();
+        let cached: Arc<[Term]> = nodes.clone().into();
+        self.context.store_node_targets(shape.id, cached);
+        Ok(nodes)
     }
 
     fn focus_nodes_for_property_shape(
         &self,
         shape: &crate::types::PropertyShapeIR,
     ) -> Result<Vec<Term>, InferenceError> {
+        if let Some(cached) = self.context.cached_prop_targets(&shape.id) {
+            return Ok(cached.as_ref().to_vec());
+        }
         let mut collected = HashSet::new();
         for target in &shape.targets {
             let contexts = target
@@ -444,16 +558,35 @@ impl<'a> InferenceEngine<'a> {
                 collected.insert(ctx.focus_node().clone());
             }
         }
-        Ok(collected.into_iter().collect())
+        let nodes: Vec<Term> = collected.into_iter().collect();
+        let cached: Arc<[Term]> = nodes.clone().into();
+        self.context.store_prop_targets(shape.id, cached);
+        Ok(nodes)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn apply_sparql_rule(
         &self,
         rule: &SparqlRule,
+        prefilter: Option<&SparqlPrefilter>,
+        native_rule: Option<&CompiledSparqlRule>,
+        delta: &DeltaIndex,
         focus_nodes: &[Term],
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
         collected: &mut Vec<Quad>,
     ) -> Result<usize, InferenceError> {
+        if let Some(native_rule) = native_rule {
+            return self.apply_native_sparql_rule(
+                rule,
+                native_rule,
+                prefilter,
+                delta,
+                focus_nodes,
+                seen_new,
+                collected,
+            );
+        }
+
         let var_this = Variable::new("this").map_err(|e| InferenceError::RuleExecution {
             rule_id: rule.id,
             message: e.to_string(),
@@ -465,6 +598,11 @@ impl<'a> InferenceEngine<'a> {
             .par_iter()
             .map(|focus| {
                 if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
+                    return Ok(Vec::new());
+                }
+                if let Some(prefilter) = prefilter
+                    && !prefilter.matches_delta(delta, focus)
+                {
                     return Ok(Vec::new());
                 }
 
@@ -529,9 +667,68 @@ impl<'a> InferenceEngine<'a> {
         Ok(added)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn apply_native_sparql_rule(
+        &self,
+        rule: &SparqlRule,
+        native_rule: &CompiledSparqlRule,
+        prefilter: Option<&SparqlPrefilter>,
+        delta: &DeltaIndex,
+        focus_nodes: &[Term],
+        seen_new: &mut HashSet<(Term, NamedNode, Term)>,
+        collected: &mut Vec<Quad>,
+    ) -> Result<usize, InferenceError> {
+        let candidates: CandidateBatches = focus_nodes
+            .par_iter()
+            .map(|focus| {
+                if !self.conditions_satisfied(rule.id, focus, &rule.condition_shapes)? {
+                    return Ok(Vec::new());
+                }
+                if let Some(prefilter) = prefilter
+                    && !prefilter.matches_delta(delta, focus)
+                {
+                    return Ok(Vec::new());
+                }
+
+                execute_compiled_rule(
+                    &InferenceCompiledPathResolver {
+                        context: self.context,
+                        delta,
+                        use_delta: true,
+                    },
+                    native_rule,
+                    focus,
+                )
+                .map_err(|message| InferenceError::RuleExecution {
+                    rule_id: rule.id,
+                    message,
+                })
+            })
+            .collect();
+
+        let mut added = 0usize;
+        for batch in candidates? {
+            for (subject_term, predicate, object_term) in batch {
+                if self.record_inferred_triple(
+                    rule.id,
+                    subject_term,
+                    predicate,
+                    object_term,
+                    seen_new,
+                    collected,
+                )? {
+                    added += 1;
+                }
+            }
+        }
+
+        Ok(added)
+    }
+
     fn apply_triple_rule(
         &self,
         rule: &TripleRule,
+        delta: &DeltaIndex,
         focus_nodes: &[Term],
         seen_new: &mut HashSet<(Term, NamedNode, Term)>,
         collected: &mut Vec<Quad>,
@@ -545,8 +742,9 @@ impl<'a> InferenceEngine<'a> {
                     return Ok(Vec::new());
                 }
 
-                let subjects = self.evaluate_template(rule.id, &rule.subject, focus)?;
-                let objects = self.evaluate_template(rule.id, &rule.object, focus)?;
+                let subjects =
+                    self.evaluate_template(rule.id, &rule.subject, focus, Some(delta))?;
+                let objects = self.evaluate_template(rule.id, &rule.object, focus, Some(delta))?;
 
                 let mut batch = Vec::with_capacity(subjects.len() * objects.len());
                 for subject_term in &subjects {
@@ -587,11 +785,12 @@ impl<'a> InferenceEngine<'a> {
         rule_id: RuleID,
         template: &TriplePatternTerm,
         focus_node: &Term,
+        delta: Option<&DeltaIndex>,
     ) -> Result<Vec<Term>, InferenceError> {
         match template {
             TriplePatternTerm::This => Ok(vec![focus_node.clone()]),
             TriplePatternTerm::Constant(term) => Ok(vec![term.clone()]),
-            TriplePatternTerm::Path(path) => self.evaluate_path(rule_id, path, focus_node),
+            TriplePatternTerm::Path(path) => self.evaluate_path(rule_id, path, focus_node, delta),
         }
     }
 
@@ -600,7 +799,12 @@ impl<'a> InferenceEngine<'a> {
         rule_id: RuleID,
         path: &crate::types::Path,
         focus_node: &Term,
+        delta: Option<&DeltaIndex>,
     ) -> Result<Vec<Term>, InferenceError> {
+        if let Some(values) = self.evaluate_path_native(rule_id, path, focus_node, delta)? {
+            return Ok(values);
+        }
+
         let sparql_path = path
             .to_sparql_path()
             .map_err(|e| InferenceError::RuleExecution {
@@ -657,6 +861,74 @@ impl<'a> InferenceEngine<'a> {
         let mut unique = HashSet::new();
         values.retain(|term| unique.insert(term.clone()));
         Ok(values)
+    }
+
+    fn evaluate_path_native(
+        &self,
+        rule_id: RuleID,
+        path: &crate::types::Path,
+        focus_node: &Term,
+        delta: Option<&DeltaIndex>,
+    ) -> Result<Option<Vec<Term>>, InferenceError> {
+        match path {
+            crate::types::Path::Simple(Term::NamedNode(predicate)) => {
+                let values = if let Some(values) =
+                    delta.and_then(|d| d.outgoing_values_for_focus(focus_node, predicate))
+                {
+                    values
+                } else {
+                    self.context
+                        .compiled_focus_objects_for_predicate(focus_node, predicate)
+                        .map_err(|message| InferenceError::RuleExecution { rule_id, message })?
+                };
+                Ok(Some(values))
+            }
+            crate::types::Path::Inverse(inner) => match inner.as_ref() {
+                crate::types::Path::Simple(Term::NamedNode(predicate)) => {
+                    let values = if let Some(values) =
+                        delta.and_then(|d| d.incoming_values_for_focus(focus_node, predicate))
+                    {
+                        values
+                    } else {
+                        self.context
+                            .compiled_focus_subjects_for_inverse_predicate(focus_node, predicate)
+                            .map_err(|message| InferenceError::RuleExecution { rule_id, message })?
+                    };
+                    Ok(Some(values))
+                }
+                _ => Ok(None),
+            },
+            crate::types::Path::Sequence(paths) => {
+                if paths.is_empty() {
+                    return Ok(Some(Vec::new()));
+                }
+                let mut frontier = vec![focus_node.clone()];
+                for (index, segment) in paths.iter().enumerate() {
+                    let segment_delta = if index + 1 == paths.len() {
+                        delta
+                    } else {
+                        None
+                    };
+                    let mut next = Vec::new();
+                    for node in &frontier {
+                        let Some(values) =
+                            self.evaluate_path_native(rule_id, segment, node, segment_delta)?
+                        else {
+                            return Ok(None);
+                        };
+                        next.extend(values);
+                    }
+                    let mut unique = HashSet::new();
+                    next.retain(|term| unique.insert(term.clone()));
+                    frontier = next;
+                    if frontier.is_empty() {
+                        break;
+                    }
+                }
+                Ok(Some(frontier))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn conditions_satisfied(
@@ -752,6 +1024,860 @@ pub fn run_inference(
     engine.run()
 }
 
+#[derive(Clone, Copy)]
+struct InferenceCompiledPathResolver<'a> {
+    context: &'a ValidationContext,
+    delta: &'a DeltaIndex,
+    use_delta: bool,
+}
+
+impl CompiledPathResolver for InferenceCompiledPathResolver<'_> {
+    type Error = String;
+
+    fn direct_values(&self, focus: &Term, predicate: &NamedNode) -> Result<Vec<Term>, Self::Error> {
+        if self.use_delta
+            && let Some(values) = self.delta.outgoing_values_for_focus(focus, predicate)
+        {
+            return Ok(values);
+        }
+
+        self.context
+            .compiled_focus_objects_for_predicate(focus, predicate)
+    }
+
+    fn inverse_values(
+        &self,
+        focus: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, Self::Error> {
+        if self.use_delta
+            && !self.delta.is_initial
+            && let Some(values) = self.delta.incoming_values_for_focus(focus, predicate)
+        {
+            return Ok(values);
+        }
+
+        self.context
+            .compiled_focus_subjects_for_inverse_predicate(focus, predicate)
+    }
+
+    fn without_delta(&self) -> Self {
+        Self {
+            use_delta: false,
+            ..*self
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RuleOwner {
+    NodeShape(ID),
+    PropertyShape(PropShapeID),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum FocusDependency {
+    All,
+    TargetClass(Term),
+    TargetSubjectsOf(NamedNode),
+    TargetObjectsOf(NamedNode),
+    OutgoingPredicate(NamedNode),
+    IncomingPredicate(NamedNode),
+    AnyPredicateParticipant(NamedNode),
+}
+
+#[derive(Debug, Clone)]
+struct RulePlan {
+    owner: RuleOwner,
+    rule: Rule,
+    signature: RuleSignature,
+    sparql_prefilter: Option<SparqlPrefilter>,
+    native_sparql: Option<CompiledSparqlRule>,
+    #[allow(dead_code)]
+    compiled_index_requirements: Vec<CompiledIndexRequirement>,
+}
+
+impl RulePlan {
+    fn for_node_shape(shape: &crate::types::NodeShapeIR, rule: Rule) -> Self {
+        let signature = RuleSignature::for_targets_and_rule(&shape.targets, &rule);
+        let native_sparql = native_sparql_rule(&rule);
+        let compiled_index_requirements = native_sparql
+            .as_ref()
+            .map(compiled_sparql_index_requirements)
+            .unwrap_or_default();
+        Self {
+            owner: RuleOwner::NodeShape(shape.id),
+            sparql_prefilter: sparql_prefilter_for_rule(&rule),
+            native_sparql,
+            compiled_index_requirements,
+            rule,
+            signature,
+        }
+    }
+
+    fn for_property_shape(shape: &crate::types::PropertyShapeIR, rule: Rule) -> Self {
+        let signature = RuleSignature::for_targets_and_rule(&shape.targets, &rule);
+        let native_sparql = native_sparql_rule(&rule);
+        let compiled_index_requirements = native_sparql
+            .as_ref()
+            .map(compiled_sparql_index_requirements)
+            .unwrap_or_default();
+        Self {
+            owner: RuleOwner::PropertyShape(shape.id),
+            sparql_prefilter: sparql_prefilter_for_rule(&rule),
+            native_sparql,
+            compiled_index_requirements,
+            rule,
+            signature,
+        }
+    }
+
+    fn trigger(&self, delta: &DeltaIndex) -> TriggerSet {
+        if delta.is_initial {
+            return TriggerSet::All;
+        }
+
+        let mut focus_nodes = HashSet::new();
+        for dependency in &self.signature.reads {
+            match dependency {
+                FocusDependency::All => return TriggerSet::All,
+                FocusDependency::TargetClass(class) => {
+                    if let Some(nodes) = delta.typed_subjects_by_class.get(class) {
+                        focus_nodes.extend(nodes.iter().cloned());
+                    }
+                }
+                FocusDependency::TargetSubjectsOf(predicate)
+                | FocusDependency::OutgoingPredicate(predicate) => {
+                    if let Some(nodes) = delta.subjects_by_predicate.get(predicate) {
+                        focus_nodes.extend(nodes.iter().cloned());
+                    }
+                }
+                FocusDependency::TargetObjectsOf(predicate)
+                | FocusDependency::IncomingPredicate(predicate) => {
+                    if let Some(nodes) = delta.objects_by_predicate.get(predicate) {
+                        focus_nodes.extend(nodes.iter().cloned());
+                    }
+                }
+                FocusDependency::AnyPredicateParticipant(predicate) => {
+                    if let Some(nodes) = delta.participants_by_predicate.get(predicate) {
+                        focus_nodes.extend(nodes.iter().cloned());
+                    }
+                }
+            }
+        }
+
+        TriggerSet::Nodes(focus_nodes)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignaturePrecision {
+    Exact,
+    Conservative,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RuleWrite {
+    Predicate(NamedNode),
+    Class(Term),
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+struct RuleSignature {
+    #[allow(dead_code)]
+    target_reads: Vec<FocusDependency>,
+    #[allow(dead_code)]
+    body_reads: Vec<FocusDependency>,
+    reads: Vec<FocusDependency>,
+    writes: Vec<RuleWrite>,
+    read_precision: SignaturePrecision,
+    write_precision: SignaturePrecision,
+}
+
+impl RuleSignature {
+    fn for_targets_and_rule(targets: &[crate::types::Target], rule: &Rule) -> Self {
+        let mut target_reads = dependencies_for_targets(targets);
+        dedup_preserve_order(&mut target_reads);
+
+        let (mut body_reads, read_precision) = dependencies_for_rule(rule);
+        dedup_preserve_order(&mut body_reads);
+
+        let (mut writes, write_precision) = writes_for_rule(rule);
+        dedup_preserve_order(&mut writes);
+
+        let mut reads = target_reads.clone();
+        reads.extend(body_reads.clone());
+        dedup_preserve_order(&mut reads);
+
+        Self {
+            target_reads,
+            body_reads,
+            reads,
+            writes,
+            read_precision,
+            write_precision,
+        }
+    }
+
+    fn needs_always_run(&self) -> bool {
+        self.reads.contains(&FocusDependency::All)
+            || self.read_precision == SignaturePrecision::Unknown
+            || self.write_precision == SignaturePrecision::Unknown
+            || self.writes.contains(&RuleWrite::Unknown)
+    }
+
+    fn family_keys(&self) -> Vec<RuleDependencyKey> {
+        let mut keys = Vec::new();
+        keys.extend(
+            self.reads
+                .iter()
+                .filter_map(RuleDependencyKey::from_focus_dependency),
+        );
+        dedup_preserve_order(&mut keys);
+        keys
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RuleDependencyKey {
+    Predicate(NamedNode),
+    Class(Term),
+}
+
+impl RuleDependencyKey {
+    fn from_focus_dependency(dependency: &FocusDependency) -> Option<Self> {
+        match dependency {
+            FocusDependency::TargetClass(class) => Some(Self::Class(class.clone())),
+            FocusDependency::TargetSubjectsOf(predicate)
+            | FocusDependency::TargetObjectsOf(predicate)
+            | FocusDependency::OutgoingPredicate(predicate)
+            | FocusDependency::IncomingPredicate(predicate)
+            | FocusDependency::AnyPredicateParticipant(predicate) => {
+                Some(Self::Predicate(predicate.clone()))
+            }
+            FocusDependency::All => None,
+        }
+    }
+
+    fn from_rule_write(write: &RuleWrite) -> Option<Self> {
+        match write {
+            RuleWrite::Predicate(predicate) => Some(Self::Predicate(predicate.clone())),
+            RuleWrite::Class(class) => Some(Self::Class(class.clone())),
+            RuleWrite::Unknown => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct RuleDependencyGraph {
+    downstream: HashMap<usize, Vec<usize>>,
+    always_run_plans: Vec<usize>,
+    active_plan_indices: Vec<usize>,
+}
+
+impl RuleDependencyGraph {
+    fn from_plans(
+        context: &ValidationContext,
+        plans: &[RulePlan],
+        config: &InferenceConfig,
+    ) -> Self {
+        let mut downstream: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut producers_by_key: HashMap<RuleDependencyKey, Vec<usize>> = HashMap::new();
+        let mut always_run_plans = Vec::new();
+
+        for (index, plan) in plans.iter().enumerate() {
+            if plan.signature.needs_always_run() || !config.optimize.explicit_rule_dependency_graph
+            {
+                always_run_plans.push(index);
+            }
+            for key in plan
+                .signature
+                .writes
+                .iter()
+                .filter_map(RuleDependencyKey::from_rule_write)
+            {
+                producers_by_key.entry(key).or_default().push(index);
+            }
+        }
+
+        if config.optimize.explicit_rule_dependency_graph {
+            for (consumer_index, plan) in plans.iter().enumerate() {
+                for key in plan
+                    .signature
+                    .reads
+                    .iter()
+                    .filter_map(RuleDependencyKey::from_focus_dependency)
+                {
+                    if let Some(producers) = producers_by_key.get(&key) {
+                        for &producer in producers {
+                            if producer != consumer_index {
+                                downstream.entry(producer).or_default().push(consumer_index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for consumers in downstream.values_mut() {
+            consumers.sort_unstable();
+            consumers.dedup();
+        }
+        always_run_plans.sort_unstable();
+        always_run_plans.dedup();
+
+        let active_plan_indices = if config.optimize.prune_rule_families_by_dataset
+            && config.optimize.explicit_rule_dependency_graph
+        {
+            active_rule_family_indices(context, plans, &downstream, &always_run_plans)
+        } else {
+            (0..plans.len()).collect()
+        };
+
+        Self {
+            downstream,
+            always_run_plans,
+            active_plan_indices,
+        }
+    }
+
+    fn active_plan_indices(&self) -> Vec<usize> {
+        self.active_plan_indices.clone()
+    }
+
+    fn scheduled_plan_indices(&self, delta: &DeltaIndex) -> Vec<usize> {
+        let mut scheduled = HashSet::new();
+        scheduled.extend(self.always_run_plans.iter().copied());
+        for producer in delta.producer_plan_indices() {
+            if let Some(consumers) = self.downstream.get(&producer) {
+                scheduled.extend(consumers.iter().copied());
+            }
+        }
+
+        self.active_plan_indices
+            .iter()
+            .copied()
+            .filter(|plan_index| scheduled.contains(plan_index))
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct SparqlPrefilter {
+    direct_outgoing_predicates: Vec<NamedNode>,
+    direct_incoming_predicates: Vec<NamedNode>,
+    direct_classes: Vec<Term>,
+}
+
+impl SparqlPrefilter {
+    fn matches_delta(&self, delta: &DeltaIndex, focus: &Term) -> bool {
+        if delta.is_initial {
+            return true;
+        }
+
+        self.direct_outgoing_predicates
+            .iter()
+            .any(|predicate| delta.subject_has_predicate(focus, predicate))
+            || self
+                .direct_incoming_predicates
+                .iter()
+                .any(|predicate| delta.object_has_predicate(focus, predicate))
+            || self
+                .direct_classes
+                .iter()
+                .any(|class| delta.subject_has_class(focus, class))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.direct_outgoing_predicates.is_empty()
+            && self.direct_incoming_predicates.is_empty()
+            && self.direct_classes.is_empty()
+    }
+}
+
+#[derive(Debug, Clone)]
+enum TriggerSet {
+    All,
+    Nodes(HashSet<Term>),
+}
+
+impl TriggerSet {
+    fn is_none(&self) -> bool {
+        matches!(self, TriggerSet::Nodes(nodes) if nodes.is_empty())
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct DeltaIndex {
+    is_initial: bool,
+    producer_plan_indices: HashSet<usize>,
+    subjects_by_predicate: HashMap<NamedNode, HashSet<Term>>,
+    objects_by_predicate: HashMap<NamedNode, HashSet<Term>>,
+    participants_by_predicate: HashMap<NamedNode, HashSet<Term>>,
+    typed_subjects_by_class: HashMap<Term, HashSet<Term>>,
+    outgoing_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+}
+
+impl DeltaIndex {
+    fn initial() -> Self {
+        Self {
+            is_initial: true,
+            ..Self::default()
+        }
+    }
+
+    fn from_quads(quads: &[Quad], producer_plan_indices: HashSet<usize>) -> Self {
+        let mut index = Self {
+            producer_plan_indices,
+            ..Self::default()
+        };
+        for quad in quads {
+            let Ok(subject_term) = named_or_blank_to_term(quad.subject.clone()) else {
+                continue;
+            };
+            let predicate = quad.predicate.clone();
+            let is_rdf_type = is_rdf_type_predicate(&predicate);
+            index
+                .subjects_by_predicate
+                .entry(predicate.clone())
+                .or_default()
+                .insert(subject_term.clone());
+            index
+                .objects_by_predicate
+                .entry(predicate.clone())
+                .or_default()
+                .insert(quad.object.clone());
+            let participants = index
+                .participants_by_predicate
+                .entry(predicate.clone())
+                .or_default();
+            participants.insert(subject_term.clone());
+            participants.insert(quad.object.clone());
+            index
+                .outgoing_values_by_focus
+                .entry(subject_term.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .or_default()
+                .insert(quad.object.clone());
+            index
+                .incoming_values_by_focus
+                .entry(quad.object.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .or_default()
+                .insert(subject_term.clone());
+            if is_rdf_type && matches!(quad.object, Term::NamedNode(_)) {
+                index
+                    .typed_subjects_by_class
+                    .entry(quad.object.clone())
+                    .or_default()
+                    .insert(subject_term);
+            }
+        }
+        index
+    }
+
+    fn producer_plan_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.producer_plan_indices.iter().copied()
+    }
+
+    fn outgoing_values_for_focus(&self, focus: &Term, predicate: &NamedNode) -> Option<Vec<Term>> {
+        self.outgoing_values_by_focus
+            .get(focus)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map(|values| values.iter().cloned().collect())
+    }
+
+    fn incoming_values_for_focus(&self, focus: &Term, predicate: &NamedNode) -> Option<Vec<Term>> {
+        self.incoming_values_by_focus
+            .get(focus)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map(|values| values.iter().cloned().collect())
+    }
+
+    fn subject_has_predicate(&self, focus: &Term, predicate: &NamedNode) -> bool {
+        self.subjects_by_predicate
+            .get(predicate)
+            .is_some_and(|subjects| subjects.contains(focus))
+    }
+
+    fn object_has_predicate(&self, focus: &Term, predicate: &NamedNode) -> bool {
+        self.objects_by_predicate
+            .get(predicate)
+            .is_some_and(|objects| objects.contains(focus))
+    }
+
+    fn subject_has_class(&self, focus: &Term, class: &Term) -> bool {
+        self.typed_subjects_by_class
+            .get(class)
+            .is_some_and(|subjects| subjects.contains(focus))
+    }
+}
+
+fn dependencies_for_targets(targets: &[crate::types::Target]) -> Vec<FocusDependency> {
+    let mut dependencies = Vec::new();
+    for target in targets {
+        match target {
+            crate::types::Target::Class(class) => {
+                dependencies.push(FocusDependency::TargetClass(class.clone()))
+            }
+            crate::types::Target::SubjectsOf(Term::NamedNode(predicate)) => {
+                dependencies.push(FocusDependency::TargetSubjectsOf(predicate.clone()))
+            }
+            crate::types::Target::ObjectsOf(Term::NamedNode(predicate)) => {
+                dependencies.push(FocusDependency::TargetObjectsOf(predicate.clone()))
+            }
+            crate::types::Target::Advanced(_) => dependencies.push(FocusDependency::All),
+            crate::types::Target::Node(_)
+            | crate::types::Target::SubjectsOf(_)
+            | crate::types::Target::ObjectsOf(_) => {}
+        }
+    }
+    dependencies
+}
+
+fn dependencies_for_rule(rule: &Rule) -> (Vec<FocusDependency>, SignaturePrecision) {
+    match rule {
+        Rule::Triple(rule) => dependencies_for_triple_rule(rule),
+        Rule::Sparql(rule) => dependencies_for_sparql_rule(rule),
+    }
+}
+
+fn dependencies_for_triple_rule(rule: &TripleRule) -> (Vec<FocusDependency>, SignaturePrecision) {
+    let mut dependencies = Vec::new();
+    dependencies.extend(dependencies_for_template(&rule.subject));
+    dependencies.extend(dependencies_for_template(&rule.object));
+    if !rule.condition_shapes.is_empty() {
+        dependencies.push(FocusDependency::All);
+    }
+    let precision = if dependencies.contains(&FocusDependency::All) {
+        SignaturePrecision::Conservative
+    } else {
+        SignaturePrecision::Exact
+    };
+    (dependencies, precision)
+}
+
+fn dependencies_for_template(template: &TriplePatternTerm) -> Vec<FocusDependency> {
+    match template {
+        TriplePatternTerm::This | TriplePatternTerm::Constant(_) => Vec::new(),
+        TriplePatternTerm::Path(path) => dependencies_for_path(path, false),
+    }
+}
+
+fn dependencies_for_path(path: &crate::types::Path, any_participant: bool) -> Vec<FocusDependency> {
+    match path {
+        crate::types::Path::Simple(Term::NamedNode(predicate)) => {
+            if any_participant {
+                vec![FocusDependency::AnyPredicateParticipant(predicate.clone())]
+            } else {
+                vec![FocusDependency::OutgoingPredicate(predicate.clone())]
+            }
+        }
+        crate::types::Path::Inverse(inner) => match inner.as_ref() {
+            crate::types::Path::Simple(Term::NamedNode(predicate)) => {
+                vec![FocusDependency::IncomingPredicate(predicate.clone())]
+            }
+            other => dependencies_for_path(other, true),
+        },
+        crate::types::Path::Sequence(paths) | crate::types::Path::Alternative(paths) => paths
+            .iter()
+            .flat_map(|path| dependencies_for_path(path, true))
+            .collect(),
+        crate::types::Path::ZeroOrMore(inner)
+        | crate::types::Path::OneOrMore(inner)
+        | crate::types::Path::ZeroOrOne(inner) => dependencies_for_path(inner, true),
+        crate::types::Path::Simple(_) => vec![FocusDependency::All],
+    }
+}
+
+fn dependencies_for_sparql_rule(rule: &SparqlRule) -> (Vec<FocusDependency>, SignaturePrecision) {
+    let where_body = rule
+        .query
+        .split_once("WHERE")
+        .map(|(_, tail)| tail)
+        .unwrap_or(rule.query.as_str());
+    let mut dependencies = extract_sparql_dependencies(where_body);
+    let mut precision = SignaturePrecision::Conservative;
+    if !rule.condition_shapes.is_empty() {
+        dependencies.push(FocusDependency::All);
+    }
+    if dependencies.is_empty() {
+        dependencies.push(FocusDependency::All);
+        precision = SignaturePrecision::Unknown;
+    } else if dependencies.contains(&FocusDependency::All) {
+        precision = SignaturePrecision::Unknown;
+    }
+    (dependencies, precision)
+}
+
+fn writes_for_rule(rule: &Rule) -> (Vec<RuleWrite>, SignaturePrecision) {
+    match rule {
+        Rule::Triple(rule) => writes_for_triple_rule(rule),
+        Rule::Sparql(rule) => writes_for_sparql_rule(rule),
+    }
+}
+
+fn writes_for_triple_rule(rule: &TripleRule) -> (Vec<RuleWrite>, SignaturePrecision) {
+    let mut writes = vec![RuleWrite::Predicate(rule.predicate.clone())];
+    if is_rdf_type_predicate(&rule.predicate)
+        && let TriplePatternTerm::Constant(Term::NamedNode(class)) = &rule.object
+    {
+        writes.push(RuleWrite::Class(Term::NamedNode(class.clone())));
+    }
+    (writes, SignaturePrecision::Exact)
+}
+
+fn writes_for_sparql_rule(rule: &SparqlRule) -> (Vec<RuleWrite>, SignaturePrecision) {
+    let Some(native_rule) = native_sparql_rule(&Rule::Sparql(rule.clone())) else {
+        return (vec![RuleWrite::Unknown], SignaturePrecision::Unknown);
+    };
+
+    let mut writes = match &native_rule {
+        CompiledSparqlRule::PathCopy {
+            construct_predicate,
+            ..
+        }
+        | CompiledSparqlRule::EqualityConstant {
+            construct_predicate,
+            ..
+        } => vec![RuleWrite::Predicate(construct_predicate.clone())],
+    };
+
+    if let CompiledSparqlRule::EqualityConstant {
+        construct_predicate,
+        object,
+        ..
+    } = &native_rule
+        && is_rdf_type_predicate(construct_predicate)
+        && matches!(object, Term::NamedNode(_))
+    {
+        writes.push(RuleWrite::Class(object.clone()));
+    }
+
+    (writes, SignaturePrecision::Conservative)
+}
+
+fn active_rule_family_indices(
+    context: &ValidationContext,
+    plans: &[RulePlan],
+    downstream: &HashMap<usize, Vec<usize>>,
+    always_run_plans: &[usize],
+) -> Vec<usize> {
+    let active_keys = dataset_dependency_keys(context);
+    let plan_families = rule_plan_families(plans.len(), downstream);
+    let always_run: HashSet<usize> = always_run_plans.iter().copied().collect();
+    let mut active_indices = Vec::new();
+
+    for family in plan_families {
+        let mut family_keys = Vec::new();
+        let mut family_has_unknown = false;
+        for plan_index in &family {
+            let signature = &plans[*plan_index].signature;
+            family_keys.extend(signature.family_keys());
+            family_has_unknown |= signature.needs_always_run() || always_run.contains(plan_index);
+        }
+        dedup_preserve_order(&mut family_keys);
+        if family_has_unknown
+            || family_keys.is_empty()
+            || family_keys.iter().any(|key| active_keys.contains(key))
+        {
+            active_indices.extend(family);
+        }
+    }
+
+    active_indices.sort_unstable();
+    active_indices.dedup();
+    active_indices
+}
+
+fn rule_plan_families(
+    plan_count: usize,
+    downstream: &HashMap<usize, Vec<usize>>,
+) -> Vec<Vec<usize>> {
+    let mut undirected: Vec<Vec<usize>> = vec![Vec::new(); plan_count];
+    for (&producer, consumers) in downstream {
+        for &consumer in consumers {
+            undirected[producer].push(consumer);
+            undirected[consumer].push(producer);
+        }
+    }
+
+    let mut visited = vec![false; plan_count];
+    let mut families = Vec::new();
+    for start in 0..plan_count {
+        if visited[start] {
+            continue;
+        }
+        let mut family = Vec::new();
+        let mut stack = vec![start];
+        visited[start] = true;
+        while let Some(plan_index) = stack.pop() {
+            family.push(plan_index);
+            for &next in &undirected[plan_index] {
+                if !visited[next] {
+                    visited[next] = true;
+                    stack.push(next);
+                }
+            }
+        }
+        family.sort_unstable();
+        families.push(family);
+    }
+    families
+}
+
+fn dataset_dependency_keys(context: &ValidationContext) -> HashSet<RuleDependencyKey> {
+    let mut keys = HashSet::new();
+    let graph = GraphName::NamedNode(context.data_graph_iri.clone());
+    for quad in context
+        .model
+        .store
+        .quads_for_pattern(None, None, None, Some(graph.as_ref()))
+        .flatten()
+    {
+        keys.insert(RuleDependencyKey::Predicate(quad.predicate.clone()));
+        if is_rdf_type_predicate(&quad.predicate) {
+            keys.insert(RuleDependencyKey::Class(quad.object.clone()));
+        }
+    }
+    keys
+}
+
+fn is_rdf_type_predicate(predicate: &NamedNode) -> bool {
+    predicate.as_str() == RDF_TYPE_IRI
+}
+
+fn dedup_preserve_order<T: Eq + std::hash::Hash + Clone>(items: &mut Vec<T>) {
+    let mut seen = HashSet::new();
+    items.retain(|item| seen.insert(item.clone()));
+}
+
+fn sparql_prefilter_for_rule(rule: &Rule) -> Option<SparqlPrefilter> {
+    let Rule::Sparql(rule) = rule else {
+        return None;
+    };
+
+    let where_body = rule
+        .query
+        .split_once("WHERE")
+        .map(|(_, tail)| tail)
+        .unwrap_or(rule.query.as_str());
+    let upper = where_body.to_ascii_uppercase();
+    if upper.contains("OPTIONAL")
+        || upper.contains("UNION")
+        || upper.contains("MINUS")
+        || upper.contains("NOT EXISTS")
+    {
+        return None;
+    }
+
+    static DIRECT_OUTGOING_RE: OnceLock<Regex> = OnceLock::new();
+    static DIRECT_INCOMING_RE: OnceLock<Regex> = OnceLock::new();
+    static DIRECT_TYPE_RE: OnceLock<Regex> = OnceLock::new();
+
+    let mut prefilter = SparqlPrefilter::default();
+
+    let direct_outgoing_re = DIRECT_OUTGOING_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?i)\$this\s+(<[^>]+>)\s+(?:\?[A-Za-z_][A-Za-z0-9_]*|\$this|<[^>]+>|\"[^\"]*\")"#,
+        )
+        .expect("valid direct outgoing regex")
+    });
+    for capture in direct_outgoing_re.captures_iter(where_body) {
+        if let Some(predicate) = capture
+            .get(1)
+            .and_then(|m| NamedNode::new(&m.as_str()[1..m.as_str().len() - 1]).ok())
+        {
+            prefilter.direct_outgoing_predicates.push(predicate);
+        }
+    }
+
+    let direct_incoming_re = DIRECT_INCOMING_RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:\?[A-Za-z_][A-Za-z0-9_]*|<[^>]+>|\"[^\"]*\")\s+(<[^>]+>)\s+\$this"#)
+            .expect("valid direct incoming regex")
+    });
+    for capture in direct_incoming_re.captures_iter(where_body) {
+        if let Some(predicate) = capture
+            .get(1)
+            .and_then(|m| NamedNode::new(&m.as_str()[1..m.as_str().len() - 1]).ok())
+        {
+            prefilter.direct_incoming_predicates.push(predicate);
+        }
+    }
+
+    let direct_type_re = DIRECT_TYPE_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?i)\$this\s+(?:a|<http://www\.w3\.org/1999/02/22-rdf-syntax-ns#type>)\s+(<[^>]+>)"#,
+        )
+        .expect("valid direct type regex")
+    });
+    for capture in direct_type_re.captures_iter(where_body) {
+        if let Some(class) = capture
+            .get(1)
+            .and_then(|m| NamedNode::new(&m.as_str()[1..m.as_str().len() - 1]).ok())
+        {
+            prefilter.direct_classes.push(Term::NamedNode(class));
+        }
+    }
+
+    prefilter.direct_outgoing_predicates.sort();
+    prefilter.direct_outgoing_predicates.dedup();
+    prefilter.direct_incoming_predicates.sort();
+    prefilter.direct_incoming_predicates.dedup();
+    dedup_preserve_order(&mut prefilter.direct_classes);
+
+    (!prefilter.is_empty()).then_some(prefilter)
+}
+
+fn native_sparql_rule(rule: &Rule) -> Option<CompiledSparqlRule> {
+    let Rule::Sparql(rule) = rule else {
+        return None;
+    };
+    let algebra = SparqlServices::new().algebra(&rule.query).ok()?;
+    compiled_sparql_rule(&algebra)
+}
+
+fn extract_sparql_dependencies(query: &str) -> Vec<FocusDependency> {
+    static TYPE_CLASS_RE: OnceLock<Regex> = OnceLock::new();
+    static PREDICATE_RE: OnceLock<Regex> = OnceLock::new();
+
+    let mut dependencies = Vec::new();
+    let type_class_re = TYPE_CLASS_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?i)(?:\?[A-Za-z_][A-Za-z0-9_]*|\$this)\s+(?:a|<http://www\.w3\.org/1999/02/22-rdf-syntax-ns#type>)\s+(<[^>]+>)"#,
+        )
+        .expect("valid rdf:type regex")
+    });
+    for capture in type_class_re.captures_iter(query) {
+        if let Some(class) = capture
+            .get(1)
+            .and_then(|m| NamedNode::new(&m.as_str()[1..m.as_str().len() - 1]).ok())
+        {
+            dependencies.push(FocusDependency::TargetClass(Term::NamedNode(class)));
+        }
+    }
+
+    let predicate_re = PREDICATE_RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:\?[A-Za-z_][A-Za-z0-9_]*|\$this)\s+(<[^>]+>)\s+(?:\?[A-Za-z_][A-Za-z0-9_]*|\$this|<[^>]+>|\"[^\"]*\")"#)
+            .expect("valid predicate regex")
+    });
+    for capture in predicate_re.captures_iter(query) {
+        if let Some(predicate) = capture
+            .get(1)
+            .and_then(|m| NamedNode::new(&m.as_str()[1..m.as_str().len() - 1]).ok())
+        {
+            dependencies.push(FocusDependency::AnyPredicateParticipant(predicate));
+        }
+    }
+
+    dependencies
+}
+
 fn term_to_named_or_blank(term: Term) -> Result<NamedOrBlankNode, String> {
     match term {
         Term::NamedNode(node) => Ok(node.into()),
@@ -779,10 +1905,14 @@ fn node_conforms_to_shape(
         vc.new_trace(),
     );
     let mut trace: Vec<TraceItem> = Vec::new();
-    match check_conformance_for_node(&mut ctx, shape, vc, &mut trace)? {
-        ConformanceReport::Conforms => Ok(true),
-        ConformanceReport::NonConforms(_) => Ok(false),
-    }
+    let mut events = Vec::new();
+    let result =
+        match check_conformance_for_node(&mut ctx, shape, vc, &mut trace, &mut events, None)? {
+            ConformanceReport::Conforms => Ok(true),
+            ConformanceReport::NonConforms(_) => Ok(false),
+        };
+    vc.trace_sink.record_batch(events);
+    result
 }
 
 fn named_or_blank_to_term(subject: NamedOrBlankNode) -> Result<Term, String> {
@@ -795,7 +1925,8 @@ fn named_or_blank_to_term(subject: NamedOrBlankNode) -> Result<Term, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{backend::GraphBackend, Source, Validator};
+    use crate::sparql::LoweredPropertyPath;
+    use crate::{Source, Validator, backend::GraphBackend};
     use oxigraph::model::{Literal, NamedNode, Quad, Term};
     use std::fs;
     use std::path::PathBuf;
@@ -823,6 +1954,120 @@ mod tests {
             .with_data_source(Source::File(data_path))
             .build()
             .expect("validator should build")
+    }
+
+    #[test]
+    fn rule_signatures_capture_read_and_write_metadata() {
+        let shape = crate::types::NodeShapeIR {
+            id: ID(1),
+            targets: vec![crate::types::Target::Class(Term::NamedNode(
+                NamedNode::new("http://example.com/ns#Base").unwrap(),
+            ))],
+            constraints: Vec::new(),
+            property_shapes: Vec::new(),
+            severity: crate::types::Severity::Violation,
+            deactivated: false,
+        };
+        let plans = [
+            RulePlan::for_node_shape(
+                &shape,
+                Rule::Triple(TripleRule {
+                    id: RuleID(1),
+                    subject: TriplePatternTerm::This,
+                    predicate: NamedNode::new("http://example.com/ns#marker").unwrap(),
+                    object: TriplePatternTerm::Constant(Term::Literal(
+                        Literal::new_simple_literal("seeded"),
+                    )),
+                    condition_shapes: Vec::new(),
+                    deactivated: false,
+                    order: None,
+                    source_term: Term::NamedNode(
+                        NamedNode::new("http://example.com/ns#producer").unwrap(),
+                    ),
+                }),
+            ),
+            RulePlan::for_node_shape(
+                &shape,
+                Rule::Sparql(SparqlRule {
+                    id: RuleID(2),
+                    query: "PREFIX ex: <http://example.com/ns#> CONSTRUCT { $this <http://example.com/ns#flag> ?value . } WHERE { $this <http://example.com/ns#marker> ?value . }".to_string(),
+                    source_term: Term::NamedNode(
+                        NamedNode::new("http://example.com/ns#consumer").unwrap(),
+                    ),
+                    condition_shapes: Vec::new(),
+                    deactivated: false,
+                    order: None,
+                }),
+            ),
+        ];
+
+        assert!(
+            plans[0]
+                .signature
+                .target_reads
+                .contains(&FocusDependency::TargetClass(Term::NamedNode(
+                    NamedNode::new("http://example.com/ns#Base").unwrap()
+                ),))
+        );
+        assert!(plans[0].signature.writes.contains(&RuleWrite::Predicate(
+            NamedNode::new("http://example.com/ns#marker").unwrap()
+        )));
+        assert!(plans[1].signature.writes.contains(&RuleWrite::Predicate(
+            NamedNode::new("http://example.com/ns#flag").unwrap()
+        )));
+        assert_eq!(
+            plans[1].compiled_index_requirements,
+            vec![CompiledIndexRequirement::OutgoingValues {
+                predicate: NamedNode::new("http://example.com/ns#marker").unwrap(),
+            }]
+        );
+        assert!(!plans[1].signature.reads.is_empty());
+        assert_eq!(
+            plans[1].signature.write_precision,
+            SignaturePrecision::Conservative
+        );
+    }
+
+    #[test]
+    fn dependency_graph_prunes_rule_families_for_unrelated_datasets() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:WantedShape a sh:NodeShape ;
+    sh:targetClass ex:Wanted ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:wantedFlag ;
+        sh:object "wanted" ;
+    ] .
+
+ex:OtherShape a sh:NodeShape ;
+    sh:targetClass ex:Other ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:otherFlag ;
+        sh:object "other" ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Wanted .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let engine =
+            InferenceEngine::new(validator.context(), InferenceConfig::default()).expect("engine");
+
+        assert!(engine.active_plan_indices.iter().any(|plan_index| {
+            engine.plans[*plan_index].signature.target_reads.contains(
+                &FocusDependency::TargetClass(Term::NamedNode(
+                    NamedNode::new("http://example.com/ns#Wanted").unwrap(),
+                )),
+            )
+        }));
     }
 
     #[test]
@@ -893,6 +2138,93 @@ ex:rect2 a ex:Rectangle ;
         let outcome_second = run_inference(context, config).expect("second run succeeds");
         assert_eq!(outcome_second.triples_added, 0);
         assert!(outcome_second.inferred_quads.is_empty());
+    }
+
+    #[test]
+    fn native_sparql_rule_matches_prefixed_path_copy_query() {
+        let rule = Rule::Sparql(SparqlRule {
+            id: RuleID(1),
+            query: r#"PREFIX ex: <http://example.com/ns#>
+CONSTRUCT { $this ex:output ?value . }
+WHERE { $this ^ex:sourceOf/ex:value ?value . }"#
+                .to_string(),
+            source_term: Term::NamedNode(NamedNode::new("http://example.com/ns#rule").unwrap()),
+            condition_shapes: Vec::new(),
+            deactivated: false,
+            order: None,
+        });
+
+        let native = native_sparql_rule(&rule).expect("query should lower");
+        match native {
+            CompiledSparqlRule::PathCopy {
+                construct_predicate,
+                source_path: LoweredPropertyPath::Sequence(segments),
+            } => {
+                assert_eq!(construct_predicate.as_str(), "http://example.com/ns#output");
+                assert_eq!(segments.len(), 2);
+                match &segments[0] {
+                    LoweredPropertyPath::ReverseNamedNode(predicate) => {
+                        assert_eq!(predicate.as_str(), "http://example.com/ns#sourceOf");
+                    }
+                    other => panic!("expected reverse first segment, got {other:?}"),
+                }
+                match &segments[1] {
+                    LoweredPropertyPath::NamedNode(predicate) => {
+                        assert_eq!(predicate.as_str(), "http://example.com/ns#value");
+                    }
+                    other => panic!("expected direct second segment, got {other:?}"),
+                }
+            }
+            other => panic!("expected path-copy rule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn native_sparql_rule_matches_prefixed_equality_constant_query() {
+        let rule = Rule::Sparql(SparqlRule {
+            id: RuleID(1),
+            query: r#"PREFIX ex: <http://example.com/ns#>
+CONSTRUCT { $this ex:isSquare true . }
+WHERE {
+  $this ex:width ?w ;
+        ex:height ?h .
+  FILTER(?w = ?h)
+}"#
+            .to_string(),
+            source_term: Term::NamedNode(NamedNode::new("http://example.com/ns#rule").unwrap()),
+            condition_shapes: Vec::new(),
+            deactivated: false,
+            order: None,
+        });
+
+        let native = native_sparql_rule(&rule).expect("query should lower");
+        match native {
+            CompiledSparqlRule::EqualityConstant {
+                construct_predicate,
+                left_path,
+                right_path,
+                object,
+            } => {
+                assert_eq!(
+                    construct_predicate.as_str(),
+                    "http://example.com/ns#isSquare"
+                );
+                assert_eq!(
+                    left_path,
+                    LoweredPropertyPath::NamedNode(
+                        NamedNode::new("http://example.com/ns#width").unwrap()
+                    )
+                );
+                assert_eq!(
+                    right_path,
+                    LoweredPropertyPath::NamedNode(
+                        NamedNode::new("http://example.com/ns#height").unwrap()
+                    )
+                );
+                assert_eq!(object, Term::Literal(Literal::from(true)));
+            }
+            other => panic!("expected equality-constant rule, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1007,10 +2339,289 @@ ex:Focus ex:value "foo" .
             Term::Literal(Literal::new_simple_literal("derived")),
             GraphName::NamedNode(context.data_graph_iri.clone()),
         );
-        assert!(context
-            .backend
-            .store()
-            .contains(quad.as_ref())
-            .expect("quad lookup"));
+        assert!(
+            context
+                .backend
+                .store()
+                .contains(quad.as_ref())
+                .expect("quad lookup")
+        );
+    }
+
+    #[test]
+    fn delta_driven_rules_wake_predicate_target_rules() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:BaseShape a sh:NodeShape ;
+    sh:targetClass ex:Base ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:order 0 ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT { $this ex:flag "derived" . }
+            WHERE { $this ex:marker "seeded" . }
+        """ ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:order 1 ;
+        sh:subject sh:this ;
+        sh:predicate ex:marker ;
+        sh:object "seeded" ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Base .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let outcome = run_inference(context, InferenceConfig::default()).expect("inference");
+        assert_eq!(outcome.triples_added, 2);
+        assert!(outcome.iterations_executed >= 2);
+
+        let marker_quad = Quad::new(
+            NamedNode::new("http://example.com/ns#item").unwrap(),
+            NamedNode::new("http://example.com/ns#marker").unwrap(),
+            Term::Literal(Literal::new_simple_literal("seeded")),
+            GraphName::NamedNode(context.data_graph_iri.clone()),
+        );
+        assert!(context.contains_quad(&marker_quad).expect("quad lookup"));
+
+        let flag_quad = Quad::new(
+            NamedNode::new("http://example.com/ns#item").unwrap(),
+            NamedNode::new("http://example.com/ns#flag").unwrap(),
+            Term::Literal(Literal::new_simple_literal("derived")),
+            GraphName::NamedNode(context.data_graph_iri.clone()),
+        );
+        assert!(context.contains_quad(&flag_quad).expect("quad lookup"));
+    }
+
+    #[test]
+    fn compiled_rule_index_tracks_newly_inferred_predicates() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:BaseShape a sh:NodeShape ;
+    sh:targetClass ex:Base ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:order 0 ;
+        sh:subject sh:this ;
+        sh:predicate ex:marker ;
+        sh:object ex:derived ;
+    ] ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:order 1 ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT { $this ex:flag ?value . }
+            WHERE { $this ex:marker ?value . }
+        """ ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Base .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let marker = NamedNode::new("http://example.com/ns#marker").unwrap();
+        assert_eq!(
+            context
+                .compiled_focus_objects_for_predicate(
+                    &Term::NamedNode(NamedNode::new("http://example.com/ns#item").unwrap()),
+                    &marker,
+                )
+                .expect("compiled lookup should succeed"),
+            Vec::<Term>::new()
+        );
+
+        let outcome = run_inference(context, InferenceConfig::default()).expect("inference");
+        assert_eq!(outcome.triples_added, 2);
+        assert!(outcome.iterations_executed >= 2);
+        assert_eq!(
+            context
+                .compiled_focus_objects_for_predicate(
+                    &Term::NamedNode(NamedNode::new("http://example.com/ns#item").unwrap()),
+                    &marker,
+                )
+                .expect("compiled lookup should refresh"),
+            vec![Term::NamedNode(
+                NamedNode::new("http://example.com/ns#derived").unwrap()
+            )]
+        );
+
+        let flag_quad = Quad::new(
+            NamedNode::new("http://example.com/ns#item").unwrap(),
+            NamedNode::new("http://example.com/ns#flag").unwrap(),
+            NamedNode::new("http://example.com/ns#derived").unwrap(),
+            GraphName::NamedNode(context.data_graph_iri.clone()),
+        );
+        assert!(context.contains_quad(&flag_quad).expect("quad lookup"));
+    }
+
+    #[test]
+    fn semi_naive_inference_reaches_transitive_closure() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:NodeShape a sh:NodeShape ;
+    sh:targetClass ex:Node ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT { $this ex:reachable ?next . }
+            WHERE { $this ex:next ?next . }
+        """ ;
+    ] ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT { $this ex:reachable ?reach . }
+            WHERE {
+                $this ex:next ?mid .
+                ?mid ex:reachable ?reach .
+            }
+        """ ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:a a ex:Node ; ex:next ex:b .
+ex:b a ex:Node ; ex:next ex:c .
+ex:c a ex:Node ; ex:next ex:d .
+ex:d a ex:Node .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let outcome = run_inference(context, InferenceConfig::default()).expect("inference");
+        assert_eq!(outcome.triples_added, 6);
+        assert!(outcome.iterations_executed >= 2);
+
+        let reachable = NamedNode::new("http://example.com/ns#reachable").unwrap();
+        for (subject, object) in [
+            ("http://example.com/ns#a", "http://example.com/ns#b"),
+            ("http://example.com/ns#a", "http://example.com/ns#c"),
+            ("http://example.com/ns#a", "http://example.com/ns#d"),
+            ("http://example.com/ns#b", "http://example.com/ns#c"),
+            ("http://example.com/ns#b", "http://example.com/ns#d"),
+            ("http://example.com/ns#c", "http://example.com/ns#d"),
+        ] {
+            let quad = Quad::new(
+                NamedNode::new(subject).unwrap(),
+                reachable.clone(),
+                NamedNode::new(object).unwrap(),
+                GraphName::NamedNode(context.data_graph_iri.clone()),
+            );
+            assert!(context.contains_quad(&quad).expect("quad lookup"));
+        }
+    }
+
+    #[test]
+    fn compiled_sparql_index_returns_direct_and_inverse_values() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:Shape a sh:NodeShape ;
+    sh:targetClass ex:Thing .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:focus a ex:Thing ;
+    ex:sourceOf ex:source .
+
+ex:source ex:value "flag" .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let source_of = NamedNode::new("http://example.com/ns#sourceOf").unwrap();
+        let value = NamedNode::new("http://example.com/ns#value").unwrap();
+        let focus = Term::NamedNode(NamedNode::new("http://example.com/ns#focus").unwrap());
+        let source = Term::NamedNode(NamedNode::new("http://example.com/ns#source").unwrap());
+
+        context
+            .ensure_compiled_sparql_index(&[
+                CompiledIndexRequirement::IncomingValues {
+                    predicate: source_of.clone(),
+                },
+                CompiledIndexRequirement::OutgoingValues {
+                    predicate: value.clone(),
+                },
+            ])
+            .expect("compiled index should build");
+
+        assert_eq!(
+            context
+                .compiled_focus_subjects_for_inverse_predicate(&source, &source_of)
+                .expect("inverse lookup should succeed"),
+            vec![focus]
+        );
+        assert_eq!(
+            context
+                .compiled_focus_objects_for_predicate(&source, &value)
+                .expect("outgoing lookup should succeed"),
+            vec![Term::Literal(Literal::new_simple_literal("flag"))]
+        );
+    }
+
+    #[test]
+    fn sparql_path_copy_rule_infers_from_compiled_index() {
+        let shapes = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:FocusShape a sh:NodeShape ;
+    sh:targetClass ex:Focus ;
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:construct """
+            PREFIX ex: <http://example.com/ns#>
+            CONSTRUCT {
+                $this ex:flag ?value .
+            }
+            WHERE {
+                $this ^ex:sourceOf/ex:value ?value .
+            }
+        """ ;
+    ] .
+"#;
+
+        let data = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:item a ex:Focus .
+ex:source ex:sourceOf ex:item ;
+    ex:value "compiled" .
+"#;
+
+        let validator = build_validator(shapes, data);
+        let context = validator.context();
+        let outcome =
+            run_inference(context, InferenceConfig::default()).expect("inference should succeed");
+
+        assert_eq!(outcome.triples_added, 1);
+        let quad = Quad::new(
+            NamedNode::new("http://example.com/ns#item").unwrap(),
+            NamedNode::new("http://example.com/ns#flag").unwrap(),
+            Literal::new_simple_literal("compiled"),
+            GraphName::NamedNode(context.data_graph_iri.clone()),
+        );
+        assert!(
+            context
+                .contains_quad(&quad)
+                .expect("quad lookup should succeed")
+        );
     }
 }

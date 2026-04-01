@@ -1,7 +1,7 @@
 use super::ids::IDLookupTable;
 use crate::model::{
-    components::sparql::CustomConstraintComponentDefinition, components::ComponentDescriptor,
-    ComponentTemplateDefinition, Rule, ShapeTemplateDefinition,
+    ComponentTemplateDefinition, Rule, ShapeTemplateDefinition, components::ComponentDescriptor,
+    components::sparql::CustomConstraintComponentDefinition,
 };
 use crate::optimize::Optimizer;
 use crate::parser;
@@ -9,10 +9,10 @@ use crate::shacl_ir::{FeatureToggles, ShapeIR};
 use crate::shape::{NodeShape, PropertyShape};
 use crate::skolem::skolem_base;
 use crate::sparql::SparqlServices;
-use crate::types::{ComponentID, PropShapeID, RuleID, ID};
+use crate::types::{ComponentID, ID, PropShapeID, RuleID};
 use log::info;
 use ontoenv::api::OntoEnv;
-use ontoenv::ontology::OntologyLocation;
+use ontoenv::ontology::{GraphIdentifier, OntologyLocation};
 use ontoenv::options::{Overwrite, RefreshStrategy};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode, Term};
@@ -160,6 +160,7 @@ pub struct ShapesModel {
     pub(crate) rule_id_lookup: RwLock<IDLookupTable<RuleID>>,
     pub(crate) store: Store,
     pub(crate) shape_graph_iri: NamedNode,
+    pub(crate) shape_graph_id: Option<GraphIdentifier>,
     pub(crate) node_shapes: HashMap<ID, NodeShape>,
     pub(crate) prop_shapes: HashMap<PropShapeID, PropertyShape>,
     pub(crate) component_descriptors: HashMap<ComponentID, ComponentDescriptor>,
@@ -251,6 +252,7 @@ impl ShapesModel {
             rule_id_lookup: final_ctx.rule_id_lookup,
             store: final_ctx.store,
             shape_graph_iri: final_ctx.shape_graph_iri,
+            shape_graph_id: Some(shape_id),
             node_shapes: final_ctx.node_shapes,
             prop_shapes: final_ctx.prop_shapes,
             component_descriptors: final_ctx.component_descriptors,
@@ -343,6 +345,7 @@ impl ShapesModel {
             rule_id_lookup: RwLock::new(IDLookupTable::<RuleID>::new()),
             store,
             shape_graph_iri: shape_graph,
+            shape_graph_id: None,
             node_shapes,
             prop_shapes,
             component_descriptors: components,

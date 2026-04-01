@@ -1,5 +1,6 @@
-use crate::context::{sanitize_graphviz_string, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, sanitize_graphviz_string};
 use crate::runtime::validators::parallel_value_node_checks;
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, TermRef};
 // Removed: use regex::Regex;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ValidateComponent, ValidationFailure,
 };
+use oxigraph::model::Term;
 
 // string-based constraints
 #[derive(Debug)]
@@ -47,6 +49,8 @@ impl ValidateComponent for MinLengthConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let results = c
             .value_nodes()
@@ -161,6 +165,8 @@ impl ValidateComponent for MaxLengthConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let results = c
             .value_nodes()
@@ -278,6 +284,8 @@ impl ValidateComponent for PatternConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let mut pattern_builder = regex::RegexBuilder::new(&self.pattern);
         if let Some(flags) = &self.flags {
@@ -448,6 +456,8 @@ impl ValidateComponent for LanguageInConstraintComponent {
         c: &mut Context,
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let languages = Arc::new(self.languages.clone());
         let results = parallel_value_node_checks(
@@ -557,6 +567,8 @@ impl ValidateComponent for UniqueLangConstraintComponent {
         c: &mut Context,
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if !self.unique_lang {
             return Ok(vec![]);
@@ -569,15 +581,14 @@ impl ValidateComponent for UniqueLangConstraintComponent {
             let mut duplicated_tags = HashSet::new();
 
             for vn in value_nodes {
-                if let TermRef::Literal(lit) = vn.as_ref() {
-                    if let Some(lang) = lit.language() {
-                        if !lang.is_empty() {
-                            // SHACL spec: "for each non-empty language tag"
-                            if !lang_tags_seen.insert(lang.to_lowercase()) {
-                                // If insert returns false, it means the value was already present.
-                                duplicated_tags.insert(lang.to_lowercase());
-                            }
-                        }
+                if let TermRef::Literal(lit) = vn.as_ref()
+                    && let Some(lang) = lit.language()
+                    && !lang.is_empty()
+                {
+                    // SHACL spec: "for each non-empty language tag"
+                    if !lang_tags_seen.insert(lang.to_lowercase()) {
+                        // If insert returns false, it means the value was already present.
+                        duplicated_tags.insert(lang.to_lowercase());
                     }
                 }
             }

@@ -1,5 +1,6 @@
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, format_term_for_label, sanitize_graphviz_string};
 use crate::runtime::Component;
+use crate::trace::TraceEvent;
 use crate::types::Path;
 use crate::types::{ComponentID, TraceItem};
 use log::debug;
@@ -18,6 +19,8 @@ impl ValidateComponent for InConstraintComponent {
         c: &mut Context,
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if self.values.is_empty() {
             // According to SHACL spec, if sh:in has an empty list, no value nodes can conform.
@@ -102,20 +105,20 @@ impl GraphvizOutput for ClosedConstraintComponent {
         _context: &ValidationContext,
     ) -> String {
         let mut label_parts = vec![format!("Closed: {}", self.closed)];
-        if let Some(ignored) = &self.ignored_properties {
-            if !ignored.is_empty() {
-                let ignored_str = ignored
-                    .iter()
-                    .map(format_term_for_label)
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                label_parts.push(format!("Ignored: [{}]", ignored_str));
-            }
+        if let Some(ignored) = &self.ignored_properties
+            && !ignored.is_empty()
+        {
+            let ignored_str = ignored
+                .iter()
+                .map(format_term_for_label)
+                .collect::<Vec<String>>()
+                .join(", ");
+            label_parts.push(format!("Ignored: [{}]", ignored_str));
         }
         format!(
             "{} [label=\"{}\"];",
             component_id.to_graphviz_id(),
-            label_parts.join("\\n")
+            sanitize_graphviz_string(&label_parts.join("\\n"))
         )
     }
 }
@@ -127,6 +130,8 @@ impl ValidateComponent for ClosedConstraintComponent {
         c: &mut Context,
         validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         if !self.closed {
             return Ok(vec![]);
@@ -153,14 +158,11 @@ impl ValidateComponent for ClosedConstraintComponent {
             for constraint_com_id in node_shape.constraints() {
                 if let Some(Component::PropertyConstraint(pc)) =
                     validation_context.get_component(constraint_com_id)
-                {
-                    if let Some(prop_shape) =
+                    && let Some(prop_shape) =
                         validation_context.model.get_prop_shape_by_id(pc.shape())
-                    {
-                        if let Path::Simple(Term::NamedNode(p)) = prop_shape.path() {
-                            allowed_properties.insert(p.clone());
-                        }
-                    }
+                    && let Path::Simple(Term::NamedNode(p)) = prop_shape.path()
+                {
+                    allowed_properties.insert(p.clone());
                 }
             }
         }
@@ -261,6 +263,8 @@ impl ValidateComponent for HasValueConstraintComponent {
         c: &mut Context,
         _validation_context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         match c.value_nodes() {
             Some(value_nodes) => {

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -31,3 +31,6 @@ jobs:
 
     - name: Cargo test
       run: cargo test --workspace --all-features
+
+    - name: Cargo test (compiled manifest suite)
+      run: cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test

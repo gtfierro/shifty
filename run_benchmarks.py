@@ -20,10 +20,12 @@ The script mirrors the old run_benchmarks.sh flow but adds:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import signal
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,15 +53,31 @@ class Measurement:
     run: int
     seconds: float
     timed_out: bool = False
+    failed: bool = False
+    graph_fetching_seconds: float | None = None
+    validate_seconds: float | None = None
+    inference_seconds: float | None = None
+    report_assembly_seconds: float | None = None
 
     # log post-init
     def __post_init__(self) -> None:
         timeout_suffix = " (timeout)" if self.timed_out else ""
+        failure_suffix = " (failed)" if self.failed else ""
         LOGGER.info(
             f"[{self.platform}] {self.data_file.name} | "
             f"{self.triples} triples | run {self.run} | {self.seconds:.3f} s"
             f"{timeout_suffix}"
+            f"{failure_suffix}"
         )
+
+
+def _ms_to_seconds(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value) / 1000.0
+    except (TypeError, ValueError):
+        return None
 
 
 def parse_args() -> argparse.Namespace:
@@ -231,17 +249,21 @@ def run_checked(
 
 def time_command(
     command: List[str], timeout_seconds: float | None = None
-) -> tuple[float, bool]:
+) -> tuple[float, bool, bool]:
     """Measure wall-clock runtime of a command.
 
     Returns:
-        (duration_seconds, timed_out)
+        (duration_seconds, timed_out, failed)
     """
     start = time.perf_counter()
     try:
         proc, stdout, stderr = _run_command(command, timeout_seconds=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
-        duration = time.perf_counter() - start
+        duration = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else time.perf_counter() - start
+        )
         timeout_display = f"{timeout_seconds:g}" if timeout_seconds is not None else "?"
         LOGGER.warning(
             "Command timed out after %s s; subprocess terminated; recording %.3f s and continuing: %s",
@@ -253,22 +275,61 @@ def time_command(
             LOGGER.debug("stdout:\n%s", exc.stdout)
         if exc.stderr:
             LOGGER.debug("stderr:\n%s", exc.stderr)
-        return duration, True
+        return duration, True, False
 
     duration = time.perf_counter() - start
     if proc.returncode != 0:
+        recorded_duration = timeout_seconds if timeout_seconds is not None else duration
         LOGGER.error("Command failed: %s", " ".join(command))
         if stdout:
-            LOGGER.debug("stdout:\n%s", stdout)
+            LOGGER.error("stdout:\n%s", stdout)
         if stderr:
-            LOGGER.debug("stderr:\n%s", stderr)
-        raise subprocess.CalledProcessError(
+            LOGGER.error("stderr:\n%s", stderr)
+        LOGGER.warning(
+            "Recording %.3f s and continuing despite non-zero exit code %s",
+            recorded_duration,
             proc.returncode,
-            command,
-            output=stdout,
-            stderr=stderr,
         )
-    return duration, False
+        return recorded_duration, False, True
+    return duration, False, False
+
+
+def benchmark_json_command(
+    command: List[str], timeout_seconds: float | None = None
+) -> tuple[float, bool, bool, dict]:
+    with tempfile.NamedTemporaryFile(
+        mode="w+",
+        suffix=".json",
+        prefix="shifty-benchmark-",
+        dir="/tmp",
+        delete=False,
+    ) as tmp:
+        benchmark_path = Path(tmp.name)
+
+    try:
+        seconds, timed_out, failed = time_command(
+            [*command, "--benchmark-json", str(benchmark_path)],
+            timeout_seconds=timeout_seconds,
+        )
+        metrics: dict = {}
+        if benchmark_path.exists():
+            try:
+                metrics = json.loads(benchmark_path.read_text())
+            except json.JSONDecodeError as exc:
+                LOGGER.error(
+                    "Failed to parse benchmark JSON from %s: %s",
+                    benchmark_path,
+                    exc,
+                )
+                failed = True
+        if metrics:
+            seconds = float(metrics.get("wall_time_ms", seconds * 1000.0)) / 1000.0
+        return seconds, timed_out, failed, metrics
+    finally:
+        try:
+            benchmark_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def count_triples(path: Path) -> int:
@@ -334,7 +395,7 @@ def benchmark_platforms(
                 "-p",
                 "cli",
                 "--features",
-                "shacl-compiler",
+                "srcgen-compiler",
                 "--",
                 "compile",
                 "--shapes-file",
@@ -362,6 +423,7 @@ def benchmark_platforms(
             "--shacl-ir",
             "shapes.ir",
             "--run-inference",
+            "--temporary",
         ],
         "shifty": lambda data: [
             "./target/release/shifty",
@@ -371,8 +433,9 @@ def benchmark_platforms(
             "--shapes-file",
             str(shapes_file),
             "--run-inference",
+            "--temporary",
         ],
-        "shacl-compiler": lambda data: [
+        "srcgen-compiler": lambda data: [
             str(compiled_binary),
             str(data),
         ],
@@ -398,6 +461,7 @@ def benchmark_platforms(
         #    str(shapes_file),
         # ],
     }
+    benchmark_json_platforms = {"shifty-pre", "shifty", "srcgen-compiler"}
 
     measurements: List[Measurement] = []
     triple_cache: dict[Path, int] = {}
@@ -417,10 +481,17 @@ def benchmark_platforms(
                     runs,
                     triples,
                 )
-                seconds, timed_out = time_command(
-                    command_builder(data_file),
-                    timeout_seconds=timeout_seconds,
-                )
+                metrics: dict = {}
+                if platform in benchmark_json_platforms:
+                    seconds, timed_out, failed, metrics = benchmark_json_command(
+                        command_builder(data_file),
+                        timeout_seconds=timeout_seconds,
+                    )
+                else:
+                    seconds, timed_out, failed = time_command(
+                        command_builder(data_file),
+                        timeout_seconds=timeout_seconds,
+                    )
                 measurements.append(
                     Measurement(
                         platform=platform,
@@ -429,13 +500,35 @@ def benchmark_platforms(
                         run=run_index,
                         seconds=seconds,
                         timed_out=timed_out,
+                        failed=failed,
+                        graph_fetching_seconds=_ms_to_seconds(
+                            metrics.get("metrics", {})
+                            .get("phases_ms", {})
+                            .get("graph_fetching")
+                        ),
+                        validate_seconds=_ms_to_seconds(
+                            metrics.get("metrics", {})
+                            .get("phases_ms", {})
+                            .get("validate")
+                        ),
+                        inference_seconds=_ms_to_seconds(
+                            metrics.get("metrics", {})
+                            .get("phases_ms", {})
+                            .get("inference")
+                        ),
+                        report_assembly_seconds=_ms_to_seconds(
+                            metrics.get("metrics", {})
+                            .get("phases_ms", {})
+                            .get("report_assembly")
+                        ),
                     )
                 )
-                if timed_out and run_index < runs:
+                if (timed_out or failed) and run_index < runs:
                     LOGGER.warning(
-                        "[%s] %s timed out on run %s/%s; skipping remaining runs for this benchmark",
+                        "[%s] %s %s on run %s/%s; skipping remaining runs for this benchmark",
                         platform,
                         data_file.name,
+                        "timed out" if timed_out else "failed",
                         run_index,
                         runs,
                     )
@@ -453,6 +546,11 @@ def save_results(measurements: List[Measurement], csv_path: Path) -> pd.DataFram
                 "run": m.run,
                 "seconds": m.seconds,
                 "timed_out": m.timed_out,
+                "failed": m.failed,
+                "graph_fetching_seconds": m.graph_fetching_seconds,
+                "validate_seconds": m.validate_seconds,
+                "inference_seconds": m.inference_seconds,
+                "report_assembly_seconds": m.report_assembly_seconds,
             }
             for m in measurements
         ]
@@ -478,7 +576,7 @@ def plot_results(df: pd.DataFrame, plot_path: Path, runs: int) -> None:
     preferred_order = [
         "shifty-pre",
         "shifty",
-        "shacl-compiler",
+        "srcgen-compiler",
         "pyshacl",
         "topquadrant",
         "bmotif-topquadrant",
@@ -517,6 +615,7 @@ def print_summary(df: pd.DataFrame) -> None:
             mean=("seconds", "mean"),
             std=("seconds", "std"),
             timeouts=("timed_out", "sum"),
+            failures=("failed", "sum"),
             runs=("timed_out", "count"),
         )
         .sort_values("mean")
@@ -527,12 +626,13 @@ def print_summary(df: pd.DataFrame) -> None:
         std = row["std"]
         std_val = 0.0 if pd.isna(std) else std
         LOGGER.info(
-            "  %-12s mean=%.3f std=%.3f timeouts=%d/%d",
+            "  %-12s mean=%.3f std=%.3f timeouts=%d/%d failures=%d",
             row["platform"],
             row["mean"],
             std_val,
             int(row["timeouts"]),
             int(row["runs"]),
+            int(row["failures"]),
         )
 
 

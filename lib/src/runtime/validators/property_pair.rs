@@ -1,9 +1,10 @@
 #![allow(deprecated)]
-use crate::context::{format_term_for_label, Context, ValidationContext};
+use crate::context::{Context, ValidationContext, format_term_for_label};
 use crate::runtime::validators::compare_terms_fast;
 use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
+use crate::trace::TraceEvent;
 use crate::types::{ComponentID, TraceItem};
 use oxigraph::model::{NamedNode, Term};
 use oxigraph::sparql::QueryResults;
@@ -48,6 +49,8 @@ impl ValidateComponent for EqualsConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -62,19 +65,16 @@ impl ValidateComponent for EqualsConstraintComponent {
                 return Err(format!(
                     "sh:equals property must be an IRI, but got {:?}",
                     self.property
-                ))
+                ));
             }
         };
 
         let other_values_set: HashSet<Term> = context
-            .quads_for_pattern(
-                Some(focus_node.try_to_subject_ref()?),
-                Some(equals_property.as_ref()),
-                None,
-                Some(context.data_graph_iri_ref()),
+            .validation_objects_for_predicate(
+                focus_node.try_to_subject_ref()?,
+                equals_property.as_ref(),
             )?
             .into_iter()
-            .map(|q| q.object)
             .collect();
 
         let mut results = Vec::new();
@@ -168,6 +168,8 @@ impl ValidateComponent for DisjointConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -185,19 +187,16 @@ impl ValidateComponent for DisjointConstraintComponent {
                 return Err(format!(
                     "sh:disjoint property must be an IRI, but got {:?}",
                     self.property
-                ))
+                ));
             }
         };
 
         let other_values: HashSet<Term> = context
-            .quads_for_pattern(
-                Some(focus_node.try_to_subject_ref()?),
-                Some(disjoint_property.as_ref()),
-                None,
-                Some(context.data_graph_iri_ref()),
+            .validation_objects_for_predicate(
+                focus_node.try_to_subject_ref()?,
+                disjoint_property.as_ref(),
             )?
             .into_iter()
-            .map(|q| q.object)
             .collect();
 
         if other_values.is_empty() {
@@ -271,6 +270,8 @@ impl ValidateComponent for LessThanConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -288,14 +289,13 @@ impl ValidateComponent for LessThanConstraintComponent {
                 return Err(format!(
                     "sh:lessThan property must be an IRI, but got {:?}",
                     self.property
-                ))
+                ));
             }
         };
 
-        let other_values: Vec<Term> = context.objects_for_predicate(
+        let other_values: Vec<Term> = context.validation_objects_for_predicate(
             focus_node.try_to_subject_ref()?,
             less_than_property.as_ref(),
-            context.data_graph_iri_ref(),
         )?;
 
         if other_values.is_empty() {
@@ -388,6 +388,8 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
         c: &mut Context,
         context: &ValidationContext,
         _trace: &mut Vec<TraceItem>,
+        _events: &mut Vec<TraceEvent>,
+        _prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
         let value_nodes: Vec<Term> = match c.value_nodes() {
             Some(nodes) => nodes.clone(),
@@ -405,14 +407,13 @@ impl ValidateComponent for LessThanOrEqualsConstraintComponent {
                 return Err(format!(
                     "sh:lessThanOrEquals property must be an IRI, but got {:?}",
                     self.property
-                ))
+                ));
             }
         };
 
-        let other_values: Vec<Term> = context.objects_for_predicate(
+        let other_values: Vec<Term> = context.validation_objects_for_predicate(
             focus_node.try_to_subject_ref()?,
             lte_property.as_ref(),
-            context.data_graph_iri_ref(),
         )?;
 
         if other_values.is_empty() {

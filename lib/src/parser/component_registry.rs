@@ -1,8 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::{
-    components::ensure_node_shape, components::resolve_shape_reference, parse_rdf_list,
-    ParsingContext,
+    ParsingContext, components::ensure_node_shape, components::resolve_shape_reference,
+    parse_rdf_list,
 };
 use crate::model::components::ComponentDescriptor;
 use crate::named_nodes::SHACL;
@@ -317,19 +317,19 @@ fn handle_min_count_constraint(
     if let Some(terms) = pred_obj_pairs.get(&predicate) {
         processed.insert(predicate.clone());
         for term in terms {
-            if let Term::Literal(lit) = term {
-                if let Ok(value) = lit.value().parse::<u64>() {
-                    let key = Term::Literal(Literal::new_simple_literal(format!(
-                        "MinCountConstraint:{}",
-                        term
-                    )));
-                    insert_descriptor(
-                        context,
-                        descriptors,
-                        key,
-                        ComponentDescriptor::MinCount { min_count: value },
-                    );
-                }
+            if let Term::Literal(lit) = term
+                && let Ok(value) = lit.value().parse::<u64>()
+            {
+                let key = Term::Literal(Literal::new_simple_literal(format!(
+                    "MinCountConstraint:{}",
+                    term
+                )));
+                insert_descriptor(
+                    context,
+                    descriptors,
+                    key,
+                    ComponentDescriptor::MinCount { min_count: value },
+                );
             }
         }
     }
@@ -350,19 +350,19 @@ fn handle_max_count_constraint(
     if let Some(terms) = pred_obj_pairs.get(&predicate) {
         processed.insert(predicate.clone());
         for term in terms {
-            if let Term::Literal(lit) = term {
-                if let Ok(value) = lit.value().parse::<u64>() {
-                    let key = Term::Literal(Literal::new_simple_literal(format!(
-                        "MaxCountConstraint:{}",
-                        term
-                    )));
-                    insert_descriptor(
-                        context,
-                        descriptors,
-                        key,
-                        ComponentDescriptor::MaxCount { max_count: value },
-                    );
-                }
+            if let Term::Literal(lit) = term
+                && let Ok(value) = lit.value().parse::<u64>()
+            {
+                let key = Term::Literal(Literal::new_simple_literal(format!(
+                    "MaxCountConstraint:{}",
+                    term
+                )));
+                insert_descriptor(
+                    context,
+                    descriptors,
+                    key,
+                    ComponentDescriptor::MaxCount { max_count: value },
+                );
             }
         }
     }
@@ -507,19 +507,19 @@ fn handle_min_length_constraint(
     if let Some(terms) = pred_obj_pairs.get(&predicate) {
         processed.insert(predicate.clone());
         for term in terms {
-            if let Term::Literal(lit) = term {
-                if let Ok(value) = lit.value().parse::<u64>() {
-                    let key = Term::Literal(Literal::new_simple_literal(format!(
-                        "MinLengthConstraint:{}",
-                        term
-                    )));
-                    insert_descriptor(
-                        context,
-                        descriptors,
-                        key,
-                        ComponentDescriptor::MinLength { length: value },
-                    );
-                }
+            if let Term::Literal(lit) = term
+                && let Ok(value) = lit.value().parse::<u64>()
+            {
+                let key = Term::Literal(Literal::new_simple_literal(format!(
+                    "MinLengthConstraint:{}",
+                    term
+                )));
+                insert_descriptor(
+                    context,
+                    descriptors,
+                    key,
+                    ComponentDescriptor::MinLength { length: value },
+                );
             }
         }
     }
@@ -540,19 +540,19 @@ fn handle_max_length_constraint(
     if let Some(terms) = pred_obj_pairs.get(&predicate) {
         processed.insert(predicate.clone());
         for term in terms {
-            if let Term::Literal(lit) = term {
-                if let Ok(value) = lit.value().parse::<u64>() {
-                    let key = Term::Literal(Literal::new_simple_literal(format!(
-                        "MaxLengthConstraint:{}",
-                        term
-                    )));
-                    insert_descriptor(
-                        context,
-                        descriptors,
-                        key,
-                        ComponentDescriptor::MaxLength { length: value },
-                    );
-                }
+            if let Term::Literal(lit) = term
+                && let Ok(value) = lit.value().parse::<u64>()
+            {
+                let key = Term::Literal(Literal::new_simple_literal(format!(
+                    "MaxLengthConstraint:{}",
+                    term
+                )));
+                insert_descriptor(
+                    context,
+                    descriptors,
+                    key,
+                    ComponentDescriptor::MaxLength { length: value },
+                );
             }
         }
     }
@@ -1004,34 +1004,34 @@ fn handle_closed_constraint(
     if let Some(terms) = pred_obj_pairs.get(&predicate) {
         processed.insert(predicate.clone());
         for term in terms {
-            if let Term::Literal(lit) = term {
-                if let Ok(closed_val) = lit.value().parse::<bool>() {
-                    let ignored_pred = owned_predicate(shacl.ignored_properties);
-                    let ignored_terms = pred_obj_pairs
-                        .get(&ignored_pred)
-                        .and_then(|terms| terms.first().cloned());
-                    if pred_obj_pairs.contains_key(&ignored_pred) {
-                        processed.insert(ignored_pred.clone());
-                    }
-                    let ignored_values: Vec<Term> = if let Some(list_head) = ignored_terms.clone() {
-                        parse_rdf_list(context, list_head)
-                    } else {
-                        Vec::new()
-                    };
-                    let key = Term::Literal(Literal::new_simple_literal(format!(
-                        "ClosedConstraint:{}:{:?}",
-                        closed_val, ignored_values
-                    )));
-                    insert_descriptor(
-                        context,
-                        descriptors,
-                        key,
-                        ComponentDescriptor::Closed {
-                            closed: closed_val,
-                            ignored_properties: ignored_values,
-                        },
-                    );
+            if let Term::Literal(lit) = term
+                && let Ok(closed_val) = lit.value().parse::<bool>()
+            {
+                let ignored_pred = owned_predicate(shacl.ignored_properties);
+                let ignored_terms = pred_obj_pairs
+                    .get(&ignored_pred)
+                    .and_then(|terms| terms.first().cloned());
+                if pred_obj_pairs.contains_key(&ignored_pred) {
+                    processed.insert(ignored_pred.clone());
                 }
+                let ignored_values: Vec<Term> = if let Some(list_head) = ignored_terms.clone() {
+                    parse_rdf_list(context, list_head)
+                } else {
+                    Vec::new()
+                };
+                let key = Term::Literal(Literal::new_simple_literal(format!(
+                    "ClosedConstraint:{}:{:?}",
+                    closed_val, ignored_values
+                )));
+                insert_descriptor(
+                    context,
+                    descriptors,
+                    key,
+                    ComponentDescriptor::Closed {
+                        closed: closed_val,
+                        ignored_properties: ignored_values,
+                    },
+                );
             }
         }
     }
