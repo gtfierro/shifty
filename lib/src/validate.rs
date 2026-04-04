@@ -801,11 +801,38 @@ impl PropertyShape {
             return Ok(HashMap::new());
         }
 
+        // Check if we already have all results in the path batch cache
+        let cache_key = sparql_path.to_string();
+        let mut missing_focus_nodes = Vec::new();
         let mut all_results = HashMap::new();
+
+        if let Ok(cache) = context.path_batch_cache.read() {
+            if let Some(cached_batch) = cache.get(&cache_key) {
+                for focus_node in focus_nodes {
+                    if let Some(cached_values) = cached_batch.get(focus_node) {
+                        all_results.insert(focus_node.clone(), cached_values.clone());
+                    } else {
+                        missing_focus_nodes.push(focus_node.clone());
+                    }
+                }
+            } else {
+                missing_focus_nodes.extend(focus_nodes.iter().cloned());
+            }
+        } else {
+            missing_focus_nodes.extend(focus_nodes.iter().cloned());
+        }
+
+        // If we have all results from cache, return early
+        if missing_focus_nodes.is_empty() {
+            return Ok(all_results);
+        }
+
+        // Execute query for missing focus nodes
         let focus_var = Variable::new_unchecked("focus");
         let value_node_var = Variable::new_unchecked("valueNode");
+        let mut new_results = HashMap::new();
 
-        for chunk in focus_nodes.chunks(500) {
+        for chunk in missing_focus_nodes.chunks(500) {
             let mut values_clause = String::from("VALUES ?focus { ");
             for node in chunk {
                 values_clause.push_str(&format!("{} ", format_term_for_sparql(node)));
@@ -826,7 +853,7 @@ impl PropertyShape {
                     if let Some(focus) = solution.get(&focus_var).cloned()
                         && let Some(value) = solution.get(&value_node_var).cloned()
                     {
-                        all_results
+                        new_results
                             .entry(focus)
                             .or_insert_with(Vec::new)
                             .push(value);
@@ -834,6 +861,21 @@ impl PropertyShape {
                 }
             }
         }
+
+        // Populate cache with new results
+        if !new_results.is_empty() {
+            if let Ok(mut cache) = context.path_batch_cache.write() {
+                let batch = cache.entry(cache_key).or_insert_with(|| Arc::new(HashMap::new()));
+                let mut updated_batch = (**batch).clone();
+                for (focus, values) in &new_results {
+                    updated_batch.insert(focus.clone(), values.clone());
+                }
+                *batch = Arc::new(updated_batch);
+            }
+        }
+
+        // Merge new results with cached results
+        all_results.extend(new_results);
 
         Ok(all_results)
     }
@@ -1012,13 +1054,26 @@ impl PropertyShape {
 
         // Fast path: resolve simple and inverse-simple paths directly from the cached
         // focus-predicate summary instead of issuing SPARQL queries.
+        // Also check global path batch cache for shared path results.
         for focus_node in &focus_nodes_for_this_shape {
             if let Some(values) = &prefetched_values {
                 value_node_map.insert(focus_node.clone(), values.clone());
-            } else if let Some(value_nodes) =
-                summary_value_nodes_for_focus(context, self, focus_node)?
-            {
-                value_node_map.insert(focus_node.clone(), value_nodes);
+            } else {
+                // Check global path batch cache first
+                let sparql_path = self.sparql_path();
+                let cache_hit = if let Ok(cache) = context.path_batch_cache.read() {
+                    cache.get(&sparql_path).and_then(|batch| batch.get(focus_node).cloned())
+                } else {
+                    None
+                };
+
+                if let Some(cached_values) = cache_hit {
+                    value_node_map.insert(focus_node.clone(), cached_values);
+                } else if let Some(value_nodes) =
+                    summary_value_nodes_for_focus(context, self, focus_node)?
+                {
+                    value_node_map.insert(focus_node.clone(), value_nodes);
+                }
             }
         }
 
