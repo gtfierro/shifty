@@ -11,6 +11,7 @@ use crate::planning::{ShapeRef, build_validation_plan};
 use crate::report::ValidationReportBuilder;
 use crate::runtime::{Component, ComponentValidationResult, ToSubjectRef, ValidationFailure};
 use crate::shape::{NodeShape, PropertyShape, ValidateShape};
+use crate::target_hash::hash_target;
 use crate::trace::TraceEvent;
 use crate::types::{Path, PropShapeID, TargetEvalExt, TraceItem};
 use log::{debug, info};
@@ -389,27 +390,59 @@ impl ValidateShape for NodeShape {
         }
         // first gather all of the targets (cached per shape)
         let target_selection_started = Instant::now();
+        context.trace_sink.record(TraceEvent::TargetCollectionStart(
+            SourceShape::NodeShape(*self.identifier()),
+            target_selection_started,
+        ));
+
         let focus_nodes = if let Some(cached) = context.cached_node_targets(self.identifier()) {
+            context.trace_sink.record(TraceEvent::TargetCacheHit(
+                SourceShape::NodeShape(*self.identifier()),
+                cached.len(),
+            ));
             cached
         } else {
-            let mut nodes = HashSet::new();
+            let mut all_targets = HashSet::new();
+
             for target in self.targets.iter() {
-                info!(
-                    "get targets from target: {:?} on shape {}",
-                    target,
-                    self.identifier()
-                );
-                for ctx in
-                    target.get_target_nodes(context, SourceShape::NodeShape(*self.identifier()))?
-                {
-                    nodes.insert(ctx.focus_node().clone());
-                }
+                let target_hash = hash_target(target);
+
+                // Check global cache for this specific target expression
+                let targets = if let Some(cached) = context.global_target_cache.read().unwrap().get(&target_hash) {
+                    Arc::clone(cached)
+                } else {
+                    // Cache miss - evaluate target and store in global cache
+                    info!(
+                        "get targets from target: {:?} on shape {}",
+                        target,
+                        self.identifier()
+                    );
+                    let nodes: Vec<Term> = target
+                        .get_target_nodes(context, SourceShape::NodeShape(*self.identifier()))?
+                        .into_iter()
+                        .map(|ctx| ctx.focus_node().clone())
+                        .collect();
+
+                    let arc_nodes: Arc<[Term]> = nodes.into();
+                    context.global_target_cache.write().unwrap().insert(target_hash, Arc::clone(&arc_nodes));
+                    arc_nodes
+                };
+
+                all_targets.extend(targets.iter().cloned());
             }
-            let vec: Vec<Term> = nodes.into_iter().collect();
+
+            let vec: Vec<Term> = all_targets.into_iter().collect();
             let cached: Arc<[Term]> = vec.into();
             context.store_node_targets(*self.identifier(), Arc::clone(&cached));
             cached
         };
+
+        context.trace_sink.record(TraceEvent::TargetCollectionEnd(
+            SourceShape::NodeShape(*self.identifier()),
+            focus_nodes.len(),
+            Instant::now(),
+        ));
+
         context.record_shape_phase_duration(
             SourceShape::NodeShape(*self.identifier()),
             ShapeTimingPhase::NodeTarget,
@@ -528,6 +561,13 @@ impl ValidateShape for NodeShape {
                         .get_component(constraint_id)
                         .ok_or_else(|| format!("Component not found: {}", constraint_id))?;
 
+                    let component_start = Instant::now();
+                    local_events.push(TraceEvent::ComponentExecutionStart(
+                        *constraint_id,
+                        SourceShape::NodeShape(*self.identifier()),
+                        component_start,
+                    ));
+
                     match comp.validate(
                         *constraint_id,
                         &mut target_context,
@@ -567,6 +607,12 @@ impl ValidateShape for NodeShape {
                             return Err(e);
                         }
                     }
+
+                    local_events.push(TraceEvent::ComponentExecutionEnd(
+                        *constraint_id,
+                        SourceShape::NodeShape(*self.identifier()),
+                        Instant::now(),
+                    ));
                 }
 
                 // append the trace once per focus node to avoid long-held locks
@@ -607,27 +653,59 @@ impl ValidateShape for PropertyShape {
         }
         // first gather all of the targets (cached per shape)
         let target_selection_started = Instant::now();
+        context.trace_sink.record(TraceEvent::TargetCollectionStart(
+            SourceShape::PropertyShape(*self.identifier()),
+            target_selection_started,
+        ));
+
         let focus_nodes = if let Some(cached) = context.cached_prop_targets(self.identifier()) {
+            context.trace_sink.record(TraceEvent::TargetCacheHit(
+                SourceShape::PropertyShape(*self.identifier()),
+                cached.len(),
+            ));
             cached
         } else {
-            let mut nodes = HashSet::new();
+            let mut all_targets = HashSet::new();
+
             for target in self.targets.iter() {
-                info!(
-                    "get targets from target: {:?} on shape {}",
-                    target,
-                    self.identifier()
-                );
-                for ctx in target
-                    .get_target_nodes(context, SourceShape::PropertyShape(*self.identifier()))?
-                {
-                    nodes.insert(ctx.focus_node().clone());
-                }
+                let target_hash = hash_target(target);
+
+                // Check global cache for this specific target expression
+                let targets = if let Some(cached) = context.global_target_cache.read().unwrap().get(&target_hash) {
+                    Arc::clone(cached)
+                } else {
+                    // Cache miss - evaluate target and store in global cache
+                    info!(
+                        "get targets from target: {:?} on shape {}",
+                        target,
+                        self.identifier()
+                    );
+                    let nodes: Vec<Term> = target
+                        .get_target_nodes(context, SourceShape::PropertyShape(*self.identifier()))?
+                        .into_iter()
+                        .map(|ctx| ctx.focus_node().clone())
+                        .collect();
+
+                    let arc_nodes: Arc<[Term]> = nodes.into();
+                    context.global_target_cache.write().unwrap().insert(target_hash, Arc::clone(&arc_nodes));
+                    arc_nodes
+                };
+
+                all_targets.extend(targets.iter().cloned());
             }
-            let vec: Vec<Term> = nodes.into_iter().collect();
+
+            let vec: Vec<Term> = all_targets.into_iter().collect();
             let cached: Arc<[Term]> = vec.into();
             context.store_prop_targets(*self.identifier(), Arc::clone(&cached));
             cached
         };
+
+        context.trace_sink.record(TraceEvent::TargetCollectionEnd(
+            SourceShape::PropertyShape(*self.identifier()),
+            focus_nodes.len(),
+            Instant::now(),
+        ));
+
         context.record_shape_phase_duration(
             SourceShape::PropertyShape(*self.identifier()),
             ShapeTimingPhase::PropertyTarget,
@@ -1101,6 +1179,13 @@ impl PropertyShape {
                     constraint_validation_context.set_value_nodes(value_nodes.clone());
                 }
 
+                let component_start = Instant::now();
+                events.push(TraceEvent::ComponentExecutionStart(
+                    constraint_id,
+                    SourceShape::PropertyShape(*self.identifier()),
+                    component_start,
+                ));
+
                 match component.validate(
                     constraint_id,
                     &mut constraint_validation_context,
@@ -1141,6 +1226,12 @@ impl PropertyShape {
                         return Err(e);
                     }
                 }
+
+                events.push(TraceEvent::ComponentExecutionEnd(
+                    constraint_id,
+                    SourceShape::PropertyShape(*self.identifier()),
+                    Instant::now(),
+                ));
             }
         }
 

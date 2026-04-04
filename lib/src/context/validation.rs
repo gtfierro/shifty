@@ -247,6 +247,8 @@ pub struct ValidationContext {
     pub(crate) advanced_target_cache: RwLock<HashMap<Term, Arc<[Term]>>>,
     pub(crate) node_target_cache: RwLock<HashMap<ID, Arc<[Term]>>>,
     pub(crate) prop_target_cache: RwLock<HashMap<PropShapeID, Arc<[Term]>>>,
+    /// Global target cache using target expression hashes for deduplication across shapes
+    pub(crate) global_target_cache: RwLock<HashMap<u64, Arc<[Term]>>>,
     pub(crate) backend: Arc<OxigraphBackend>,
     pub(crate) trace_sink: Arc<dyn TraceSink>,
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
@@ -320,6 +322,7 @@ impl ValidationContext {
             advanced_target_cache: RwLock::new(HashMap::new()),
             node_target_cache: RwLock::new(HashMap::new()),
             prop_target_cache: RwLock::new(HashMap::new()),
+            global_target_cache: RwLock::new(HashMap::new()),
             backend,
             trace_sink: Arc::new(memory_sink),
             trace_events,

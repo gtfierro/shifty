@@ -30,6 +30,7 @@ pub(crate) mod planning;
 pub(crate) mod report;
 pub(crate) mod runtime;
 pub mod sparql;
+pub(crate) mod target_hash;
 pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 

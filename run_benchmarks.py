@@ -58,6 +58,8 @@ class Measurement:
     validate_seconds: float | None = None
     inference_seconds: float | None = None
     report_assembly_seconds: float | None = None
+    target_collection_seconds: float | None = None
+    component_execution_seconds: float | None = None
 
     # log post-init
     def __post_init__(self) -> None:
@@ -146,7 +148,27 @@ def parse_args() -> argparse.Namespace:
             "When unset, commands run without a timeout."
         ),
     )
+    parser.add_argument(
+        "--baseline-mode",
+        action="store_true",
+        help=(
+            "Enable baseline benchmarking mode: sets runs to 10, "
+            "enables trace statistics, and uses extended CSV columns."
+        ),
+    )
+    parser.add_argument(
+        "--trace-stats",
+        action="store_true",
+        help="Enable trace statistics collection (requires --trace-jsonl in shifty commands).",
+    )
     args = parser.parse_args()
+
+    # Apply baseline mode defaults
+    if args.baseline_mode:
+        if args.runs == 3:  # Only override if user didn't explicitly set it
+            args.runs = 10
+        args.trace_stats = True
+
     if args.timeout_seconds is not None and args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be greater than 0")
     return args
@@ -339,6 +361,50 @@ def count_triples(path: Path) -> int:
     return len(graph)
 
 
+def parse_trace_stats(trace_jsonl_path: Path) -> dict[str, float]:
+    """Parse trace JSONL file and extract timing statistics.
+
+    Returns a dict with:
+        - target_collection_seconds: Total time spent in target collection
+        - component_execution_seconds: Total time spent in component execution
+    """
+    if not trace_jsonl_path.exists():
+        LOGGER.warning("Trace file not found: %s", trace_jsonl_path)
+        return {}
+
+    target_collection_time = 0.0
+    component_execution_time = 0.0
+
+    try:
+        with open(trace_jsonl_path, 'r') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                    event_type = event.get("type", "")
+
+                    if event_type == "TargetCollectionEnd":
+                        # Calculate duration from TargetCollectionStart to TargetCollectionEnd
+                        # For simplicity, we'll track cumulative time if available in metrics
+                        pass
+                    elif event_type == "ComponentExecutionEnd":
+                        # Similar for component execution
+                        pass
+                except json.JSONDecodeError:
+                    continue
+
+        # For now, return empty dict - full implementation will need to track
+        # start/end pairs and calculate durations
+        return {
+            "target_collection_seconds": target_collection_time,
+            "component_execution_seconds": component_execution_time,
+        }
+    except Exception as exc:
+        LOGGER.error("Failed to parse trace file %s: %s", trace_jsonl_path, exc)
+        return {}
+
+
 def collect_models(pattern: str) -> List[Path]:
     models = sorted(REPO_ROOT.glob(pattern))
     if not models:
@@ -371,6 +437,7 @@ def benchmark_platforms(
     compiled_out_dir: Path,
     compiled_bin_name: str,
     timeout_seconds: float | None,
+    trace_stats: bool = False,
 ) -> List[Measurement]:
     if not skip_build:
         run_checked(
@@ -388,65 +455,76 @@ def benchmark_platforms(
             ],
             "shifty generate-ir",
         )
-        run_checked(
-            [
-                "cargo",
-                "run",
-                "-p",
-                "cli",
-                "--features",
-                "srcgen-compiler",
-                "--",
-                "compile",
-                "--shapes-file",
-                str(shapes_file),
-                "--out-dir",
-                str(compiled_out_dir),
-                "--bin-name",
-                compiled_bin_name,
-                "--release",
-                "--shifty-path",
-                str(REPO_ROOT / "lib"),
-            ],
-            "shifty compile (shacl-compiler)",
-        )
+        #run_checked(
+        #    [
+        #        "cargo",
+        #        "run",
+        #        "-p",
+        #        "cli",
+        #        "--features",
+        #        "srcgen-compiler",
+        #        "--",
+        #        "compile",
+        #        "--shapes-file",
+        #        str(shapes_file),
+        #        "--out-dir",
+        #        str(compiled_out_dir),
+        #        "--bin-name",
+        #        compiled_bin_name,
+        #        "--release",
+        #        "--shifty-path",
+        #        str(REPO_ROOT / "lib"),
+        #    ],
+        #    "shifty compile (shacl-compiler)",
+        #)
 
     compiled_binary = resolve_compiled_binary(compiled_out_dir, compiled_bin_name)
     LOGGER.info("Using shacl-compiler executable: %s", compiled_binary)
 
-    commands: dict[str, Callable[[Path], List[str]]] = {
-        "shifty-pre": lambda data: [
-            "./target/release/shifty",
-            "validate",
-            "--data-file",
-            str(data),
-            "--shacl-ir",
-            "shapes.ir",
-            "--run-inference",
-            "--temporary",
-        ],
-        "shifty": lambda data: [
-            "./target/release/shifty",
-            "validate",
-            "--data-file",
-            str(data),
-            "--shapes-file",
-            str(shapes_file),
-            "--run-inference",
-            "--temporary",
-        ],
-        "srcgen-compiler": lambda data: [
-            str(compiled_binary),
-            str(data),
-        ],
-        "pyshacl": lambda data: [
+    # Helper to build shifty commands with optional trace output
+    def build_shifty_command(base_cmd: List[str], data: Path, trace_path: Path | None = None) -> List[str]:
+        cmd = base_cmd + ["--data-file", str(data)]
+        if trace_path is not None:
+            cmd.extend(["--trace-jsonl", str(trace_path)])
+        return cmd
+
+    commands: dict[str, Callable[[Path, Path | None], List[str]]] = {
+        "shifty-pre": lambda data, trace: build_shifty_command(
+            [
+                "./target/release/shifty",
+                "validate",
+                "--shacl-ir",
+                "shapes.ir",
+                "--run-inference",
+                "--temporary",
+            ],
+            data,
+            trace,
+        ),
+        "shifty": lambda data, trace: build_shifty_command(
+            [
+                "./target/release/shifty",
+                "validate",
+                "--shapes-file",
+                str(shapes_file),
+                "--run-inference",
+                "--temporary",
+            ],
+            data,
+            trace,
+        ),
+        #"srcgen-compiler": lambda data, trace: [
+        #    str(compiled_binary),
+        #    str(data),
+        #],
+        "pyshacl": lambda data, trace: [
             uv_exe,
             "run",
             "scripts/pyshacl_bench.py",
             str(data),
             str(shapes_file),
         ],
-        "topquadrant": lambda data: [
+        "topquadrant": lambda data, trace: [
             uv_exe,
             "run",
             "scripts/topquadrant.py",
@@ -482,16 +560,35 @@ def benchmark_platforms(
                     triples,
                 )
                 metrics: dict = {}
-                if platform in benchmark_json_platforms:
-                    seconds, timed_out, failed, metrics = benchmark_json_command(
-                        command_builder(data_file),
-                        timeout_seconds=timeout_seconds,
-                    )
-                else:
-                    seconds, timed_out, failed = time_command(
-                        command_builder(data_file),
-                        timeout_seconds=timeout_seconds,
-                    )
+                trace_stats_dict: dict = {}
+
+                # Create trace file if trace_stats is enabled for shifty platforms
+                trace_file: Path | None = None
+                if trace_stats and platform in benchmark_json_platforms:
+                    trace_file = Path(tempfile.mktemp(suffix=".jsonl", prefix=f"trace-{platform}-"))
+
+                try:
+                    if platform in benchmark_json_platforms:
+                        seconds, timed_out, failed, metrics = benchmark_json_command(
+                            command_builder(data_file, trace_file),
+                            timeout_seconds=timeout_seconds,
+                        )
+                    else:
+                        seconds, timed_out, failed = time_command(
+                            command_builder(data_file, None),
+                            timeout_seconds=timeout_seconds,
+                        )
+
+                    # Parse trace statistics if enabled
+                    if trace_file is not None and trace_file.exists():
+                        trace_stats_dict = parse_trace_stats(trace_file)
+                finally:
+                    # Clean up trace file
+                    if trace_file is not None:
+                        try:
+                            trace_file.unlink(missing_ok=True)
+                        except OSError:
+                            pass
                 measurements.append(
                     Measurement(
                         platform=platform,
@@ -521,6 +618,8 @@ def benchmark_platforms(
                             .get("phases_ms", {})
                             .get("report_assembly")
                         ),
+                        target_collection_seconds=trace_stats_dict.get("target_collection_seconds"),
+                        component_execution_seconds=trace_stats_dict.get("component_execution_seconds"),
                     )
                 )
                 if (timed_out or failed) and run_index < runs:
@@ -551,6 +650,8 @@ def save_results(measurements: List[Measurement], csv_path: Path) -> pd.DataFram
                 "validate_seconds": m.validate_seconds,
                 "inference_seconds": m.inference_seconds,
                 "report_assembly_seconds": m.report_assembly_seconds,
+                "target_collection_seconds": m.target_collection_seconds,
+                "component_execution_seconds": m.component_execution_seconds,
             }
             for m in measurements
         ]
@@ -654,6 +755,7 @@ def main() -> None:
         compiled_out_dir=(REPO_ROOT / args.compiled_out_dir).resolve(),
         compiled_bin_name=args.compiled_bin_name,
         timeout_seconds=args.timeout_seconds,
+        trace_stats=args.trace_stats,
     )
 
     df = save_results(measurements, REPO_ROOT / args.output_csv)

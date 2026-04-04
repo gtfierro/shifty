@@ -45,6 +45,18 @@ pub enum TraceEvent {
         inserted: usize,
         ts: Instant,
     },
+    /// Target collection started for a shape
+    TargetCollectionStart(SourceShape, Instant),
+    /// Target collection completed for a shape
+    TargetCollectionEnd(SourceShape, usize /* target_count */, Instant),
+    /// Target results retrieved from cache
+    TargetCacheHit(SourceShape, usize /* cached_count */),
+    /// Component execution started
+    ComponentExecutionStart(ComponentID, SourceShape, Instant),
+    /// Component execution completed
+    ComponentExecutionEnd(ComponentID, SourceShape, Instant),
+    /// Component result retrieved from cache (for memoization)
+    ComponentCacheHit(ComponentID, SourceShape),
 }
 
 /// Consumer for trace events. Implementations may buffer, stream, or drop.

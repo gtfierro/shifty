@@ -1,5 +1,6 @@
 pub mod data;
 pub mod shape;
+pub mod target_sharing;
 
 use crate::compiled_runtime::program::CompiledProgram;
 use oxigraph::model::GraphNameRef;
@@ -55,6 +56,7 @@ impl AnalyzerRegistry {
         let mut registry = Self::default();
         registry.register(shape::ShapeStructureAnalyzer);
         registry.register(data::DataGraphProfileAnalyzer);
+        registry.register(target_sharing::TargetSharingAnalyzer);
         registry
     }
 
