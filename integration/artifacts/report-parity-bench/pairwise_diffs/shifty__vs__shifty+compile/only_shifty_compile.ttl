@@ -1,0 +1,1998 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000003> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000341> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000628> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000624> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000699> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001258> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000738> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000093> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000247> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000256> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000441> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000227> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000301> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000235> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001286> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001276> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001169> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000751> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000336> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000813> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000481> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000023> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000161> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000600> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000383> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001007> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000407> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000289> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000580> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001173> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000363> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000644> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001151> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000098> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000633> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000908> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000118> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000523> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000007> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000297> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001097> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000553> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000911> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001189> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000962> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000187> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000591> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000848> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000830> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000360> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001300> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000728> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000610> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000147> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000418> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001124> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000942> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000613> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000593> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000126> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001111> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000462> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000767> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000246> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000281> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000136> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000937> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000557> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001013> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000310> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000300> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001006> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000522> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000321> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000222> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001102> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001130> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000840> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001015> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000055> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000039> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000590> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001010> ;
+            sh:resultMessage "s223: This `Junction` {$this} is not used to model significant details of a branching point in a connection, and may not be required." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b178 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <http://data.ashrae.org/standard223#JunctionUsageWarning> ;
+            sh:value <urn:nrel_example/nrel00001010> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000773> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000087> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000179> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000365> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001243> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001168> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000799> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000750> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000578> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000617> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000180> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000189> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000530> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000014> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000355> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001211> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001155> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001060> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000261> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000623> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001027> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000444> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000446> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000271> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000198> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000329> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001265> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000977> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000467> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000367> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001282> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000139> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000953> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001162> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000714> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000679> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001288> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000016> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001029> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001115> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000057> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000262> ;
+            sh:resultMessage "s223: This `Junction` {$this} is not used to model significant details of a branching point in a connection, and may not be required." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b178 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <http://data.ashrae.org/standard223#JunctionUsageWarning> ;
+            sh:value <urn:nrel_example/nrel00000262> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000354> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001032> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001200> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000285> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000149> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000842> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000442> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000443> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001210> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001206> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000193> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000998> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001304> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000810> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000665> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001241> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000386> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000494> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000754> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000839> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000778> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000693> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000063> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000405> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000432> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000507> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001270> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000434> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000034> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000002> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000931> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000518> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000293> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000669> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001294> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000495> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000642> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000109> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000396> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000957> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000287> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001322> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000803> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001114> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000920> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000018> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001318> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000501> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001011> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000902> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001297> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000388> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001180> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001061> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001113> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000243> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001075> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000175> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000923> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000423> ;
+            sh:resultMessage "s223: This `Junction` {$this} is not used to model significant details of a branching point in a connection, and may not be required." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b178 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <http://data.ashrae.org/standard223#JunctionUsageWarning> ;
+            sh:value <urn:nrel_example/nrel00000423> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000181> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001195> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000930> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000186> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000172> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000652> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000195> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000825> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001197> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000074> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000440> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000419> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001148> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001188> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000343> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000226> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000866> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000569> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000095> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000052> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000800> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000589> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000938> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001125> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000919> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000647> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000900> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000992> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000576> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000384> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000862> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000030> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000392> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000379> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000266> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000115> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000231> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000218> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000339> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000377> ;
+            sh:resultMessage "s223: This `Junction` {$this} is not used to model significant details of a branching point in a connection, and may not be required." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b178 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <http://data.ashrae.org/standard223#JunctionUsageWarning> ;
+            sh:value <urn:nrel_example/nrel00000377> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001192> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001105> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000159> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000821> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000664> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000482> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001331> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000361> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000387> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000075> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000445> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000755> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000264> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000540> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000331> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000450> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000846> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000629> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000120> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000739> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001326> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00001129> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000855> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `InletConnectionPoint` of {?parentEquipment} and not an external `Connection` from {?sourceEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b21 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b22 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:nrel_example/nrel00000990> ;
+            sh:resultMessage "s223: {$this} must have a `mapsTo` an `OutletConnectionPoint` of {?parentEquipment} and not an external `Connection` to {?destinationEquipment}." ;
+            sh:resultPath <http://data.ashrae.org/standard223#mapsTo> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b13 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape _:n20b6a91d9d2a4e7f82dee34c1a1fd9e6b14 ] .
+

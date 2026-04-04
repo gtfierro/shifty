@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hyperfine Benchmark Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif; margin: 2rem; color: #1f2937; }
+    h1, h2 { color: #111827; }
+    .meta { color: #4b5563; font-size: 0.95rem; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; margin: 0.5rem 0 1.5rem 0; }
+    table.summary { border-collapse: collapse; width: 100%; max-width: 900px; }
+    table.summary th, table.summary td { border-bottom: 1px solid #e5e7eb; padding: 0.45rem 0.6rem; text-align: right; }
+    table.summary th:first-child, table.summary td:first-child { text-align: left; }
+    code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Hyperfine Benchmark Report</h1>
+  <p class="meta">Generated: 2026-02-14T19:00:50.130547+00:00</p>
+
+  <h2>Artifacts</h2>
+  <ul>
+    <li>CSV: <a href="benchmark/hyperfine-2026-02-14.csv">benchmark/hyperfine-2026-02-14.csv</a></li>
+    <li>Aggregate Hyperfine JSON: <a href="benchmark/hyperfine-json/platform_distribution.json">benchmark/hyperfine-json/platform_distribution.json</a></li>
+  </ul>
+
+  <h2>Runtime Summary</h2>
+  <table class="dataframe summary">
+  <thead>
+    <tr style="text-align: right;">
+      <th>platform</th>
+      <th>mean</th>
+      <th>std</th>
+      <th>timeouts</th>
+      <th>runs</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>shifty-pre</td>
+      <td>5.3463</td>
+      <td>5.2132</td>
+      <td>0</td>
+      <td>57</td>
+    </tr>
+    <tr>
+      <td>shifty</td>
+      <td>6.2336</td>
+      <td>5.1334</td>
+      <td>0</td>
+      <td>57</td>
+    </tr>
+    <tr>
+      <td>topquadrant</td>
+      <td>25.2669</td>
+      <td>20.9776</td>
+      <td>0</td>
+      <td>57</td>
+    </tr>
+    <tr>
+      <td>shacl-compiler2</td>
+      <td>48.8137</td>
+      <td>49.4199</td>
+      <td>14</td>
+      <td>57</td>
+    </tr>
+    <tr>
+      <td>pyshacl</td>
+      <td>119.4069</td>
+      <td>4.5381</td>
+      <td>56</td>
+      <td>57</td>
+    </tr>
+  </tbody>
+</table>
+
+  <h2>Runtime vs Graph Size</h2>
+  <img src="benchmark/hyperfine_benchmark_results.png" alt="Runtime vs graph size" />
+
+  <h2>Hyperfine Tool Plots</h2>
+  <p>Generated via hyperfine scripts: <code>plot_whisker.py</code> and <code>plot_histogram.py</code>.</p>
+  <img src="benchmark/hyperfine-plots/platform_whisker.png" alt="Whisker plot" />
+  <img src="benchmark/hyperfine-plots/platform_histogram.png" alt="Histogram plot" />
+
+  <h2>Raw Hyperfine JSON Files</h2>
+  <ul>
+    <li><a href="benchmark/hyperfine-json/NIST-HPL__pyshacl.json">NIST-HPL__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-HPL__shacl-compiler2.json">NIST-HPL__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-HPL__shifty-pre.json">NIST-HPL__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-HPL__shifty.json">NIST-HPL__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-HPL__topquadrant.json">NIST-HPL__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-IBAL__pyshacl.json">NIST-IBAL__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-IBAL__shacl-compiler2.json">NIST-IBAL__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-IBAL__shifty-pre.json">NIST-IBAL__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-IBAL__shifty.json">NIST-IBAL__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/NIST-IBAL__topquadrant.json">NIST-IBAL__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/design-patterns__pyshacl.json">design-patterns__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/design-patterns__shacl-compiler2.json">design-patterns__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/design-patterns__shifty-pre.json">design-patterns__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/design-patterns__shifty.json">design-patterns__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/design-patterns__topquadrant.json">design-patterns__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-1__pyshacl.json">guideline36-2021-A-1__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-1__shacl-compiler2.json">guideline36-2021-A-1__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-1__shifty-pre.json">guideline36-2021-A-1__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-1__shifty.json">guideline36-2021-A-1__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-1__topquadrant.json">guideline36-2021-A-1__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-2__pyshacl.json">guideline36-2021-A-2__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-2__shacl-compiler2.json">guideline36-2021-A-2__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-2__shifty-pre.json">guideline36-2021-A-2__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-2__shifty.json">guideline36-2021-A-2__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-2__topquadrant.json">guideline36-2021-A-2__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-3__pyshacl.json">guideline36-2021-A-3__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-3__shacl-compiler2.json">guideline36-2021-A-3__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-3__shifty-pre.json">guideline36-2021-A-3__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-3__shifty.json">guideline36-2021-A-3__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-3__topquadrant.json">guideline36-2021-A-3__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-4__pyshacl.json">guideline36-2021-A-4__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-4__shacl-compiler2.json">guideline36-2021-A-4__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-4__shifty-pre.json">guideline36-2021-A-4__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-4__shifty.json">guideline36-2021-A-4__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-4__topquadrant.json">guideline36-2021-A-4__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-7__pyshacl.json">guideline36-2021-A-7__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-7__shacl-compiler2.json">guideline36-2021-A-7__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-7__shifty-pre.json">guideline36-2021-A-7__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-7__shifty.json">guideline36-2021-A-7__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-7__topquadrant.json">guideline36-2021-A-7__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-8__pyshacl.json">guideline36-2021-A-8__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-8__shacl-compiler2.json">guideline36-2021-A-8__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-8__shifty-pre.json">guideline36-2021-A-8__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-8__shifty.json">guideline36-2021-A-8__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-8__topquadrant.json">guideline36-2021-A-8__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-9__pyshacl.json">guideline36-2021-A-9__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-9__shacl-compiler2.json">guideline36-2021-A-9__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-9__shifty-pre.json">guideline36-2021-A-9__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-9__shifty.json">guideline36-2021-A-9__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/guideline36-2021-A-9__topquadrant.json">guideline36-2021-A-9__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg3-1__pyshacl.json">lbnl-bdg3-1__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg3-1__shacl-compiler2.json">lbnl-bdg3-1__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg3-1__shifty-pre.json">lbnl-bdg3-1__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg3-1__shifty.json">lbnl-bdg3-1__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg3-1__topquadrant.json">lbnl-bdg3-1__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg4-1__pyshacl.json">lbnl-bdg4-1__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg4-1__shacl-compiler2.json">lbnl-bdg4-1__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg4-1__shifty-pre.json">lbnl-bdg4-1__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg4-1__shifty.json">lbnl-bdg4-1__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-bdg4-1__topquadrant.json">lbnl-bdg4-1__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-example-radiant__pyshacl.json">lbnl-example-radiant__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-example-radiant__shacl-compiler2.json">lbnl-example-radiant__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-example-radiant__shifty-pre.json">lbnl-example-radiant__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-example-radiant__shifty.json">lbnl-example-radiant__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/lbnl-example-radiant__topquadrant.json">lbnl-example-radiant__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/nist-bdg1-1__pyshacl.json">nist-bdg1-1__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/nist-bdg1-1__shacl-compiler2.json">nist-bdg1-1__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/nist-bdg1-1__shifty-pre.json">nist-bdg1-1__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/nist-bdg1-1__shifty.json">nist-bdg1-1__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/nist-bdg1-1__topquadrant.json">nist-bdg1-1__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/nrel-example__pyshacl.json">nrel-example__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/nrel-example__shacl-compiler2.json">nrel-example__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/nrel-example__shifty-pre.json">nrel-example__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/nrel-example__shifty.json">nrel-example__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/nrel-example__topquadrant.json">nrel-example__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/platform_distribution.json">platform_distribution.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg1-2__pyshacl.json">pnnl-bdg1-2__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg1-2__shacl-compiler2.json">pnnl-bdg1-2__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg1-2__shifty-pre.json">pnnl-bdg1-2__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg1-2__shifty.json">pnnl-bdg1-2__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg1-2__topquadrant.json">pnnl-bdg1-2__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg2-1__pyshacl.json">pnnl-bdg2-1__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg2-1__shacl-compiler2.json">pnnl-bdg2-1__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg2-1__shifty-pre.json">pnnl-bdg2-1__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg2-1__shifty.json">pnnl-bdg2-1__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg2-1__topquadrant.json">pnnl-bdg2-1__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg3-2__pyshacl.json">pnnl-bdg3-2__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg3-2__shacl-compiler2.json">pnnl-bdg3-2__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg3-2__shifty-pre.json">pnnl-bdg3-2__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg3-2__shifty.json">pnnl-bdg3-2__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/pnnl-bdg3-2__topquadrant.json">pnnl-bdg3-2__topquadrant.json</a></li>
+<li><a href="benchmark/hyperfine-json/scb-vrf__pyshacl.json">scb-vrf__pyshacl.json</a></li>
+<li><a href="benchmark/hyperfine-json/scb-vrf__shacl-compiler2.json">scb-vrf__shacl-compiler2.json</a></li>
+<li><a href="benchmark/hyperfine-json/scb-vrf__shifty-pre.json">scb-vrf__shifty-pre.json</a></li>
+<li><a href="benchmark/hyperfine-json/scb-vrf__shifty.json">scb-vrf__shifty.json</a></li>
+<li><a href="benchmark/hyperfine-json/scb-vrf__topquadrant.json">scb-vrf__topquadrant.json</a></li>
+  </ul>
+</body>
+</html>

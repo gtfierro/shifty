@@ -1,4 +1,5 @@
 pub mod data;
+pub mod memoization;
 pub mod shape;
 pub mod target_sharing;
 
@@ -57,6 +58,7 @@ impl AnalyzerRegistry {
         registry.register(shape::ShapeStructureAnalyzer);
         registry.register(data::DataGraphProfileAnalyzer);
         registry.register(target_sharing::TargetSharingAnalyzer);
+        registry.register(memoization::MemoizationAnalyzer);
         registry
     }
 

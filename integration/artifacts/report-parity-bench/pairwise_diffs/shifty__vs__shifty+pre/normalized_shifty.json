@@ -1,0 +1,1956 @@
+[
+  {
+    "count": 1,
+    "signature": {
+      "report_triples": [
+        [
+          {
+            "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+          },
+          {
+            "uri": "http://www.w3.org/ns/shacl#ValidationReport"
+          }
+        ],
+        [
+          {
+            "uri": "http://www.w3.org/ns/shacl#conforms"
+          },
+          {
+            "literal": {
+              "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+              "language": null,
+              "lexical": "false"
+            }
+          }
+        ]
+      ],
+      "results": [
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000000"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#XoneConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#SensorObservationLocationShape"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000000"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000000"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly 1 of `QuantifiableObservableProperty` or `EnumeratedObservableProperty` using the relation `observes`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#XoneConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#SensorObservesShape"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000000"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000000"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly one `ObservableProperty` using the relation `observes`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#observes"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/d37f2c955a44813fef138b51209a7c94"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000290"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000000"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasPhysicalLocation` is present, it shall associate the `Equipment` with a `PhysicalSpace`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasPhysicalLocation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/bd83d9b2b6e17f2eb09a587316d3f2c8"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000519"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000001"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#XoneConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#SensorObservationLocationShape"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000001"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000001"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly 1 of `QuantifiableObservableProperty` or `EnumeratedObservableProperty` using the relation `observes`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#XoneConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#SensorObservesShape"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000001"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000001"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly one `ObservableProperty` using the relation `observes`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#observes"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/d37f2c955a44813fef138b51209a7c94"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00001249"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000001"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasPhysicalLocation` is present, it shall associate the `Equipment` with a `PhysicalSpace`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasPhysicalLocation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/bd83d9b2b6e17f2eb09a587316d3f2c8"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000572"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `cnx` is present, it shall associate the `Connectable` with a `ConnectionPoint`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#cnx"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/df955ccde0f003cb849bc3df1eeec401"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000357"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `cnx` is present, it shall associate the `Connectable` with a `ConnectionPoint`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#cnx"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/df955ccde0f003cb849bc3df1eeec401"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000739"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000359"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000639"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000815"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000817"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000824"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000856"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000901"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `contains` is present, it shall associate the `Equipment` with either `Equipment` or `Junction`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#contains"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#OrConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/c46f43ca31f100e9cba0fd85e8fd0ec6"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00001086"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasConnectionPoint` is present, it shall associate the `Connectable` with a `ConnectionPoint`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasConnectionPoint"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/afe0fbdb635677e6c30ab10f20d829f3"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000357"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasConnectionPoint` is present, it shall associate the `Connectable` with a `ConnectionPoint`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasConnectionPoint"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/afe0fbdb635677e6c30ab10f20d829f3"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000739"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasProperty` is present, it shall associate the concept with a `Property`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasProperty"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/e7df2dc1d534d33a74fa59259bdebaf7"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000117"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000020"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasProperty` is present, it shall associate the concept with a `Property`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasProperty"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/e7df2dc1d534d33a74fa59259bdebaf7"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000162"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000026"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#XoneConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#SensorObservationLocationShape"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000026"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000026"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly 1 of `QuantifiableObservableProperty` or `EnumeratedObservableProperty` using the relation `observes`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#XoneConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#SensorObservesShape"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000026"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000026"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: A `Sensor` shall be associated with exactly one `ObservableProperty` using the relation `observes`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#observes"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/d37f2c955a44813fef138b51209a7c94"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000619"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "count": 1,
+          "signature": {
+            "triples": [
+              [
+                {
+                  "uri": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ValidationResult"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#focusNode"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00000026"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultMessage"
+                },
+                {
+                  "literal": {
+                    "datatype": null,
+                    "language": null,
+                    "lexical": "s223: If the relation `hasPhysicalLocation` is present, it shall associate the `Equipment` with a `PhysicalSpace`."
+                  }
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultPath"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223#hasPhysicalLocation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#resultSeverity"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#Violation"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+                },
+                {
+                  "uri": "http://www.w3.org/ns/shacl#ClassConstraintComponent"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#sourceShape"
+                },
+                {
+                  "uri": "http://data.ashrae.org/standard223/1.0/model/all/.sk/bd83d9b2b6e17f2eb09a587316d3f2c8"
+                }
+              ],
+              [
+                {
+                  "uri": "http://www.w3.org/ns/shacl#value"
+                },
+                {
+                  "uri": "urn:nrel_example/nrel00001103"
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    "summary": {
+      "distinct_result_signatures": 26,
+      "report_hash": "d34998be93b6",
+      "report_predicates": [
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        "http://www.w3.org/ns/shacl#conforms"
+      ],
+      "sample_result_hashes": [
+        {
+          "count": 1,
+          "result_hash": "790fbb867fa5"
+        },
+        {
+          "count": 1,
+          "result_hash": "5699aeb8c59e"
+        },
+        {
+          "count": 1,
+          "result_hash": "63fe1aadf197"
+        }
+      ],
+      "total_results": 26
+    }
+  }
+]

@@ -1,0 +1,3 @@
+_:d20bf9fceb41ab135ccb7b898852af01 a <http://www.w3.org/ns/shacl#ValidationReport> ;
+	<http://www.w3.org/ns/shacl#conforms> true
+.

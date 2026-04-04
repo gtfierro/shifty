@@ -1,0 +1,52 @@
+@prefix bldg: <urn:nrel_example/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtqk: <http://qudt.org/vocab/quantitykind/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+s223:EnumerationKind-Default a s223:EnumerationKind-AlarmStatus,
+        s223:EnumerationKind-Override ;
+    rdfs:label "AlarmStatus-Alarm"@en,
+        "Override-Default"@en .
+
+s223:EnumerationKind-Overridden a s223:EnumerationKind-AlarmStatus,
+        s223:EnumerationKind-Override ;
+    rdfs:label "AlarmStatus-Ok"@en,
+        "Override-Overridden"@en .
+
+bldg:nrel00000000 a s223:Sensor ;
+    rdfs:label "nrel00000000" ;
+    s223:hasObservationLocation bldg:nrel00000010 ;
+    s223:hasPhysicalLocation bldg:nrel00000519 ;
+    s223:observes bldg:nrel00000290 .
+
+bldg:nrel00000001 a s223:Sensor ;
+    rdfs:label "nrel00000001" ;
+    s223:hasObservationLocation bldg:nrel00000661 ;
+    s223:hasPhysicalLocation bldg:nrel00000572 ;
+    s223:observes bldg:nrel00001249 .
+
+bldg:nrel00000020 a s223:EAU,
+        s223:Equipment ;
+    rdfs:label "nrel00000020" ;
+    s223:contains bldg:nrel00000359,
+        bldg:nrel00000639,
+        bldg:nrel00000815,
+        bldg:nrel00000817,
+        bldg:nrel00000824,
+        bldg:nrel00000856,
+        bldg:nrel00000901,
+        bldg:nrel00001086 ;
+    s223:hasConnectionPoint bldg:nrel00000357,
+        bldg:nrel00000739 ;
+    s223:hasProperty bldg:nrel00000117,
+        bldg:nrel00000162 .
+
+bldg:nrel00000026 a s223:Sensor ;
+    rdfs:label "nrel00000026" ;
+    s223:hasObservationLocation bldg:nrel00000510 ;
+    s223:hasPhysicalLocation bldg:nrel00001103 ;
+    s223:observes bldg:nrel00000619 .

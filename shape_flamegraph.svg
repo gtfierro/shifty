@@ -1,0 +1,1993 @@
+<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg version="1.1" width="1200" height="182" onload="init(evt)" viewBox="0 0 1200 182" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:fg="http://github.com/jonhoo/inferno"><!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.--><!--NOTES: --><defs><linearGradient id="background" y1="0" y2="1" x1="0" x2="0"><stop stop-color="#eeeeee" offset="5%"/><stop stop-color="#eeeeb0" offset="95%"/></linearGradient></defs><style type="text/css">
+text { font-family:monospace; font-size:12px }
+#title { text-anchor:middle; font-size:17px; }
+#matched { text-anchor:end; }
+#search { text-anchor:end; opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style><script type="text/ecmascript"><![CDATA[
+        var nametype = 'Function:';
+        var fontsize = 12;
+        var fontwidth = 0.59;
+        var xpad = 10;
+        var inverted = false;
+        var searchcolor = 'rgb(230,0,230)';
+        var fluiddrawing = true;
+        var truncate_text_right = false;
+    ]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames, known_font_width;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    known_font_width = get_monospace_width(frames);
+    total_samples = parseInt(frames.attributes.total_samples.value);
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[*|x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+            svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            update_text_for_elements(frames.children);
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad;
+            matchedtxt.attributes.x.value = svgWidth - xpad;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes["fg:x"]) {
+            var params = get_params()
+            params.x = el.attributes["fg:x"].value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["fg:orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("fg:orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["fg:orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["fg:orig_" + attr].value;
+    e.removeAttribute("fg:orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function get_monospace_width(frames) {
+    // Given the id="frames" element, return the width of text characters if
+    // this is a monospace font, otherwise return 0.
+    text = find_child(frames.children[0], "text");
+    originalContent = text.textContent;
+    text.textContent = "!";
+    bangWidth = text.getComputedTextLength();
+    text.textContent = "W";
+    wWidth = text.getComputedTextLength();
+    text.textContent = originalContent;
+    if (bangWidth === wWidth) {
+        return bangWidth;
+    } else {
+        return 0;
+    }
+}
+function update_text_for_elements(elements) {
+    // In order to render quickly in the browser, you want to do one pass of
+    // reading attributes, and one pass of mutating attributes. See
+    // https://web.dev/avoid-large-complex-layouts-and-layout-thrashing/ for details.
+
+    // Fall back to inefficient calculation, if we're variable-width font.
+    // TODO This should be optimized somehow too.
+    if (known_font_width === 0) {
+        for (var i = 0; i < elements.length; i++) {
+            update_text(elements[i]);
+        }
+        return;
+    }
+
+    var textElemNewAttributes = [];
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var r = find_child(e, "rect");
+        var t = find_child(e, "text");
+        var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+        var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+        var newX = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+        // Smaller than this size won't fit anything
+        if (w < 2 * known_font_width) {
+            textElemNewAttributes.push([newX, ""]);
+            continue;
+        }
+
+        // Fit in full text width
+        if (txt.length * known_font_width < w) {
+            textElemNewAttributes.push([newX, txt]);
+            continue;
+        }
+
+        var substringLength = Math.floor(w / known_font_width) - 2;
+        if (truncate_text_right) {
+            // Truncate the right side of the text.
+            textElemNewAttributes.push([newX, txt.substring(0, substringLength) + ".."]);
+            continue;
+        } else {
+            // Truncate the left side of the text.
+            textElemNewAttributes.push([newX, ".." + txt.substring(txt.length - substringLength, txt.length)]);
+            continue;
+        }
+    }
+
+    console.assert(textElemNewAttributes.length === elements.length, "Resize failed, please file a bug at https://github.com/jonhoo/inferno/");
+
+    // Now that we know new textContent, set it all in one go so we don't refresh a bazillion times.
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var values = textElemNewAttributes[i];
+        var t = find_child(e, "text");
+        t.attributes.x.value = values[0];
+        t.textContent = values[1];
+    }
+}
+
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * parseInt(e.attributes["fg:x"].value) / total_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / total_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, zoomed_width_samples) {
+    if (e.tagName == "text") {
+        var parent_x = parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value);
+        e.attributes.x.value = format_percent(parent_x + (100 * 3 / frames.attributes.width.value));
+    } else if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * (parseInt(e.attributes["fg:x"].value) - x) / zoomed_width_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / zoomed_width_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, zoomed_width_samples);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseInt(attr["fg:w"].value);
+    var xmin = parseInt(attr["fg:x"].value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    var to_update_text = [];
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseInt(a["fg:x"].value);
+        var ew = parseInt(a["fg:w"].value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                to_update_text.push(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, width);
+                to_update_text.push(e);
+            }
+        }
+    }
+    update_text_for_elements(to_update_text);
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+    }
+    update_text_for_elements(el);
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        // Skip over frames which are either not visible, or below the zoomed-to frame
+        if (e.classList.contains("hide") || e.classList.contains("parent")) {
+            continue;
+        }
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseInt(rect.attributes["fg:w"].value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseInt(rect.attributes["fg:x"].value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    for (var k in keys) {
+        var x = parseInt(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script><rect x="0" y="0" width="100%" height="182" fill="url(#background)"/><text id="title" fill="rgb(0,0,0)" x="50.0000%" y="24.00">Flame Graph</text><text id="details" fill="rgb(0,0,0)" x="10" y="165.00"> </text><text id="unzoom" class="hide" fill="rgb(0,0,0)" x="10" y="24.00">Reset Zoom</text><text id="search" fill="rgb(0,0,0)" x="1190" y="24.00">Search</text><text id="matched" fill="rgb(0,0,0)" x="1190" y="165.00"> </text><svg id="frames" x="10" width="1180" total_samples="489601839"><g><title>NodeShape:AddSubclassAliasesRule (156,932 samples, 0.03%)
+Count: 1
+Inclusive: 0.122 ms
+Self: 0.122 ms
+Trace Share: 0.01%</title><rect x="0.0022%" y="117" width="0.0321%" height="15" fill="rgb(227,0,7)" fg:x="10957" fg:w="156932"/><text x="0.2522%" y="127.50"></text></g><g><title>NodeShape:Air_Flow_Sensor (532,272 samples, 0.11%)
+Label: Air Flow Sensor
+Count: 1
+Inclusive: 0.526 ms
+Self: 0.526 ms
+Trace Share: 0.04%
+Label: Air Flow Sensor</title><rect x="0.0367%" y="117" width="0.1087%" height="15" fill="rgb(217,0,24)" fg:x="179648" fg:w="532272"/><text x="0.2867%" y="127.50"></text></g><g><title>NodeShape:Air_Handler_Unit (512,093 samples, 0.10%)
+Label: Air Handler Unit
+Count: 1
+Inclusive: 0.509 ms
+Self: 0.509 ms
+Trace Share: 0.04%
+Label: Air Handler Unit</title><rect x="0.1461%" y="117" width="0.1046%" height="15" fill="rgb(221,193,54)" fg:x="715376" fg:w="512093"/><text x="0.3961%" y="127.50"></text></g><g><title>NodeShape:Air_Static_Pressure_Sensor (524,904 samples, 0.11%)
+Label: Air Static Pressure Sensor
+Count: 1
+Inclusive: 0.526 ms
+Self: 0.526 ms
+Trace Share: 0.04%
+Label: Air Static Pressure Sensor</title><rect x="0.2516%" y="117" width="0.1072%" height="15" fill="rgb(248,212,6)" fg:x="1231894" fg:w="524904"/><text x="0.5016%" y="127.50"></text></g><g><title>NodeShape:Air_Temperature_Sensor (546,966 samples, 0.11%)
+Label: Air Temperature Sensor
+Count: 1
+Inclusive: 0.561 ms
+Self: 0.561 ms
+Trace Share: 0.05%
+Label: Air Temperature Sensor</title><rect x="0.3592%" y="117" width="0.1117%" height="15" fill="rgb(208,68,35)" fg:x="1758719" fg:w="546966"/><text x="0.6092%" y="127.50"></text></g><g><title>NodeShape:Air_Temperature_Setpoint (531,392 samples, 0.11%)
+Label: Air Temperature Setpoint
+Count: 1
+Inclusive: 0.620 ms
+Self: 0.620 ms
+Trace Share: 0.05%
+Label: Air Temperature Setpoint</title><rect x="0.4709%" y="117" width="0.1085%" height="15" fill="rgb(232,128,0)" fg:x="2305685" fg:w="531392"/><text x="0.7209%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=bb7cdf6cb3beac911748280042b57c90) (76,051 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=bb7cdf6cb3beac911748280042b57c90</title><rect x="1.3185%" y="101" width="0.0155%" height="15" fill="rgb(207,160,47)" fg:x="6455178" fg:w="76051"/><text x="1.5685%" y="111.50"></text></g><g><title>PropertyShape:bb7cdf6cb3beac911748280042b57c90 (69,068 samples, 0.01%)</title><rect x="1.3199%" y="85" width="0.0141%" height="15" fill="rgb(228,23,34)" fg:x="6462161" fg:w="69068"/><text x="1.5699%" y="95.50"></text></g><g><title>NodeShape:Asset (4,057,997 samples, 0.83%)
+Label: Asset
+Count: 1
+Inclusive: 2.381 ms
+Self: 1.014 ms
+Trace Share: 0.20%
+Label: Asset</title><rect x="0.5825%" y="117" width="0.8288%" height="15" fill="rgb(218,30,26)" fg:x="2851930" fg:w="4057997"/><text x="0.8325%" y="127.50"></text></g><g><title>NodeShape:BACnetReferenceShape (104,768 samples, 0.02%)
+Count: 1
+Inclusive: 0.088 ms
+Self: 0.088 ms
+Trace Share: 0.01%</title><rect x="1.4139%" y="117" width="0.0214%" height="15" fill="rgb(220,122,19)" fg:x="6922476" fg:w="104768"/><text x="1.6639%" y="127.50"></text></g><g><title>NodeShape:Building (621,362 samples, 0.13%)
+Label: Building
+Count: 2
+Inclusive: 283.209 ms
+Self: 48.055 ms
+Trace Share: 23.41%
+Label: Building</title><rect x="1.4389%" y="117" width="0.1269%" height="15" fill="rgb(250,228,42)" fg:x="7044716" fg:w="621362"/><text x="1.6889%" y="127.50"></text></g><g><title>NodeShape:Chilled_Water_Temperature_Sensor (521,363 samples, 0.11%)
+Label: Chilled Water Temperature Sensor
+Count: 1
+Inclusive: 0.526 ms
+Self: 0.526 ms
+Trace Share: 0.04%
+Label: Chilled Water Temperature Sensor</title><rect x="1.5762%" y="117" width="0.1065%" height="15" fill="rgb(240,193,28)" fg:x="7717214" fg:w="521363"/><text x="1.8262%" y="127.50"></text></g><g><title>NodeShape:Chiller (533,490 samples, 0.11%)
+Label: Chiller
+Count: 1
+Inclusive: 1.399 ms
+Self: 1.369 ms
+Trace Share: 0.12%
+Label: Chiller</title><rect x="1.6833%" y="117" width="0.1090%" height="15" fill="rgb(216,20,37)" fg:x="8241561" fg:w="533490"/><text x="1.9333%" y="127.50"></text></g><g><title>NodeShape:Class (878,880 samples, 0.18%)
+Label: Class
+Count: 1
+Inclusive: 0.881 ms
+Self: 0.881 ms
+Trace Share: 0.07%
+Label: Class</title><rect x="1.7929%" y="117" width="0.1795%" height="15" fill="rgb(206,188,39)" fg:x="8777912" fg:w="878880"/><text x="2.0429%" y="127.50"></text></g><g><title>NodeShape:CollectionIncludesEquipment (533,380 samples, 0.11%)
+Count: 1
+Inclusive: 0.023 ms
+Self: 0.023 ms
+Trace Share: 0.00%</title><rect x="1.9739%" y="117" width="0.1089%" height="15" fill="rgb(217,207,13)" fg:x="9664366" fg:w="533380"/><text x="2.2239%" y="127.50"></text></g><g><title>NodeShape:Command (683,896 samples, 0.14%)
+Label: Command
+Count: 1
+Inclusive: 1.292 ms
+Self: 1.206 ms
+Trace Share: 0.11%
+Label: Command</title><rect x="2.0834%" y="117" width="0.1397%" height="15" fill="rgb(231,73,38)" fg:x="10200147" fg:w="683896"/><text x="2.3334%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=bce84ffcd80b71d5ee71d98655fe6aca) (83,817 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=bce84ffcd80b71d5ee71d98655fe6aca</title><rect x="2.2059%" y="101" width="0.0171%" height="15" fill="rgb(225,20,46)" fg:x="10800226" fg:w="83817"/><text x="2.4559%" y="111.50"></text></g><g><title>PropertyShape:bce84ffcd80b71d5ee71d98655fe6aca (76,967 samples, 0.02%)</title><rect x="2.2073%" y="85" width="0.0157%" height="15" fill="rgb(210,31,41)" fg:x="10807076" fg:w="76967"/><text x="2.4573%" y="95.50"></text></g><g><title>NodeShape:Cooling_Command (515,496 samples, 0.11%)
+Label: Cooling Command
+Count: 1
+Inclusive: 0.514 ms
+Self: 0.514 ms
+Trace Share: 0.04%
+Label: Cooling Command</title><rect x="2.2269%" y="117" width="0.1053%" height="15" fill="rgb(221,200,47)" fg:x="10903139" fg:w="515496"/><text x="2.4769%" y="127.50"></text></g><g><title>NodeShape:Damper (1,332,208 samples, 0.27%)
+Label: Damper
+Count: 1
+Inclusive: 0.608 ms
+Self: 0.608 ms
+Trace Share: 0.05%
+Label: Damper</title><rect x="2.3369%" y="117" width="0.2721%" height="15" fill="rgb(226,26,5)" fg:x="11441537" fg:w="1332208"/><text x="2.5869%" y="127.50"></text></g><g><title>NodeShape:Damper_Command (518,615 samples, 0.11%)
+Label: Damper Command
+Count: 1
+Inclusive: 0.487 ms
+Self: 0.487 ms
+Trace Share: 0.04%
+Label: Damper Command</title><rect x="2.6090%" y="117" width="0.1059%" height="15" fill="rgb(249,33,26)" fg:x="12773745" fg:w="518615"/><text x="2.8590%" y="127.50"></text></g><g><title>NodeShape:Damper_Position_Command (631,015 samples, 0.13%)
+Label: Damper Position Command
+Count: 1
+Inclusive: 0.609 ms
+Self: 0.609 ms
+Trace Share: 0.05%
+Label: Damper Position Command</title><rect x="2.7149%" y="117" width="0.1289%" height="15" fill="rgb(235,183,28)" fg:x="13292360" fg:w="631015"/><text x="2.9649%" y="127.50"></text></g><g><title>NodeShape:Damper_Position_Setpoint (581,893 samples, 0.12%)
+Label: Damper Position Setpoint
+Count: 1
+Inclusive: 0.525 ms
+Self: 0.525 ms
+Trace Share: 0.04%
+Label: Damper Position Setpoint</title><rect x="2.8439%" y="117" width="0.1189%" height="15" fill="rgb(221,5,38)" fg:x="13923975" fg:w="581893"/><text x="3.0939%" y="127.50"></text></g><g><title>NodeShape:DeprecationInferenceForInstancesRule (2,100,203 samples, 0.43%)
+Count: 1
+Inclusive: 0.811 ms
+Self: 0.811 ms
+Trace Share: 0.07%</title><rect x="2.9658%" y="117" width="0.4290%" height="15" fill="rgb(247,18,42)" fg:x="14520667" fg:w="2100203"/><text x="3.2158%" y="127.50"></text></g><g><title>NodeShape:DeprecationRule (219,820 samples, 0.04%)
+Count: 1
+Inclusive: 0.200 ms
+Self: 0.013 ms
+Trace Share: 0.02%</title><rect x="3.3948%" y="117" width="0.0449%" height="15" fill="rgb(241,131,45)" fg:x="16620870" fg:w="219820"/><text x="3.6448%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=f5a62e6090a219d0323ba139a1bc1531) (137,477 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=f5a62e6090a219d0323ba139a1bc1531</title><rect x="3.4116%" y="101" width="0.0281%" height="15" fill="rgb(249,31,29)" fg:x="16703213" fg:w="137477"/><text x="3.6616%" y="111.50"></text></g><g><title>PropertyShape:f5a62e6090a219d0323ba139a1bc1531 (49,136 samples, 0.01%)
+Message: This concept is deprecated</title><rect x="3.4296%" y="85" width="0.0100%" height="15" fill="rgb(225,111,53)" fg:x="16791554" fg:w="49136"/><text x="3.6796%" y="95.50"></text></g><g><title>NodeShape:DeprecationRuleForInstances (27,896,582 samples, 5.70%)
+Count: 1
+Inclusive: 25.981 ms
+Self: 1.999 ms
+Trace Share: 2.15%</title><rect x="3.4397%" y="117" width="5.6978%" height="15" fill="rgb(238,160,17)" fg:x="16840690" fg:w="27896582"/><text x="3.6897%" y="127.50">NodeSha..</text></g><g><title>Component:SPARQLConstraint(constraint=a5c8a12b884b95894fef48828f434d07) (25,172,247 samples, 5.14%)
+Component: SPARQLConstraint
+Args: constraint=a5c8a12b884b95894fef48828f434d07</title><rect x="3.9961%" y="101" width="5.1414%" height="15" fill="rgb(214,148,48)" fg:x="19565025" fg:w="25172247"/><text x="4.2461%" y="111.50">Compon..</text></g><g><title>Component:PropertyConstraint(shape=aliasOfShape) (1,130,313 samples, 0.23%)
+Component: PropertyConstraint
+Args: shape=aliasOfShape
+Count: 776
+Inclusive: 1.323 ms
+Self: 0.163 ms
+Trace Share: 0.11%
+Component: PropertyConstraint
+Args: shape=aliasOfShape</title><rect x="10.4257%" y="101" width="0.2309%" height="15" fill="rgb(232,36,49)" fg:x="51044642" fg:w="1130313"/><text x="10.6757%" y="111.50"></text></g><g><title>PropertyShape:aliasOfShape (948,683 samples, 0.19%)
+Count: 777
+Inclusive: 1.161 ms
+Self: 1.161 ms
+Trace Share: 0.10%</title><rect x="10.4628%" y="85" width="0.1938%" height="15" fill="rgb(209,103,24)" fg:x="51226272" fg:w="948683"/><text x="10.7128%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasLocationShape) (1,293,936 samples, 0.26%)
+Component: PropertyConstraint
+Args: shape=hasLocationShape
+Count: 776
+Inclusive: 1.091 ms
+Self: 0.170 ms
+Trace Share: 0.09%
+Component: PropertyConstraint
+Args: shape=hasLocationShape</title><rect x="10.6566%" y="101" width="0.2643%" height="15" fill="rgb(229,88,8)" fg:x="52174955" fg:w="1293936"/><text x="10.9066%" y="111.50"></text></g><g><title>PropertyShape:hasLocationShape (1,107,703 samples, 0.23%)
+Count: 777
+Inclusive: 0.921 ms
+Self: 0.921 ms
+Trace Share: 0.08%</title><rect x="10.6946%" y="85" width="0.2262%" height="15" fill="rgb(213,181,19)" fg:x="52361188" fg:w="1107703"/><text x="10.9446%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasdeprecationShape) (997,182 samples, 0.20%)
+Component: PropertyConstraint
+Args: shape=hasdeprecationShape
+Count: 776
+Inclusive: 1.892 ms
+Self: 0.195 ms
+Trace Share: 0.16%
+Component: PropertyConstraint
+Args: shape=hasdeprecationShape</title><rect x="10.9209%" y="101" width="0.2037%" height="15" fill="rgb(254,191,54)" fg:x="53468891" fg:w="997182"/><text x="11.1709%" y="111.50"></text></g><g><title>PropertyShape:hasdeprecationShape (805,028 samples, 0.16%)
+Label: has Deprecation Notice property
+Count: 777
+Inclusive: 1.698 ms
+Self: 1.698 ms
+Trace Share: 0.14%
+Label: has Deprecation Notice property</title><rect x="10.9601%" y="85" width="0.1644%" height="15" fill="rgb(241,83,37)" fg:x="53661045" fg:w="805028"/><text x="11.2101%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=isReplacedByShape) (2,090,402 samples, 0.43%)
+Component: PropertyConstraint
+Args: shape=isReplacedByShape
+Count: 776
+Inclusive: 1.391 ms
+Self: 0.166 ms
+Trace Share: 0.11%
+Component: PropertyConstraint
+Args: shape=isReplacedByShape</title><rect x="11.1246%" y="101" width="0.4270%" height="15" fill="rgb(233,36,39)" fg:x="54466073" fg:w="2090402"/><text x="11.3746%" y="111.50"></text></g><g><title>PropertyShape:isReplacedByShape (1,902,562 samples, 0.39%)
+Count: 777
+Inclusive: 1.225 ms
+Self: 1.210 ms
+Trace Share: 0.10%</title><rect x="11.1629%" y="85" width="0.3886%" height="15" fill="rgb(226,3,54)" fg:x="54653913" fg:w="1902562"/><text x="11.4129%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=latitudeShape) (1,028,999 samples, 0.21%)
+Component: PropertyConstraint
+Args: shape=latitudeShape
+Count: 776
+Inclusive: 1.212 ms
+Self: 0.170 ms
+Trace Share: 0.10%
+Component: PropertyConstraint
+Args: shape=latitudeShape</title><rect x="11.5515%" y="101" width="0.2102%" height="15" fill="rgb(245,192,40)" fg:x="56556475" fg:w="1028999"/><text x="11.8015%" y="111.50"></text></g><g><title>PropertyShape:latitudeShape (845,288 samples, 0.17%)
+Count: 777
+Inclusive: 1.043 ms
+Self: 1.043 ms
+Trace Share: 0.09%</title><rect x="11.5890%" y="85" width="0.1726%" height="15" fill="rgb(238,167,29)" fg:x="56740186" fg:w="845288"/><text x="11.8390%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=longitudeShape) (846,652 samples, 0.17%)
+Component: PropertyConstraint
+Args: shape=longitudeShape
+Count: 776
+Inclusive: 1.092 ms
+Self: 0.184 ms
+Trace Share: 0.09%
+Component: PropertyConstraint
+Args: shape=longitudeShape</title><rect x="11.7617%" y="101" width="0.1729%" height="15" fill="rgb(232,182,51)" fg:x="57585474" fg:w="846652"/><text x="12.0117%" y="111.50"></text></g><g><title>PropertyShape:longitudeShape (667,638 samples, 0.14%)
+Count: 777
+Inclusive: 0.908 ms
+Self: 0.908 ms
+Trace Share: 0.08%</title><rect x="11.7983%" y="85" width="0.1364%" height="15" fill="rgb(231,60,39)" fg:x="57764488" fg:w="667638"/><text x="12.0483%" y="95.50"></text></g><g><title>NodeShape:Entity (14,461,467 samples, 2.95%)
+Label: Entity
+Count: 1
+Inclusive: 12.861 ms
+Self: 3.618 ms
+Trace Share: 1.06%
+Label: Entity</title><rect x="9.1660%" y="117" width="2.9537%" height="15" fill="rgb(208,69,12)" fg:x="44877125" fg:w="14461467"/><text x="9.4160%" y="127.50">Nod..</text></g><g><title>Component:PropertyConstraint(shape=timestampShape) (906,466 samples, 0.19%)
+Component: PropertyConstraint
+Args: shape=timestampShape
+Count: 776
+Inclusive: 1.242 ms
+Self: 0.174 ms
+Trace Share: 0.10%
+Component: PropertyConstraint
+Args: shape=timestampShape</title><rect x="11.9346%" y="101" width="0.1851%" height="15" fill="rgb(235,93,37)" fg:x="58432126" fg:w="906466"/><text x="12.1846%" y="111.50"></text></g><g><title>PropertyShape:timestampShape (716,132 samples, 0.15%)
+Count: 777
+Inclusive: 1.069 ms
+Self: 1.069 ms
+Trace Share: 0.09%</title><rect x="11.9735%" y="85" width="0.1463%" height="15" fill="rgb(213,116,39)" fg:x="58622460" fg:w="716132"/><text x="12.2235%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=aa6d0b8c2d6696c876e65e4801a88d54) (78,769 samples, 0.02%)
+Component: NotConstraint
+Args: shape=aa6d0b8c2d6696c876e65e4801a88d54</title><rect x="12.8218%" y="101" width="0.0161%" height="15" fill="rgb(222,207,29)" fg:x="62776008" fg:w="78769"/><text x="13.0718%" y="111.50"></text></g><g><title>NodeShape:aa6d0b8c2d6696c876e65e4801a88d54 (69,155 samples, 0.01%)
+Message: Instances of Equipment cannot be Points.</title><rect x="12.8238%" y="85" width="0.0141%" height="15" fill="rgb(206,96,30)" fg:x="62785622" fg:w="69155"/><text x="13.0738%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Point) (53,072 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Point
+Count: 94
+Inclusive: 0.276 ms
+Self: 0.276 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=Point</title><rect x="12.8271%" y="69" width="0.0108%" height="15" fill="rgb(218,138,4)" fg:x="62801705" fg:w="53072"/><text x="13.0771%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=b01974e9fa8cb0ad7553e8fd0765dfa) (93,601 samples, 0.02%)
+Component: NotConstraint
+Args: shape=b01974e9fa8cb0ad7553e8fd0765dfa</title><rect x="12.8379%" y="101" width="0.0191%" height="15" fill="rgb(250,191,14)" fg:x="62854777" fg:w="93601"/><text x="13.0879%" y="111.50"></text></g><g><title>NodeShape:b01974e9fa8cb0ad7553e8fd0765dfa (84,633 samples, 0.02%)
+Message: Instances of Equipment cannot be Locations.</title><rect x="12.8398%" y="85" width="0.0173%" height="15" fill="rgb(239,60,40)" fg:x="62863745" fg:w="84633"/><text x="13.0898%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Location) (52,286 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Location
+Count: 137
+Inclusive: 0.439 ms
+Self: 0.439 ms
+Trace Share: 0.04%
+Component: ClassConstraint
+Args: class=Location</title><rect x="12.8464%" y="69" width="0.0107%" height="15" fill="rgb(206,27,48)" fg:x="62896092" fg:w="52286"/><text x="13.0964%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=bc86a3f283972c253499b3bf50357438) (62,195 samples, 0.01%)
+Component: NotConstraint
+Args: shape=bc86a3f283972c253499b3bf50357438</title><rect x="12.8571%" y="101" width="0.0127%" height="15" fill="rgb(225,35,8)" fg:x="62948378" fg:w="62195"/><text x="13.1071%" y="111.50"></text></g><g><title>NodeShape:bc86a3f283972c253499b3bf50357438 (53,554 samples, 0.01%)
+Message: Instances of Equipment cannot be EntityProperties.</title><rect x="12.8588%" y="85" width="0.0109%" height="15" fill="rgb(250,213,24)" fg:x="62957019" fg:w="53554"/><text x="13.1088%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=c3d7eb0d8907c5d4c1540eaaa5a6bb01) (103,260 samples, 0.02%)
+Component: NotConstraint
+Args: shape=c3d7eb0d8907c5d4c1540eaaa5a6bb01</title><rect x="12.8698%" y="101" width="0.0211%" height="15" fill="rgb(247,123,22)" fg:x="63010573" fg:w="103260"/><text x="13.1198%" y="111.50"></text></g><g><title>NodeShape:c3d7eb0d8907c5d4c1540eaaa5a6bb01 (88,934 samples, 0.02%)
+Message: Instances of Equipment cannot be Substances.</title><rect x="12.8727%" y="85" width="0.0182%" height="15" fill="rgb(231,138,38)" fg:x="63024899" fg:w="88934"/><text x="13.1227%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Substance) (68,801 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Substance
+Count: 161
+Inclusive: 0.555 ms
+Self: 0.555 ms
+Trace Share: 0.05%
+Component: ClassConstraint
+Args: class=Substance</title><rect x="12.8768%" y="69" width="0.0141%" height="15" fill="rgb(231,145,46)" fg:x="63045032" fg:w="68801"/><text x="13.1268%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=d9b13e7ae6d3f14c99d9f6be4e99b118) (60,002 samples, 0.01%)
+Component: NotConstraint
+Args: shape=d9b13e7ae6d3f14c99d9f6be4e99b118</title><rect x="12.8908%" y="101" width="0.0123%" height="15" fill="rgb(251,118,11)" fg:x="63113833" fg:w="60002"/><text x="13.1408%" y="111.50"></text></g><g><title>NodeShape:d9b13e7ae6d3f14c99d9f6be4e99b118 (51,998 samples, 0.01%)
+Message: Instances of Equipment cannot be Quantities.</title><rect x="12.8925%" y="85" width="0.0106%" height="15" fill="rgb(217,147,25)" fg:x="63121837" fg:w="51998"/><text x="13.1425%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=deb2fb73a0b1e9aca295234683ed9384) (66,833 samples, 0.01%)
+Component: NotConstraint
+Args: shape=deb2fb73a0b1e9aca295234683ed9384</title><rect x="12.9031%" y="101" width="0.0137%" height="15" fill="rgb(247,81,37)" fg:x="63173835" fg:w="66833"/><text x="13.1531%" y="111.50"></text></g><g><title>NodeShape:deb2fb73a0b1e9aca295234683ed9384 (57,711 samples, 0.01%)
+Message: Instances of Equipment cannot be Collections.</title><rect x="12.9050%" y="85" width="0.0118%" height="15" fill="rgb(209,12,38)" fg:x="63182957" fg:w="57711"/><text x="13.1550%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=c0486c3e690722dd05e50f75c230f249) (68,185 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=c0486c3e690722dd05e50f75c230f249</title><rect x="12.9168%" y="101" width="0.0139%" height="15" fill="rgb(227,1,9)" fg:x="63240668" fg:w="68185"/><text x="13.1668%" y="111.50"></text></g><g><title>PropertyShape:c0486c3e690722dd05e50f75c230f249 (54,171 samples, 0.01%)
+Message: A piece of Equipment&amp;#x27;s parts should be always other Equipment.</title><rect x="12.9196%" y="85" width="0.0111%" height="15" fill="rgb(248,47,43)" fg:x="63254682" fg:w="54171"/><text x="13.1696%" y="95.50"></text></g><g><title>NodeShape:d3230b3394184fb862ab1f543429a05c (63,144 samples, 0.01%)</title><rect x="12.9656%" y="53" width="0.0129%" height="15" fill="rgb(221,10,30)" fg:x="63479928" fg:w="63144"/><text x="13.2156%" y="63.50"></text></g><g><title>Component:ClassConstraint(class=Location) (55,032 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Location
+Count: 137
+Inclusive: 0.439 ms
+Self: 0.439 ms
+Trace Share: 0.04%
+Component: ClassConstraint
+Args: class=Location</title><rect x="12.9673%" y="37" width="0.0112%" height="15" fill="rgb(210,229,1)" fg:x="63488040" fg:w="55032"/><text x="13.2173%" y="47.50"></text></g><g><title>Component:PropertyConstraint(shape=c4cd7f8fc22e457bda06c98b4f807229) (319,466 samples, 0.07%)
+Component: PropertyConstraint
+Args: shape=c4cd7f8fc22e457bda06c98b4f807229</title><rect x="12.9307%" y="101" width="0.0653%" height="15" fill="rgb(222,148,37)" fg:x="63308853" fg:w="319466"/><text x="13.1807%" y="111.50"></text></g><g><title>PropertyShape:c4cd7f8fc22e457bda06c98b4f807229 (302,291 samples, 0.06%)
+Message: A piece of Equipment can feed a Equipment or Location/Space.</title><rect x="12.9342%" y="85" width="0.0617%" height="15" fill="rgb(234,67,33)" fg:x="63326028" fg:w="302291"/><text x="13.1842%" y="95.50"></text></g><g><title>Component:OrConstraint(shapes=ef6e84c3ab2f3919d6b89e1f31a98549,d3230b3394184fb862ab1f543429a05c,adf268c44f7f6928d9a6bebe66644bf9) (161,215 samples, 0.03%)
+Component: OrConstraint
+Args: shapes=ef6e84c3ab2f3919d6b89e1f31a98549,d3230b3394184fb862ab1f543429a05c,adf268c44f7f6928d9a6bebe66644bf9</title><rect x="12.9630%" y="69" width="0.0329%" height="15" fill="rgb(247,98,35)" fg:x="63467104" fg:w="161215"/><text x="13.2130%" y="79.50"></text></g><g><title>NodeShape:ef6e84c3ab2f3919d6b89e1f31a98549 (85,247 samples, 0.02%)</title><rect x="12.9785%" y="53" width="0.0174%" height="15" fill="rgb(247,138,52)" fg:x="63543072" fg:w="85247"/><text x="13.2285%" y="63.50"></text></g><g><title>Component:ClassConstraint(class=Equipment) (68,813 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Equipment
+Count: 172
+Inclusive: 0.475 ms
+Self: 0.475 ms
+Trace Share: 0.04%
+Component: ClassConstraint
+Args: class=Equipment</title><rect x="12.9819%" y="37" width="0.0141%" height="15" fill="rgb(213,79,30)" fg:x="63559506" fg:w="68813"/><text x="13.2319%" y="47.50"></text></g><g><title>Component:PropertyConstraint(shape=c8010c6431d5571453a320f9dd00ddfd) (70,008 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=c8010c6431d5571453a320f9dd00ddfd</title><rect x="12.9959%" y="101" width="0.0143%" height="15" fill="rgb(246,177,23)" fg:x="63628319" fg:w="70008"/><text x="13.2459%" y="111.50"></text></g><g><title>PropertyShape:c8010c6431d5571453a320f9dd00ddfd (55,822 samples, 0.01%)</title><rect x="12.9988%" y="85" width="0.0114%" height="15" fill="rgb(230,62,27)" fg:x="63642505" fg:w="55822"/><text x="13.2488%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=db6f0679eebdb8c06b8e3ff082c54cd1) (85,801 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=db6f0679eebdb8c06b8e3ff082c54cd1</title><rect x="13.0102%" y="101" width="0.0175%" height="15" fill="rgb(216,154,8)" fg:x="63698327" fg:w="85801"/><text x="13.2602%" y="111.50"></text></g><g><title>PropertyShape:db6f0679eebdb8c06b8e3ff082c54cd1 (71,365 samples, 0.01%)</title><rect x="13.0132%" y="85" width="0.0146%" height="15" fill="rgb(244,35,45)" fg:x="63712763" fg:w="71365"/><text x="13.2632%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=e9902d71da7ad82c44712c1b7f563f75) (182,609 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=e9902d71da7ad82c44712c1b7f563f75</title><rect x="13.0278%" y="101" width="0.0373%" height="15" fill="rgb(251,115,12)" fg:x="63784128" fg:w="182609"/><text x="13.2778%" y="111.50"></text></g><g><title>PropertyShape:e9902d71da7ad82c44712c1b7f563f75 (168,636 samples, 0.03%)
+Message: Equipment can be part of a Collection, System or other Equipment.</title><rect x="13.0306%" y="85" width="0.0344%" height="15" fill="rgb(240,54,50)" fg:x="63798101" fg:w="168636"/><text x="13.2806%" y="95.50"></text></g><g><title>Component:OrConstraint(shapes=e3402bb71d3430ad0db4503fd9d3951,d48b221464f9820dbca623c96d17790f,bacf201b5b94101738ff4c015ed58c14) (71,776 samples, 0.01%)
+Component: OrConstraint
+Args: shapes=e3402bb71d3430ad0db4503fd9d3951,d48b221464f9820dbca623c96d17790f,bacf201b5b94101738ff4c015ed58c14</title><rect x="13.0504%" y="69" width="0.0147%" height="15" fill="rgb(233,84,52)" fg:x="63894961" fg:w="71776"/><text x="13.3004%" y="79.50"></text></g><g><title>NodeShape:e3402bb71d3430ad0db4503fd9d3951 (52,034 samples, 0.01%)</title><rect x="13.0544%" y="53" width="0.0106%" height="15" fill="rgb(207,117,47)" fg:x="63914703" fg:w="52034"/><text x="13.3044%" y="63.50"></text></g><g><title>Component:PropertyConstraint(shape=f015c85e9f0c3b0810fa9d5cc8eb93e) (66,864 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=f015c85e9f0c3b0810fa9d5cc8eb93e</title><rect x="13.0651%" y="101" width="0.0137%" height="15" fill="rgb(249,43,39)" fg:x="63966737" fg:w="66864"/><text x="13.3151%" y="111.50"></text></g><g><title>PropertyShape:f015c85e9f0c3b0810fa9d5cc8eb93e (53,643 samples, 0.01%)
+Message: Equipment can be controlled only by Controllers.</title><rect x="13.0678%" y="85" width="0.0110%" height="15" fill="rgb(209,38,44)" fg:x="63979958" fg:w="53643"/><text x="13.3178%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=f41b174ac7a5b748bec9621c0e67a29f) (100,835 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=f41b174ac7a5b748bec9621c0e67a29f</title><rect x="13.0787%" y="101" width="0.0206%" height="15" fill="rgb(236,212,23)" fg:x="64033601" fg:w="100835"/><text x="13.3287%" y="111.50"></text></g><g><title>PropertyShape:f41b174ac7a5b748bec9621c0e67a29f (85,454 samples, 0.02%)
+Message: A piece of Equipment can be located only at a Location/Space</title><rect x="13.0819%" y="85" width="0.0175%" height="15" fill="rgb(242,79,21)" fg:x="64048982" fg:w="85454"/><text x="13.3319%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=f838902c6ae4e1b18828cb9d6f491c90) (406,043 samples, 0.08%)
+Component: PropertyConstraint
+Args: shape=f838902c6ae4e1b18828cb9d6f491c90</title><rect x="13.0993%" y="101" width="0.0829%" height="15" fill="rgb(211,96,35)" fg:x="64134436" fg:w="406043"/><text x="13.3493%" y="111.50"></text></g><g><title>PropertyShape:f838902c6ae4e1b18828cb9d6f491c90 (389,295 samples, 0.08%)
+Message: A piece of Equipment can have Points.</title><rect x="13.1027%" y="85" width="0.0795%" height="15" fill="rgb(253,215,40)" fg:x="64151184" fg:w="389295"/><text x="13.3527%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Point) (61,707 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Point
+Count: 94
+Inclusive: 0.276 ms
+Self: 0.276 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=Point</title><rect x="13.1696%" y="69" width="0.0126%" height="15" fill="rgb(211,81,21)" fg:x="64478772" fg:w="61707"/><text x="13.4196%" y="79.50"></text></g><g><title>Component:PropertyConstraint(shape=hasInputSubstanceShape) (79,946 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasInputSubstanceShape
+Count: 19
+Inclusive: 0.045 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasInputSubstanceShape</title><rect x="13.1822%" y="101" width="0.0163%" height="15" fill="rgb(208,190,38)" fg:x="64540479" fg:w="79946"/><text x="13.4322%" y="111.50"></text></g><g><title>PropertyShape:hasInputSubstanceShape (66,065 samples, 0.01%)
+Count: 20
+Inclusive: 0.037 ms
+Self: 0.037 ms
+Trace Share: 0.00%</title><rect x="13.1851%" y="85" width="0.0135%" height="15" fill="rgb(235,213,38)" fg:x="64554360" fg:w="66065"/><text x="13.4351%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasOutputSubstanceShape) (65,675 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasOutputSubstanceShape
+Count: 19
+Inclusive: 0.042 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasOutputSubstanceShape</title><rect x="13.1986%" y="101" width="0.0134%" height="15" fill="rgb(237,122,38)" fg:x="64620425" fg:w="65675"/><text x="13.4486%" y="111.50"></text></g><g><title>PropertyShape:hasOutputSubstanceShape (52,195 samples, 0.01%)
+Count: 20
+Inclusive: 0.034 ms
+Self: 0.034 ms
+Trace Share: 0.00%</title><rect x="13.2013%" y="85" width="0.0107%" height="15" fill="rgb(244,218,35)" fg:x="64633905" fg:w="52195"/><text x="13.4513%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasPointShape) (656,100 samples, 0.13%)
+Component: PropertyConstraint
+Args: shape=hasPointShape
+Count: 37
+Inclusive: 0.315 ms
+Self: 0.015 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=hasPointShape</title><rect x="13.2120%" y="101" width="0.1340%" height="15" fill="rgb(240,68,47)" fg:x="64686100" fg:w="656100"/><text x="13.4620%" y="111.50"></text></g><g><title>PropertyShape:hasPointShape (639,044 samples, 0.13%)
+Count: 38
+Inclusive: 0.300 ms
+Self: 0.248 ms
+Trace Share: 0.02%</title><rect x="13.2155%" y="85" width="0.1305%" height="15" fill="rgb(210,16,53)" fg:x="64703156" fg:w="639044"/><text x="13.4655%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Point) (184,115 samples, 0.04%)
+Component: ClassConstraint
+Args: class=Point
+Count: 94
+Inclusive: 0.276 ms
+Self: 0.276 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=Point</title><rect x="13.3084%" y="69" width="0.0376%" height="15" fill="rgb(235,124,12)" fg:x="65158085" fg:w="184115"/><text x="13.5584%" y="79.50"></text></g><g><title>Component:PropertyConstraint(shape=hasazimuthShape) (71,727 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasazimuthShape
+Count: 19
+Inclusive: 0.045 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasazimuthShape</title><rect x="13.3460%" y="101" width="0.0147%" height="15" fill="rgb(224,169,11)" fg:x="65342200" fg:w="71727"/><text x="13.5960%" y="111.50"></text></g><g><title>PropertyShape:hasazimuthShape (57,303 samples, 0.01%)
+Label: has Azimuth property
+Count: 20
+Inclusive: 0.036 ms
+Self: 0.036 ms
+Trace Share: 0.00%
+Label: has Azimuth property</title><rect x="13.3489%" y="85" width="0.0117%" height="15" fill="rgb(250,166,2)" fg:x="65356624" fg:w="57303"/><text x="13.5989%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasconversionEfficiencyShape) (69,575 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasconversionEfficiencyShape
+Count: 19
+Inclusive: 0.046 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasconversionEfficiencyShape</title><rect x="13.3606%" y="101" width="0.0142%" height="15" fill="rgb(242,216,29)" fg:x="65413927" fg:w="69575"/><text x="13.6106%" y="111.50"></text></g><g><title>PropertyShape:hasconversionEfficiencyShape (55,503 samples, 0.01%)
+Label: has Conversion efficiency property
+Count: 20
+Inclusive: 0.037 ms
+Self: 0.037 ms
+Trace Share: 0.00%
+Label: has Conversion efficiency property</title><rect x="13.3635%" y="85" width="0.0113%" height="15" fill="rgb(230,116,27)" fg:x="65427999" fg:w="55503"/><text x="13.6135%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hascoordinatesShape) (68,931 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hascoordinatesShape
+Count: 37
+Inclusive: 0.079 ms
+Self: 0.015 ms
+Trace Share: 0.01%
+Component: PropertyConstraint
+Args: shape=hascoordinatesShape</title><rect x="13.3748%" y="101" width="0.0141%" height="15" fill="rgb(228,99,48)" fg:x="65483502" fg:w="68931"/><text x="13.6248%" y="111.50"></text></g><g><title>PropertyShape:hascoordinatesShape (55,203 samples, 0.01%)
+Label: has Coordinates property
+Count: 38
+Inclusive: 0.064 ms
+Self: 0.064 ms
+Trace Share: 0.01%
+Label: has Coordinates property</title><rect x="13.3777%" y="85" width="0.0113%" height="15" fill="rgb(253,11,6)" fg:x="65497230" fg:w="55203"/><text x="13.6277%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hascurrentFlowTypeShape) (66,817 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hascurrentFlowTypeShape
+Count: 19
+Inclusive: 0.042 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hascurrentFlowTypeShape</title><rect x="13.3889%" y="101" width="0.0136%" height="15" fill="rgb(247,143,39)" fg:x="65552433" fg:w="66817"/><text x="13.6389%" y="111.50"></text></g><g><title>PropertyShape:hascurrentFlowTypeShape (53,355 samples, 0.01%)
+Label: has Current flow type property
+Count: 20
+Inclusive: 0.041 ms
+Self: 0.041 ms
+Trace Share: 0.00%
+Label: has Current flow type property</title><rect x="13.3917%" y="85" width="0.0109%" height="15" fill="rgb(236,97,10)" fg:x="65565895" fg:w="53355"/><text x="13.6417%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haselectricalComplexPowerShape) (84,288 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=haselectricalComplexPowerShape
+Count: 112
+Inclusive: 0.374 ms
+Self: 0.064 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=haselectricalComplexPowerShape</title><rect x="13.4026%" y="101" width="0.0172%" height="15" fill="rgb(233,208,19)" fg:x="65619250" fg:w="84288"/><text x="13.6526%" y="111.50"></text></g><g><title>PropertyShape:haselectricalComplexPowerShape (69,657 samples, 0.01%)
+Label: has electrical complex power type property
+Count: 113
+Inclusive: 0.310 ms
+Self: 0.310 ms
+Trace Share: 0.03%
+Label: has electrical complex power type property</title><rect x="13.4056%" y="85" width="0.0142%" height="15" fill="rgb(216,164,2)" fg:x="65633881" fg:w="69657"/><text x="13.6556%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haselectricalFlowShape) (74,629 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=haselectricalFlowShape
+Count: 112
+Inclusive: 0.292 ms
+Self: 0.059 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=haselectricalFlowShape</title><rect x="13.4198%" y="101" width="0.0152%" height="15" fill="rgb(220,129,5)" fg:x="65703538" fg:w="74629"/><text x="13.6698%" y="111.50"></text></g><g><title>PropertyShape:haselectricalFlowShape (59,802 samples, 0.01%)
+Label: has Electrical flow direction property
+Count: 113
+Inclusive: 0.234 ms
+Self: 0.234 ms
+Trace Share: 0.02%
+Label: has Electrical flow direction property</title><rect x="13.4228%" y="85" width="0.0122%" height="15" fill="rgb(242,17,10)" fg:x="65718365" fg:w="59802"/><text x="13.6728%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haselectricalPhaseCountShape) (74,798 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=haselectricalPhaseCountShape
+Count: 19
+Inclusive: 0.044 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=haselectricalPhaseCountShape</title><rect x="13.4350%" y="101" width="0.0153%" height="15" fill="rgb(242,107,0)" fg:x="65778167" fg:w="74798"/><text x="13.6850%" y="111.50"></text></g><g><title>PropertyShape:haselectricalPhaseCountShape (59,370 samples, 0.01%)
+Label: has Electrical phase count property
+Count: 20
+Inclusive: 0.035 ms
+Self: 0.035 ms
+Trace Share: 0.00%
+Label: has Electrical phase count property</title><rect x="13.4382%" y="85" width="0.0121%" height="15" fill="rgb(251,28,31)" fg:x="65793595" fg:w="59370"/><text x="13.6882%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haselectricalPhasesShape) (68,270 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=haselectricalPhasesShape
+Count: 19
+Inclusive: 0.041 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=haselectricalPhasesShape</title><rect x="13.4503%" y="101" width="0.0139%" height="15" fill="rgb(233,223,10)" fg:x="65852965" fg:w="68270"/><text x="13.7003%" y="111.50"></text></g><g><title>PropertyShape:haselectricalPhasesShape (53,714 samples, 0.01%)
+Label: has Electrical phases property
+Count: 20
+Inclusive: 0.034 ms
+Self: 0.034 ms
+Trace Share: 0.00%
+Label: has Electrical phases property</title><rect x="13.4533%" y="85" width="0.0110%" height="15" fill="rgb(215,21,27)" fg:x="65867521" fg:w="53714"/><text x="13.7033%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasmeasuredPowerInputShape) (71,989 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasmeasuredPowerInputShape
+Count: 19
+Inclusive: 0.055 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasmeasuredPowerInputShape</title><rect x="13.4643%" y="101" width="0.0147%" height="15" fill="rgb(232,23,21)" fg:x="65921235" fg:w="71989"/><text x="13.7143%" y="111.50"></text></g><g><title>PropertyShape:hasmeasuredPowerInputShape (57,673 samples, 0.01%)
+Label: has Measured power input property
+Count: 20
+Inclusive: 0.046 ms
+Self: 0.046 ms
+Trace Share: 0.00%
+Label: has Measured power input property</title><rect x="13.4672%" y="85" width="0.0118%" height="15" fill="rgb(244,5,23)" fg:x="65935551" fg:w="57673"/><text x="13.7172%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasmeasuredPowerOutputShape) (130,942 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=hasmeasuredPowerOutputShape
+Count: 19
+Inclusive: 0.042 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasmeasuredPowerOutputShape</title><rect x="13.4790%" y="101" width="0.0267%" height="15" fill="rgb(226,81,46)" fg:x="65993224" fg:w="130942"/><text x="13.7290%" y="111.50"></text></g><g><title>PropertyShape:hasmeasuredPowerOutputShape (112,967 samples, 0.02%)
+Label: has Measured power output property
+Count: 20
+Inclusive: 0.034 ms
+Self: 0.034 ms
+Trace Share: 0.00%
+Label: has Measured power output property</title><rect x="13.4826%" y="85" width="0.0231%" height="15" fill="rgb(247,70,30)" fg:x="66011199" fg:w="112967"/><text x="13.7326%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasoperationalStageCountShape) (71,047 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasoperationalStageCountShape
+Count: 19
+Inclusive: 0.045 ms
+Self: 0.010 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasoperationalStageCountShape</title><rect x="13.5057%" y="101" width="0.0145%" height="15" fill="rgb(212,68,19)" fg:x="66124166" fg:w="71047"/><text x="13.7557%" y="111.50"></text></g><g><title>PropertyShape:hasoperationalStageCountShape (56,673 samples, 0.01%)
+Label: has Operational stage count property
+Count: 20
+Inclusive: 0.036 ms
+Self: 0.036 ms
+Trace Share: 0.00%
+Label: has Operational stage count property</title><rect x="13.5086%" y="85" width="0.0116%" height="15" fill="rgb(240,187,13)" fg:x="66138540" fg:w="56673"/><text x="13.7586%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasoperationalStageShape) (69,398 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasoperationalStageShape
+Count: 19
+Inclusive: 0.059 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasoperationalStageShape</title><rect x="13.5202%" y="101" width="0.0142%" height="15" fill="rgb(223,113,26)" fg:x="66195213" fg:w="69398"/><text x="13.7702%" y="111.50"></text></g><g><title>PropertyShape:hasoperationalStageShape (55,477 samples, 0.01%)
+Label: has Operational stage property
+Count: 20
+Inclusive: 0.050 ms
+Self: 0.050 ms
+Trace Share: 0.00%
+Label: has Operational stage property</title><rect x="13.5231%" y="85" width="0.0113%" height="15" fill="rgb(206,192,2)" fg:x="66209134" fg:w="55477"/><text x="13.7731%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haspanelAreaShape) (74,982 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=haspanelAreaShape
+Count: 19
+Inclusive: 0.044 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=haspanelAreaShape</title><rect x="13.5344%" y="101" width="0.0153%" height="15" fill="rgb(241,108,4)" fg:x="66264611" fg:w="74982"/><text x="13.7844%" y="111.50"></text></g><g><title>PropertyShape:haspanelAreaShape (61,018 samples, 0.01%)
+Label: has Panel area property
+Count: 20
+Inclusive: 0.036 ms
+Self: 0.036 ms
+Trace Share: 0.00%
+Label: has Panel area property</title><rect x="13.5372%" y="85" width="0.0125%" height="15" fill="rgb(247,173,49)" fg:x="66278575" fg:w="61018"/><text x="13.7872%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedCurrentInputShape) (78,862 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasratedCurrentInputShape
+Count: 19
+Inclusive: 0.045 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedCurrentInputShape</title><rect x="13.5497%" y="101" width="0.0161%" height="15" fill="rgb(224,114,35)" fg:x="66339593" fg:w="78862"/><text x="13.7997%" y="111.50"></text></g><g><title>PropertyShape:hasratedCurrentInputShape (65,649 samples, 0.01%)
+Label: has Rated current input property
+Count: 20
+Inclusive: 0.037 ms
+Self: 0.037 ms
+Trace Share: 0.00%
+Label: has Rated current input property</title><rect x="13.5524%" y="85" width="0.0134%" height="15" fill="rgb(245,159,27)" fg:x="66352806" fg:w="65649"/><text x="13.8024%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedCurrentOutputShape) (68,932 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedCurrentOutputShape
+Count: 19
+Inclusive: 0.048 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedCurrentOutputShape</title><rect x="13.5658%" y="101" width="0.0141%" height="15" fill="rgb(245,172,44)" fg:x="66418455" fg:w="68932"/><text x="13.8158%" y="111.50"></text></g><g><title>PropertyShape:hasratedCurrentOutputShape (54,455 samples, 0.01%)
+Label: has Rated current output property
+Count: 20
+Inclusive: 0.040 ms
+Self: 0.040 ms
+Trace Share: 0.00%
+Label: has Rated current output property</title><rect x="13.5688%" y="85" width="0.0111%" height="15" fill="rgb(236,23,11)" fg:x="66432932" fg:w="54455"/><text x="13.8188%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMaximumCurrentInputShape) (73,815 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasratedMaximumCurrentInputShape
+Count: 19
+Inclusive: 0.045 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMaximumCurrentInputShape</title><rect x="13.5799%" y="101" width="0.0151%" height="15" fill="rgb(205,117,38)" fg:x="66487387" fg:w="73815"/><text x="13.8299%" y="111.50"></text></g><g><title>PropertyShape:hasratedMaximumCurrentInputShape (58,931 samples, 0.01%)
+Label: has Rated maximum current input property
+Count: 20
+Inclusive: 0.037 ms
+Self: 0.037 ms
+Trace Share: 0.00%
+Label: has Rated maximum current input property</title><rect x="13.5829%" y="85" width="0.0120%" height="15" fill="rgb(237,72,25)" fg:x="66502271" fg:w="58931"/><text x="13.8329%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMaximumCurrentOutputShape) (83,678 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasratedMaximumCurrentOutputShape
+Count: 19
+Inclusive: 0.051 ms
+Self: 0.010 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMaximumCurrentOutputShape</title><rect x="13.5950%" y="101" width="0.0171%" height="15" fill="rgb(244,70,9)" fg:x="66561202" fg:w="83678"/><text x="13.8450%" y="111.50"></text></g><g><title>PropertyShape:hasratedMaximumCurrentOutputShape (68,212 samples, 0.01%)
+Label: has Rated maximum current output property
+Count: 20
+Inclusive: 0.043 ms
+Self: 0.043 ms
+Trace Share: 0.00%
+Label: has Rated maximum current output property</title><rect x="13.5981%" y="85" width="0.0139%" height="15" fill="rgb(217,125,39)" fg:x="66576668" fg:w="68212"/><text x="13.8481%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMaximumVoltageInputShape) (74,851 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasratedMaximumVoltageInputShape
+Count: 19
+Inclusive: 0.046 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMaximumVoltageInputShape</title><rect x="13.6121%" y="101" width="0.0153%" height="15" fill="rgb(235,36,10)" fg:x="66644880" fg:w="74851"/><text x="13.8621%" y="111.50"></text></g><g><title>PropertyShape:hasratedMaximumVoltageInputShape (59,536 samples, 0.01%)
+Label: has Rated maximum voltage input property
+Count: 20
+Inclusive: 0.039 ms
+Self: 0.039 ms
+Trace Share: 0.00%
+Label: has Rated maximum voltage input property</title><rect x="13.6152%" y="85" width="0.0122%" height="15" fill="rgb(251,123,47)" fg:x="66660195" fg:w="59536"/><text x="13.8652%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMaximumVoltageOutputShape) (69,803 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedMaximumVoltageOutputShape
+Count: 19
+Inclusive: 0.044 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMaximumVoltageOutputShape</title><rect x="13.6273%" y="101" width="0.0143%" height="15" fill="rgb(221,13,13)" fg:x="66719731" fg:w="69803"/><text x="13.8773%" y="111.50"></text></g><g><title>PropertyShape:hasratedMaximumVoltageOutputShape (56,076 samples, 0.01%)
+Label: has Rated maximum voltage output property
+Count: 20
+Inclusive: 0.037 ms
+Self: 0.037 ms
+Trace Share: 0.00%
+Label: has Rated maximum voltage output property</title><rect x="13.6301%" y="85" width="0.0115%" height="15" fill="rgb(238,131,9)" fg:x="66733458" fg:w="56076"/><text x="13.8801%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMinimumCurrentInputShape) (78,324 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasratedMinimumCurrentInputShape
+Count: 19
+Inclusive: 0.044 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMinimumCurrentInputShape</title><rect x="13.6416%" y="101" width="0.0160%" height="15" fill="rgb(211,50,8)" fg:x="66789534" fg:w="78324"/><text x="13.8916%" y="111.50"></text></g><g><title>PropertyShape:hasratedMinimumCurrentInputShape (62,366 samples, 0.01%)
+Label: has Rated minimum current input property
+Count: 20
+Inclusive: 0.035 ms
+Self: 0.035 ms
+Trace Share: 0.00%
+Label: has Rated minimum current input property</title><rect x="13.6449%" y="85" width="0.0127%" height="15" fill="rgb(245,182,24)" fg:x="66805492" fg:w="62366"/><text x="13.8949%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMinimumCurrentOutputShape) (70,876 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedMinimumCurrentOutputShape
+Count: 19
+Inclusive: 0.046 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMinimumCurrentOutputShape</title><rect x="13.6576%" y="101" width="0.0145%" height="15" fill="rgb(242,14,37)" fg:x="66867858" fg:w="70876"/><text x="13.9076%" y="111.50"></text></g><g><title>PropertyShape:hasratedMinimumCurrentOutputShape (56,768 samples, 0.01%)
+Label: has Rated minimum current output property
+Count: 20
+Inclusive: 0.038 ms
+Self: 0.038 ms
+Trace Share: 0.00%
+Label: has Rated minimum current output property</title><rect x="13.6605%" y="85" width="0.0116%" height="15" fill="rgb(246,228,12)" fg:x="66881966" fg:w="56768"/><text x="13.9105%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMinimumVoltageInputShape) (68,308 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedMinimumVoltageInputShape
+Count: 19
+Inclusive: 0.045 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMinimumVoltageInputShape</title><rect x="13.6721%" y="101" width="0.0140%" height="15" fill="rgb(213,55,15)" fg:x="66938734" fg:w="68308"/><text x="13.9221%" y="111.50"></text></g><g><title>PropertyShape:hasratedMinimumVoltageInputShape (54,081 samples, 0.01%)
+Label: has Rated minimum voltage input property
+Count: 20
+Inclusive: 0.037 ms
+Self: 0.037 ms
+Trace Share: 0.00%
+Label: has Rated minimum voltage input property</title><rect x="13.6750%" y="85" width="0.0110%" height="15" fill="rgb(209,9,3)" fg:x="66952961" fg:w="54081"/><text x="13.9250%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedMinimumVoltageOutputShape) (71,668 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedMinimumVoltageOutputShape
+Count: 19
+Inclusive: 0.044 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedMinimumVoltageOutputShape</title><rect x="13.6860%" y="101" width="0.0146%" height="15" fill="rgb(230,59,30)" fg:x="67007042" fg:w="71668"/><text x="13.9360%" y="111.50"></text></g><g><title>PropertyShape:hasratedMinimumVoltageOutputShape (56,364 samples, 0.01%)
+Label: has Rated minimum voltage output property
+Count: 20
+Inclusive: 0.035 ms
+Self: 0.035 ms
+Trace Share: 0.00%
+Label: has Rated minimum voltage output property</title><rect x="13.6892%" y="85" width="0.0115%" height="15" fill="rgb(209,121,21)" fg:x="67022346" fg:w="56364"/><text x="13.9392%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedPowerInputShape) (64,748 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedPowerInputShape
+Count: 19
+Inclusive: 0.042 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedPowerInputShape</title><rect x="13.7007%" y="101" width="0.0132%" height="15" fill="rgb(220,109,13)" fg:x="67078710" fg:w="64748"/><text x="13.9507%" y="111.50"></text></g><g><title>PropertyShape:hasratedPowerInputShape (51,577 samples, 0.01%)
+Label: has Rated power input property
+Count: 20
+Inclusive: 0.033 ms
+Self: 0.033 ms
+Trace Share: 0.00%
+Label: has Rated power input property</title><rect x="13.7034%" y="85" width="0.0105%" height="15" fill="rgb(232,18,1)" fg:x="67091881" fg:w="51577"/><text x="13.9534%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedPowerOutputShape) (64,335 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedPowerOutputShape
+Count: 19
+Inclusive: 0.040 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedPowerOutputShape</title><rect x="13.7139%" y="101" width="0.0131%" height="15" fill="rgb(215,41,42)" fg:x="67143458" fg:w="64335"/><text x="13.9639%" y="111.50"></text></g><g><title>PropertyShape:hasratedPowerOutputShape (50,730 samples, 0.01%)
+Label: has Rated power output property
+Count: 20
+Inclusive: 0.032 ms
+Self: 0.032 ms
+Trace Share: 0.00%
+Label: has Rated power output property</title><rect x="13.7167%" y="85" width="0.0104%" height="15" fill="rgb(224,123,36)" fg:x="67157063" fg:w="50730"/><text x="13.9667%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedVoltageInputShape) (72,398 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedVoltageInputShape
+Count: 19
+Inclusive: 0.050 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedVoltageInputShape</title><rect x="13.7270%" y="101" width="0.0148%" height="15" fill="rgb(240,125,3)" fg:x="67207793" fg:w="72398"/><text x="13.9770%" y="111.50"></text></g><g><title>PropertyShape:hasratedVoltageInputShape (57,564 samples, 0.01%)
+Label: has Measured voltage input property
+Count: 20
+Inclusive: 0.043 ms
+Self: 0.043 ms
+Trace Share: 0.00%
+Label: has Measured voltage input property</title><rect x="13.7301%" y="85" width="0.0118%" height="15" fill="rgb(205,98,50)" fg:x="67222627" fg:w="57564"/><text x="13.9801%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasratedVoltageOutputShape) (69,069 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasratedVoltageOutputShape
+Count: 19
+Inclusive: 0.040 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasratedVoltageOutputShape</title><rect x="13.7418%" y="101" width="0.0141%" height="15" fill="rgb(205,185,37)" fg:x="67280191" fg:w="69069"/><text x="13.9918%" y="111.50"></text></g><g><title>PropertyShape:hasratedVoltageOutputShape (55,353 samples, 0.01%)
+Label: has Rated voltage output property
+Count: 20
+Inclusive: 0.033 ms
+Self: 0.033 ms
+Trace Share: 0.00%
+Label: has Rated voltage output property</title><rect x="13.7446%" y="85" width="0.0113%" height="15" fill="rgb(238,207,15)" fg:x="67293907" fg:w="55353"/><text x="13.9946%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hastemperatureCoefficientofPmaxShape) (87,199 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hastemperatureCoefficientofPmaxShape
+Count: 19
+Inclusive: 0.057 ms
+Self: 0.011 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hastemperatureCoefficientofPmaxShape</title><rect x="13.7559%" y="101" width="0.0178%" height="15" fill="rgb(213,199,42)" fg:x="67349260" fg:w="87199"/><text x="14.0059%" y="111.50"></text></g><g><title>PropertyShape:hastemperatureCoefficientofPmaxShape (70,457 samples, 0.01%)
+Label: has Temperature coefficient property
+Count: 20
+Inclusive: 0.046 ms
+Self: 0.046 ms
+Trace Share: 0.00%
+Label: has Temperature coefficient property</title><rect x="13.7593%" y="85" width="0.0144%" height="15" fill="rgb(235,201,11)" fg:x="67366002" fg:w="70457"/><text x="14.0093%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hastiltShape) (65,321 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hastiltShape
+Count: 19
+Inclusive: 0.040 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hastiltShape</title><rect x="13.7737%" y="101" width="0.0133%" height="15" fill="rgb(207,46,11)" fg:x="67436459" fg:w="65321"/><text x="14.0237%" y="111.50"></text></g><g><title>PropertyShape:hastiltShape (51,444 samples, 0.01%)
+Label: has Tilt property
+Count: 20
+Inclusive: 0.033 ms
+Self: 0.033 ms
+Trace Share: 0.00%
+Label: has Tilt property</title><rect x="13.7766%" y="85" width="0.0105%" height="15" fill="rgb(241,35,35)" fg:x="67450336" fg:w="51444"/><text x="14.0266%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasvolumeShape) (81,867 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasvolumeShape
+Count: 37
+Inclusive: 0.071 ms
+Self: 0.014 ms
+Trace Share: 0.01%
+Component: PropertyConstraint
+Args: shape=hasvolumeShape</title><rect x="13.7871%" y="101" width="0.0167%" height="15" fill="rgb(243,32,47)" fg:x="67501780" fg:w="81867"/><text x="14.0371%" y="111.50"></text></g><g><title>PropertyShape:hasvolumeShape (65,692 samples, 0.01%)
+Label: has Volume property
+Count: 38
+Inclusive: 0.057 ms
+Self: 0.057 ms
+Trace Share: 0.00%
+Label: has Volume property</title><rect x="13.7904%" y="85" width="0.0134%" height="15" fill="rgb(247,202,23)" fg:x="67517955" fg:w="65692"/><text x="14.0404%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=isControlledByShape) (61,021 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=isControlledByShape
+Count: 19
+Inclusive: 0.050 ms
+Self: 0.009 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=isControlledByShape</title><rect x="13.8038%" y="101" width="0.0125%" height="15" fill="rgb(219,102,11)" fg:x="67583647" fg:w="61021"/><text x="14.0538%" y="111.50"></text></g><g><title>NodeShape:Equipment (8,368,431 samples, 1.71%)
+Label: Equipment
+Count: 1
+Inclusive: 5.442 ms
+Self: 1.840 ms
+Trace Share: 0.45%
+Label: Equipment</title><rect x="12.1203%" y="117" width="1.7092%" height="15" fill="rgb(243,110,44)" fg:x="59341028" fg:w="8368431"/><text x="12.3703%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=isMeteredByShape) (64,791 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=isMeteredByShape
+Count: 37
+Inclusive: 0.091 ms
+Self: 0.015 ms
+Trace Share: 0.01%
+Component: PropertyConstraint
+Args: shape=isMeteredByShape</title><rect x="13.8163%" y="101" width="0.0132%" height="15" fill="rgb(222,74,54)" fg:x="67644668" fg:w="64791"/><text x="14.0663%" y="111.50"></text></g><g><title>PropertyShape:isMeteredByShape (50,668 samples, 0.01%)
+Count: 38
+Inclusive: 0.076 ms
+Self: 0.076 ms
+Trace Share: 0.01%</title><rect x="13.8191%" y="85" width="0.0103%" height="15" fill="rgb(216,99,12)" fg:x="67658791" fg:w="50668"/><text x="14.0691%" y="95.50"></text></g><g><title>NodeShape:ExternalReferenceShape (250,860 samples, 0.05%)
+Count: 1
+Inclusive: 0.346 ms
+Self: 0.296 ms
+Trace Share: 0.03%</title><rect x="13.8376%" y="117" width="0.0512%" height="15" fill="rgb(226,22,26)" fg:x="67749218" fg:w="250860"/><text x="14.0876%" y="127.50"></text></g><g><title>NodeShape:Floor (578,371 samples, 0.12%)
+Label: Floor
+Count: 1
+Inclusive: 0.630 ms
+Self: 0.585 ms
+Trace Share: 0.05%
+Label: Floor</title><rect x="13.8944%" y="117" width="0.1181%" height="15" fill="rgb(217,163,10)" fg:x="68027262" fg:w="578371"/><text x="14.1444%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=c6e95fdf23646901a18408d944ad4a8d) (55,710 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=c6e95fdf23646901a18408d944ad4a8d</title><rect x="14.0012%" y="101" width="0.0114%" height="15" fill="rgb(213,25,53)" fg:x="68549923" fg:w="55710"/><text x="14.2512%" y="111.50"></text></g><g><title>PropertyShape:c6e95fdf23646901a18408d944ad4a8d (54,875 samples, 0.01%)</title><rect x="14.0013%" y="85" width="0.0112%" height="15" fill="rgb(252,105,26)" fg:x="68550758" fg:w="54875"/><text x="14.2513%" y="95.50"></text></g><g><title>NodeShape:Flow_Sensor (603,349 samples, 0.12%)
+Label: Flow Sensor
+Count: 1
+Inclusive: 0.602 ms
+Self: 0.527 ms
+Trace Share: 0.05%
+Label: Flow Sensor</title><rect x="14.0133%" y="117" width="0.1232%" height="15" fill="rgb(220,39,43)" fg:x="68609558" fg:w="603349"/><text x="14.2633%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=cf1d24e9a5ffc4f3f6caaa40927a8699) (56,000 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=cf1d24e9a5ffc4f3f6caaa40927a8699</title><rect x="14.1251%" y="101" width="0.0114%" height="15" fill="rgb(229,68,48)" fg:x="69156907" fg:w="56000"/><text x="14.3751%" y="111.50"></text></g><g><title>PropertyShape:cf1d24e9a5ffc4f3f6caaa40927a8699 (49,215 samples, 0.01%)</title><rect x="14.1265%" y="85" width="0.0101%" height="15" fill="rgb(252,8,32)" fg:x="69163692" fg:w="49215"/><text x="14.3765%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=ef2127172332fa9bd15d4a96e2842fe8) (52,954 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=ef2127172332fa9bd15d4a96e2842fe8</title><rect x="14.2618%" y="101" width="0.0108%" height="15" fill="rgb(223,20,43)" fg:x="69825870" fg:w="52954"/><text x="14.5118%" y="111.50"></text></g><g><title>NodeShape:HVAC_Equipment (842,913 samples, 0.17%)
+Label: HVAC Equipment
+Count: 1
+Inclusive: 0.903 ms
+Self: 0.566 ms
+Trace Share: 0.07%
+Label: HVAC Equipment</title><rect x="14.1460%" y="117" width="0.1722%" height="15" fill="rgb(229,81,49)" fg:x="69259079" fg:w="842913"/><text x="14.3960%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=f73bb6c99c0c9ec9901c7565049f7427) (223,168 samples, 0.05%)
+Component: PropertyConstraint
+Args: shape=f73bb6c99c0c9ec9901c7565049f7427</title><rect x="14.2726%" y="101" width="0.0456%" height="15" fill="rgb(236,28,36)" fg:x="69878824" fg:w="223168"/><text x="14.5226%" y="111.50"></text></g><g><title>PropertyShape:f73bb6c99c0c9ec9901c7565049f7427 (215,850 samples, 0.04%)</title><rect x="14.2741%" y="85" width="0.0441%" height="15" fill="rgb(249,185,26)" fg:x="69886142" fg:w="215850"/><text x="14.5241%" y="95.50"></text></g><g><title>Component:OrConstraint(shapes=fb1881099ad0372c737c7e1bcf73d667,c2867e7328f8eb1d9b9be437736e7768,c93401e9e183a66c037184e631cdbf11) (78,560 samples, 0.02%)
+Component: OrConstraint
+Args: shapes=fb1881099ad0372c737c7e1bcf73d667,c2867e7328f8eb1d9b9be437736e7768,c93401e9e183a66c037184e631cdbf11</title><rect x="14.3021%" y="69" width="0.0160%" height="15" fill="rgb(249,174,33)" fg:x="70023432" fg:w="78560"/><text x="14.5521%" y="79.50"></text></g><g><title>NodeShape:HVAC_Zone (518,668 samples, 0.11%)
+Label: HVAC Zone
+Count: 1
+Inclusive: 1.300 ms
+Self: 1.300 ms
+Trace Share: 0.11%
+Label: HVAC Zone</title><rect x="14.3184%" y="117" width="0.1059%" height="15" fill="rgb(233,201,37)" fg:x="70102955" fg:w="518668"/><text x="14.5684%" y="127.50"></text></g><g><title>NodeShape:Heating_Command (563,800 samples, 0.12%)
+Label: Heating Command
+Count: 1
+Inclusive: 0.526 ms
+Self: 0.526 ms
+Trace Share: 0.04%
+Label: Heating Command</title><rect x="14.4269%" y="117" width="0.1152%" height="15" fill="rgb(221,78,26)" fg:x="70634185" fg:w="563800"/><text x="14.6769%" y="127.50"></text></g><g><title>NodeShape:IFCReferenceShape (117,301 samples, 0.02%)
+Count: 1
+Inclusive: 0.086 ms
+Self: 0.086 ms
+Trace Share: 0.01%</title><rect x="14.5529%" y="117" width="0.0240%" height="15" fill="rgb(250,127,30)" fg:x="71251269" fg:w="117301"/><text x="14.8029%" y="127.50"></text></g><g><title>NodeShape:InferInverseProperties (1,842,693 samples, 0.38%)
+Count: 1
+Inclusive: 0.788 ms
+Self: 0.788 ms
+Trace Share: 0.07%</title><rect x="14.5777%" y="117" width="0.3764%" height="15" fill="rgb(230,49,44)" fg:x="71372780" fg:w="1842693"/><text x="14.8277%" y="127.50"></text></g><g><title>NodeShape:InferInverseProperties2 (7,013,420 samples, 1.43%)
+Count: 1
+Inclusive: 0.754 ms
+Self: 0.754 ms
+Trace Share: 0.06%</title><rect x="14.9541%" y="117" width="1.4325%" height="15" fill="rgb(229,67,23)" fg:x="73215473" fg:w="7013420"/><text x="15.2041%" y="127.50"></text></g><g><title>NodeShape:InferSymmetricProperties (1,664,015 samples, 0.34%)
+Count: 1
+Inclusive: 0.771 ms
+Self: 0.771 ms
+Trace Share: 0.06%</title><rect x="16.3884%" y="117" width="0.3399%" height="15" fill="rgb(249,83,47)" fg:x="80238122" fg:w="1664015"/><text x="16.6384%" y="127.50"></text></g><g><title>Component:NodeConstraint(shape=d0e9920d3d94fa827ec136b87b9589f2) (124,658 samples, 0.03%)
+Component: NodeConstraint
+Args: shape=d0e9920d3d94fa827ec136b87b9589f2</title><rect x="17.1797%" y="101" width="0.0255%" height="15" fill="rgb(215,43,3)" fg:x="84112320" fg:w="124658"/><text x="17.4297%" y="111.50"></text></g><g><title>NodeShape:d0e9920d3d94fa827ec136b87b9589f2 (120,187 samples, 0.02%)
+Message: Location is an exclusive top class.</title><rect x="17.1807%" y="85" width="0.0245%" height="15" fill="rgb(238,154,13)" fg:x="84116791" fg:w="120187"/><text x="17.4307%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=b3d33d699cdb2296b6b8816d02be6f11) (103,343 samples, 0.02%)
+Component: NotConstraint
+Args: shape=b3d33d699cdb2296b6b8816d02be6f11</title><rect x="17.1841%" y="69" width="0.0211%" height="15" fill="rgb(219,56,2)" fg:x="84133635" fg:w="103343"/><text x="17.4341%" y="79.50"></text></g><g><title>NodeShape:b3d33d699cdb2296b6b8816d02be6f11 (96,409 samples, 0.02%)</title><rect x="17.1855%" y="53" width="0.0197%" height="15" fill="rgb(233,0,4)" fg:x="84140569" fg:w="96409"/><text x="17.4355%" y="63.50"></text></g><g><title>Component:ClassConstraint(class=Point) (49,086 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Point
+Count: 94
+Inclusive: 0.276 ms
+Self: 0.276 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=Point</title><rect x="17.1952%" y="37" width="0.0100%" height="15" fill="rgb(235,30,7)" fg:x="84187892" fg:w="49086"/><text x="17.4452%" y="47.50"></text></g><g><title>Component:NodeConstraint(shape=d660c768b96b1738ebe1a744e6ba282a) (91,517 samples, 0.02%)
+Component: NodeConstraint
+Args: shape=d660c768b96b1738ebe1a744e6ba282a</title><rect x="17.2052%" y="101" width="0.0187%" height="15" fill="rgb(250,79,13)" fg:x="84236978" fg:w="91517"/><text x="17.4552%" y="111.50"></text></g><g><title>NodeShape:d660c768b96b1738ebe1a744e6ba282a (86,935 samples, 0.02%)
+Message: Location is an exclusive top class.</title><rect x="17.2061%" y="85" width="0.0178%" height="15" fill="rgb(211,146,34)" fg:x="84241560" fg:w="86935"/><text x="17.4561%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=ad0c6d14cbbc2dea31a9dbe44d9f714a) (71,707 samples, 0.01%)
+Component: NotConstraint
+Args: shape=ad0c6d14cbbc2dea31a9dbe44d9f714a</title><rect x="17.2092%" y="69" width="0.0146%" height="15" fill="rgb(228,22,38)" fg:x="84256788" fg:w="71707"/><text x="17.4592%" y="79.50"></text></g><g><title>NodeShape:ad0c6d14cbbc2dea31a9dbe44d9f714a (64,925 samples, 0.01%)</title><rect x="17.2106%" y="53" width="0.0133%" height="15" fill="rgb(235,168,5)" fg:x="84263570" fg:w="64925"/><text x="17.4606%" y="63.50"></text></g><g><title>Component:NodeConstraint(shape=e13422d0d473ff010702da12a0b0e7f4) (89,282 samples, 0.02%)
+Component: NodeConstraint
+Args: shape=e13422d0d473ff010702da12a0b0e7f4</title><rect x="17.2239%" y="101" width="0.0182%" height="15" fill="rgb(221,155,16)" fg:x="84328495" fg:w="89282"/><text x="17.4739%" y="111.50"></text></g><g><title>NodeShape:e13422d0d473ff010702da12a0b0e7f4 (85,148 samples, 0.02%)
+Message: Location is an exclusive top class.</title><rect x="17.2247%" y="85" width="0.0174%" height="15" fill="rgb(215,215,53)" fg:x="84332629" fg:w="85148"/><text x="17.4747%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=e53b98f91e2045ec4b4a2bdd2aa7b186) (69,894 samples, 0.01%)
+Component: NotConstraint
+Args: shape=e53b98f91e2045ec4b4a2bdd2aa7b186</title><rect x="17.2279%" y="69" width="0.0143%" height="15" fill="rgb(223,4,10)" fg:x="84347883" fg:w="69894"/><text x="17.4779%" y="79.50"></text></g><g><title>NodeShape:e53b98f91e2045ec4b4a2bdd2aa7b186 (62,845 samples, 0.01%)</title><rect x="17.2293%" y="53" width="0.0128%" height="15" fill="rgb(234,103,6)" fg:x="84354932" fg:w="62845"/><text x="17.4793%" y="63.50"></text></g><g><title>Component:NodeConstraint(shape=eac219645ca9bffe253a00a46e04b876) (100,997 samples, 0.02%)
+Component: NodeConstraint
+Args: shape=eac219645ca9bffe253a00a46e04b876</title><rect x="17.2421%" y="101" width="0.0206%" height="15" fill="rgb(227,97,0)" fg:x="84417777" fg:w="100997"/><text x="17.4921%" y="111.50"></text></g><g><title>NodeShape:eac219645ca9bffe253a00a46e04b876 (94,410 samples, 0.02%)
+Message: Location is an exclusive top class.</title><rect x="17.2435%" y="85" width="0.0193%" height="15" fill="rgb(234,150,53)" fg:x="84424364" fg:w="94410"/><text x="17.4935%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=bbc7ccd90f2b2dec3d2332882130618b) (78,838 samples, 0.02%)
+Component: NotConstraint
+Args: shape=bbc7ccd90f2b2dec3d2332882130618b</title><rect x="17.2467%" y="69" width="0.0161%" height="15" fill="rgb(228,201,54)" fg:x="84439936" fg:w="78838"/><text x="17.4967%" y="79.50"></text></g><g><title>NodeShape:bbc7ccd90f2b2dec3d2332882130618b (70,991 samples, 0.01%)</title><rect x="17.2483%" y="53" width="0.0145%" height="15" fill="rgb(222,22,37)" fg:x="84447783" fg:w="70991"/><text x="17.4983%" y="63.50"></text></g><g><title>Component:ClassConstraint(class=Equipment) (49,655 samples, 0.01%)
+Component: ClassConstraint
+Args: class=Equipment
+Count: 172
+Inclusive: 0.475 ms
+Self: 0.475 ms
+Trace Share: 0.04%
+Component: ClassConstraint
+Args: class=Equipment</title><rect x="17.2526%" y="37" width="0.0101%" height="15" fill="rgb(237,53,32)" fg:x="84469119" fg:w="49655"/><text x="17.5026%" y="47.50"></text></g><g><title>Component:NodeConstraint(shape=f6c3a971aed0772fd5e19d072a3bda09) (81,114 samples, 0.02%)
+Component: NodeConstraint
+Args: shape=f6c3a971aed0772fd5e19d072a3bda09</title><rect x="17.2628%" y="101" width="0.0166%" height="15" fill="rgb(233,25,53)" fg:x="84518774" fg:w="81114"/><text x="17.5128%" y="111.50"></text></g><g><title>NodeShape:f6c3a971aed0772fd5e19d072a3bda09 (76,754 samples, 0.02%)
+Message: Location is an exclusive top class.</title><rect x="17.2636%" y="85" width="0.0157%" height="15" fill="rgb(210,40,34)" fg:x="84523134" fg:w="76754"/><text x="17.5136%" y="95.50"></text></g><g><title>Component:NotConstraint(shape=d7ca5bed0bcb8002ef7c258dfc5d437d) (66,286 samples, 0.01%)
+Component: NotConstraint
+Args: shape=d7ca5bed0bcb8002ef7c258dfc5d437d</title><rect x="17.2658%" y="69" width="0.0135%" height="15" fill="rgb(241,220,44)" fg:x="84533602" fg:w="66286"/><text x="17.5158%" y="79.50"></text></g><g><title>NodeShape:d7ca5bed0bcb8002ef7c258dfc5d437d (59,911 samples, 0.01%)</title><rect x="17.2671%" y="53" width="0.0122%" height="15" fill="rgb(235,28,35)" fg:x="84539977" fg:w="59911"/><text x="17.5171%" y="63.50"></text></g><g><title>Component:PropertyConstraint(shape=a466c545f437238840e8af0dea0aba60) (57,560 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=a466c545f437238840e8af0dea0aba60</title><rect x="17.2793%" y="101" width="0.0118%" height="15" fill="rgb(210,56,17)" fg:x="84599888" fg:w="57560"/><text x="17.5293%" y="111.50"></text></g><g><title>Component:PropertyConstraint(shape=bed5fd634919f71e1bb3b526fd0472c0) (52,609 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=bed5fd634919f71e1bb3b526fd0472c0</title><rect x="17.2911%" y="101" width="0.0107%" height="15" fill="rgb(224,130,29)" fg:x="84657448" fg:w="52609"/><text x="17.5411%" y="111.50"></text></g><g><title>Component:PropertyConstraint(shape=ff67a6a7819595514ff36b2c5ee42ba2) (166,752 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=ff67a6a7819595514ff36b2c5ee42ba2</title><rect x="17.3108%" y="101" width="0.0341%" height="15" fill="rgb(235,212,8)" fg:x="84753826" fg:w="166752"/><text x="17.5608%" y="111.50"></text></g><g><title>PropertyShape:ff67a6a7819595514ff36b2c5ee42ba2 (155,820 samples, 0.03%)
+Message: A Location&amp;#x27;s parts should be always be Locations/Spaces.</title><rect x="17.3130%" y="85" width="0.0318%" height="15" fill="rgb(223,33,50)" fg:x="84764758" fg:w="155820"/><text x="17.5630%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasPointShape) (72,603 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasPointShape
+Count: 37
+Inclusive: 0.315 ms
+Self: 0.015 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=hasPointShape</title><rect x="17.3448%" y="101" width="0.0148%" height="15" fill="rgb(219,149,13)" fg:x="84920578" fg:w="72603"/><text x="17.5948%" y="111.50"></text></g><g><title>PropertyShape:hasPointShape (61,356 samples, 0.01%)
+Count: 38
+Inclusive: 0.300 ms
+Self: 0.248 ms
+Trace Share: 0.02%</title><rect x="17.3471%" y="85" width="0.0125%" height="15" fill="rgb(250,156,29)" fg:x="84931825" fg:w="61356"/><text x="17.5971%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasareaShape) (106,921 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasareaShape
+Count: 18
+Inclusive: 0.058 ms
+Self: 0.007 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasareaShape</title><rect x="17.3597%" y="101" width="0.0218%" height="15" fill="rgb(216,193,19)" fg:x="84993181" fg:w="106921"/><text x="17.6097%" y="111.50"></text></g><g><title>PropertyShape:hasareaShape (96,739 samples, 0.02%)
+Label: has Area property
+Count: 19
+Inclusive: 0.051 ms
+Self: 0.036 ms
+Trace Share: 0.00%
+Label: has Area property</title><rect x="17.3617%" y="85" width="0.0198%" height="15" fill="rgb(216,135,14)" fg:x="85003363" fg:w="96739"/><text x="17.6117%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasgrossAreaShape) (60,119 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasgrossAreaShape
+Count: 18
+Inclusive: 0.034 ms
+Self: 0.006 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasgrossAreaShape</title><rect x="17.3905%" y="101" width="0.0123%" height="15" fill="rgb(241,47,5)" fg:x="85144260" fg:w="60119"/><text x="17.6405%" y="111.50"></text></g><g><title>Component:PropertyConstraint(shape=hasnetAreaShape) (77,530 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=hasnetAreaShape
+Count: 18
+Inclusive: 0.033 ms
+Self: 0.007 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasnetAreaShape</title><rect x="17.4028%" y="101" width="0.0158%" height="15" fill="rgb(233,42,35)" fg:x="85204379" fg:w="77530"/><text x="17.6528%" y="111.50"></text></g><g><title>PropertyShape:hasnetAreaShape (66,877 samples, 0.01%)
+Label: has Net area property
+Count: 19
+Inclusive: 0.026 ms
+Self: 0.026 ms
+Trace Share: 0.00%
+Label: has Net area property</title><rect x="17.4050%" y="85" width="0.0137%" height="15" fill="rgb(231,13,6)" fg:x="85215032" fg:w="66877"/><text x="17.6550%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasthermalTransmittanceShape) (52,256 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=hasthermalTransmittanceShape
+Count: 18
+Inclusive: 0.045 ms
+Self: 0.008 ms
+Trace Share: 0.00%
+Component: PropertyConstraint
+Args: shape=hasthermalTransmittanceShape</title><rect x="17.4186%" y="101" width="0.0107%" height="15" fill="rgb(207,181,40)" fg:x="85281909" fg:w="52256"/><text x="17.6686%" y="111.50"></text></g><g><title>Component:PropertyConstraint(shape=isLocationOfShape) (50,358 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=isLocationOfShape
+Count: 18
+Inclusive: 0.070 ms
+Self: 0.008 ms
+Trace Share: 0.01%
+Component: PropertyConstraint
+Args: shape=isLocationOfShape</title><rect x="17.4381%" y="101" width="0.0103%" height="15" fill="rgb(254,173,49)" fg:x="85377434" fg:w="50358"/><text x="17.6881%" y="111.50"></text></g><g><title>NodeShape:Location (3,496,225 samples, 0.71%)
+Label: Location
+Count: 1
+Inclusive: 2.811 ms
+Self: 1.331 ms
+Trace Share: 0.23%
+Label: Location</title><rect x="16.7433%" y="117" width="0.7141%" height="15" fill="rgb(221,1,38)" fg:x="81975582" fg:w="3496225"/><text x="16.9933%" y="127.50"></text></g><g><title>NodeShape:Measurable (1,514,859 samples, 0.31%)
+Label: Measurable
+Count: 1
+Inclusive: 0.686 ms
+Self: 0.686 ms
+Trace Share: 0.06%
+Label: Measurable</title><rect x="17.4678%" y="117" width="0.3094%" height="15" fill="rgb(206,124,46)" fg:x="85522834" fg:w="1514859"/><text x="17.7178%" y="127.50"></text></g><g><title>NodeShape:Mixed_Air_Temperature_Sensor (1,226,910 samples, 0.25%)
+Label: Mixed Air Temperature Sensor
+Count: 1
+Inclusive: 0.522 ms
+Self: 0.522 ms
+Trace Share: 0.04%
+Label: Mixed Air Temperature Sensor</title><rect x="17.7837%" y="117" width="0.2506%" height="15" fill="rgb(249,21,11)" fg:x="87069509" fg:w="1226910"/><text x="18.0337%" y="127.50"></text></g><g><title>NodeShape:OWLEquivalentClassRule1 (298,671 samples, 0.06%)
+Count: 1
+Inclusive: 0.218 ms
+Self: 0.218 ms
+Trace Share: 0.02%</title><rect x="18.0390%" y="117" width="0.0610%" height="15" fill="rgb(222,201,40)" fg:x="88319392" fg:w="298671"/><text x="18.2890%" y="127.50"></text></g><g><title>NodeShape:OWLEquivalentClassRule2 (456,144 samples, 0.09%)
+Count: 1
+Inclusive: 0.240 ms
+Self: 0.240 ms
+Trace Share: 0.02%</title><rect x="18.1000%" y="117" width="0.0932%" height="15" fill="rgb(235,61,29)" fg:x="88618063" fg:w="456144"/><text x="18.3500%" y="127.50"></text></g><g><title>NodeShape:On_Off_Command (508,970 samples, 0.10%)
+Label: On Off Command
+Count: 1
+Inclusive: 0.538 ms
+Self: 0.538 ms
+Trace Share: 0.04%
+Label: On Off Command</title><rect x="18.1980%" y="117" width="0.1040%" height="15" fill="rgb(219,207,3)" fg:x="89097819" fg:w="508970"/><text x="18.4480%" y="127.50"></text></g><g><title>NodeShape:Outside_Air_Temperature_Sensor (504,430 samples, 0.10%)
+Label: Outside Air Temperature Sensor
+Count: 1
+Inclusive: 1.335 ms
+Self: 1.335 ms
+Trace Share: 0.11%
+Label: Outside Air Temperature Sensor</title><rect x="18.3059%" y="117" width="0.1030%" height="15" fill="rgb(222,56,46)" fg:x="89626179" fg:w="504430"/><text x="18.5559%" y="127.50"></text></g><g><title>Component:NotConstraint(shape=b77305c2c53e3c07300b8e5334270f60) (394,620 samples, 0.08%)
+Component: NotConstraint
+Args: shape=b77305c2c53e3c07300b8e5334270f60</title><rect x="18.7520%" y="101" width="0.0806%" height="15" fill="rgb(239,76,54)" fg:x="91810372" fg:w="394620"/><text x="19.0020%" y="111.50"></text></g><g><title>NodeShape:b77305c2c53e3c07300b8e5334270f60 (379,507 samples, 0.08%)
+Message: Instances of Point cannot be EntityProperties.</title><rect x="18.7551%" y="85" width="0.0775%" height="15" fill="rgb(231,124,27)" fg:x="91825485" fg:w="379507"/><text x="19.0051%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=EntityProperty) (266,602 samples, 0.05%)
+Component: ClassConstraint
+Args: class=EntityProperty
+Count: 112
+Inclusive: 0.282 ms
+Self: 0.282 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=EntityProperty</title><rect x="18.7782%" y="69" width="0.0545%" height="15" fill="rgb(249,195,6)" fg:x="91938390" fg:w="266602"/><text x="19.0282%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=c9668928554f179794fa87cdd4a3c2b0) (260,289 samples, 0.05%)
+Component: NotConstraint
+Args: shape=c9668928554f179794fa87cdd4a3c2b0</title><rect x="18.8326%" y="101" width="0.0532%" height="15" fill="rgb(237,174,47)" fg:x="92204992" fg:w="260289"/><text x="19.0826%" y="111.50"></text></g><g><title>NodeShape:c9668928554f179794fa87cdd4a3c2b0 (245,834 samples, 0.05%)
+Message: Instances of Point cannot be Collections.</title><rect x="18.8356%" y="85" width="0.0502%" height="15" fill="rgb(206,201,31)" fg:x="92219447" fg:w="245834"/><text x="19.0856%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Collection) (82,540 samples, 0.02%)
+Component: ClassConstraint
+Args: class=Collection
+Count: 130
+Inclusive: 0.240 ms
+Self: 0.240 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=Collection</title><rect x="18.8690%" y="69" width="0.0169%" height="15" fill="rgb(231,57,52)" fg:x="92382741" fg:w="82540"/><text x="19.1190%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=e5571e1d25666ee11d5daf10676c75c1) (161,507 samples, 0.03%)
+Component: NotConstraint
+Args: shape=e5571e1d25666ee11d5daf10676c75c1</title><rect x="18.8858%" y="101" width="0.0330%" height="15" fill="rgb(248,177,22)" fg:x="92465281" fg:w="161507"/><text x="19.1358%" y="111.50"></text></g><g><title>NodeShape:e5571e1d25666ee11d5daf10676c75c1 (146,011 samples, 0.03%)
+Message: Instances of Point cannot be Equipment.</title><rect x="18.8890%" y="85" width="0.0298%" height="15" fill="rgb(215,211,37)" fg:x="92480777" fg:w="146011"/><text x="19.1390%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Equipment) (101,306 samples, 0.02%)
+Component: ClassConstraint
+Args: class=Equipment
+Count: 172
+Inclusive: 0.475 ms
+Self: 0.475 ms
+Trace Share: 0.04%
+Component: ClassConstraint
+Args: class=Equipment</title><rect x="18.8981%" y="69" width="0.0207%" height="15" fill="rgb(241,128,51)" fg:x="92525482" fg:w="101306"/><text x="19.1481%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=f43646def63319787909d21674e0a3bd) (242,418 samples, 0.05%)
+Component: NotConstraint
+Args: shape=f43646def63319787909d21674e0a3bd</title><rect x="18.9188%" y="101" width="0.0495%" height="15" fill="rgb(227,165,31)" fg:x="92626788" fg:w="242418"/><text x="19.1688%" y="111.50"></text></g><g><title>NodeShape:f43646def63319787909d21674e0a3bd (224,785 samples, 0.05%)
+Message: Instances of Point cannot be Locations.</title><rect x="18.9224%" y="85" width="0.0459%" height="15" fill="rgb(228,167,24)" fg:x="92644421" fg:w="224785"/><text x="19.1724%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Location) (101,779 samples, 0.02%)
+Component: ClassConstraint
+Args: class=Location
+Count: 137
+Inclusive: 0.439 ms
+Self: 0.439 ms
+Trace Share: 0.04%
+Component: ClassConstraint
+Args: class=Location</title><rect x="18.9475%" y="69" width="0.0208%" height="15" fill="rgb(228,143,12)" fg:x="92767427" fg:w="101779"/><text x="19.1975%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=f6af8e1440c27be9006117221e1a88c) (269,607 samples, 0.06%)
+Component: NotConstraint
+Args: shape=f6af8e1440c27be9006117221e1a88c</title><rect x="18.9683%" y="101" width="0.0551%" height="15" fill="rgb(249,149,8)" fg:x="92869206" fg:w="269607"/><text x="19.2183%" y="111.50"></text></g><g><title>NodeShape:f6af8e1440c27be9006117221e1a88c (249,505 samples, 0.05%)
+Message: Instances of Point cannot be Substances.</title><rect x="18.9724%" y="85" width="0.0510%" height="15" fill="rgb(243,35,44)" fg:x="92889308" fg:w="249505"/><text x="19.2224%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Substance) (205,718 samples, 0.04%)
+Component: ClassConstraint
+Args: class=Substance
+Count: 161
+Inclusive: 0.555 ms
+Self: 0.555 ms
+Trace Share: 0.05%
+Component: ClassConstraint
+Args: class=Substance</title><rect x="18.9814%" y="69" width="0.0420%" height="15" fill="rgb(246,89,9)" fg:x="92933095" fg:w="205718"/><text x="19.2314%" y="79.50"></text></g><g><title>Component:NotConstraint(shape=ff001eac0b90361c4d48b6c4de2b5416) (332,655 samples, 0.07%)
+Component: NotConstraint
+Args: shape=ff001eac0b90361c4d48b6c4de2b5416</title><rect x="19.0234%" y="101" width="0.0679%" height="15" fill="rgb(233,213,13)" fg:x="93138813" fg:w="332655"/><text x="19.2734%" y="111.50"></text></g><g><title>NodeShape:ff001eac0b90361c4d48b6c4de2b5416 (316,765 samples, 0.06%)
+Message: Instances of Point cannot be Quantities.</title><rect x="19.0266%" y="85" width="0.0647%" height="15" fill="rgb(233,141,41)" fg:x="93154703" fg:w="316765"/><text x="19.2766%" y="95.50"></text></g><g><title>Component:ClassConstraint(class=Quantity) (274,174 samples, 0.06%)
+Component: ClassConstraint
+Args: class=Quantity
+Count: 130
+Inclusive: 0.246 ms
+Self: 0.246 ms
+Trace Share: 0.02%
+Component: ClassConstraint
+Args: class=Quantity</title><rect x="19.0353%" y="69" width="0.0560%" height="15" fill="rgb(239,167,4)" fg:x="93197294" fg:w="274174"/><text x="19.2853%" y="79.50"></text></g><g><title>Component:PropertyConstraint(shape=b5c1a5d13cfba8d2c67eeeddf7b2a11e) (175,801 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=b5c1a5d13cfba8d2c67eeeddf7b2a11e</title><rect x="19.0913%" y="101" width="0.0359%" height="15" fill="rgb(209,217,16)" fg:x="93471468" fg:w="175801"/><text x="19.3413%" y="111.50"></text></g><g><title>PropertyShape:b5c1a5d13cfba8d2c67eeeddf7b2a11e (154,092 samples, 0.03%)</title><rect x="19.0958%" y="85" width="0.0315%" height="15" fill="rgb(219,88,35)" fg:x="93493177" fg:w="154092"/><text x="19.3458%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=ca7783ddabcbebbb1153f425b10f3231) (181,648 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=ca7783ddabcbebbb1153f425b10f3231</title><rect x="19.1272%" y="101" width="0.0371%" height="15" fill="rgb(220,193,23)" fg:x="93647269" fg:w="181648"/><text x="19.3772%" y="111.50"></text></g><g><title>PropertyShape:ca7783ddabcbebbb1153f425b10f3231 (155,694 samples, 0.03%)</title><rect x="19.1325%" y="85" width="0.0318%" height="15" fill="rgb(230,90,52)" fg:x="93673223" fg:w="155694"/><text x="19.3825%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=d3283848bd22455a1693fdf444e32ea) (324,246 samples, 0.07%)
+Component: PropertyConstraint
+Args: shape=d3283848bd22455a1693fdf444e32ea</title><rect x="19.1643%" y="101" width="0.0662%" height="15" fill="rgb(252,106,19)" fg:x="93828917" fg:w="324246"/><text x="19.4143%" y="111.50"></text></g><g><title>PropertyShape:d3283848bd22455a1693fdf444e32ea (296,057 samples, 0.06%)
+Message: Points cannot have locations; use &amp;#x27;isPointOf&amp;#x27; instead</title><rect x="19.1701%" y="85" width="0.0605%" height="15" fill="rgb(206,74,20)" fg:x="93857106" fg:w="296057"/><text x="19.4201%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=e6418c8fa453acc92b4c32ed032b7a4b) (223,472 samples, 0.05%)
+Component: PropertyConstraint
+Args: shape=e6418c8fa453acc92b4c32ed032b7a4b</title><rect x="19.2306%" y="101" width="0.0456%" height="15" fill="rgb(230,138,44)" fg:x="94153163" fg:w="223472"/><text x="19.4806%" y="111.50"></text></g><g><title>PropertyShape:e6418c8fa453acc92b4c32ed032b7a4b (200,112 samples, 0.04%)</title><rect x="19.2353%" y="85" width="0.0409%" height="15" fill="rgb(235,182,43)" fg:x="94176523" fg:w="200112"/><text x="19.4853%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=f2f00d49eb1d0562d747ee7b7c9a0c15) (189,965 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=f2f00d49eb1d0562d747ee7b7c9a0c15</title><rect x="19.2762%" y="101" width="0.0388%" height="15" fill="rgb(242,16,51)" fg:x="94376635" fg:w="189965"/><text x="19.5262%" y="111.50"></text></g><g><title>PropertyShape:f2f00d49eb1d0562d747ee7b7c9a0c15 (168,393 samples, 0.03%)
+Message: A Point can be hosted by at most one ICT Equipment.</title><rect x="19.2806%" y="85" width="0.0344%" height="15" fill="rgb(248,9,4)" fg:x="94398207" fg:w="168393"/><text x="19.5306%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasQuantityShape) (170,727 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=hasQuantityShape
+Count: 93
+Inclusive: 0.310 ms
+Self: 0.053 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=hasQuantityShape</title><rect x="19.3150%" y="101" width="0.0349%" height="15" fill="rgb(210,31,22)" fg:x="94566600" fg:w="170727"/><text x="19.5650%" y="111.50"></text></g><g><title>PropertyShape:hasQuantityShape (149,501 samples, 0.03%)
+Count: 94
+Inclusive: 0.258 ms
+Self: 0.258 ms
+Trace Share: 0.02%</title><rect x="19.3193%" y="85" width="0.0305%" height="15" fill="rgb(239,54,39)" fg:x="94587826" fg:w="149501"/><text x="19.5693%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasSubstanceShape) (180,977 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=hasSubstanceShape
+Count: 93
+Inclusive: 0.237 ms
+Self: 0.049 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=hasSubstanceShape</title><rect x="19.3499%" y="101" width="0.0370%" height="15" fill="rgb(230,99,41)" fg:x="94737327" fg:w="180977"/><text x="19.5999%" y="111.50"></text></g><g><title>PropertyShape:hasSubstanceShape (159,287 samples, 0.03%)
+Count: 94
+Inclusive: 0.188 ms
+Self: 0.188 ms
+Trace Share: 0.02%</title><rect x="19.3543%" y="85" width="0.0325%" height="15" fill="rgb(253,106,12)" fg:x="94759017" fg:w="159287"/><text x="19.6043%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasUnitShape) (259,630 samples, 0.05%)
+Component: PropertyConstraint
+Args: shape=hasUnitShape
+Count: 93
+Inclusive: 0.422 ms
+Self: 0.057 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=hasUnitShape</title><rect x="19.3868%" y="101" width="0.0530%" height="15" fill="rgb(213,46,41)" fg:x="94918304" fg:w="259630"/><text x="19.6368%" y="111.50"></text></g><g><title>PropertyShape:hasUnitShape (239,217 samples, 0.05%)
+Count: 94
+Inclusive: 0.368 ms
+Self: 0.368 ms
+Trace Share: 0.03%</title><rect x="19.3910%" y="85" width="0.0489%" height="15" fill="rgb(215,133,35)" fg:x="94938717" fg:w="239217"/><text x="19.6410%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasaggregateShape) (165,205 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=hasaggregateShape
+Count: 93
+Inclusive: 0.244 ms
+Self: 0.050 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=hasaggregateShape</title><rect x="19.4399%" y="101" width="0.0337%" height="15" fill="rgb(213,28,5)" fg:x="95177934" fg:w="165205"/><text x="19.6899%" y="111.50"></text></g><g><title>PropertyShape:hasaggregateShape (144,355 samples, 0.03%)
+Label: has Aggregate property
+Count: 94
+Inclusive: 0.195 ms
+Self: 0.195 ms
+Trace Share: 0.02%
+Label: has Aggregate property</title><rect x="19.4441%" y="85" width="0.0295%" height="15" fill="rgb(215,77,49)" fg:x="95198784" fg:w="144355"/><text x="19.6941%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haselectricalComplexPowerShape) (212,874 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=haselectricalComplexPowerShape
+Count: 112
+Inclusive: 0.374 ms
+Self: 0.064 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=haselectricalComplexPowerShape</title><rect x="19.4736%" y="101" width="0.0435%" height="15" fill="rgb(248,100,22)" fg:x="95343139" fg:w="212874"/><text x="19.7236%" y="111.50"></text></g><g><title>PropertyShape:haselectricalComplexPowerShape (188,190 samples, 0.04%)
+Label: has electrical complex power type property
+Count: 113
+Inclusive: 0.310 ms
+Self: 0.310 ms
+Trace Share: 0.03%
+Label: has electrical complex power type property</title><rect x="19.4786%" y="85" width="0.0384%" height="15" fill="rgb(208,67,9)" fg:x="95367823" fg:w="188190"/><text x="19.7286%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haselectricalFlowShape) (190,351 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=haselectricalFlowShape
+Count: 112
+Inclusive: 0.292 ms
+Self: 0.059 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=haselectricalFlowShape</title><rect x="19.5171%" y="101" width="0.0389%" height="15" fill="rgb(219,133,21)" fg:x="95556013" fg:w="190351"/><text x="19.7671%" y="111.50"></text></g><g><title>PropertyShape:haselectricalFlowShape (167,893 samples, 0.03%)
+Label: has Electrical flow direction property
+Count: 113
+Inclusive: 0.234 ms
+Self: 0.234 ms
+Trace Share: 0.02%
+Label: has Electrical flow direction property</title><rect x="19.5217%" y="85" width="0.0343%" height="15" fill="rgb(246,46,29)" fg:x="95578471" fg:w="167893"/><text x="19.7717%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=haslastKnownValueShape) (212,457 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=haslastKnownValueShape
+Count: 93
+Inclusive: 0.250 ms
+Self: 0.048 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=haslastKnownValueShape</title><rect x="19.5560%" y="101" width="0.0434%" height="15" fill="rgb(246,185,52)" fg:x="95746364" fg:w="212457"/><text x="19.8060%" y="111.50"></text></g><g><title>PropertyShape:haslastKnownValueShape (189,056 samples, 0.04%)
+Label: has Last known value property
+Count: 94
+Inclusive: 1.655 ms
+Self: 1.655 ms
+Trace Share: 0.14%
+Label: has Last known value property</title><rect x="19.5607%" y="85" width="0.0386%" height="15" fill="rgb(252,136,11)" fg:x="95769765" fg:w="189056"/><text x="19.8107%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=hasresolutionShape) (179,869 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=hasresolutionShape
+Count: 93
+Inclusive: 0.274 ms
+Self: 0.050 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=hasresolutionShape</title><rect x="19.5994%" y="101" width="0.0367%" height="15" fill="rgb(219,138,53)" fg:x="95958821" fg:w="179869"/><text x="19.8494%" y="111.50"></text></g><g><title>PropertyShape:hasresolutionShape (156,500 samples, 0.03%)
+Label: has Resolution property
+Count: 94
+Inclusive: 0.226 ms
+Self: 0.226 ms
+Trace Share: 0.02%
+Label: has Resolution property</title><rect x="19.6041%" y="85" width="0.0320%" height="15" fill="rgb(211,51,23)" fg:x="95982190" fg:w="156500"/><text x="19.8541%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=isHostedByShape) (156,148 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=isHostedByShape
+Count: 93
+Inclusive: 0.313 ms
+Self: 0.050 ms
+Trace Share: 0.03%
+Component: PropertyConstraint
+Args: shape=isHostedByShape</title><rect x="19.6361%" y="101" width="0.0319%" height="15" fill="rgb(247,221,28)" fg:x="96138690" fg:w="156148"/><text x="19.8861%" y="111.50"></text></g><g><title>PropertyShape:isHostedByShape (134,173 samples, 0.03%)
+Count: 94
+Inclusive: 0.264 ms
+Self: 0.264 ms
+Trace Share: 0.02%</title><rect x="19.6406%" y="85" width="0.0274%" height="15" fill="rgb(251,222,45)" fg:x="96160665" fg:w="134173"/><text x="19.8906%" y="95.50"></text></g><g><title>NodeShape:Point (6,282,989 samples, 1.28%)
+Label: Point
+Count: 2
+Inclusive: 14.748 ms
+Self: 4.903 ms
+Trace Share: 1.22%
+Label: Point</title><rect x="18.4180%" y="117" width="1.2833%" height="15" fill="rgb(217,162,53)" fg:x="90174821" fg:w="6282989"/><text x="18.6680%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=isPointOfShape) (162,972 samples, 0.03%)
+Component: PropertyConstraint
+Args: shape=isPointOfShape
+Count: 93
+Inclusive: 0.965 ms
+Self: 0.052 ms
+Trace Share: 0.08%
+Component: PropertyConstraint
+Args: shape=isPointOfShape</title><rect x="19.6680%" y="101" width="0.0333%" height="15" fill="rgb(229,93,14)" fg:x="96294838" fg:w="162972"/><text x="19.9180%" y="111.50"></text></g><g><title>PropertyShape:isPointOfShape (142,408 samples, 0.03%)
+Message: A Point can be a Point of Equipment, Location or Space.
+Count: 94
+Inclusive: 0.914 ms
+Self: 0.669 ms
+Trace Share: 0.08%
+Message: A Point can be a Point of Equipment, Location or Space.</title><rect x="19.6722%" y="85" width="0.0291%" height="15" fill="rgb(209,67,49)" fg:x="96315402" fg:w="142408"/><text x="19.9222%" y="95.50"></text></g><g><title>NodeShape:PointsHaveQuantityKinds (1,886,877 samples, 0.39%)
+Count: 1
+Inclusive: 1.881 ms
+Self: 1.881 ms
+Trace Share: 0.16%</title><rect x="19.7018%" y="117" width="0.3854%" height="15" fill="rgb(213,87,29)" fg:x="96460506" fg:w="1886877"/><text x="19.9518%" y="127.50"></text></g><g><title>NodeShape:Position_Command (979,253 samples, 0.20%)
+Label: Position Command
+Count: 1
+Inclusive: 0.550 ms
+Self: 0.550 ms
+Trace Share: 0.05%
+Label: Position Command</title><rect x="20.0882%" y="117" width="0.2000%" height="15" fill="rgb(205,151,52)" fg:x="98352387" fg:w="979253"/><text x="20.3382%" y="127.50"></text></g><g><title>NodeShape:PreferredShape (1,213,911 samples, 0.25%)
+Count: 1
+Inclusive: 1.612 ms
+Self: 0.197 ms
+Trace Share: 0.13%</title><rect x="20.2903%" y="117" width="0.2479%" height="15" fill="rgb(253,215,39)" fg:x="99341799" fg:w="1213911"/><text x="20.5403%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=f7783884f8c4207f12ba95dd409582ee) (1,019,227 samples, 0.21%)
+Component: PropertyConstraint
+Args: shape=f7783884f8c4207f12ba95dd409582ee</title><rect x="20.3301%" y="101" width="0.2082%" height="15" fill="rgb(221,220,41)" fg:x="99536483" fg:w="1019227"/><text x="20.5801%" y="111.50"></text></g><g><title>PropertyShape:f7783884f8c4207f12ba95dd409582ee (988,905 samples, 0.20%)
+Message: An entity can only have one &amp;#x27;preferred&amp;#x27; External Reference</title><rect x="20.3363%" y="85" width="0.2020%" height="15" fill="rgb(218,133,21)" fg:x="99566805" fg:w="988905"/><text x="20.5863%" y="95.50"></text></g><g><title>Component:QualifiedValueShape(shape=f881ab8f66aecfc7b41499067e118595, max_count=1) (316,570 samples, 0.06%)
+Component: QualifiedValueShape
+Args: shape=f881ab8f66aecfc7b41499067e118595 | max_count=1</title><rect x="20.4736%" y="69" width="0.0647%" height="15" fill="rgb(221,193,43)" fg:x="100239140" fg:w="316570"/><text x="20.7236%" y="79.50"></text></g><g><title>NodeShape:f881ab8f66aecfc7b41499067e118595 (273,976 samples, 0.06%)</title><rect x="20.4823%" y="53" width="0.0560%" height="15" fill="rgb(240,128,52)" fg:x="100281734" fg:w="273976"/><text x="20.7323%" y="63.50"></text></g><g><title>Component:ClassConstraint(class=ExternalReference) (199,265 samples, 0.04%)
+Component: ClassConstraint
+Args: class=ExternalReference</title><rect x="20.4976%" y="37" width="0.0407%" height="15" fill="rgb(253,114,12)" fg:x="100356445" fg:w="199265"/><text x="20.7476%" y="47.50"></text></g><g><title>NodeShape:Pressure_Sensor (528,232 samples, 0.11%)
+Label: Pressure Sensor
+Count: 1
+Inclusive: 0.555 ms
+Self: 0.537 ms
+Trace Share: 0.05%
+Label: Pressure Sensor</title><rect x="20.5395%" y="117" width="0.1079%" height="15" fill="rgb(215,223,47)" fg:x="100561757" fg:w="528232"/><text x="20.7895%" y="127.50"></text></g><g><title>NodeShape:Quantity (1,302,379 samples, 0.27%)
+Label: Quantity
+Count: 1
+Inclusive: 0.910 ms
+Self: 0.646 ms
+Trace Share: 0.08%
+Label: Quantity</title><rect x="20.6489%" y="117" width="0.2660%" height="15" fill="rgb(248,225,23)" fg:x="101097454" fg:w="1302379"/><text x="20.8989%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=hasQUDTReferenceShape) (199,445 samples, 0.04%)
+Component: PropertyConstraint
+Args: shape=hasQUDTReferenceShape
+Count: 52
+Inclusive: 0.264 ms
+Self: 0.015 ms
+Trace Share: 0.02%
+Component: PropertyConstraint
+Args: shape=hasQUDTReferenceShape</title><rect x="20.8742%" y="101" width="0.0407%" height="15" fill="rgb(250,108,0)" fg:x="102200388" fg:w="199445"/><text x="21.1242%" y="111.50"></text></g><g><title>PropertyShape:hasQUDTReferenceShape (184,215 samples, 0.04%)
+Count: 53
+Inclusive: 0.250 ms
+Self: 0.244 ms
+Trace Share: 0.02%</title><rect x="20.8773%" y="85" width="0.0376%" height="15" fill="rgb(228,208,7)" fg:x="102215618" fg:w="184215"/><text x="21.1273%" y="95.50"></text></g><g><title>NodeShape:Return_Air_Temperature_Sensor (530,394 samples, 0.11%)
+Label: Return Air Temperature Sensor
+Count: 1
+Inclusive: 0.505 ms
+Self: 0.505 ms
+Trace Share: 0.04%
+Label: Return Air Temperature Sensor</title><rect x="20.9358%" y="117" width="0.1083%" height="15" fill="rgb(244,45,10)" fg:x="102502267" fg:w="530394"/><text x="21.1858%" y="127.50"></text></g><g><title>NodeShape:Room (920,881 samples, 0.19%)
+Label: Room
+Count: 2
+Inclusive: 0.513 ms
+Self: 0.513 ms
+Trace Share: 0.04%
+Label: Room</title><rect x="21.0454%" y="117" width="0.1881%" height="15" fill="rgb(207,125,25)" fg:x="103038737" fg:w="920881"/><text x="21.2954%" y="127.50"></text></g><g><title>NodeShape:Sensor (553,705 samples, 0.11%)
+Label: Sensor
+Count: 1
+Inclusive: 0.602 ms
+Self: 0.602 ms
+Trace Share: 0.05%
+Label: Sensor</title><rect x="21.2355%" y="117" width="0.1131%" height="15" fill="rgb(210,195,18)" fg:x="103969216" fg:w="553705"/><text x="21.4855%" y="127.50"></text></g><g><title>NodeShape:SensorInheritQuantityKind (1,505,214 samples, 0.31%)
+Count: 1
+Inclusive: 0.463 ms
+Self: 0.463 ms
+Trace Share: 0.04%</title><rect x="21.3486%" y="117" width="0.3074%" height="15" fill="rgb(249,80,12)" fg:x="104523318" fg:w="1505214"/><text x="21.5986%" y="127.50"></text></g><g><title>NodeShape:Setpoint (1,382,725 samples, 0.28%)
+Label: Setpoint
+Count: 1
+Inclusive: 0.688 ms
+Self: 0.574 ms
+Trace Share: 0.06%
+Label: Setpoint</title><rect x="21.6571%" y="117" width="0.2824%" height="15" fill="rgb(221,65,9)" fg:x="106033380" fg:w="1382725"/><text x="21.9071%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=e42a20ae75427d260d0127f0d2d2837) (92,828 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=e42a20ae75427d260d0127f0d2d2837</title><rect x="21.9205%" y="101" width="0.0190%" height="15" fill="rgb(235,49,36)" fg:x="107323277" fg:w="92828"/><text x="22.1705%" y="111.50"></text></g><g><title>PropertyShape:e42a20ae75427d260d0127f0d2d2837 (84,791 samples, 0.02%)</title><rect x="21.9222%" y="85" width="0.0173%" height="15" fill="rgb(225,32,20)" fg:x="107331314" fg:w="84791"/><text x="22.1722%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=ade7a8c98c20e13326873adf1a7f24f7) (3,119,971 samples, 0.64%)
+Component: PropertyConstraint
+Args: shape=ade7a8c98c20e13326873adf1a7f24f7</title><rect x="33.5594%" y="101" width="0.6372%" height="15" fill="rgb(215,141,46)" fg:x="164307441" fg:w="3119971"/><text x="33.8094%" y="111.50"></text></g><g><title>PropertyShape:ade7a8c98c20e13326873adf1a7f24f7 (3,098,377 samples, 0.63%)</title><rect x="33.5638%" y="85" width="0.6328%" height="15" fill="rgb(250,160,47)" fg:x="164329035" fg:w="3098377"/><text x="33.8138%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=b0c5b5ad376ba63e4eef3c587cf026d2) (72,042 samples, 0.01%)
+Component: PropertyConstraint
+Args: shape=b0c5b5ad376ba63e4eef3c587cf026d2</title><rect x="34.1966%" y="101" width="0.0147%" height="15" fill="rgb(216,222,40)" fg:x="167427412" fg:w="72042"/><text x="34.4466%" y="111.50"></text></g><g><title>PropertyShape:b0c5b5ad376ba63e4eef3c587cf026d2 (57,686 samples, 0.01%)</title><rect x="34.1996%" y="85" width="0.0118%" height="15" fill="rgb(234,217,39)" fg:x="167441768" fg:w="57686"/><text x="34.4496%" y="95.50"></text></g><g><title>Component:PropertyConstraint(shape=c3a7a023b82c00fe7d4b2bdd26e790a8) (266,010,626 samples, 54.33%)
+Component: PropertyConstraint
+Args: shape=c3a7a023b82c00fe7d4b2bdd26e790a8</title><rect x="34.2114%" y="101" width="54.3320%" height="15" fill="rgb(207,178,40)" fg:x="167499454" fg:w="266010626"/><text x="34.4614%" y="111.50">Component:PropertyConstraint(shape=c3a7a023b82c00fe7d4b2bdd26e790a8)</text></g><g><title>PropertyShape:c3a7a023b82c00fe7d4b2bdd26e790a8 (265,977,233 samples, 54.33%)</title><rect x="34.2182%" y="85" width="54.3252%" height="15" fill="rgb(221,136,13)" fg:x="167532847" fg:w="265977233"/><text x="34.4682%" y="95.50">PropertyShape:c3a7a023b82c00fe7d4b2bdd26e790a8</text></g><g><title>Component:PropertyConstraint(shape=c91e1195f500f09e68cd656fc4566541) (83,706 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=c91e1195f500f09e68cd656fc4566541</title><rect x="88.5434%" y="101" width="0.0171%" height="15" fill="rgb(249,199,10)" fg:x="433510080" fg:w="83706"/><text x="88.7934%" y="111.50"></text></g><g><title>PropertyShape:c91e1195f500f09e68cd656fc4566541 (67,604 samples, 0.01%)</title><rect x="88.5467%" y="85" width="0.0138%" height="15" fill="rgb(249,222,13)" fg:x="433526182" fg:w="67604"/><text x="88.7967%" y="95.50"></text></g><g><title>NodeShape:Space (327,545,416 samples, 66.90%)
+Label: Space
+Count: 2
+Inclusive: 1.377 ms
+Self: 1.074 ms
+Trace Share: 0.11%
+Label: Space</title><rect x="21.9426%" y="117" width="66.9004%" height="15" fill="rgb(244,185,38)" fg:x="107431485" fg:w="327545416"/><text x="22.1926%" y="127.50">NodeShape:Space</text></g><g><title>Component:PropertyConstraint(shape=d7a37b0d60d88578665f637502b5fadc) (1,383,115 samples, 0.28%)
+Component: PropertyConstraint
+Args: shape=d7a37b0d60d88578665f637502b5fadc</title><rect x="88.5605%" y="101" width="0.2825%" height="15" fill="rgb(236,202,9)" fg:x="433593786" fg:w="1383115"/><text x="88.8105%" y="111.50"></text></g><g><title>PropertyShape:d7a37b0d60d88578665f637502b5fadc (1,364,790 samples, 0.28%)</title><rect x="88.5642%" y="85" width="0.2788%" height="15" fill="rgb(250,229,37)" fg:x="433612111" fg:w="1364790"/><text x="88.8142%" y="95.50"></text></g><g><title>NodeShape:Start_Stop_Command (1,191,818 samples, 0.24%)
+Label: Start Stop Command
+Count: 1
+Inclusive: 0.541 ms
+Self: 0.541 ms
+Trace Share: 0.04%
+Label: Start Stop Command</title><rect x="88.8459%" y="117" width="0.2434%" height="15" fill="rgb(206,174,23)" fg:x="434991271" fg:w="1191818"/><text x="89.0959%" y="127.50"></text></g><g><title>NodeShape:Static_Pressure_Sensor (518,932 samples, 0.11%)
+Label: Static Pressure Sensor
+Count: 1
+Inclusive: 0.523 ms
+Self: 0.523 ms
+Trace Share: 0.04%
+Label: Static Pressure Sensor</title><rect x="89.0902%" y="117" width="0.1060%" height="15" fill="rgb(211,33,43)" fg:x="436187490" fg:w="518932"/><text x="89.3402%" y="127.50"></text></g><g><title>NodeShape:SubPropertyOfRule (51,392 samples, 0.01%)
+Count: 1
+Inclusive: 0.045 ms
+Self: 0.045 ms
+Trace Share: 0.00%</title><rect x="89.1991%" y="117" width="0.0105%" height="15" fill="rgb(245,58,50)" fg:x="436720259" fg:w="51392"/><text x="89.4491%" y="127.50"></text></g><g><title>NodeShape:Substance (1,040,741 samples, 0.21%)
+Label: Substance
+Count: 1
+Inclusive: 0.786 ms
+Self: 0.786 ms
+Trace Share: 0.06%
+Label: Substance</title><rect x="89.2096%" y="117" width="0.2126%" height="15" fill="rgb(244,68,36)" fg:x="436771651" fg:w="1040741"/><text x="89.4596%" y="127.50"></text></g><g><title>NodeShape:Supply_Air_Flow_Sensor (1,291,878 samples, 0.26%)
+Label: Supply Air Flow Sensor
+Count: 1
+Inclusive: 0.582 ms
+Self: 0.582 ms
+Trace Share: 0.05%
+Label: Supply Air Flow Sensor</title><rect x="89.4231%" y="117" width="0.2639%" height="15" fill="rgb(232,229,15)" fg:x="437816978" fg:w="1291878"/><text x="89.6731%" y="127.50"></text></g><g><title>NodeShape:Supply_Air_Static_Pressure_Sensor (521,555 samples, 0.11%)
+Label: Supply Air Static Pressure Sensor
+Count: 1
+Inclusive: 0.614 ms
+Self: 0.614 ms
+Trace Share: 0.05%
+Label: Supply Air Static Pressure Sensor</title><rect x="89.6886%" y="117" width="0.1065%" height="15" fill="rgb(254,30,23)" fg:x="439117088" fg:w="521555"/><text x="89.9386%" y="127.50"></text></g><g><title>NodeShape:Supply_Air_Temperature_Sensor (719,741 samples, 0.15%)
+Label: Supply Air Temperature Sensor
+Count: 1
+Inclusive: 0.519 ms
+Self: 0.519 ms
+Trace Share: 0.04%
+Label: Supply Air Temperature Sensor</title><rect x="89.7961%" y="117" width="0.1470%" height="15" fill="rgb(235,160,14)" fg:x="439643400" fg:w="719741"/><text x="90.0461%" y="127.50"></text></g><g><title>NodeShape:Supply_Air_Temperature_Setpoint (553,420 samples, 0.11%)
+Label: Supply Air Temperature Setpoint
+Count: 1
+Inclusive: 0.569 ms
+Self: 0.569 ms
+Trace Share: 0.05%
+Label: Supply Air Temperature Setpoint</title><rect x="89.9431%" y="117" width="0.1130%" height="15" fill="rgb(212,155,44)" fg:x="440363141" fg:w="553420"/><text x="90.1931%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=isAssociatedWithShape) (17,360,428 samples, 3.55%)
+Component: PropertyConstraint
+Args: shape=isAssociatedWithShape
+Count: 534
+Inclusive: 16.336 ms
+Self: 0.137 ms
+Trace Share: 1.35%
+Component: PropertyConstraint
+Args: shape=isAssociatedWithShape</title><rect x="90.4259%" y="101" width="3.5458%" height="15" fill="rgb(226,2,50)" fg:x="442726675" fg:w="17360428"/><text x="90.6759%" y="111.50">Comp..</text></g><g><title>PropertyShape:isAssociatedWithShape (17,215,763 samples, 3.52%)
+Count: 535
+Inclusive: 16.200 ms
+Self: 13.540 ms
+Trace Share: 1.34%</title><rect x="90.4554%" y="85" width="3.5163%" height="15" fill="rgb(234,177,6)" fg:x="442871340" fg:w="17215763"/><text x="90.7054%" y="95.50">Pro..</text></g><g><title>Component:ClassConstraint(class=Class) (3,156,238 samples, 0.64%)
+Component: ClassConstraint
+Args: class=Class
+Count: 534
+Inclusive: 2.659 ms
+Self: 2.659 ms
+Trace Share: 0.22%
+Component: ClassConstraint
+Args: class=Class</title><rect x="93.3270%" y="69" width="0.6447%" height="15" fill="rgb(217,24,9)" fg:x="456930865" fg:w="3156238"/><text x="93.5770%" y="79.50"></text></g><g><title>NodeShape:Tag (20,492,454 samples, 4.19%)
+Label: Tag
+Count: 1
+Inclusive: 22.038 ms
+Self: 2.277 ms
+Trace Share: 1.82%
+Label: Tag</title><rect x="90.0585%" y="117" width="4.1855%" height="15" fill="rgb(220,13,46)" fg:x="440928165" fg:w="20492454"/><text x="90.3085%" y="127.50">NodeS..</text></g><g><title>Component:PropertyConstraint(shape=isTagOfShape) (1,333,516 samples, 0.27%)
+Component: PropertyConstraint
+Args: shape=isTagOfShape
+Count: 534
+Inclusive: 3.425 ms
+Self: 0.125 ms
+Trace Share: 0.28%
+Component: PropertyConstraint
+Args: shape=isTagOfShape</title><rect x="93.9717%" y="101" width="0.2724%" height="15" fill="rgb(239,221,27)" fg:x="460087103" fg:w="1333516"/><text x="94.2217%" y="111.50"></text></g><g><title>PropertyShape:isTagOfShape (1,204,298 samples, 0.25%)
+Count: 535
+Inclusive: 3.300 ms
+Self: 2.204 ms
+Trace Share: 0.27%</title><rect x="93.9981%" y="85" width="0.2460%" height="15" fill="rgb(222,198,25)" fg:x="460216321" fg:w="1204298"/><text x="94.2481%" y="95.50"></text></g><g><title>Component:OrConstraint(shapes=aac52217fb6eb56df419c12af1b50500,b9981a29b854564c8448c82612bcf763) (215,067 samples, 0.04%)
+Component: OrConstraint
+Args: shapes=aac52217fb6eb56df419c12af1b50500,b9981a29b854564c8448c82612bcf763</title><rect x="94.2001%" y="69" width="0.0439%" height="15" fill="rgb(211,99,13)" fg:x="461205552" fg:w="215067"/><text x="94.4501%" y="79.50"></text></g><g><title>NodeShape:aac52217fb6eb56df419c12af1b50500 (166,862 samples, 0.03%)</title><rect x="94.2100%" y="53" width="0.0341%" height="15" fill="rgb(232,111,31)" fg:x="461253757" fg:w="166862"/><text x="94.4600%" y="63.50"></text></g><g><title>Component:ClassConstraint(class=Entity) (112,958 samples, 0.02%)
+Component: ClassConstraint
+Args: class=Entity
+Count: 253
+Inclusive: 0.635 ms
+Self: 0.635 ms
+Trace Share: 0.05%
+Component: ClassConstraint
+Args: class=Entity</title><rect x="94.2210%" y="37" width="0.0231%" height="15" fill="rgb(245,82,37)" fg:x="461307661" fg:w="112958"/><text x="94.4710%" y="47.50"></text></g><g><title>NodeShape:TagInferenceRule (1,587,042 samples, 0.32%)
+Count: 1
+Inclusive: 0.767 ms
+Self: 0.767 ms
+Trace Share: 0.06%</title><rect x="94.2441%" y="117" width="0.3241%" height="15" fill="rgb(227,149,46)" fg:x="461420619" fg:w="1587042"/><text x="94.4941%" y="127.50"></text></g><g><title>NodeShape:Temperature_Sensor (703,759 samples, 0.14%)
+Label: Temperature Sensor
+Count: 1
+Inclusive: 0.656 ms
+Self: 0.555 ms
+Trace Share: 0.05%
+Label: Temperature Sensor</title><rect x="94.5705%" y="117" width="0.1437%" height="15" fill="rgb(218,36,50)" fg:x="463018901" fg:w="703759"/><text x="94.8205%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=a1e1f6a805132a03ad69381e4ba6a976) (114,490 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=a1e1f6a805132a03ad69381e4ba6a976</title><rect x="94.6909%" y="101" width="0.0234%" height="15" fill="rgb(226,80,48)" fg:x="463608170" fg:w="114490"/><text x="94.9409%" y="111.50"></text></g><g><title>PropertyShape:a1e1f6a805132a03ad69381e4ba6a976 (105,398 samples, 0.02%)</title><rect x="94.6927%" y="85" width="0.0215%" height="15" fill="rgb(238,224,15)" fg:x="463617262" fg:w="105398"/><text x="94.9427%" y="95.50"></text></g><g><title>NodeShape:Temperature_Setpoint (552,409 samples, 0.11%)
+Label: Temperature Setpoint
+Count: 1
+Inclusive: 0.522 ms
+Self: 0.522 ms
+Trace Share: 0.04%
+Label: Temperature Setpoint</title><rect x="94.7142%" y="117" width="0.1128%" height="15" fill="rgb(241,136,10)" fg:x="463722660" fg:w="552409"/><text x="94.9642%" y="127.50"></text></g><g><title>NodeShape:Terminal_Unit (542,817 samples, 0.11%)
+Label: Terminal Unit
+Count: 1
+Inclusive: 0.655 ms
+Self: 0.655 ms
+Trace Share: 0.05%
+Label: Terminal Unit</title><rect x="94.8276%" y="117" width="0.1109%" height="15" fill="rgb(208,32,45)" fg:x="464277607" fg:w="542817"/><text x="95.0776%" y="127.50"></text></g><g><title>NodeShape:TimeseriesReferenceOnPointsConstraint (3,187,355 samples, 0.65%)
+Count: 1
+Inclusive: 68.734 ms
+Self: 0.192 ms
+Trace Share: 5.68%</title><rect x="94.9417%" y="117" width="0.6510%" height="15" fill="rgb(207,135,9)" fg:x="464836532" fg:w="3187355"/><text x="95.1917%" y="127.50"></text></g><g><title>Component:SPARQLConstraint(constraint=deb247855efa7b0cc5c42301043be54f) (2,993,526 samples, 0.61%)
+Component: SPARQLConstraint
+Args: constraint=deb247855efa7b0cc5c42301043be54f</title><rect x="94.9813%" y="101" width="0.6114%" height="15" fill="rgb(206,86,44)" fg:x="465030361" fg:w="2993526"/><text x="95.2313%" y="111.50"></text></g><g><title>NodeShape:TimeseriesReferenceShape (124,217 samples, 0.03%)
+Count: 1
+Inclusive: 4.869 ms
+Self: 4.869 ms
+Trace Share: 0.40%</title><rect x="95.5928%" y="117" width="0.0254%" height="15" fill="rgb(245,177,15)" fg:x="468023887" fg:w="124217"/><text x="95.8428%" y="127.50"></text></g><g><title>NodeShape:VAV (567,699 samples, 0.12%)
+Label: VAV
+Count: 1
+Inclusive: 0.509 ms
+Self: 0.509 ms
+Trace Share: 0.04%
+Label: VAV</title><rect x="95.6248%" y="117" width="0.1160%" height="15" fill="rgb(206,64,50)" fg:x="468180847" fg:w="567699"/><text x="95.8748%" y="127.50"></text></g><g><title>NodeShape:Valve_Command (626,300 samples, 0.13%)
+Label: Valve Command
+Count: 1
+Inclusive: 0.509 ms
+Self: 0.509 ms
+Trace Share: 0.04%
+Label: Valve Command</title><rect x="95.7415%" y="117" width="0.1279%" height="15" fill="rgb(234,36,40)" fg:x="468752134" fg:w="626300"/><text x="95.9915%" y="127.50"></text></g><g><title>NodeShape:VirtualMeterRule (17,664,330 samples, 3.61%)
+Count: 1
+Inclusive: 17.703 ms
+Self: 1.962 ms
+Trace Share: 1.46%</title><rect x="95.8754%" y="117" width="3.6079%" height="15" fill="rgb(213,64,8)" fg:x="469407929" fg:w="17664330"/><text x="96.1254%" y="127.50">Node..</text></g><g><title>Component:SPARQLConstraint(constraint=babb48e2a912dfb9e4bc689fb0d424a9) (15,661,131 samples, 3.20%)
+Component: SPARQLConstraint
+Args: constraint=babb48e2a912dfb9e4bc689fb0d424a9</title><rect x="96.2846%" y="101" width="3.1987%" height="15" fill="rgb(210,75,36)" fg:x="471411128" fg:w="15661131"/><text x="96.5346%" y="111.50">Com..</text></g><g><title>NodeShape:Water_Temperature_Sensor (514,019 samples, 0.10%)
+Label: Water Temperature Sensor
+Count: 1
+Inclusive: 0.980 ms
+Self: 0.980 ms
+Trace Share: 0.08%
+Label: Water Temperature Sensor</title><rect x="99.4924%" y="117" width="0.1050%" height="15" fill="rgb(229,88,21)" fg:x="487116546" fg:w="514019"/><text x="99.7424%" y="127.50"></text></g><g><title>NodeShape:Zone (624,215 samples, 0.13%)
+Label: Zone
+Count: 2
+Inclusive: 0.656 ms
+Self: 0.523 ms
+Trace Share: 0.05%
+Label: Zone</title><rect x="99.5996%" y="117" width="0.1275%" height="15" fill="rgb(252,204,47)" fg:x="487641408" fg:w="624215"/><text x="99.8496%" y="127.50"></text></g><g><title>Component:PropertyConstraint(shape=fcbb4eae246b1d9e99140186c9b2efed) (99,549 samples, 0.02%)
+Component: PropertyConstraint
+Args: shape=fcbb4eae246b1d9e99140186c9b2efed</title><rect x="99.7067%" y="101" width="0.0203%" height="15" fill="rgb(208,77,27)" fg:x="488166074" fg:w="99549"/><text x="99.9567%" y="111.50"></text></g><g><title>PropertyShape:fcbb4eae246b1d9e99140186c9b2efed (97,333 samples, 0.02%)</title><rect x="99.7072%" y="85" width="0.0199%" height="15" fill="rgb(221,76,26)" fg:x="488168290" fg:w="97333"/><text x="99.9572%" y="95.50"></text></g><g><title>NodeShape:Zone_Air_Temperature_Sensor (556,326 samples, 0.11%)
+Label: Zone Air Temperature Sensor
+Count: 1
+Inclusive: 1.356 ms
+Self: 1.356 ms
+Trace Share: 0.11%
+Label: Zone Air Temperature Sensor</title><rect x="99.7275%" y="117" width="0.1136%" height="15" fill="rgb(225,139,18)" fg:x="488267753" fg:w="556326"/><text x="99.9775%" y="127.50"></text></g><g><title>NodeShape:hasQuantity (174,213 samples, 0.04%)
+Count: 1
+Inclusive: 0.148 ms
+Self: 0.092 ms
+Trace Share: 0.01%</title><rect x="99.8606%" y="117" width="0.0356%" height="15" fill="rgb(230,137,11)" fg:x="488919333" fg:w="174213"/><text x="100.1106%" y="127.50"></text></g><g><title>Component:ClassConstraint(class=QuantityKind) (56,723 samples, 0.01%)
+Component: ClassConstraint
+Args: class=QuantityKind
+Count: 70
+Inclusive: 0.061 ms
+Self: 0.061 ms
+Trace Share: 0.01%
+Component: ClassConstraint
+Args: class=QuantityKind</title><rect x="99.8846%" y="101" width="0.0116%" height="15" fill="rgb(212,28,1)" fg:x="489036823" fg:w="56723"/><text x="100.1346%" y="111.50"></text></g><g><title>NodeShape:hasSubstance (93,396 samples, 0.02%)
+Count: 1
+Inclusive: 0.080 ms
+Self: 0.050 ms
+Trace Share: 0.01%</title><rect x="99.8962%" y="117" width="0.0191%" height="15" fill="rgb(248,164,17)" fg:x="489093546" fg:w="93396"/><text x="100.1462%" y="127.50"></text></g><g><title>all (489,601,839 samples, 100%)</title><rect x="0.0000%" y="133" width="100.0000%" height="15" fill="rgb(222,171,42)" fg:x="0" fg:w="489601839"/><text x="0.2500%" y="143.50"></text></g></svg></svg>

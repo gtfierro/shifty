@@ -1,0 +1,14 @@
+Pair: pyshacl vs shifty
+Algorithm: canonical-report-header-plus-result-signatures
+
+Report headers: pyshacl=1, shifty=1
+Total results: pyshacl=632, shifty=857
+Only in pyshacl: 632
+Only in shifty: 857
+
+Structured diff files:
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/pyshacl__vs__shifty/comparison.json
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/pyshacl__vs__shifty/only_pyshacl.ttl
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/pyshacl__vs__shifty/only_shifty.ttl
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/pyshacl__vs__shifty/normalized_pyshacl.json
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/pyshacl__vs__shifty/normalized_shifty.json

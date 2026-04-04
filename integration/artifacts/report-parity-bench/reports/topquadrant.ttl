@@ -1,0 +1,54 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode <urn:example#floor_1> ;
+            sh:resultMessage "<urn:example#floor_1> has type brick:Storey which was deprecated in version 1.4.0. For now, it has been updated to also be of type ns6:Level." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:ne848ea18386944809897e64d78835c1ab3 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <urn:example#floor_1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:example#floor_1> ;
+            sh:resultMessage "<urn:example#floor_1> has type brick:Floor which was deprecated in version 1.4.0. For now, it has been updated to also be of type ns6:Level." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:ne848ea18386944809897e64d78835c1ab3 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <urn:example#floor_1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:example#building_1> ;
+            sh:resultMessage "<urn:example#building_1> has type brick:Building which was deprecated in version 1.4.0. For now, it has been updated to also be of type ns6:Building." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:ne848ea18386944809897e64d78835c1ab3 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <urn:example#building_1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:example#deployment_site> ;
+            sh:resultMessage "<urn:example#deployment_site> has type brick:Site which was deprecated in version 1.4.0. For now, it has been updated to also be of type ns6:Site." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:ne848ea18386944809897e64d78835c1ab3 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <urn:example#deployment_site> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:example#room_1> ;
+            sh:resultMessage "<urn:example#room_1> has type brick:Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type ns6:Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:ne848ea18386944809897e64d78835c1ab3 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <urn:example#room_1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <urn:example#room_1> ;
+            sh:resultMessage "<urn:example#room_1> has type brick:Office_Kitchen which was deprecated in version 1.4.0. For now, it has been updated to also be of type ns6:Kitchenette." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:ne848ea18386944809897e64d78835c1ab3 ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <urn:example#room_1> ] .
+

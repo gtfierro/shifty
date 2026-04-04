@@ -23,6 +23,7 @@ pub use types::ComponentID;
 
 // Internal modules.
 pub mod canonicalization;
+pub(crate) mod component_memo;
 pub mod context;
 pub(crate) mod named_nodes;
 pub(crate) mod parser;

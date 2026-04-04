@@ -1,0 +1,14 @@
+Pair: shifty+pre vs topquadrant
+Algorithm: canonical-report-header-plus-result-signatures
+
+Report headers: shifty+pre=1, topquadrant=1
+Total results: shifty+pre=6, topquadrant=6
+Only in shifty+pre: 0
+Only in topquadrant: 0
+
+Structured diff files:
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/shifty+pre__vs__topquadrant/comparison.json
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/shifty+pre__vs__topquadrant/only_shifty_pre.ttl
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/shifty+pre__vs__topquadrant/only_topquadrant.ttl
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/shifty+pre__vs__topquadrant/normalized_shifty_pre.json
+- /home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_diffs/shifty+pre__vs__topquadrant/normalized_topquadrant.json

@@ -1,0 +1,5 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+_:bc84a358e5c0355b7d82d73d043659ef a sh:ValidationReport ;
+	sh:conforms true .
+

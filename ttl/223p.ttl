@@ -603,59 +603,59 @@ s223:Chiller a s223:Class,
                     sh:node [ sh:property [ sh:class s223:Fluid-Water ;
                                     sh:path s223:hasMedium ] ] ] ] .
 
-s223:ClosedWorld223Shape a sh:NodeShape ;
-    rdfs:label "Closed-world s223 shape"^^xsd:string ;
-    rdfs:comment "Ensure that all instances of an s223 class use only the relations defined for that class. Note that this only applies to s223 relations."^^xsd:string ;
-    sh:sparql [ a sh:SPARQLConstraint ;
-            rdfs:comment """Ensure that all instances of an s223 class use only the relations defined for that class. Note that only s223
-relations are checked by this validation."""^^xsd:string ;
-            sh:message "s223: s223 predicate {?p} is not defined for instance {$this}."^^xsd:string ;
-            sh:prefixes <http://data.ashrae.org/standard223/1.0/model/all> ;
-            sh:select """
-SELECT $this ?p ?o
-WHERE {
-?p a/rdfs:subClassOf* s223:Relation .
-$this ?p ?o .
-FILTER NOT EXISTS {$this a sh:NodeShape}
-FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
-			?class sh:property/sh:path ?p .
-}
-FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
-?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p .
-}
-FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
-?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p .
-}
-}
-"""^^xsd:string ] ;
-    sh:targetClass s223:Concept .
+#s223:ClosedWorld223Shape a sh:NodeShape ;
+#    rdfs:label "Closed-world s223 shape"^^xsd:string ;
+#    rdfs:comment "Ensure that all instances of an s223 class use only the relations defined for that class. Note that this only applies to s223 relations."^^xsd:string ;
+#    sh:sparql [ a sh:SPARQLConstraint ;
+#            rdfs:comment """Ensure that all instances of an s223 class use only the relations defined for that class. Note that only s223
+#relations are checked by this validation."""^^xsd:string ;
+#            sh:message "s223: s223 predicate {?p} is not defined for instance {$this}."^^xsd:string ;
+#            sh:prefixes <http://data.ashrae.org/standard223/1.0/model/all> ;
+#            sh:select """
+#SELECT $this ?p ?o
+#WHERE {
+#?p a/rdfs:subClassOf* s223:Relation .
+#$this ?p ?o .
+#FILTER NOT EXISTS {$this a sh:NodeShape}
+#FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
+#			?class sh:property/sh:path ?p .
+#}
+#FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
+#?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p .
+#}
+#FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
+#?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p .
+#}
+#}
+#"""^^xsd:string ] ;
+#    sh:targetClass s223:Concept .
 
-s223:ClosedWorldQUDTShape a sh:NodeShape ;
-    rdfs:label "Closed-world QUDT shape"^^xsd:string ;
-    rdfs:comment "Ensure that all instances of an s223 class use only the relations defined for that class. Note that this only applies to QUDT relations."^^xsd:string ;
-    sh:sparql [ a sh:SPARQLConstraint ;
-            rdfs:comment """Ensure that all instances of an s223 class use only the relations defined for that class. Note that only QUDT
-relations are checked by this validation."""^^xsd:string ;
-            sh:message "s223: QUDT predicate {?p} is not defined for instance {$this}."^^xsd:string ;
-            sh:prefixes <http://data.ashrae.org/standard223/1.0/model/all> ;
-            sh:select """
-SELECT $this ?p ?o
-WHERE {
-$this ?p ?o .
-FILTER(STRSTARTS (str(?p), "http://qudt.org/schema/qudt"))
-FILTER NOT EXISTS {$this a sh:NodeShape}
-FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
-			?class sh:property/sh:path ?p .
-}
-FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
-?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p .
-}
-FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
-?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p .
-}
-}
-"""^^xsd:string ] ;
-    sh:targetClass s223:Concept .
+#s223:ClosedWorldQUDTShape a sh:NodeShape ;
+#    rdfs:label "Closed-world QUDT shape"^^xsd:string ;
+#    rdfs:comment "Ensure that all instances of an s223 class use only the relations defined for that class. Note that this only applies to QUDT relations."^^xsd:string ;
+#    sh:sparql [ a sh:SPARQLConstraint ;
+#            rdfs:comment """Ensure that all instances of an s223 class use only the relations defined for that class. Note that only QUDT
+#relations are checked by this validation."""^^xsd:string ;
+#            sh:message "s223: QUDT predicate {?p} is not defined for instance {$this}."^^xsd:string ;
+#            sh:prefixes <http://data.ashrae.org/standard223/1.0/model/all> ;
+#            sh:select """
+#SELECT $this ?p ?o
+#WHERE {
+#$this ?p ?o .
+#FILTER(STRSTARTS (str(?p), "http://qudt.org/schema/qudt"))
+#FILTER NOT EXISTS {$this a sh:NodeShape}
+#FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
+#			?class sh:property/sh:path ?p .
+#}
+#FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
+#?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p .
+#}
+#FILTER NOT EXISTS {$this a/rdfs:subClassOf* ?class .
+#?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p .
+#}
+#}
+#"""^^xsd:string ] ;
+#    sh:targetClass s223:Concept .
 
 s223:ClothesWasher a s223:Class,
         sh:NodeShape ;

@@ -1,0 +1,10 @@
+2026-02-12 00:27:32,316 | buildingmotif.database.graph_connection |  DEBUG: Creating tables for graph storage
+2026-02-12 00:27:32,784 | root |  DEBUG: Running ['/bin/sh', '/home/gabe/.cache/uv/environments-v2/bmotif-topquadrant-899ad65859756f1c/lib/python3.12/site-packages/brick_tq_shacl/topquadrant_shacl/bin/shaclinfer.sh'] -datafile /tmp/tmpf67ah8cl/data.ttl
+2026-02-12 00:27:32,792 | root |  DEBUG: Got 0 inferred triples
+2026-02-12 00:27:32,854 | buildingmotif.database.table_connection |  DEBUG: Creating shape collection in library: 'http://data.ashrae.org/standard223/1.0/model/all'
+2026-02-12 00:27:32,855 | buildingmotif.database.table_connection |  DEBUG: Creating database library: 'http://data.ashrae.org/standard223/1.0/model/all'
+2026-02-12 00:27:33,073 | root |  WARNING: An ontology could not resolve a dependency on http://www.w3.org/ns/shacl# (Name: http://www.w3.org/ns/shacl#). Check this is loaded into BuildingMOTIF
+2026-02-12 00:27:33,074 | root |  WARNING: An ontology could not resolve a dependency on http://qudt.org/3.1.8/shacl/qudt-all (Name: http://qudt.org/3.1.8/shacl/qudt-all). Check this is loaded into BuildingMOTIF
+2026-02-12 00:27:33,112 | buildingmotif.database.table_connection |  DEBUG: Creating shape collection in model: 'http://example.org/HPL'
+2026-02-12 00:27:33,112 | buildingmotif.database.table_connection |  DEBUG: Creating model: 'http://example.org/HPL', with graph: 'bfc23af3-5552-4e21-9acd-eb94fe197d50'
+2026-02-12 00:27:33,113 | buildingmotif.database.graph_connection |  DEBUG: Creating graph: 'bfc23af3-5552-4e21-9acd-eb94fe197d50' in database with: 829 triples

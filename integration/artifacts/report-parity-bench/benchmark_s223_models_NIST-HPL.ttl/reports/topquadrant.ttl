@@ -1,0 +1,2671 @@
+@prefix ns1: <http://data.ashrae.org/standard223#> .
+@prefix ns2: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-6V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-1730V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-4160V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-347V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-1730V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCVoltage-DCPositiveVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-240V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-6000V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-2400V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-230V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-2400V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-139V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3000V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3460V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-127V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-6V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-PoE ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-380.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-3300V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-24.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-PoE ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-190.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-120V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3300V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-277V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-LineLineVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCVoltage-DCZeroVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-5V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-3000V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-3810V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-24.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-380.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-230V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-DCVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-10000V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-190V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-380V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-347V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-5770V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-6600V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:NumberOfElectricalPhases-SinglePhase ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/NUM> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-219V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-3300V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-208V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-190V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-380V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:EnumerationKind-Numerical ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/UNKNOWN> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-110V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-240V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-5.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-PoE ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-415V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-24.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-1900V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-6600V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-2.5V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-Voltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Frequency-50Hz ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/HZ> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-600V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-220V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-NumberOfElectricalPhases ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/NUM> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-48.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-2V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-190.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Frequency-60Hz ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/HZ> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-400V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-48.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-LineNeutralVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-6.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-12.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-277V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-6000V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-1900V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-3.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-120V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-120V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-480V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-208V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-219V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-3.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-4160V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-139V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-190.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-127V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-5770V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3300V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3810V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-Frequency ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/HZ> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-24V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-480V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCVoltage-DCNegativeVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-6.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-10000V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-240V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-400V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-208V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-277V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-220V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-600V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-48V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-24V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-380.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-12.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-12V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-110V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-2.5V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TemperatureSensor_30> ;
+            sh:resultMessage "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns1:SensorObservationLocationShape ;
+            sh:value <http://example.org/HPL#TemperatureSensor_30> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-LineLineVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:NumberOfElectricalPhases-ThreePhase ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/NUM> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-3460V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-5.0V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-415V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-1730V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-4160V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-347V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-1730V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCVoltage-DCPositiveVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-240V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCVoltage-DCZeroVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-6000V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-2400V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-230V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-2400V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-139V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3000V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3460V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-127V ;
+            sh:resultMessage "Value must be an instance of ns2:Unit" ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab115 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger> ;
+            sh:resultMessage "s223: A `Coil` shall fit one of the following patterns of `ConnectionPoint`s: 1: Two inlets and two outlets using the medium `Mix-Fluid`. 2: One inlet and one outlet using the medium `Mix-Fluid`, and one or two bidirectionals using the medium `Mix-Fluid` or `Medium-ThermalContact`. 3: Three bidirectionals using the medium `Mix-Fluid` or `Medium-ThermalContact`." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns1:Coil ;
+            sh:value <http://example.org/HPL#HeatExchanger> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_CP_2> ;
+            sh:resultMessage "s223: A `ConnectionPoint` shall be associated with exactly one `Connectable` using the relation `isConnectionPointOf`." ;
+            sh:resultPath ns1:isConnectionPointOf ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab220 ;
+            sh:value <http://example.org/HPL#FinnedHeatExchanger> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-5V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_A_OCP> ;
+            sh:resultMessage "s223: A `ConnectionPoint` shall be associated with exactly one `Connectable` using the relation `isConnectionPointOf`." ;
+            sh:resultPath ns1:isConnectionPointOf ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab220 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_CP_1> ;
+            sh:resultMessage "s223: A `ConnectionPoint` shall be associated with exactly one `Connectable` using the relation `isConnectionPointOf`." ;
+            sh:resultPath ns1:isConnectionPointOf ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab220 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_A_ICP> ;
+            sh:resultMessage "s223: A `ConnectionPoint` shall be associated with exactly one `Connectable` using the relation `isConnectionPointOf`." ;
+            sh:resultPath ns1:isConnectionPointOf ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab220 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Unit> ;
+            sh:resultMessage "s223: If the relation `contains` is present it shall associate the `Equipment` with either `Equipment` or `Junction`." ;
+            sh:resultPath ns1:contains ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:OrConstraintComponent ;
+            sh:sourceShape [ ] ;
+            sh:value <http://example.org/HPL#FinnedHeatExchanger> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-3000V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab233 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-3810V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_6> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab244 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab248 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-24.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab253 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/W> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab260 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-230V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab263 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab269 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-DCVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab275 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_9_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab280 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-10000V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_8_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab284 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`." ;
+            sh:resultPath ns2:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab227 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-190V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab233 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#PressureSensor_8> ;
+            sh:resultMessage "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns1:SensorObservationLocationShape ;
+            sh:value <http://example.org/HPL#PressureSensor_8> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-380V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_6> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab244 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-347V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab248 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab253 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Power> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-5770V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#sa_temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ref_flow> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFlowRate> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab260 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#sa_temp_dp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/RelativeHumidity> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab263 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#oa_temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-6600V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab269 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#zn_temp_dp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/RelativeHumidity> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#oa_temp_dp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/RelativeHumidity> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:NumberOfElectricalPhases-SinglePhase ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Dimensionless> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab275 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab284 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_8_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#zn_temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-219V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#sa_flow> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFlowRate> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:nfbc7237332a74b65999abeb6a4b13c2ab280 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_9_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#od_power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Power> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#id_power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`." ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab290 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Power> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-208V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-190V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-380V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TemperatureSensor_15> ;
+            sh:resultMessage "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns1:SensorObservationLocationShape ;
+            sh:value <http://example.org/HPL#TemperatureSensor_15> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:EnumerationKind-Numerical ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Unknown> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-110V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-240V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-5.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-PoE ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-415V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-1900V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-6600V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-2.5V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-Voltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_6> ;
+            sh:resultMessage "s223: An `ObservableProperty` is usually referred to by a `Sensor` using the relation `observes`." ;
+            sh:resultPath [ sh:inversePath ns1:observes ] ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab7 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Frequency-50Hz ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Frequency> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-600V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-220V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-NumberOfElectricalPhases ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Dimensionless> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-48.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-2V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Frequency-60Hz ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Frequency> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-400V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-48.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-LineNeutralVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-6.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-12.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-277V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-6000V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-1900V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-3.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-120V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-480V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-208V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-219V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-3.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-4160V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-139V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-190.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-127V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-5770V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3810V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Numerical-Frequency ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Frequency> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-24V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-480V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_5> ;
+            sh:resultMessage "s223: An `ObservableProperty` is usually referred to by a `Sensor` using the relation `observes`." ;
+            sh:resultPath [ sh:inversePath ns1:observes ] ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab7 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCVoltage-DCNegativeVoltage ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-6.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-10000V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-240V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-400V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-208V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-220V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineLineVoltage-600V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-48V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-24V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-380.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-12.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-12V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-110V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCNegativeVoltage-2.5V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-3V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:NumberOfElectricalPhases-ThreePhase ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Dimensionless> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:LineNeutralVoltage-3460V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:DCPositiveVoltage-5.0V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns1:Voltage-415V ;
+            sh:resultMessage "Value must be an instance of ns2:QuantityKind" ;
+            sh:resultPath ns2:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:nfbc7237332a74b65999abeb6a4b13c2ab11 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ] .
+

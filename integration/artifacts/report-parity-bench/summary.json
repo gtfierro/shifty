@@ -1,0 +1,13 @@
+{
+  "all_equal": false,
+  "artifact_dir": "/home/gabe/src/shifty/integration/artifacts/report-parity-bench",
+  "compiled_binary": null,
+  "data_file": "/home/gabe/src/shifty/ttl/small-brick-model.ttl",
+  "matrix_path": "/home/gabe/src/shifty/integration/artifacts/report-parity-bench/pairwise_isomorphism.json",
+  "platforms": [
+    "topquadrant",
+    "shifty",
+    "shifty+pre"
+  ],
+  "shapes_file": "/home/gabe/src/shifty/ttl/Brick.ttl"
+}

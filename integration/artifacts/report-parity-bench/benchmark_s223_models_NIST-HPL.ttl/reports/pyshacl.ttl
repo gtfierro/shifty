@@ -1,0 +1,3049 @@
+@prefix ns1: <http://qudt.org/schema/qudt/> .
+@prefix ns2: <http://data.ashrae.org/standard223#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-12V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-12.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-120V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-3300V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-219V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3460V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-347V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-12.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-190.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-5V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-10000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-220V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-5770V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-24.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-208V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-480V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-127V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Fan_Indoor> ;
+            sh:resultMessage "s223: A `Fan` shall have at least one inlet using the medium `Fluid-Air`."^^xsd:string ;
+            sh:resultPath ns2:hasConnectionPoint ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:QualifiedMinCountConstraintComponent ;
+            sh:sourceShape _:dd19050c7ce29eaaefb83c468dced544 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Power> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-3000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-NumberOfElectricalPhases ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/NUM> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-LineNeutralVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-6.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:ee9340f52114048a26e859c81b46bd63 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-480V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_8_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3300V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-347V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-24.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-220V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-2400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-120V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-480V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:d410bee63f28b693f12740fd64763938 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#sa_temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-208V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Nad0f34da80534a9880d187a48e17c1c3 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-2.5V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-4160V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_6> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-240V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-LineNeutralVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-6000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_9_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-190V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-240V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-24V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N432773aa7f2143cf9dba68c174699651 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-48V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:ee9340f52114048a26e859c81b46bd63 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-415V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-190V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-240V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-5.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger> ;
+            sh:resultMessage "s223: A `Coil` shall fit one of the following patterns of `ConnectionPoint`s: 1: Two inlets and two outlets using the medium `Mix-Fluid`. 2: One inlet and one outlet using the medium `Mix-Fluid`, and one or two bidirectionals using the medium `Mix-Fluid` or `Medium-ThermalContact`. 3: Three bidirectionals using the medium `Mix-Fluid` or `Medium-ThermalContact`."^^xsd:string ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns2:Coil ;
+            sh:value <http://example.org/HPL#HeatExchanger> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:b207bee197a9243684236ba079736d1d ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-2.5V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-1730V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-2400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:NumberOfElectricalPhases-ThreePhase ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Dimensionless> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCVoltage-DCPositiveVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TemperatureSensor_30> ;
+            sh:resultMessage "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`."^^xsd:string ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns2:SensorObservationLocationShape ;
+            sh:value <http://example.org/HPL#TemperatureSensor_30> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ a ns2:QuantifiableProperty ;
+                    rdfs:label "Freezing point"^^xsd:string ;
+                    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-Voltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-190.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3460V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#od_power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Power> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-347V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:EnumerationKind-Numerical ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Unknown> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-139V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV> ;
+            sh:resultMessage "s223: A `Valve` shall have at least one inlet and one outlet or two bidirectional connection points."^^xsd:string ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraintComponent sh:OrConstraintComponent ;
+            sh:sourceShape ns2:ValveCPShape ;
+            sh:value <http://example.org/HPL#RV> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-4160V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_5> ;
+            sh:resultMessage "s223: An `ObservableProperty` is usually referred to by a `Sensor` using the relation `observes`."^^xsd:string ;
+            sh:resultPath _:ed21083e92a058cc9327dec661daf121 ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:fdaf53d82cf5a1226790928fc28498b8 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#oa_temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-415V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-PoE ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-3460V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-3.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-PoE ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-120V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-4160V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-139V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-24V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-230V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-240V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N5859c27f27464162bd5f5e9d60283cfb ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-277V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-2.5V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-127V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ChamberBlower> ;
+            sh:resultMessage "s223: A `Fan` shall have at least one inlet using the medium `Fluid-Air`."^^xsd:string ;
+            sh:resultPath ns2:hasConnectionPoint ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:QualifiedMinCountConstraintComponent ;
+            sh:sourceShape _:dd19050c7ce29eaaefb83c468dced544 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-2400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-24V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Nd37a92463e9048b6bef203e0c3a0c059 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-48V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-NumberOfElectricalPhases ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Dimensionless> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Unit> ;
+            sh:resultMessage "s223: If the relation `contains` is present it shall associate the `Equipment` with either `Equipment` or `Junction`."^^xsd:string ;
+            sh:resultPath ns2:contains ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:OrConstraintComponent ;
+            sh:sourceShape [ a sh:PropertyShape ;
+                    rdfs:comment "If the relation `contains` is present it shall associate the `Equipment` with either `Equipment` or `Junction`."^^xsd:string ;
+                    sh:message "s223: If the relation `contains` is present it shall associate the `Equipment` with either `Equipment` or `Junction`."^^xsd:string ;
+                    sh:name "device contains shape"^^xsd:string ;
+                    sh:or ( [ sh:class ns2:Equipment ] [ sh:class ns2:Junction ] ) ;
+                    sh:path ns2:contains ] ;
+            sh:value <http://example.org/HPL#FinnedHeatExchanger> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:ad8b5e53b232e28ba3c7bc037f3dd81f ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_6> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-5.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-220V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-230V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:b4716263bd1c5e9fb6162bce545200d7 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:NumberOfElectricalPhases-SinglePhase ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/NUM> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-240V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-6V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Ne07b22d7ca7c4fd0b2477ecb41bf7508 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-380.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N352b57448a794d73a331f34605aa3d02 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Ndd294abb6797475a8ef7f52fdbfb6ac8 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#oa_temp_dp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/RelativeHumidity> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-1900V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:b8e1692629015ef674d2006c4a3440a2 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-480V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-3.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Ndd294abb6797475a8ef7f52fdbfb6ac8 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-4160V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-220V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-LineLineVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-120V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-6V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Fan_Outdoor> ;
+            sh:resultMessage "s223: A `Fan` shall have at least one inlet using the medium `Fluid-Air`."^^xsd:string ;
+            sh:resultPath ns2:hasConnectionPoint ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:QualifiedMinCountConstraintComponent ;
+            sh:sourceShape _:dd19050c7ce29eaaefb83c468dced544 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-3000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-347V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-Frequency ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Frequency> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-219V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-Voltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:f32e3c4e03d945750ef05fb9dfb54023 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-380V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-6600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Nbc786a2949b142829c86589264f5fba1 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N28e21d7184934527b1f47c0674b68f76 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-6000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-5.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N9f9db4e4e6c94357861b1174491feaad ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCVoltage-DCZeroVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#id_power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Power> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-6.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-230V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-277V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_9_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-6000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-380.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-48.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:da6f4ef92d4a8a8dab0e7de121211498 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-1730V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-10000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ a ns2:QuantifiableProperty ;
+                    rdfs:label "Freezing point"^^xsd:string ;
+                    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-1900V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-380V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#PressureSensor_8> ;
+            sh:resultMessage "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`."^^xsd:string ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns2:SensorObservationLocationShape ;
+            sh:value <http://example.org/HPL#PressureSensor_8> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#R_Connection_8_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:f32e3c4e03d945750ef05fb9dfb54023 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:bb9b91cf2f16d6ce45280b311e91bce2 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-1730V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-5V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ a ns2:QuantifiableProperty ;
+                    rdfs:label "Freezing point"^^xsd:string ;
+                    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-6.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:ad8b5e53b232e28ba3c7bc037f3dd81f ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:NumberOfElectricalPhases-ThreePhase ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/NUM> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-48.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Frequency-50Hz ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Frequency> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-5770V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N28e21d7184934527b1f47c0674b68f76 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Nd37a92463e9048b6bef203e0c3a0c059 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:bb9b91cf2f16d6ce45280b311e91bce2 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-12V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-3810V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:b8e1692629015ef674d2006c4a3440a2 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-208V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-48.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-2V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:e0e5c0d32359945657e39d73e314bc7c ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-12.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ref_flow> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFlowRate> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCVoltage-DCNegativeVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-127V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Ne07b22d7ca7c4fd0b2477ecb41bf7508 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-219V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-380V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N432773aa7f2143cf9dba68c174699651 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCVoltage-DCPositiveVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Frequency-60Hz ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Frequency> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-190.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-230V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-2.5V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-DCVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3810V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-277V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-190.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-110V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-208V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N352b57448a794d73a331f34605aa3d02 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_6> ;
+            sh:resultMessage "s223: An `ObservableProperty` is usually referred to by a `Sensor` using the relation `observes`."^^xsd:string ;
+            sh:resultPath _:ed21083e92a058cc9327dec661daf121 ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape _:fdaf53d82cf5a1226790928fc28498b8 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-3810V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-277V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-190V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#zn_temp_dp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/RelativeHumidity> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:da6f4ef92d4a8a8dab0e7de121211498 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-6600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-3460V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3810V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Frequency-60Hz ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/HZ> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Nad0f34da80534a9880d187a48e17c1c3 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-5770V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#SightGlass_CP_2_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-12.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-2V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#sa_flow> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFlowRate> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-6600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ a ns2:QuantifiableProperty ;
+                    rdfs:label "Freezing point"^^xsd:string ;
+                    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCVoltage-DCZeroVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-127V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-139V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-LineLineVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-1900V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Frequency-50Hz ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/HZ> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-139V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-48.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-6600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:e0e5c0d32359945657e39d73e314bc7c ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-208V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-10000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCVoltage-DCNegativeVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3300V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TemperatureSensor_15> ;
+            sh:resultMessage "s223: A `Sensor` shall be associated with exactly 1 of `Connectable`, `Connection`, or `ConnectionPoint` using the relation `hasObservationLocation`."^^xsd:string ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:XoneConstraintComponent ;
+            sh:sourceShape ns2:SensorObservationLocationShape ;
+            sh:value <http://example.org/HPL#TemperatureSensor_15> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-219V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#sa_temp_dp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/RelativeHumidity> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Accumulator_CP_1_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-415V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_2_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ a ns2:QuantifiableProperty ;
+                    rdfs:label "Freezing point"^^xsd:string ;
+                    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-3.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N9f9db4e4e6c94357861b1174491feaad ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#zn_temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-110V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:EnumerationKind-Numerical ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/UNKNOWN> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-208V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-2400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-3.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-5.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-110V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_3_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-DCVoltage ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-24.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-1730V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-415V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_1> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-380.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Temp> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#Compressor_Power> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/W> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Numerical-Frequency ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/HZ> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-190V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:b4716263bd1c5e9fb6162bce545200d7 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/VolumeFraction> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#HeatExchanger_R_CP_1_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-10000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-1900V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-240V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-5770V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-6.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-400V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCPositiveVoltage-24.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_2> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-PoE ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#RV_CP_3_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Pressure> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:DCNegativeVoltage-380.0V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_1_Temp_5> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/DEG_F> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-6000V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:N5859c27f27464162bd5f5e9d60283cfb ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-PoE ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-380V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineLineVoltage-3300V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#TC_2_Temp_4> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#ExpansionValve_1_CP_2_Temp_Sat> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#OA_Connection_1_Temp_3> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:NumberOfElectricalPhases-SinglePhase ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Dimensionless> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-110V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-3V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:Nbc786a2949b142829c86589264f5fba1 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://example.org/HPL#FinnedHeatExchanger_R_Pres> ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PA> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:LineNeutralVoltage-24V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/QuantityKind>" ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f1d58c3234a68e8b8ed50bde88ec242b ;
+            sh:value <http://qudt.org/vocab/quantitykind/Voltage> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode [ a ns2:QuantifiableProperty ;
+                    rdfs:label "Freezing point"^^xsd:string ;
+                    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/Temperature> ] ;
+            sh:resultMessage "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+            sh:resultPath ns1:hasQuantityKind ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:f3aaca66582637e515218a8ce77e0296 ;
+            sh:value <http://qudt.org/vocab/quantitykind/Temperature> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:d410bee63f28b693f12740fd64763938 ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode ns2:Voltage-600V ;
+            sh:resultMessage "Value does not have class <http://qudt.org/schema/qudt/Unit>" ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Info ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ee6cef7d9c940bd4aa0716e696684048 ;
+            sh:value <http://qudt.org/vocab/unit/V> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode _:b207bee197a9243684236ba079736d1d ;
+            sh:resultMessage "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+            sh:resultPath ns1:hasUnit ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
+            sh:sourceShape _:ab2f2129842ef35758cea59349571067 ;
+            sh:value <http://qudt.org/vocab/unit/PERCENT> ] .
+
+_:N4ae82dce2bae4047a7630780984cc007 sh:class ns2:Fluid-Air ;
+    sh:path ns2:hasMedium .
+
+_:N607b54fbfc8143c2bdc27d9fb55eba52 sh:class ns2:InletConnectionPoint ;
+    sh:node [ sh:property _:N4ae82dce2bae4047a7630780984cc007 ] .
+
+_:Ncdab383312a74f40a0455a2529d10e93 sh:inversePath ns2:observes .
+
+_:N28e21d7184934527b1f47c0674b68f76 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:N352b57448a794d73a331f34605aa3d02 a ns2:QuantifiableProperty ;
+    rdfs:label "Glycol concentration"^^xsd:string ;
+    ns2:hasValue 30.0 ;
+    ns2:ofConstituent ns2:Constituent-Glycol ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:N432773aa7f2143cf9dba68c174699651 a ns2:QuantifiableProperty ;
+    rdfs:label "H2O i.e., pure water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:N5859c27f27464162bd5f5e9d60283cfb a ns2:QuantifiableProperty ;
+    rdfs:label "Unspecified"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-Glycol ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:N9f9db4e4e6c94357861b1174491feaad a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:Nad0f34da80534a9880d187a48e17c1c3 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:hasValue 85.0 ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:Nbc786a2949b142829c86589264f5fba1 a ns2:QuantifiableProperty ;
+    rdfs:label "Glycol concentration"^^xsd:string ;
+    ns2:hasValue 15.0 ;
+    ns2:ofConstituent ns2:Constituent-Glycol ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:Nd37a92463e9048b6bef203e0c3a0c059 a ns2:QuantifiableProperty ;
+    rdfs:label "Unspecified"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:Ndd294abb6797475a8ef7f52fdbfb6ac8 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:Ne07b22d7ca7c4fd0b2477ecb41bf7508 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:hasValue 70.0 ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:ad8b5e53b232e28ba3c7bc037f3dd81f a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:b207bee197a9243684236ba079736d1d a ns2:QuantifiableProperty ;
+    rdfs:label "Glycol concentration"^^xsd:string ;
+    ns2:hasValue 15.0 ;
+    ns2:ofConstituent ns2:Constituent-Glycol ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:b4716263bd1c5e9fb6162bce545200d7 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:hasValue 85.0 ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:b8e1692629015ef674d2006c4a3440a2 a ns2:QuantifiableProperty ;
+    rdfs:label "Unspecified"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:bb9b91cf2f16d6ce45280b311e91bce2 a ns2:QuantifiableProperty ;
+    rdfs:label "H2O i.e., pure water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:d410bee63f28b693f12740fd64763938 a ns2:QuantifiableProperty ;
+    rdfs:label "Unspecified"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-Glycol ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:da6f4ef92d4a8a8dab0e7de121211498 a ns2:QuantifiableProperty ;
+    rdfs:label "Glycol concentration"^^xsd:string ;
+    ns2:hasValue 30.0 ;
+    ns2:ofConstituent ns2:Constituent-Glycol ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:e0e5c0d32359945657e39d73e314bc7c a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:ed21083e92a058cc9327dec661daf121 sh:inversePath ns2:observes .
+
+_:ee9340f52114048a26e859c81b46bd63 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:hasValue 70.0 ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:f32e3c4e03d945750ef05fb9dfb54023 a ns2:QuantifiableProperty ;
+    rdfs:label "Water concentration"^^xsd:string ;
+    ns2:ofConstituent ns2:Constituent-H2O ;
+    ns1:hasQuantityKind <http://qudt.org/vocab/quantitykind/VolumeFraction> ;
+    ns1:hasUnit <http://qudt.org/vocab/unit/PERCENT> .
+
+_:fdaf53d82cf5a1226790928fc28498b8 rdfs:comment "An `ObservableProperty` is usually referred to by a `Sensor` using the relation `observes`."^^xsd:string ;
+    sh:class ns2:Sensor ;
+    sh:message "s223: An `ObservableProperty` is usually referred to by a `Sensor` using the relation `observes`."^^xsd:string ;
+    sh:minCount 1 ;
+    sh:path _:Ncdab383312a74f40a0455a2529d10e93 ;
+    sh:severity sh:Warning .
+
+_:dd19050c7ce29eaaefb83c468dced544 rdfs:comment "A `Fan` shall have at least one inlet using the medium `Fluid-Air`."^^xsd:string ;
+    sh:message "s223: A `Fan` shall have at least one inlet using the medium `Fluid-Air`."^^xsd:string ;
+    sh:minCount 1 ;
+    sh:path ns2:hasConnectionPoint ;
+    sh:qualifiedMinCount 1 ;
+    sh:qualifiedValueShape _:N607b54fbfc8143c2bdc27d9fb55eba52 .
+
+_:ab2f2129842ef35758cea59349571067 rdfs:comment "A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+    sh:class ns1:Unit ;
+    sh:maxCount 1 ;
+    sh:message "s223: A `QuantifiableProperty` can be associated with at most one `Unit` using the relation `hasUnit`."^^xsd:string ;
+    sh:path ns1:hasUnit .
+
+_:f3aaca66582637e515218a8ce77e0296 rdfs:comment "A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+    sh:class ns1:QuantityKind ;
+    sh:maxCount 1 ;
+    sh:message "s223: A `QuantifiableProperty` shall be associated with a `QuantityKind` using the relation `hasQuantityKind`."^^xsd:string ;
+    sh:minCount 1 ;
+    sh:path ns1:hasQuantityKind .
+
+_:ee6cef7d9c940bd4aa0716e696684048 rdfs:comment "An `EnumerationKind-Numerical` shall be associated with at least one Unit using the relation `hasUnit`."^^xsd:string ;
+    sh:class ns1:Unit ;
+    sh:minCount 1 ;
+    sh:path ns1:hasUnit ;
+    sh:severity sh:Info .
+
+_:f1d58c3234a68e8b8ed50bde88ec242b rdfs:comment "An `EnumerationKind-Numerical` shall be associated with at least one QuantityKind using the relation `hasQuantityKind`."^^xsd:string ;
+    sh:class ns1:QuantityKind ;
+    sh:minCount 1 ;
+    sh:path ns1:hasQuantityKind .
+
