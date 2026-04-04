@@ -1,23 +1,25 @@
 use super::graphviz::format_term_for_label;
 use super::model::ShapesModel;
 use crate::backend::{Binding, GraphBackend, OxigraphBackend};
-use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
+use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{
-    build_component_from_descriptor, Component, ConformanceReport, CustomConstraintComponent,
+    Component, ConformanceReport, CustomConstraintComponent, build_component_from_descriptor,
 };
 use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
-use crate::sparql::{SparqlExecutor, SparqlServices};
+use crate::sparql::{
+    CompiledIndexRequirement, SparqlExecutor, SparqlServices, compiled_sparql_index_plan,
+};
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
-use crate::types::{ComponentID, Path as PShapePath, PropShapeID, TraceItem, ID};
+use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, TraceItem};
 use fixedbitset::FixedBitSet;
 use oxigraph::model::{
-    vocab::rdf, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
-    Term, TermRef,
+    GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Quad, Term,
+    TermRef, vocab::rdf,
 };
-use oxigraph::sparql::{PreparedSparqlQuery, QueryResults};
+use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, Variable};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -59,19 +61,25 @@ struct SparqlQueryCallKey {
     query_hash: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ClosedWorldConstraintMode {
-    S223Relation,
-    QudtPredicate,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ClosedWorldBatchCacheKey {
+struct SparqlBatchCacheKey {
     component_id: ComponentID,
     source_shape: SourceShape,
     query_hash: u64,
-    mode: ClosedWorldConstraintMode,
 }
+
+type SparqlBatchCacheValue = Arc<Result<Option<BatchedSparqlResult>, String>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PropertyShapeBatchCacheKey {
+    property_shape_id: PropShapeID,
+    parent_shape: SourceShape,
+}
+
+type PropertyShapeBatchFailures = HashMap<ComponentID, BatchedSparqlResult>;
+type PropertyShapeBatchCacheValue = Arc<Result<PropertyShapeBatchFailures, String>>;
+type PropertyValueBatchMap = HashMap<Term, Vec<Term>>;
+type PropertyValueBatchCacheValue = Arc<Result<PropertyValueBatchMap, String>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct NodeConformanceCacheKey {
@@ -81,14 +89,16 @@ struct NodeConformanceCacheKey {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ClosedWorldViolation {
-    pub(crate) predicate: NamedNode,
-    pub(crate) object: Term,
+pub(crate) struct BatchedSparqlViolation {
+    pub(crate) failed_value_node: Option<Term>,
+    pub(crate) message: String,
+    pub(crate) result_path: Option<PShapePath>,
+    pub(crate) message_terms: Vec<Term>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ClosedWorldBatchResult {
-    pub(crate) violations_by_focus: HashMap<Term, Vec<ClosedWorldViolation>>,
+pub(crate) struct BatchedSparqlResult {
+    pub(crate) violations_by_focus: HashMap<Term, Vec<BatchedSparqlViolation>>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -176,6 +186,31 @@ struct ClassConstraintIndex {
     subject_type_bits: HashMap<Term, FixedBitSet>,
 }
 
+#[derive(Debug, Default)]
+struct FocusPredicateSummary {
+    incoming_by_focus: HashMap<Term, HashSet<Term>>,
+    outgoing_counts_by_focus: HashMap<Term, HashMap<Term, usize>>,
+    outgoing_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>>,
+    subjects_by_predicate: HashMap<Term, HashSet<Term>>,
+    objects_by_predicate: HashMap<Term, HashSet<Term>>,
+}
+
+#[derive(Debug, Default)]
+struct CompiledSparqlIndex {
+    covered_outgoing_predicates: HashSet<NamedNode>,
+    covered_incoming_predicates: HashSet<NamedNode>,
+    outgoing_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TriplePatternKey {
+    subject: NamedOrBlankNode,
+    predicate: NamedNode,
+    object: Term,
+}
+
 impl ClassConstraintIndex {
     fn class_bitset(&self, class: &Term) -> Option<&FixedBitSet> {
         let class_id = self.term_to_id.get(class).copied()?;
@@ -202,6 +237,7 @@ impl ClassConstraintIndex {
 pub struct ValidationContext {
     pub(crate) model: Arc<ShapesModel>,
     pub(crate) data_graph_iri: NamedNode,
+    use_shapes_data_union: bool,
     data_graph_skolem_base: String,
     shape_graph_skolem_base: String,
     pub(crate) warnings_are_errors: bool,
@@ -217,18 +253,24 @@ pub struct ValidationContext {
     pub(crate) shape_ir: Arc<ShapeIR>,
     graph_call_stats: Mutex<HashMap<ComponentGraphCallKey, GraphCallStats>>,
     sparql_query_stats: Mutex<HashMap<SparqlQueryCallKey, SparqlQueryStats>>,
-    closed_world_batch_cache:
-        Mutex<HashMap<ClosedWorldBatchCacheKey, Arc<Result<ClosedWorldBatchResult, String>>>>,
+    sparql_batch_cache: Mutex<HashMap<SparqlBatchCacheKey, SparqlBatchCacheValue>>,
+    property_shape_batch_cache:
+        Mutex<HashMap<PropertyShapeBatchCacheKey, PropertyShapeBatchCacheValue>>,
+    property_value_batch_cache:
+        Mutex<HashMap<PropertyShapeBatchCacheKey, PropertyValueBatchCacheValue>>,
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
+    focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
+    compiled_sparql_index: RwLock<CompiledSparqlIndex>,
 }
 
 impl ValidationContext {
     pub(crate) fn new(
         model: Arc<ShapesModel>,
         data_graph_iri: NamedNode,
+        use_shapes_data_union: bool,
         warnings_are_errors: bool,
         skip_sparql_blank_targets: bool,
         shape_ir: Arc<ShapeIR>,
@@ -268,6 +310,7 @@ impl ValidationContext {
         Self {
             model,
             data_graph_iri,
+            use_shapes_data_union,
             data_graph_skolem_base,
             shape_graph_skolem_base,
             warnings_are_errors,
@@ -283,11 +326,15 @@ impl ValidationContext {
             shape_ir,
             graph_call_stats: Mutex::new(HashMap::new()),
             sparql_query_stats: Mutex::new(HashMap::new()),
-            closed_world_batch_cache: Mutex::new(HashMap::new()),
+            sparql_batch_cache: Mutex::new(HashMap::new()),
+            property_shape_batch_cache: Mutex::new(HashMap::new()),
+            property_value_batch_cache: Mutex::new(HashMap::new()),
             shape_timing_stats: Mutex::new(HashMap::new()),
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
             node_conformance_cache: RwLock::new(HashMap::new()),
+            focus_predicate_summary: RwLock::new(None),
+            compiled_sparql_index: RwLock::new(CompiledSparqlIndex::default()),
         }
     }
 
@@ -297,6 +344,66 @@ impl ValidationContext {
 
     pub(crate) fn shape_graph_iri_ref(&self) -> GraphNameRef<'_> {
         self.backend.shapes_graph()
+    }
+
+    fn should_use_shape_data_union(&self) -> bool {
+        self.use_shapes_data_union && self.data_graph_iri != self.model.shape_graph_iri
+    }
+
+    pub(crate) fn for_each_validation_quad_for_pattern<F>(
+        &self,
+        subject: Option<NamedOrBlankNodeRef<'_>>,
+        predicate: Option<NamedNodeRef<'_>>,
+        object: Option<&Term>,
+        mut callback: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(Quad) -> Result<(), String>,
+    {
+        if !self.should_use_shape_data_union() {
+            return self.backend.for_each_quad_for_pattern(
+                subject,
+                predicate,
+                object,
+                Some(self.data_graph_iri_ref()),
+                callback,
+            );
+        }
+
+        let mut seen = HashSet::new();
+        for graph in [self.data_graph_iri_ref(), self.shape_graph_iri_ref()] {
+            self.backend.for_each_quad_for_pattern(
+                subject,
+                predicate,
+                object,
+                Some(graph),
+                |quad| {
+                    let key = TriplePatternKey {
+                        subject: quad.subject.clone(),
+                        predicate: quad.predicate.clone(),
+                        object: quad.object.clone(),
+                    };
+                    if seen.insert(key) {
+                        callback(quad)?;
+                    }
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validation_objects_for_predicate(
+        &self,
+        subject: NamedOrBlankNodeRef<'_>,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        let mut objects = Vec::new();
+        self.for_each_validation_quad_for_pattern(Some(subject), Some(predicate), None, |quad| {
+            objects.push(quad.object);
+            Ok(())
+        })?;
+        Ok(objects)
     }
 
     pub(crate) fn sparql_services(&self) -> &SparqlServices {
@@ -360,16 +467,6 @@ impl ValidationContext {
         self.backend.prepare_query(query)
     }
 
-    pub(crate) fn objects_for_predicate(
-        &self,
-        subject: NamedOrBlankNodeRef<'_>,
-        predicate: NamedNodeRef<'_>,
-        graph: GraphNameRef<'_>,
-    ) -> Result<Vec<Term>, String> {
-        self.backend
-            .objects_for_predicate(subject, predicate, graph)
-    }
-
     pub(crate) fn execute_prepared<'a>(
         &'a self,
         query_str: &str,
@@ -378,8 +475,28 @@ impl ValidationContext {
         enforce_values_clause: bool,
     ) -> Result<QueryResults<'a>, String> {
         self.record_graph_call(GraphCallKind::ExecutePrepared);
+
         self.backend
             .execute_prepared(query_str, prepared, substitutions, enforce_values_clause)
+    }
+
+    pub(crate) fn execute_with_value_rows<'a>(
+        &'a self,
+        query_str: &str,
+        prepared: &'a PreparedSparqlQuery,
+        value_var: &Variable,
+        values: &[Term],
+        substitutions: &[Binding],
+    ) -> Result<QueryResults<'a>, String> {
+        self.record_graph_call(GraphCallKind::ExecutePrepared);
+        self.model.sparql.execute_with_value_rows(
+            query_str,
+            prepared,
+            self.backend.store(),
+            value_var,
+            values,
+            substitutions,
+        )
     }
 
     pub(crate) fn contains_quad(&self, quad: &Quad) -> Result<bool, String> {
@@ -418,8 +535,203 @@ impl ValidationContext {
         self.backend.insert_quads(quads)?;
         if !quads.is_empty() {
             self.node_conformance_cache.write().unwrap().clear();
+            *self.focus_predicate_summary.write().unwrap() = None;
+            *self.compiled_sparql_index.write().unwrap() = CompiledSparqlIndex::default();
+            self.class_constraint_memo.write().unwrap().clear();
+            *self.class_constraint_index.write().unwrap() = None;
+            self.advanced_target_cache.write().unwrap().clear();
+            self.node_target_cache.write().unwrap().clear();
+            self.prop_target_cache.write().unwrap().clear();
+            self.sparql_batch_cache.lock().unwrap().clear();
+            self.property_shape_batch_cache.lock().unwrap().clear();
         }
         Ok(())
+    }
+
+    pub(crate) fn focus_has_incoming_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<bool, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(false);
+        };
+
+        Ok(summary
+            .incoming_by_focus
+            .get(focus_node)
+            .is_some_and(|predicates| predicates.contains(predicate)))
+    }
+
+    pub(crate) fn ensure_compiled_sparql_index(
+        &self,
+        requirements: &[CompiledIndexRequirement],
+    ) -> Result<(), String> {
+        let mut missing_plans = Vec::new();
+        {
+            let index = self.compiled_sparql_index.read().unwrap();
+            for plan in compiled_sparql_index_plan(requirements.iter()) {
+                let needs_outgoing = plan.include_outgoing
+                    && !index.covered_outgoing_predicates.contains(&plan.predicate);
+                let needs_incoming = plan.include_incoming
+                    && !index.covered_incoming_predicates.contains(&plan.predicate);
+                if needs_outgoing || needs_incoming {
+                    missing_plans.push((plan.predicate, needs_outgoing, needs_incoming));
+                }
+            }
+        }
+
+        for (predicate, include_outgoing, include_incoming) in missing_plans {
+            self.extend_compiled_sparql_index_for_predicate(
+                &predicate,
+                include_outgoing,
+                include_incoming,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn compiled_focus_objects_for_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        self.ensure_compiled_sparql_index(&[CompiledIndexRequirement::OutgoingValues {
+            predicate: predicate.clone(),
+        }])?;
+        Ok(self
+            .compiled_sparql_index
+            .read()
+            .unwrap()
+            .outgoing_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+    }
+
+    pub(crate) fn compiled_focus_subjects_for_inverse_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        self.ensure_compiled_sparql_index(&[CompiledIndexRequirement::IncomingValues {
+            predicate: predicate.clone(),
+        }])?;
+        Ok(self
+            .compiled_sparql_index
+            .read()
+            .unwrap()
+            .incoming_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+    }
+
+    pub(crate) fn focus_outgoing_predicate_count(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<usize, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(0);
+        };
+
+        Ok(summary
+            .outgoing_counts_by_focus
+            .get(focus_node)
+            .and_then(|counts| counts.get(predicate).copied())
+            .unwrap_or(0))
+    }
+
+    pub(crate) fn focus_incoming_predicate_count(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<usize, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(0);
+        };
+
+        Ok(summary
+            .incoming_values_by_focus
+            .get(focus_node)
+            .and_then(|counts| counts.get(predicate))
+            .map_or(0, HashSet::len))
+    }
+
+    pub(crate) fn target_subjects_of(&self, predicate: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .subjects_by_predicate
+            .get(predicate)
+            .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()))
+    }
+
+    pub(crate) fn target_objects_of(&self, predicate: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .objects_by_predicate
+            .get(predicate)
+            .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()))
+    }
+
+    pub(crate) fn focus_objects_for_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .outgoing_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+    }
+
+    pub(crate) fn focus_subjects_for_inverse_predicate(
+        &self,
+        focus_node: &Term,
+        predicate: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .incoming_values_by_focus
+            .get(focus_node)
+            .and_then(|by_predicate| by_predicate.get(predicate))
+            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+    }
+
+    pub(crate) fn focus_outgoing_predicates(&self, focus_node: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .outgoing_values_by_focus
+            .get(focus_node)
+            .map_or_else(Vec::new, |by_predicate| {
+                by_predicate.keys().cloned().collect()
+            }))
+    }
+
+    pub(crate) fn focus_incoming_predicates(&self, focus_node: &Term) -> Result<Vec<Term>, String> {
+        let Some(summary) = self.focus_predicate_summary()? else {
+            return Ok(Vec::new());
+        };
+        Ok(summary
+            .incoming_values_by_focus
+            .get(focus_node)
+            .map_or_else(Vec::new, |by_predicate| {
+                by_predicate.keys().cloned().collect()
+            }))
     }
 
     pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
@@ -491,11 +803,12 @@ impl ValidationContext {
     pub(crate) fn reset_validation_run_state(&self) {
         self.reset_component_graph_call_stats();
         self.sparql_query_stats.lock().unwrap().clear();
-        self.closed_world_batch_cache.lock().unwrap().clear();
         self.shape_timing_stats.lock().unwrap().clear();
         self.class_constraint_memo.write().unwrap().clear();
         *self.class_constraint_index.write().unwrap() = None;
         self.node_conformance_cache.write().unwrap().clear();
+        *self.focus_predicate_summary.write().unwrap() = None;
+        *self.compiled_sparql_index.write().unwrap() = CompiledSparqlIndex::default();
     }
 
     pub(crate) fn cached_node_conformance(
@@ -530,6 +843,74 @@ impl ValidationContext {
             },
             report,
         );
+    }
+
+    fn focus_predicate_summary(&self) -> Result<Option<Arc<FocusPredicateSummary>>, String> {
+        if let Some(summary) = self.focus_predicate_summary.read().unwrap().clone() {
+            return Ok(Some(summary));
+        }
+
+        let mut incoming_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut outgoing_counts_by_focus: HashMap<Term, HashMap<Term, usize>> = HashMap::new();
+        let mut outgoing_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>> =
+            HashMap::new();
+        let mut incoming_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>> =
+            HashMap::new();
+        let mut subjects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut objects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
+        self.for_each_validation_quad_for_pattern(None, None, None, |quad| {
+            let subject = match quad.subject {
+                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+            };
+            let predicate = Term::NamedNode(quad.predicate);
+            outgoing_counts_by_focus
+                .entry(subject.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+            outgoing_values_by_focus
+                .entry(subject.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .or_default()
+                .insert(quad.object.clone());
+            subjects_by_predicate
+                .entry(predicate.clone())
+                .or_default()
+                .insert(subject.clone());
+            incoming_by_focus
+                .entry(quad.object.clone())
+                .or_default()
+                .insert(predicate.clone());
+            incoming_values_by_focus
+                .entry(quad.object.clone())
+                .or_default()
+                .entry(predicate.clone())
+                .or_default()
+                .insert(subject.clone());
+            objects_by_predicate
+                .entry(predicate)
+                .or_default()
+                .insert(quad.object);
+            Ok(())
+        })?;
+
+        let summary = if outgoing_counts_by_focus.is_empty() {
+            None
+        } else {
+            Some(Arc::new(FocusPredicateSummary {
+                incoming_by_focus,
+                outgoing_counts_by_focus,
+                outgoing_values_by_focus,
+                incoming_values_by_focus,
+                subjects_by_predicate,
+                objects_by_predicate,
+            }))
+        };
+        *self.focus_predicate_summary.write().unwrap() = summary.clone();
+        Ok(summary)
     }
 
     pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
@@ -728,31 +1109,75 @@ impl ValidationContext {
         rows
     }
 
-    pub(crate) fn get_or_compute_closed_world_batch<F>(
+    pub(crate) fn get_or_compute_sparql_batch<F>(
         &self,
         source_shape: SourceShape,
         component_id: ComponentID,
         query_hash: u64,
-        mode: ClosedWorldConstraintMode,
         compute: F,
-    ) -> Arc<Result<ClosedWorldBatchResult, String>>
+    ) -> SparqlBatchCacheValue
     where
-        F: FnOnce() -> Result<ClosedWorldBatchResult, String>,
+        F: FnOnce() -> Result<Option<BatchedSparqlResult>, String>,
     {
-        let key = ClosedWorldBatchCacheKey {
+        let key = SparqlBatchCacheKey {
             component_id,
             source_shape,
             query_hash,
-            mode,
         };
 
-        let mut cache = self.closed_world_batch_cache.lock().unwrap();
+        let mut cache = self.sparql_batch_cache.lock().unwrap();
         if let Some(cached) = cache.get(&key).cloned() {
             return cached;
         }
 
-        // Compute while holding this lock to prevent parallel focus-node
-        // threads from recomputing the same batch query.
+        let computed = Arc::new(compute());
+        cache.insert(key, Arc::clone(&computed));
+        computed
+    }
+
+    pub(crate) fn get_or_compute_property_shape_batch<F>(
+        &self,
+        property_shape_id: PropShapeID,
+        parent_shape: SourceShape,
+        compute: F,
+    ) -> PropertyShapeBatchCacheValue
+    where
+        F: FnOnce() -> Result<PropertyShapeBatchFailures, String>,
+    {
+        let key = PropertyShapeBatchCacheKey {
+            property_shape_id,
+            parent_shape,
+        };
+
+        let mut cache = self.property_shape_batch_cache.lock().unwrap();
+        if let Some(cached) = cache.get(&key).cloned() {
+            return cached;
+        }
+
+        let computed = Arc::new(compute());
+        cache.insert(key, Arc::clone(&computed));
+        computed
+    }
+
+    pub(crate) fn get_or_compute_property_value_batch<F>(
+        &self,
+        property_shape_id: PropShapeID,
+        parent_shape: SourceShape,
+        compute: F,
+    ) -> Arc<Result<HashMap<Term, Vec<Term>>, String>>
+    where
+        F: FnOnce() -> Result<HashMap<Term, Vec<Term>>, String>,
+    {
+        let key = PropertyShapeBatchCacheKey {
+            property_shape_id,
+            parent_shape,
+        };
+
+        let mut cache = self.property_value_batch_cache.lock().unwrap();
+        if let Some(cached) = cache.get(&key).cloned() {
+            return cached;
+        }
+
         let computed = Arc::new(compute());
         cache.insert(key, Arc::clone(&computed));
         computed
@@ -816,6 +1241,31 @@ impl ValidationContext {
         Ok(Some(result))
     }
 
+    pub(crate) fn subclass_of_or_same_fast(
+        &self,
+        subclass_term: &Term,
+        superclass_term: &Term,
+    ) -> Result<Option<bool>, String> {
+        if !matches!(subclass_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(None);
+        }
+        if !matches!(superclass_term, Term::NamedNode(_) | Term::BlankNode(_)) {
+            return Ok(None);
+        }
+        if subclass_term == superclass_term {
+            return Ok(Some(true));
+        }
+
+        let index = self.ensure_class_constraint_index()?;
+        let Some(super_descendants) = index.class_bitset(superclass_term) else {
+            return Ok(Some(false));
+        };
+        let Some(subclass_id) = index.term_to_id.get(subclass_term).copied() else {
+            return Ok(Some(false));
+        };
+        Ok(Some(super_descendants.contains(subclass_id)))
+    }
+
     /// Return all subjects that are `rdf:type` instances of `class` (or any
     /// subclass of it), using the precomputed bitmap index.
     pub(crate) fn instances_of_class(&self, class: &Term) -> Result<Vec<Term>, String> {
@@ -867,22 +1317,19 @@ impl ValidationContext {
             Ok(())
         })?;
 
-        self.for_each_quad_for_pattern(
-            None,
-            Some(rdf::TYPE),
-            None,
-            Some(self.data_graph_iri_ref()),
-            |quad| {
-                let subject = term_from_subject(&quad.subject);
-                let class = term_from_term_ref(quad.object.as_ref());
-                let (Some(subject), Some(class)) = (subject, class) else {
-                    return Ok(());
-                };
-                let class_id = intern(class);
-                subject_type_ids.entry(subject).or_default().push(class_id);
-                Ok(())
-            },
-        )?;
+        // `sh:class` checks must see type assertions from the merged validation store,
+        // not only the root data graph. Imported ontologies like QUDT often carry the
+        // rdf:type facts for values referenced from the data graph.
+        self.for_each_quad_for_pattern(None, Some(rdf::TYPE), None, None, |quad| {
+            let subject = term_from_subject(&quad.subject);
+            let class = term_from_term_ref(quad.object.as_ref());
+            let (Some(subject), Some(class)) = (subject, class) else {
+                return Ok(());
+            };
+            let class_id = intern(class);
+            subject_type_ids.entry(subject).or_default().push(class_id);
+            Ok(())
+        })?;
 
         let class_count = next_id;
         let mut parents: Vec<Vec<usize>> = vec![Vec::new(); class_count];
@@ -936,6 +1383,63 @@ impl ValidationContext {
             descendants_by_super,
             subject_type_bits,
         })
+    }
+
+    fn extend_compiled_sparql_index_for_predicate(
+        &self,
+        predicate: &NamedNode,
+        include_outgoing: bool,
+        include_incoming: bool,
+    ) -> Result<(), String> {
+        if !include_outgoing && !include_incoming {
+            return Ok(());
+        }
+
+        let mut outgoing_values_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut incoming_values_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
+        self.for_each_validation_quad_for_pattern(None, Some(predicate.as_ref()), None, |quad| {
+            let subject = match quad.subject.clone() {
+                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+            };
+            if include_outgoing {
+                outgoing_values_by_focus
+                    .entry(subject.clone())
+                    .or_default()
+                    .insert(quad.object.clone());
+            }
+            if include_incoming {
+                incoming_values_by_focus
+                    .entry(quad.object)
+                    .or_default()
+                    .insert(subject);
+            }
+            Ok(())
+        })?;
+
+        let mut index = self.compiled_sparql_index.write().unwrap();
+        if include_outgoing {
+            for (focus, objects) in outgoing_values_by_focus {
+                index
+                    .outgoing_values_by_focus
+                    .entry(focus)
+                    .or_default()
+                    .insert(predicate.clone(), objects);
+            }
+            index.covered_outgoing_predicates.insert(predicate.clone());
+        }
+        if include_incoming {
+            for (focus, subjects) in incoming_values_by_focus {
+                index
+                    .incoming_values_by_focus
+                    .entry(focus)
+                    .or_default()
+                    .insert(predicate.clone(), subjects);
+            }
+            index.covered_incoming_predicates.insert(predicate.clone());
+        }
+
+        Ok(())
     }
 
     pub(crate) fn is_data_skolem_iri(&self, node: NamedNodeRef<'_>) -> bool {
@@ -1013,7 +1517,7 @@ fn term_from_term_ref(term: TermRef<'_>) -> Option<Term> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum SourceShape {
+pub enum SourceShape {
     NodeShape(ID),
     PropertyShape(PropShapeID),
 }
@@ -1028,21 +1532,21 @@ impl fmt::Display for SourceShape {
 }
 
 impl SourceShape {
-    pub(crate) fn as_prop_id(&self) -> Option<&PropShapeID> {
+    pub fn as_prop_id(&self) -> Option<&PropShapeID> {
         match self {
             SourceShape::PropertyShape(id) => Some(id),
             _ => None,
         }
     }
 
-    pub(crate) fn as_node_id(&self) -> Option<&ID> {
+    pub fn as_node_id(&self) -> Option<&ID> {
         match self {
             SourceShape::NodeShape(id) => Some(id),
             _ => None,
         }
     }
 
-    pub(crate) fn get_term(&self, ctx: &ValidationContext) -> Option<Term> {
+    pub fn get_term(&self, ctx: &ValidationContext) -> Option<Term> {
         match self {
             SourceShape::NodeShape(id) => ctx
                 .model
@@ -1067,6 +1571,7 @@ pub(crate) struct Context {
     focus_node: Term,
     pub(crate) result_path: Option<PShapePath>,
     value_nodes: Option<Vec<Term>>,
+    value_count: Option<usize>,
     value: Option<Term>,
     source_shape: SourceShape,
     trace_index: usize,
@@ -1078,6 +1583,7 @@ impl PartialEq for Context {
         self.focus_node == other.focus_node
             && self.result_path == other.result_path
             && self.value_nodes == other.value_nodes
+            && self.value_count == other.value_count
             && self.value == other.value
             && self.source_shape == other.source_shape
             && self.source_constraint == other.source_constraint
@@ -1091,6 +1597,7 @@ impl Hash for Context {
         self.focus_node.hash(state);
         self.result_path.hash(state);
         self.value_nodes.hash(state);
+        self.value_count.hash(state);
         self.value.hash(state);
         self.source_shape.hash(state);
         self.source_constraint.hash(state);
@@ -1109,6 +1616,7 @@ impl Context {
             focus_node,
             result_path,
             value_nodes,
+            value_count: None,
             source_shape,
             value: None,
             trace_index,
@@ -1140,6 +1648,19 @@ impl Context {
         self.value_nodes.as_ref()
     }
 
+    pub(crate) fn set_value_nodes(&mut self, value_nodes: Option<Vec<Term>>) {
+        self.value_nodes = value_nodes;
+    }
+
+    pub(crate) fn set_value_count(&mut self, value_count: usize) {
+        self.value_count = Some(value_count);
+    }
+
+    pub(crate) fn value_count(&self) -> usize {
+        self.value_count
+            .unwrap_or_else(|| self.value_nodes.as_ref().map_or(0, |v| v.len()))
+    }
+
     pub(crate) fn value_nodes_mut(&mut self) -> Option<&mut Vec<Term>> {
         self.value_nodes.as_mut()
     }
@@ -1157,6 +1678,7 @@ impl Context {
             focus_node: self.focus_node.clone(),
             result_path: self.result_path.clone(),
             value_nodes: Some(vec![value_node.clone()]),
+            value_count: Some(1),
             value: None,
             source_shape: self.source_shape.clone(),
             trace_index: self.trace_index,

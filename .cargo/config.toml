@@ -1,0 +1,5 @@
+# Shared Cargo environment for local and CI builds.
+[env]
+PKG_CONFIG_PATH = "/usr/lib/x86_64-linux-gnu/pkgconfig"
+ROCKSDB_DYNAMIC = "1"
+RUST_MIN_STACK = "16777216"

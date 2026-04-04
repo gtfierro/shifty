@@ -1,9 +1,25 @@
 use crate::context::ParsingContext;
-use crate::sparql::SparqlExecutor;
-use crate::types::Target;
-use oxigraph::model::Term;
-use oxigraph::sparql::QueryResults;
-use std::collections::HashSet;
+use crate::types::{ComponentDescriptor, Target};
+use oxigraph::model::{NamedOrBlankNode, Term, vocab::rdf, vocab::rdfs};
+use std::collections::{HashMap, HashSet};
+
+/// Configuration for inference-time optimization passes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InferenceOptimizationConfig {
+    /// Build and use an explicit rule dependency graph derived from rule read/write signatures.
+    pub explicit_rule_dependency_graph: bool,
+    /// Skip disconnected rule families whose read/target signatures cannot match the current dataset.
+    pub prune_rule_families_by_dataset: bool,
+}
+
+impl Default for InferenceOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            explicit_rule_dependency_graph: true,
+            prune_rule_families_by_dataset: true,
+        }
+    }
+}
 
 /// A struct to hold statistics about the optimizations performed.
 #[derive(Default, Debug)]
@@ -63,49 +79,126 @@ impl Optimizer {
 
     // Add methods for optimization logic here
     fn remove_unreachable_targets(&mut self) -> Result<(), String> {
-        // run a query on  ctx.data_graph to figure out what types of things there are:
-        // SELECT DISTINCT ?type WHERE { ?thing rdf:type/rdfs:subClassOf* ?type . }
-        // make a hashset of these types
-        // Then remove all TargetClasses from nodeshapes where their class does not exist in this
-        // hashset.
-        let query = format!(
-            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT DISTINCT ?type FROM <{}> WHERE {{ ?s rdf:type/rdfs:subClassOf* ?type . }}",
-            self.ctx.data_graph_iri.as_str()
-        );
-        let prepared = self
+        // Collect direct rdf:types from the data graph, then walk the subclass hierarchy across
+        // all graphs to retain implicit target classes such as s223:ObservableProperty.
+        let mut parents: HashMap<Term, Vec<Term>> = HashMap::new();
+        for quad in self
             .ctx
-            .sparql
-            .prepared_query(&query)
-            .map_err(|e| format!("SPARQL parse error: {}", e))?;
-        let results = self
-            .ctx
-            .sparql
-            .execute_with_substitutions(&query, &prepared, &self.ctx.store, &[], false)
-            .map_err(|e| e.to_string())?;
+            .store
+            .quads_for_pattern(None, Some(rdfs::SUB_CLASS_OF), None, None)
+            .flatten()
+        {
+            let child = match quad.subject {
+                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
+                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
+            };
+            parents.entry(child).or_default().push(quad.object);
+        }
+
+        let present_predicates = self.present_data_graph_predicates();
 
         let mut types = HashSet::<Term>::new();
-        match results {
-            QueryResults::Solutions(solutions) => {
-                for solution_result in solutions {
-                    let solution = solution_result.map_err(|e| e.to_string())?;
-                    if let Some(term_ref) = solution.get("type") {
-                        types.insert(term_ref.to_owned());
+        for quad in self
+            .ctx
+            .store
+            .quads_for_pattern(
+                None,
+                Some(rdf::TYPE),
+                None,
+                Some(self.ctx.data_graph_iri.as_ref().into()),
+            )
+            .flatten()
+        {
+            let mut stack: Vec<Term> = vec![quad.object];
+            let mut visited = HashSet::new();
+            while let Some(ty) = stack.pop() {
+                if !visited.insert(ty.clone()) {
+                    continue;
+                }
+                types.insert(ty.clone());
+                if let Some(super_types) = parents.get(&ty) {
+                    for super_type in super_types {
+                        stack.push(super_type.clone());
                     }
                 }
             }
-            _ => return Err("Unexpected query result type when fetching types".to_string()),
         }
 
         for shape in self.ctx.node_shapes.values_mut() {
             let targets_before = shape.targets.len();
             shape.targets.retain(|target| match target {
                 Target::Class(class_term) => types.contains(class_term),
+                Target::SubjectsOf(predicate) | Target::ObjectsOf(predicate) => {
+                    present_predicates.contains(predicate)
+                }
                 _ => true, // Keep other target types
             });
             let targets_after = shape.targets.len();
             self.stats.unreachable_targets_removed += (targets_before - targets_after) as u64;
         }
 
+        let component_descriptors = &self.ctx.component_descriptors;
+        for shape in self.ctx.prop_shapes.values_mut() {
+            let targets_before = shape.targets.len();
+            shape.targets.retain(|target| match target {
+                Target::Class(class_term) => types.contains(class_term),
+                Target::SubjectsOf(predicate) | Target::ObjectsOf(predicate) => {
+                    present_predicates.contains(predicate)
+                }
+                _ => true,
+            });
+
+            if !shape.targets.is_empty()
+                && shape.path().is_simple_predicate()
+                && !present_predicates.contains(shape.path_term())
+                && property_shape_is_safe_when_path_absent(shape, component_descriptors)
+            {
+                shape.targets.clear();
+            }
+
+            let targets_after = shape.targets.len();
+            self.stats.unreachable_targets_removed += (targets_before - targets_after) as u64;
+        }
+
         Ok(())
+    }
+
+    fn present_data_graph_predicates(&self) -> HashSet<Term> {
+        self.ctx
+            .store
+            .quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(self.ctx.data_graph_iri.as_ref().into()),
+            )
+            .flatten()
+            .map(|quad| Term::NamedNode(quad.predicate))
+            .collect()
+    }
+}
+
+fn property_shape_is_safe_when_path_absent(
+    shape: &crate::model::shapes::PropertyShape,
+    component_descriptors: &HashMap<crate::types::ComponentID, ComponentDescriptor>,
+) -> bool {
+    shape.constraints().iter().all(|component_id| {
+        let Some(descriptor) = component_descriptors.get(component_id) else {
+            return false;
+        };
+        component_is_safe_when_value_set_is_empty(descriptor)
+    })
+}
+
+fn component_is_safe_when_value_set_is_empty(descriptor: &ComponentDescriptor) -> bool {
+    match descriptor {
+        ComponentDescriptor::MinCount { min_count } => *min_count == 0,
+        ComponentDescriptor::HasValue { .. } => false,
+        ComponentDescriptor::QualifiedValueShape { min_count, .. } => {
+            min_count.is_none_or(|min| min == 0)
+        }
+        ComponentDescriptor::Equals { .. } => false,
+        ComponentDescriptor::Sparql { .. } | ComponentDescriptor::Custom { .. } => false,
+        _ => true,
     }
 }

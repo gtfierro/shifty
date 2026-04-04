@@ -1,7 +1,7 @@
 //! Builds executable validators from structural descriptors.
 
-use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::model::components::ComponentDescriptor;
+use crate::model::components::sparql::CustomConstraintComponentDefinition;
 use crate::runtime::validators;
 use crate::runtime::{Component, CustomConstraintComponent};
 use oxigraph::model::{NamedNode, Term};

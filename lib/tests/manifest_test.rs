@@ -1,9 +1,9 @@
 use ontoenv::config::Config;
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
-use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
-use shifty::test_utils::{list_includes, load_manifest, TestCase};
 use shifty::Validator;
+use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
+use shifty::test_utils::{TestCase, list_includes, load_manifest};
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::io;
@@ -238,11 +238,12 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
 
         let expected_graph_for_compare: Graph = test.expected_report.clone();
 
-        assert!(are_isomorphic(
-            &report_graph_for_compare,
-            &expected_graph_for_compare,
-        ), "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
-            test_name, expected_turtle, report_turtle
+        assert!(
+            are_isomorphic(&report_graph_for_compare, &expected_graph_for_compare,),
+            "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
+            test_name,
+            expected_turtle,
+            report_turtle
         );
     }
     Ok(())

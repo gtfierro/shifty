@@ -10,7 +10,7 @@ pub(crate) use graphviz::{
 #[allow(unused_imports)]
 pub(crate) use ids::IDLookupTable;
 pub(crate) use model::{ParsingContext, ShapesModel};
+pub use validation::SourceShape;
 pub(crate) use validation::{
-    ClosedWorldBatchResult, ClosedWorldConstraintMode, ClosedWorldViolation, Context,
-    ShapeTimingPhase, SourceShape, ValidationContext,
+    BatchedSparqlResult, BatchedSparqlViolation, Context, ShapeTimingPhase, ValidationContext,
 };

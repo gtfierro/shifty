@@ -3,9 +3,13 @@
 use ontoenv::config::Config;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{Graph, NamedNode};
-use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+use shacl_srcgen_compiler::{
+    SrcGenBackend,
+    generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir,
+};
 use shifty::canonicalization::{are_isomorphic, deskolemize_graph};
-use shifty::test_utils::{list_includes, load_manifest, TestCase};
+use shifty::test_utils::{TestCase, list_includes, load_manifest};
 use shifty::{Source, Validator};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -18,11 +22,33 @@ use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 use url::Url;
 
-static COMPILED_CACHE: OnceLock<Mutex<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
+static COMPILED_CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
 static COMPILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static BUILD_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-fn compiled_cache() -> &'static Mutex<HashMap<PathBuf, PathBuf>> {
+fn parse_bool_env(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(value) => matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+fn strict_full_aot_enabled() -> bool {
+    parse_bool_env("SHFTY_COMPILED_MANIFEST_STRICT_FULL_AOT")
+}
+
+fn strict_incomplete_is_error_enabled() -> bool {
+    parse_bool_env("SHFTY_COMPILED_MANIFEST_STRICT_INCOMPLETE_IS_ERROR")
+}
+
+fn cache_profile_key(path: &Path, strict_full_aot: bool) -> String {
+    format!("{}|srcgen|{}", path.to_string_lossy(), strict_full_aot)
+}
+
+fn compiled_cache() -> &'static Mutex<HashMap<String, PathBuf>> {
     COMPILED_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -41,6 +67,15 @@ fn compiled_test_build_root() -> PathBuf {
             path
         })
         .clone()
+}
+
+fn compiled_test_shared_lockfile() -> PathBuf {
+    compiled_test_build_root().join("Cargo.lock")
+}
+
+fn compiled_test_workspace_dir(strict_full_aot: bool) -> PathBuf {
+    let profile = if strict_full_aot { "strict" } else { "hybrid" };
+    compiled_test_build_root().join("workspace").join(profile)
 }
 
 fn workspace_root() -> PathBuf {
@@ -129,31 +164,23 @@ fn collect_tests_from_manifest(
 }
 
 fn skip_reason(test: &TestCase) -> Option<&'static str> {
-    let advanced_expr = "/advanced/expression/";
-    if test
-        .data_graph_path
-        .to_string_lossy()
-        .contains(advanced_expr)
-        || test
-            .shapes_graph_path
-            .to_string_lossy()
-            .contains(advanced_expr)
-    {
-        return Some("SHACL-AF expressions not supported yet");
-    }
-
+    let _ = test;
     None
 }
 
-fn shape_cache_key(path: &Path) -> Result<String, Box<dyn Error + Send + Sync>> {
+fn shape_cache_key(
+    path: &Path,
+    strict_full_aot: bool,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let metadata = std::fs::metadata(path)?;
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
+    strict_full_aot.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
-    if let Ok(modified) = metadata.modified() {
-        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
-            duration.as_nanos().hash(&mut hasher);
-        }
+    if let Ok(modified) = metadata.modified()
+        && let Ok(duration) = modified.duration_since(UNIX_EPOCH)
+    {
+        duration.as_nanos().hash(&mut hasher);
     }
     Ok(format!("{:016x}", hasher.finish()))
 }
@@ -162,7 +189,9 @@ fn compiled_bin_for_shapes(
     shapes_graph_path: &Path,
 ) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     let canonical = shapes_graph_path.canonicalize()?;
-    if let Some(existing) = compiled_cache().lock().unwrap().get(&canonical).cloned() {
+    let strict_full_aot = strict_full_aot_enabled();
+    let profile_key = cache_profile_key(&canonical, strict_full_aot);
+    if let Some(existing) = compiled_cache().lock().unwrap().get(&profile_key).cloned() {
         return Ok(existing);
     }
 
@@ -170,25 +199,29 @@ fn compiled_bin_for_shapes(
     let build_root = compiled_test_build_root();
     let bin_cache_dir = build_root.join("bin");
     std::fs::create_dir_all(&bin_cache_dir)?;
-    let cache_key = shape_cache_key(&canonical)?;
-    let cached_bin = bin_cache_dir.join(format!("{}-shacl-compiled", cache_key));
+    let cache_key = shape_cache_key(&canonical, strict_full_aot)?;
+    let strict_suffix = if strict_full_aot { "strict" } else { "hybrid" };
+    let cached_bin = bin_cache_dir.join(format!(
+        "{}-srcgen-{}-shacl-compiled",
+        cache_key, strict_suffix
+    ));
     if cached_bin.exists() {
         compiled_cache()
             .lock()
             .unwrap()
-            .insert(canonical.clone(), cached_bin.clone());
+            .insert(profile_key.clone(), cached_bin.clone());
         return Ok(cached_bin);
     }
 
     let _compile_guard = compile_lock().lock().unwrap();
-    if let Some(existing) = compiled_cache().lock().unwrap().get(&canonical).cloned() {
+    if let Some(existing) = compiled_cache().lock().unwrap().get(&profile_key).cloned() {
         return Ok(existing);
     }
     if cached_bin.exists() {
         compiled_cache()
             .lock()
             .unwrap()
-            .insert(canonical.clone(), cached_bin.clone());
+            .insert(profile_key.clone(), cached_bin.clone());
         return Ok(cached_bin);
     }
     let env_config = build_env_config(&root)?;
@@ -207,21 +240,24 @@ fn compiled_bin_for_shapes(
     let shape_ir = validator
         .shape_ir_with_imports(-1)
         .map_err(|e| io::Error::other(format!("Failed to build SHACL-IR: {}", e)))?;
-    let plan = PlanIR::from_shape_ir(&shape_ir)
-        .map_err(|e| io::Error::other(format!("Failed to build plan: {}", e)))?;
-    let generated = generate_rust_modules_from_plan(&plan)
-        .map_err(|e| io::Error::other(format!("Failed to generate Rust: {}", e)))?;
+    let srcgen_ir = lower_shape_ir_to_srcgen_ir(&shape_ir)
+        .map_err(|e| io::Error::other(format!("Failed to lower SrcGenIR: {}", e)))?;
+    let generated =
+        generate_srcgen_modules_from_ir_with_backend(&srcgen_ir, SrcGenBackend::Specialized)
+            .map_err(|e| io::Error::other(format!("Failed to generate srcgen Rust: {}", e)))?;
+    let (generated_root, generated_files) = (generated.root, generated.files);
 
-    let out_dir = build_root.join("workspaces").join(&cache_key);
+    let out_dir = compiled_test_workspace_dir(strict_full_aot);
     let src_dir = out_dir.join("src");
     let generated_dir = src_dir.join("generated");
+    std::fs::create_dir_all(&src_dir)?;
     if generated_dir.exists() {
         std::fs::remove_dir_all(&generated_dir)?;
     }
     std::fs::create_dir_all(&generated_dir)?;
 
-    std::fs::write(generated_dir.join("mod.rs"), generated.root)?;
-    for (name, content) in generated.files {
+    std::fs::write(generated_dir.join("mod.rs"), generated_root)?;
+    for (name, content) in generated_files {
         let path = generated_dir.join(name);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -234,16 +270,19 @@ fn compiled_bin_for_shapes(
     let shifty_path = root.join("lib");
     let bin_name = "shacl-compiled";
     let cargo_toml = format!(
-        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\", package = \"shifty-shacl\" }}\nontoenv = \"0.5.0-a8\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\nlog = \"0.4\"\n\n[profile.release]\ndebug = true\n",
+        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2024\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nshifty = {{ path = \"{}\", package = \"shifty-shacl\" }}\nontoenv = \"0.5.1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\nlog = \"0.4\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\n\n[profile.release]\ndebug = true\n",
         bin_name,
         shifty_path.display(),
     );
     std::fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
-    let main_rs = r#"
+    let shapes_file_literal = canonical.to_string_lossy().to_string();
+    let main_template = r#"
 mod generated;
 
-use generated::{load_original_value_index, render_report, set_original_value_index, DATA_GRAPH};
+use generated::{
+    load_original_value_index, render_report, set_original_value_index, DATA_GRAPH, SHAPE_GRAPH,
+};
 use log::info;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, NamedNode, Quad};
@@ -252,6 +291,8 @@ use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
+
+const SHAPES_FILE: &str = "__SHAPES_FILE__";
 
 fn print_usage(program: &str) {
     eprintln!("usage: {} [--follow-bnodes] <data.rdf>", program);
@@ -311,6 +352,26 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map_err(|err| Box::<dyn std::error::Error>::from(err))?;
     set_original_value_index(Some(original_index));
     let store = Store::new()?;
+    let shape_graph = NamedNode::new(SHAPE_GRAPH).unwrap();
+    let shape_graph_name = GraphName::NamedNode(shape_graph.clone());
+    let shapes_path_ref = Path::new(SHAPES_FILE);
+    let shapes_format = sniff_format(shapes_path_ref)?;
+    let shapes_file = File::open(shapes_path_ref)?;
+    let shapes_parser = RdfParser::from_format(shapes_format).for_reader(shapes_file);
+    info!("Starting shape graph load from {}", SHAPES_FILE);
+    let mut shape_triple_count = 0;
+    for triple in shapes_parser {
+        let triple = triple?;
+        let quad = Quad::new(
+            triple.subject.clone(),
+            triple.predicate.clone(),
+            triple.object.clone(),
+            shape_graph_name.clone(),
+        );
+        store.insert(&quad)?;
+        shape_triple_count += 1;
+    }
+    info!("Finished shape graph load ({} triples)", shape_triple_count);
     let data_graph = NamedNode::new(DATA_GRAPH).unwrap();
     let graph_name = GraphName::NamedNode(data_graph.clone());
     let file = File::open(data_path_ref)?;
@@ -330,13 +391,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     info!("Finished data graph load ({} triples)", triple_count);
 
-    let report = generated::run(&store, Some(&data_graph));
+    let report = generated::run_with_full_aot(&store, Some(&data_graph), false);
     let output = render_report(&report, &store, follow_bnodes);
     println!("{}", output);
     Ok(())
 }
 "#;
+    let main_rs = main_template.replace("__SHAPES_FILE__", &shapes_file_literal);
     std::fs::write(src_dir.join("main.rs"), main_rs.trim_start())?;
+
+    let shared_lockfile = compiled_test_shared_lockfile();
+    if shared_lockfile.exists() {
+        let _ = std::fs::copy(&shared_lockfile, out_dir.join("Cargo.lock"));
+    }
 
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
@@ -347,11 +414,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .env("CARGO_NET_OFFLINE", "true");
 
     let mut pkg_config_path = String::from("/usr/lib/x86_64-linux-gnu/pkgconfig");
-    if let Ok(existing) = std::env::var("PKG_CONFIG_PATH") {
-        if !existing.is_empty() {
-            pkg_config_path.push(':');
-            pkg_config_path.push_str(&existing);
-        }
+    if let Ok(existing) = std::env::var("PKG_CONFIG_PATH")
+        && !existing.is_empty()
+    {
+        pkg_config_path.push(':');
+        pkg_config_path.push_str(&existing);
     }
     cmd.env("PKG_CONFIG_PATH", pkg_config_path);
 
@@ -362,12 +429,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         )));
     }
 
+    let generated_lockfile = out_dir.join("Cargo.lock");
+    if !shared_lockfile.exists() && generated_lockfile.exists() {
+        let _ = std::fs::copy(&generated_lockfile, &shared_lockfile);
+    }
+
     let shared_bin_path = build_root.join("target").join("debug").join(bin_name);
     std::fs::copy(&shared_bin_path, &cached_bin)?;
     compiled_cache()
         .lock()
         .unwrap()
-        .insert(canonical.clone(), cached_bin.clone());
+        .insert(profile_key, cached_bin.clone());
     Ok(cached_bin)
 }
 
@@ -455,10 +527,9 @@ fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
     for triple in expected.iter() {
         if triple.predicate == rdf_type
             && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+            && let Some(sig) = result_signature(expected, triple.subject)
         {
-            if let Some(sig) = result_signature(expected, triple.subject) {
-                *expected_counts.entry(sig).or_insert(0) += 1;
-            }
+            *expected_counts.entry(sig).or_insert(0) += 1;
         }
     }
 
@@ -467,13 +538,12 @@ fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
     for triple in report.iter() {
         if triple.predicate == rdf_type
             && triple.object == oxigraph::model::TermRef::NamedNode(sh_validation_result.as_ref())
+            && let Some(sig) = result_signature(report, triple.subject)
         {
-            if let Some(sig) = result_signature(report, triple.subject) {
-                actual_by_sig
-                    .entry(sig)
-                    .or_default()
-                    .push(triple.subject.into_owned());
-            }
+            actual_by_sig
+                .entry(sig)
+                .or_default()
+                .push(triple.subject.into_owned());
         }
     }
 
@@ -500,12 +570,12 @@ fn normalized_report_graph(report: &Graph, expected: &Graph) -> Graph {
         if dropped.contains(&triple.subject.into_owned()) {
             continue;
         }
-        if triple.predicate == sh_result.as_ref() {
-            if let oxigraph::model::TermRef::BlankNode(obj_bnode) = triple.object {
-                let obj_node = oxigraph::model::NamedOrBlankNode::BlankNode(obj_bnode.into_owned());
-                if dropped.contains(&obj_node) {
-                    continue;
-                }
+        if triple.predicate == sh_result.as_ref()
+            && let oxigraph::model::TermRef::BlankNode(obj_bnode) = triple.object
+        {
+            let obj_node = oxigraph::model::NamedOrBlankNode::BlankNode(obj_bnode.into_owned());
+            if dropped.contains(&obj_node) {
+                continue;
             }
         }
         filtered.insert(triple);
@@ -544,12 +614,11 @@ fn anonymize_result_blank_nodes(graph: &Graph) -> Graph {
         if result_subjects.contains(&subject)
             && (triple.predicate == sh_source_shape.as_ref()
                 || triple.predicate == sh_value.as_ref())
+            && let oxigraph::model::TermRef::BlankNode(_) = triple.object
         {
-            if let oxigraph::model::TermRef::BlankNode(_) = triple.object {
-                let key = (subject.clone(), triple.predicate.into_owned());
-                let replacement = replacements.entry(key).or_default().clone();
-                object = oxigraph::model::Term::BlankNode(replacement);
-            }
+            let key = (subject.clone(), triple.predicate.into_owned());
+            let replacement = replacements.entry(key).or_default().clone();
+            object = oxigraph::model::Term::BlankNode(replacement);
         }
         out.insert(
             oxigraph::model::Triple::new(subject, triple.predicate.into_owned(), object).as_ref(),
@@ -562,18 +631,29 @@ fn anonymize_result_blank_nodes(graph: &Graph) -> Graph {
 fn report_conforms(report_graph: &Graph) -> Option<bool> {
     let conforms_pred = NamedNode::new("http://www.w3.org/ns/shacl#conforms").ok()?;
     for triple in report_graph.iter() {
-        if triple.predicate == conforms_pred.as_ref() {
-            if let oxigraph::model::TermRef::Literal(lit) = triple.object {
-                if let Ok(parsed) = lit.value().parse::<bool>() {
-                    return Some(parsed);
-                }
-            }
+        if triple.predicate == conforms_pred.as_ref()
+            && let oxigraph::model::TermRef::Literal(lit) = triple.object
+            && let Ok(parsed) = lit.value().parse::<bool>()
+        {
+            return Some(parsed);
         }
     }
     None
 }
 
+fn strict_incomplete_marker(report_turtle: &str) -> bool {
+    report_turtle.contains("strict full-aot")
+        || report_turtle.contains("strict full-AOT")
+        || report_turtle.contains("strict full_aot")
+}
+
 fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let strict_full_aot = strict_full_aot_enabled();
+    let strict_incomplete_is_error = strict_incomplete_is_error_enabled();
+    println!(
+        "compiled-manifest mode: compiler=srcgen strict_full_aot={} strict_incomplete_is_error={}",
+        strict_full_aot, strict_incomplete_is_error
+    );
     let tests = collect_tests_from_manifest(Path::new(file))?;
     for (manifest_path, test) in tests {
         let test_name = test.name.as_str();
@@ -593,8 +673,12 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         );
 
         let bin_path = compiled_bin_for_shapes(&test.shapes_graph_path)?;
-        let output = Command::new(&bin_path)
-            .arg(&test.data_graph_path)
+        let mut command = Command::new(&bin_path);
+        command.arg(&test.data_graph_path);
+        if strict_full_aot {
+            command.env("SHFTY_SRCGEN_FULL_AOT_STRICT", "1");
+        }
+        let output = command
             .output()
             .map_err(|e| io::Error::other(format!("Failed to run compiled binary: {}", e)))?;
 
@@ -613,6 +697,19 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
                 test_name, e
             ))
         })?;
+        if strict_full_aot && strict_incomplete_marker(&report_turtle) {
+            if strict_incomplete_is_error {
+                return Err(Box::new(io::Error::other(format!(
+                    "strict full-aot incomplete specialization marker encountered for test '{}'",
+                    test_name
+                ))));
+            }
+            println!(
+                "[skip] {} — strict full-aot incomplete specialization (fallback disabled)",
+                test_name
+            );
+            continue;
+        }
         let mut report_graph = parse_report_graph(&report_turtle)?;
 
         let data_graph_url =
@@ -706,9 +803,7 @@ fn run_test_file(file: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         assert!(
             reports_match,
             "Validation report does not match expected report for test: {}.\nExpected:\n{}\nGot:\n{}",
-            test_name,
-            expected_turtle,
-            report_turtle
+            test_name, expected_turtle, report_turtle
         );
     }
     Ok(())

@@ -264,35 +264,35 @@ mod rdfc10 {
         let mut h_n = BTreeMap::<String, Vec<String>>::new();
         if let Some(triples) = bnode_to_triples.get(bnode_id) {
             for triple in triples {
-                if let Subject::BlankNode(s_bn) = &triple.subject {
-                    if s_bn.as_str() != bnode_id {
-                        let related_hash = hash_related_blank_node(
-                            s_bn.as_str(),
-                            triple,
-                            's',
-                            first_degree_hashes,
-                            canonical_issuer,
-                            &path_issuer,
-                        );
-                        h_n.entry(related_hash)
-                            .or_default()
-                            .push(s_bn.as_str().to_string());
-                    }
+                if let Subject::BlankNode(s_bn) = &triple.subject
+                    && s_bn.as_str() != bnode_id
+                {
+                    let related_hash = hash_related_blank_node(
+                        s_bn.as_str(),
+                        triple,
+                        's',
+                        first_degree_hashes,
+                        canonical_issuer,
+                        &path_issuer,
+                    );
+                    h_n.entry(related_hash)
+                        .or_default()
+                        .push(s_bn.as_str().to_string());
                 }
-                if let Term::BlankNode(o_bn) = &triple.object {
-                    if o_bn.as_str() != bnode_id {
-                        let related_hash = hash_related_blank_node(
-                            o_bn.as_str(),
-                            triple,
-                            'o',
-                            first_degree_hashes,
-                            canonical_issuer,
-                            &path_issuer,
-                        );
-                        h_n.entry(related_hash)
-                            .or_default()
-                            .push(o_bn.as_str().to_string());
-                    }
+                if let Term::BlankNode(o_bn) = &triple.object
+                    && o_bn.as_str() != bnode_id
+                {
+                    let related_hash = hash_related_blank_node(
+                        o_bn.as_str(),
+                        triple,
+                        'o',
+                        first_degree_hashes,
+                        canonical_issuer,
+                        &path_issuer,
+                    );
+                    h_n.entry(related_hash)
+                        .or_default()
+                        .push(o_bn.as_str().to_string());
                 }
             }
         }

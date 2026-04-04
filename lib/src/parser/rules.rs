@@ -1,4 +1,4 @@
-use super::{parse_shacl_path_recursive, term_is_true, ToSubjectRef};
+use super::{ToSubjectRef, parse_shacl_path_recursive, term_is_true};
 use crate::context::ParsingContext;
 use crate::model::rules::{
     Rule, RuleCondition, RuleOrder, SparqlRule, TriplePatternTerm, TripleRule,
@@ -167,7 +167,7 @@ fn parse_triple_rule(
             return Err(format!(
                 "Triple rule {} predicate must be an IRI, found {:?}",
                 rule_term, other
-            ))
+            ));
         }
     };
 
@@ -215,7 +215,7 @@ fn parse_sparql_rule(
             return Err(format!(
                 "SPARQL rule {} sh:construct must be a literal, found {:?}",
                 rule_term, other
-            ))
+            ));
         }
     };
 

@@ -1,25 +1,27 @@
 use clap::{ArgAction, Parser, ValueEnum};
 use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
-use log::{info, LevelFilter};
+use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-#[cfg(feature = "shacl-compiler")]
-use oxigraph::model::{Graph, Triple};
-use oxigraph::model::{Quad, Term, TripleRef};
+use oxigraph::model::{Graph, NamedOrBlankNode, Quad, Term, Triple, TripleRef};
 use serde_json::json;
-#[cfg(feature = "shacl-compiler")]
-use shacl_compiler::{generate_rust_modules_from_plan, PlanIR};
+#[cfg(feature = "srcgen-compiler")]
+use shacl_srcgen_compiler::{
+    SrcGenBackend,
+    generate_modules_from_ir_with_backend as generate_srcgen_modules_from_ir_with_backend,
+    lower_shape_ir as lower_shape_ir_to_srcgen_ir,
+};
 use shifty::ir_cache;
-#[cfg(feature = "shacl-compiler")]
-use shifty::shacl_ir::ShapeIR;
+use shifty::shacl_ir::{ComponentDescriptor, ShapeIR};
 use shifty::trace::TraceEvent;
 use shifty::{InferenceConfig, Source, ValidationReportOptions, Validator, ValidatorBuilder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 use std::process::Command;
+use std::time::Instant;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
     let is_ir = path
@@ -56,6 +58,10 @@ struct Cli {
     /// Decrease logging verbosity (can be used multiple times)
     #[arg(short, long, action = ArgAction::Count, global = true)]
     quiet: u8,
+
+    /// Write benchmark-oriented execution metadata as a JSON object to a file ("-" for stdout)
+    #[arg(long, global = true, value_name = "FILE")]
+    benchmark_json: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -160,7 +166,7 @@ struct GenerateIrArgs {
     #[arg(long, default_value_t = -1)]
     import_depth: i32,
 
-    /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
+    /// Use a temporary OntoEnv workspace (set to false to reuse the local OntoEnv cache)
     #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
 
@@ -173,7 +179,7 @@ struct GenerateIrArgs {
     output_file: PathBuf,
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 #[derive(Parser)]
 struct CompileArgs {
     #[clap(flatten)]
@@ -219,9 +225,13 @@ struct CompileArgs {
     #[arg(long, value_name = "NAME", default_value = "shacl-compiled")]
     bin_name: String,
 
-    /// Optional output path for PlanIR JSON
+    /// Optional output path for compiler IR JSON (SrcGenIR)
     #[arg(long, value_name = "FILE")]
     plan_out: Option<PathBuf>,
+
+    /// Backend mode for srcgen compiler (`specialized` default, or `tables`)
+    #[arg(long, value_enum)]
+    backend: Option<CompileBackendArg>,
 
     /// Build in release mode
     #[arg(long)]
@@ -238,6 +248,30 @@ struct CompileArgs {
     /// Git revision/tag/branch for the shifty dependency (optional)
     #[arg(long, value_name = "REF")]
     shifty_git_ref: Option<String>,
+}
+
+#[cfg(feature = "srcgen-compiler")]
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum CompileBackendArg {
+    Specialized,
+    Tables,
+}
+
+#[cfg(feature = "srcgen-compiler")]
+enum ResolvedCompileBackend {
+    Srcgen(SrcGenBackend),
+}
+
+#[cfg(feature = "srcgen-compiler")]
+impl CompileArgs {
+    fn resolve_backend(&self) -> Result<ResolvedCompileBackend, String> {
+        match self.backend.unwrap_or(CompileBackendArg::Specialized) {
+            CompileBackendArg::Specialized => {
+                Ok(ResolvedCompileBackend::Srcgen(SrcGenBackend::Specialized))
+            }
+            CompileBackendArg::Tables => Ok(ResolvedCompileBackend::Srcgen(SrcGenBackend::Tables)),
+        }
+    }
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -339,8 +373,8 @@ struct ValidateArgs {
     #[arg(long)]
     follow_bnodes: bool,
 
-    /// Run SHACL rule inference before validation (default: true, set false via --run-inference=false)
-    #[arg(long, default_value_t = true, value_parser = clap::value_parser!(bool))]
+    /// Run SHACL rule inference before validation
+    #[arg(long)]
     run_inference: bool,
 
     /// Minimum iterations for inference
@@ -476,7 +510,7 @@ enum Commands {
     /// Generate a serialized SHACL-IR artifact for reuse
     GenerateIr(GenerateIrArgs),
     /// Generate + compile a specialized SHACL executable for the given shapes
-    #[cfg(feature = "shacl-compiler")]
+    #[cfg(feature = "srcgen-compiler")]
     Compile(CompileArgs),
     /// Validate the data against the shapes
     Validate(ValidateArgs),
@@ -484,6 +518,22 @@ enum Commands {
     Infer(InferenceArgs),
     /// Print the execution traces for debugging
     Trace(TraceCmdArgs),
+}
+
+impl Commands {
+    fn name(&self) -> &'static str {
+        match self {
+            Commands::Visualize(_) => "visualize",
+            Commands::Validate(_) => "validate",
+            Commands::Infer(_) => "infer",
+            #[cfg(feature = "srcgen-compiler")]
+            Commands::Compile(_) => "compile",
+            Commands::Heat(_) => "heat",
+            Commands::VisualizeHeatmap(_) => "visualize-heatmap",
+            Commands::GenerateIr(_) => "generate-ir",
+            Commands::Trace(_) => "trace",
+        }
+    }
 }
 
 fn get_validator(
@@ -563,16 +613,10 @@ fn get_validator_shapes_only(
         .map_err(|e| format!("Error creating validator: {}", e).into())
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
-    if args.no_imports {
-        info!(
-            "Ignoring --no-imports for compile; compiled binaries always embed the full shapes imports closure"
-        );
-    }
-
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &args.shapes.shapes_file {
         if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
@@ -591,7 +635,7 @@ fn get_validator_shapes_only_for_compile(
         .with_skip_invalid_rules(args.skip_invalid_rules)
         .with_warnings_are_errors(args.warnings_are_errors)
         .with_strict_custom_constraints(args.strict_custom_constraints)
-        .with_do_imports(true)
+        .with_do_imports(!args.no_imports)
         .with_force_refresh(args.force_refresh)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
@@ -642,55 +686,644 @@ fn serialize_quads_to_turtle(quads: &[Quad]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to finish Turtle serialization: {}", e))
 }
 
+use std::sync::Mutex;
+
+static START_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn get_ts_nanos(ts: Instant) -> u64 {
+    let mut guard = START_INSTANT.lock().unwrap();
+    let start = *guard.get_or_insert(ts);
+    if ts >= start {
+        ts.duration_since(start).as_nanos() as u64
+    } else {
+        // if for some reason ts is before start, we update start
+        *guard = Some(ts);
+        0
+    }
+}
+
 fn term_to_string(term: &Term) -> String {
     term.to_string()
 }
 
-fn trace_event_to_json(event: &TraceEvent) -> serde_json::Value {
+use shifty::SourceShape;
+
+fn readable_term_label(term: &Term) -> String {
+    match term {
+        Term::NamedNode(nn) => {
+            let iri = nn.as_str();
+            iri.rsplit(['#', '/'])
+                .next()
+                .filter(|segment| !segment.is_empty())
+                .unwrap_or(iri)
+                .to_string()
+        }
+        Term::BlankNode(bn) => format!("_:{}", bn.as_str()),
+        _ => term.to_string(),
+    }
+}
+
+fn shape_kind_label(source: &SourceShape) -> &'static str {
+    match source {
+        SourceShape::NodeShape(_) => "NodeShape",
+        SourceShape::PropertyShape(_) => "PropertyShape",
+    }
+}
+
+fn shape_term_for_source<'a>(source: &SourceShape, shape_ir: &'a ShapeIR) -> Option<&'a Term> {
+    match source {
+        SourceShape::NodeShape(id) => shape_ir.node_shape_terms.get(id),
+        SourceShape::PropertyShape(id) => shape_ir.property_shape_terms.get(id),
+    }
+}
+
+fn shape_term_for_node(id: shifty::shacl_ir::ID, shape_ir: &ShapeIR) -> Option<&Term> {
+    shape_ir.node_shape_terms.get(&id)
+}
+
+fn shape_term_for_property(id: shifty::shacl_ir::PropShapeID, shape_ir: &ShapeIR) -> Option<&Term> {
+    shape_ir.property_shape_terms.get(&id)
+}
+
+fn shape_frame_name(kind: &str, term: Option<&Term>, fallback: &str) -> String {
+    term.map(|value| format!("{}:{}", kind, readable_term_label(value)))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn component_shape_ref(id: shifty::shacl_ir::ID, shape_ir: &ShapeIR) -> String {
+    shape_ir
+        .node_shape_terms
+        .get(&id)
+        .map(readable_term_label)
+        .unwrap_or_else(|| format!("NodeShape_{}", id.0))
+}
+
+fn component_property_ref(id: shifty::shacl_ir::PropShapeID, shape_ir: &ShapeIR) -> String {
+    shape_ir
+        .property_shape_terms
+        .get(&id)
+        .map(readable_term_label)
+        .unwrap_or_else(|| format!("PropertyShape_{}", id.0))
+}
+
+fn component_kind_and_args(
+    descriptor: &ComponentDescriptor,
+    shape_ir: &ShapeIR,
+) -> (String, Vec<String>) {
+    match descriptor {
+        ComponentDescriptor::Node { shape } => (
+            "NodeConstraint".to_string(),
+            vec![format!("shape={}", component_shape_ref(*shape, shape_ir))],
+        ),
+        ComponentDescriptor::Property { shape } => (
+            "PropertyConstraint".to_string(),
+            vec![format!(
+                "shape={}",
+                component_property_ref(*shape, shape_ir)
+            )],
+        ),
+        ComponentDescriptor::QualifiedValueShape {
+            shape,
+            min_count,
+            max_count,
+            disjoint,
+        } => {
+            let mut args = vec![format!("shape={}", component_shape_ref(*shape, shape_ir))];
+            if let Some(value) = min_count {
+                args.push(format!("min_count={}", value));
+            }
+            if let Some(value) = max_count {
+                args.push(format!("max_count={}", value));
+            }
+            if let Some(value) = disjoint {
+                args.push(format!("disjoint={}", value));
+            }
+            ("QualifiedValueShape".to_string(), args)
+        }
+        ComponentDescriptor::Class { class } => (
+            "ClassConstraint".to_string(),
+            vec![format!("class={}", readable_term_label(class))],
+        ),
+        ComponentDescriptor::Datatype { datatype } => (
+            "DatatypeConstraint".to_string(),
+            vec![format!("datatype={}", readable_term_label(datatype))],
+        ),
+        ComponentDescriptor::NodeKind { node_kind } => (
+            "NodeKindConstraint".to_string(),
+            vec![format!("node_kind={}", readable_term_label(node_kind))],
+        ),
+        ComponentDescriptor::MinCount { min_count } => (
+            "MinCount".to_string(),
+            vec![format!("min_count={}", min_count)],
+        ),
+        ComponentDescriptor::MaxCount { max_count } => (
+            "MaxCount".to_string(),
+            vec![format!("max_count={}", max_count)],
+        ),
+        ComponentDescriptor::MinExclusive { value } => (
+            "MinExclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MinInclusive { value } => (
+            "MinInclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MaxExclusive { value } => (
+            "MaxExclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MaxInclusive { value } => (
+            "MaxInclusiveConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::MinLength { length } => (
+            "MinLengthConstraint".to_string(),
+            vec![format!("length={}", length)],
+        ),
+        ComponentDescriptor::MaxLength { length } => (
+            "MaxLengthConstraint".to_string(),
+            vec![format!("length={}", length)],
+        ),
+        ComponentDescriptor::Pattern { pattern, flags } => {
+            let mut args = vec![format!("pattern={}", pattern)];
+            if let Some(value) = flags {
+                args.push(format!("flags={}", value));
+            }
+            ("PatternConstraint".to_string(), args)
+        }
+        ComponentDescriptor::LanguageIn { languages } => (
+            "LanguageInConstraint".to_string(),
+            vec![format!("languages={}", languages.join(","))],
+        ),
+        ComponentDescriptor::UniqueLang { enabled } => (
+            "UniqueLangConstraint".to_string(),
+            vec![format!("enabled={}", enabled)],
+        ),
+        ComponentDescriptor::Equals { property } => (
+            "EqualsConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::Disjoint { property } => (
+            "DisjointConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::LessThan { property } => (
+            "LessThanConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::LessThanOrEquals { property } => (
+            "LessThanOrEqualsConstraint".to_string(),
+            vec![format!("property={}", readable_term_label(property))],
+        ),
+        ComponentDescriptor::Not { shape } => (
+            "NotConstraint".to_string(),
+            vec![format!("shape={}", component_shape_ref(*shape, shape_ir))],
+        ),
+        ComponentDescriptor::And { shapes } => (
+            "AndConstraint".to_string(),
+            vec![format!(
+                "shapes={}",
+                shapes
+                    .iter()
+                    .map(|shape| component_shape_ref(*shape, shape_ir))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Or { shapes } => (
+            "OrConstraint".to_string(),
+            vec![format!(
+                "shapes={}",
+                shapes
+                    .iter()
+                    .map(|shape| component_shape_ref(*shape, shape_ir))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Xone { shapes } => (
+            "XoneConstraint".to_string(),
+            vec![format!(
+                "shapes={}",
+                shapes
+                    .iter()
+                    .map(|shape| component_shape_ref(*shape, shape_ir))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Closed {
+            closed,
+            ignored_properties,
+        } => (
+            "ClosedConstraint".to_string(),
+            vec![
+                format!("closed={}", closed),
+                format!(
+                    "ignored_properties={}",
+                    ignored_properties
+                        .iter()
+                        .map(readable_term_label)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+            ],
+        ),
+        ComponentDescriptor::HasValue { value } => (
+            "HasValueConstraint".to_string(),
+            vec![format!("value={}", readable_term_label(value))],
+        ),
+        ComponentDescriptor::In { values } => (
+            "InConstraint".to_string(),
+            vec![format!(
+                "values={}",
+                values
+                    .iter()
+                    .map(readable_term_label)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )],
+        ),
+        ComponentDescriptor::Sparql { constraint_node } => (
+            "SPARQLConstraint".to_string(),
+            vec![format!(
+                "constraint={}",
+                readable_term_label(constraint_node)
+            )],
+        ),
+        ComponentDescriptor::Custom {
+            definition,
+            parameter_values,
+        } => {
+            let mut args = parameter_values
+                .iter()
+                .map(|(name, values)| {
+                    format!(
+                        "{}={}",
+                        readable_term_label(&Term::NamedNode(name.clone())),
+                        values
+                            .iter()
+                            .map(readable_term_label)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                })
+                .collect::<Vec<_>>();
+            args.sort();
+            (
+                readable_term_label(&Term::NamedNode(definition.iri.clone())),
+                args,
+            )
+        }
+    }
+}
+
+fn component_frame_name(id: shifty::shacl_ir::ComponentID, shape_ir: &ShapeIR) -> String {
+    shape_ir
+        .components
+        .get(&id)
+        .map(|descriptor| {
+            let (kind, args) = component_kind_and_args(descriptor, shape_ir);
+            if args.is_empty() {
+                format!("Component:{}", kind)
+            } else {
+                format!("Component:{}({})", kind, args.join(", "))
+            }
+        })
+        .unwrap_or_else(|| format!("Component:{}", id.0))
+}
+
+fn annotate_shape_value(
+    mut value: serde_json::Value,
+    kind: &str,
+    frame: String,
+    term: Option<&Term>,
+) -> serde_json::Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("shape_kind".to_string(), json!(kind));
+        object.insert("frame".to_string(), json!(frame));
+        if let Some(term) = term {
+            object.insert("shape_term".to_string(), json!(term.to_string()));
+        }
+    }
+    value
+}
+
+fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json::Value {
+    let shape_ir = validator.shape_ir();
     match event {
-        TraceEvent::EnterNodeShape(id) => json!({
-            "type": "EnterNodeShape",
-            "node_shape_id": id.0,
+        TraceEvent::EnterShapeExecution(source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "EnterShapeExecution",
+                    "source": fallback,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::ExitShapeExecution(source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "ExitShapeExecution",
+                    "source": fallback,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::EnterNodeShape(id, ts) => {
+            let term = shape_term_for_node(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "EnterNodeShape",
+                    "node_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "NodeShape",
+                shape_frame_name("NodeShape", term, &format!("NodeShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::ExitNodeShape(id, ts) => {
+            let term = shape_term_for_node(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "ExitNodeShape",
+                    "node_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "NodeShape",
+                shape_frame_name("NodeShape", term, &format!("NodeShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::EnterPropertyShape(id, ts) => {
+            let term = shape_term_for_property(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "EnterPropertyShape",
+                    "property_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "PropertyShape",
+                shape_frame_name("PropertyShape", term, &format!("PropertyShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::ExitPropertyShape(id, ts) => {
+            let term = shape_term_for_property(*id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "ExitPropertyShape",
+                    "property_shape_id": id.0,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                "PropertyShape",
+                shape_frame_name("PropertyShape", term, &format!("PropertyShape_{}", id.0)),
+                term,
+            )
+        }
+        TraceEvent::EnterComponent(id, ts) => json!({
+            "type": "EnterComponent",
+            "component_id": id.0,
+            "frame": component_frame_name(*id, shape_ir),
+            "ts": get_ts_nanos(*ts),
         }),
-        TraceEvent::EnterPropertyShape(id) => json!({
-            "type": "EnterPropertyShape",
-            "property_shape_id": id.0,
+        TraceEvent::ExitComponent(id, ts) => json!({
+            "type": "ExitComponent",
+            "component_id": id.0,
+            "frame": component_frame_name(*id, shape_ir),
+            "ts": get_ts_nanos(*ts),
+        }),
+        TraceEvent::EnterRule(id, ts) => json!({
+            "type": "EnterRule",
+            "rule_id": id.0,
+            "frame": format!("Rule:{}", id.0),
+            "ts": get_ts_nanos(*ts),
+        }),
+        TraceEvent::ExitRule(id, inserted, ts) => json!({
+            "type": "ExitRule",
+            "rule_id": id.0,
+            "frame": format!("Rule:{}", id.0),
+            "inserted": inserted,
+            "ts": get_ts_nanos(*ts),
         }),
         TraceEvent::ComponentPassed {
             component,
             focus,
             value,
+            ts,
         } => json!({
             "type": "ComponentPassed",
             "component_id": component.0,
+            "frame": component_frame_name(*component, shape_ir),
             "focus": term_to_string(focus),
             "value": value.as_ref().map(term_to_string),
+            "ts": get_ts_nanos(*ts),
         }),
         TraceEvent::ComponentFailed {
             component,
             focus,
             value,
             message,
+            ts,
         } => json!({
             "type": "ComponentFailed",
             "component_id": component.0,
+            "frame": component_frame_name(*component, shape_ir),
             "focus": term_to_string(focus),
             "value": value.as_ref().map(term_to_string),
             "message": message,
+            "ts": get_ts_nanos(*ts),
         }),
-        TraceEvent::SparqlQuery { label } => json!({
+        TraceEvent::SparqlQuery { label, ts } => json!({
             "type": "SparqlQuery",
             "label": label,
+            "ts": get_ts_nanos(*ts),
         }),
-        TraceEvent::RuleApplied { rule, inserted } => json!({
+        TraceEvent::RuleApplied { rule, inserted, ts } => json!({
             "type": "RuleApplied",
             "rule_id": rule.0,
             "inserted": inserted,
+            "ts": get_ts_nanos(*ts),
         }),
     }
 }
 
-fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(), String> {
+fn trace_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let rendered = path.to_string_lossy();
+    let base = rendered.strip_suffix(".jsonl").unwrap_or(&rendered);
+    PathBuf::from(format!("{}{}", base, suffix))
+}
+
+fn subject_matches_term(subject: &NamedOrBlankNode, term: &Term) -> bool {
+    match (subject, term) {
+        (NamedOrBlankNode::NamedNode(left), Term::NamedNode(right)) => left == right,
+        (NamedOrBlankNode::BlankNode(left), Term::BlankNode(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn collect_shape_tooltip_fields(root: &Term, shape_ir: &ShapeIR) -> (Vec<String>, Vec<String>) {
+    const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
+    const SH_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
+
+    let mut queue: VecDeque<Term> = VecDeque::from([root.clone()]);
+    let mut seen_subjects: HashSet<Term> = HashSet::new();
+    let mut labels: HashSet<String> = HashSet::new();
+    let mut messages: HashSet<String> = HashSet::new();
+
+    while let Some(subject_term) = queue.pop_front() {
+        if !seen_subjects.insert(subject_term.clone()) {
+            continue;
+        }
+        for quad in &shape_ir.shape_quads {
+            if subject_matches_term(&quad.subject, &subject_term) {
+                match quad.predicate.as_str() {
+                    RDFS_LABEL => {
+                        if let Term::Literal(literal) = &quad.object {
+                            labels.insert(literal.value().to_string());
+                        }
+                    }
+                    SH_MESSAGE => {
+                        if let Term::Literal(literal) = &quad.object {
+                            messages.insert(literal.value().to_string());
+                        }
+                    }
+                    _ => {}
+                }
+                if let Term::BlankNode(bn) = &quad.object {
+                    queue.push_back(Term::BlankNode(bn.clone()));
+                }
+            }
+        }
+    }
+
+    let mut labels = labels.into_iter().collect::<Vec<_>>();
+    labels.sort();
+    let mut messages = messages.into_iter().collect::<Vec<_>>();
+    messages.sort();
+    (labels, messages)
+}
+
+fn write_traced_shape_sidecars(
+    events: &[TraceEvent],
+    validator: &Validator,
+    trace_jsonl_path: &Path,
+) -> Result<(), String> {
+    let shape_ir = validator.shape_ir();
+    let mut traced_shapes: HashMap<String, (String, Term)> = HashMap::new();
+    let mut traced_components: HashSet<shifty::shacl_ir::ComponentID> = HashSet::new();
+
+    for event in events {
+        match event {
+            TraceEvent::EnterShapeExecution(source, _)
+            | TraceEvent::ExitShapeExecution(source, _) => {
+                if let Some(term) = shape_term_for_source(source, shape_ir) {
+                    let kind = shape_kind_label(source).to_string();
+                    let frame = shape_frame_name(&kind, Some(term), &format!("{:?}", source));
+                    traced_shapes.entry(frame).or_insert((kind, term.clone()));
+                }
+            }
+            TraceEvent::EnterNodeShape(id, _) | TraceEvent::ExitNodeShape(id, _) => {
+                if let Some(term) = shape_term_for_node(*id, shape_ir) {
+                    let kind = "NodeShape".to_string();
+                    let frame = shape_frame_name(&kind, Some(term), &format!("NodeShape_{}", id.0));
+                    traced_shapes.entry(frame).or_insert((kind, term.clone()));
+                }
+            }
+            TraceEvent::EnterPropertyShape(id, _) | TraceEvent::ExitPropertyShape(id, _) => {
+                if let Some(term) = shape_term_for_property(*id, shape_ir) {
+                    let kind = "PropertyShape".to_string();
+                    let frame =
+                        shape_frame_name(&kind, Some(term), &format!("PropertyShape_{}", id.0));
+                    traced_shapes.entry(frame).or_insert((kind, term.clone()));
+                }
+            }
+            TraceEvent::EnterComponent(id, _)
+            | TraceEvent::ExitComponent(id, _)
+            | TraceEvent::ComponentPassed { component: id, .. }
+            | TraceEvent::ComponentFailed { component: id, .. } => {
+                traced_components.insert(*id);
+            }
+            _ => {}
+        }
+    }
+
+    if traced_shapes.is_empty() && traced_components.is_empty() {
+        return Ok(());
+    }
+
+    let mut frame_entries: Vec<serde_json::Value> = traced_shapes
+        .into_iter()
+        .map(|(frame, (kind, term))| {
+            let (labels, messages) = collect_shape_tooltip_fields(&term, shape_ir);
+            json!({
+                "frame": frame,
+                "kind": kind,
+                "term": term.to_string(),
+                "labels": labels,
+                "messages": messages,
+            })
+        })
+        .collect();
+    let metadata_path = trace_sidecar_path(trace_jsonl_path, ".shapes.json");
+
+    let mut component_ids: Vec<_> = traced_components.into_iter().collect();
+    component_ids.sort_by_key(|id| id.0);
+    for component_id in component_ids {
+        if let Some(descriptor) = shape_ir.components.get(&component_id) {
+            let (kind, args) = component_kind_and_args(descriptor, shape_ir);
+            frame_entries.push(json!({
+                "frame": component_frame_name(component_id, shape_ir),
+                "kind": "Component",
+                "component_id": component_id.0,
+                "component_kind": kind,
+                "args": args,
+            }));
+        }
+    }
+    frame_entries.sort_by(|left, right| {
+        left.get("frame")
+            .and_then(|value| value.as_str())
+            .cmp(&right.get("frame").and_then(|value| value.as_str()))
+    });
+
+    let metadata = json!({
+        "frames": frame_entries,
+    });
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&metadata)
+            .map_err(|e| format!("Failed to serialise shape metadata JSON: {}", e))?,
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to write shape metadata {}: {}",
+            metadata_path.display(),
+            e
+        )
+    })?;
+
+    Ok(())
+}
+
+fn emit_trace_outputs(
+    events: &[TraceEvent],
+    args: &TraceOutputArgs,
+    validator: &Validator,
+) -> Result<(), String> {
     if events.is_empty()
         || (!args.trace_events && args.trace_file.is_none() && args.trace_jsonl.is_none())
     {
@@ -717,7 +1350,7 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
     if let Some(path) = args.trace_jsonl.as_ref() {
         let mut buf = String::new();
         for ev in events {
-            let value = trace_event_to_json(ev);
+            let value = trace_event_to_json(ev, validator);
             let line = serde_json::to_string(&value)
                 .map_err(|e| format!("Failed to serialise trace event to JSON: {}", e))?;
             buf.push_str(&line);
@@ -725,6 +1358,7 @@ fn emit_trace_outputs(events: &[TraceEvent], args: &TraceOutputArgs) -> Result<(
         }
         fs::write(path, buf)
             .map_err(|e| format!("Failed to write trace jsonl {}: {}", path.display(), e))?;
+        write_traced_shape_sidecars(events, validator, path)?;
         info!("Wrote trace events (JSONL) to {}", path.display());
     }
 
@@ -768,24 +1402,126 @@ fn emit_validator_traces(validator: &Validator, args: &TraceOutputArgs) -> Resul
         .map(|guard| guard.clone())
         .unwrap_or_default();
 
-    emit_trace_outputs(&events, args).map_err(|e| format!("Failed to emit trace outputs: {}", e))
+    emit_trace_outputs(&events, args, validator)
+        .map_err(|e| format!("Failed to emit trace outputs: {}", e))
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-    init_logging(cli.log_level, cli.verbose, cli.quiet);
+fn elapsed_ms(start: Instant) -> f64 {
+    start.elapsed().as_secs_f64() * 1000.0
+}
 
-    match cli.command {
+fn emit_benchmark_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
+    let payload = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialise benchmark JSON: {}", e))?;
+    if path.as_os_str() == "-" {
+        println!("{}", payload);
+        return Ok(());
+    }
+    fs::write(path, format!("{payload}\n"))
+        .map_err(|e| format!("Failed to write benchmark JSON {}: {}", path.display(), e))
+}
+
+fn validator_stats_json(validator: &Validator) -> serde_json::Value {
+    let component_graph_call_stats = validator
+        .component_graph_call_stats()
+        .into_iter()
+        .map(|stat| {
+            json!({
+                "component_id": stat.component_id.0,
+                "source_shape": stat.source_shape,
+                "component_label": stat.component_label,
+                "quads_for_pattern_calls": stat.quads_for_pattern_calls,
+                "execute_prepared_calls": stat.execute_prepared_calls,
+                "component_invocations": stat.component_invocations,
+                "runtime_total_ms": stat.runtime_total_ms,
+                "runtime_min_ms": stat.runtime_min_ms,
+                "runtime_max_ms": stat.runtime_max_ms,
+                "runtime_mean_ms": stat.runtime_mean_ms,
+                "runtime_stddev_ms": stat.runtime_stddev_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let shape_phase_timing_stats = validator
+        .shape_phase_timing_stats()
+        .into_iter()
+        .map(|stat| {
+            json!({
+                "source_shape": stat.source_shape,
+                "phase": stat.phase,
+                "invocations": stat.invocations,
+                "runtime_total_ms": stat.runtime_total_ms,
+                "runtime_min_ms": stat.runtime_min_ms,
+                "runtime_max_ms": stat.runtime_max_ms,
+                "runtime_mean_ms": stat.runtime_mean_ms,
+                "runtime_stddev_ms": stat.runtime_stddev_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let sparql_query_call_stats = validator
+        .sparql_query_call_stats()
+        .into_iter()
+        .map(|stat| {
+            json!({
+                "source_shape": stat.source_shape,
+                "component_id": stat.component_id.0,
+                "constraint_term": stat.constraint_term,
+                "query_hash": stat.query_hash,
+                "invocations": stat.invocations,
+                "rows_returned_total": stat.rows_returned_total,
+                "rows_returned_min": stat.rows_returned_min,
+                "rows_returned_max": stat.rows_returned_max,
+                "rows_returned_mean": stat.rows_returned_mean,
+                "runtime_total_ms": stat.runtime_total_ms,
+                "runtime_min_ms": stat.runtime_min_ms,
+                "runtime_max_ms": stat.runtime_max_ms,
+                "runtime_mean_ms": stat.runtime_mean_ms,
+                "runtime_stddev_ms": stat.runtime_stddev_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let trace_event_count = validator
+        .context()
+        .trace_events()
+        .lock()
+        .ok()
+        .map(|events| events.len())
+        .unwrap_or(0);
+
+    json!({
+        "component_graph_call_stats": component_graph_call_stats,
+        "shape_phase_timing_stats": shape_phase_timing_stats,
+        "sparql_query_call_stats": sparql_query_call_stats,
+        "trace_event_count": trace_event_count,
+    })
+}
+
+fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    match command {
         Commands::Visualize(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let dot_string = validator.to_graphviz()?;
             let wants_graphviz = args.graphviz || args.pdf.is_none();
 
             if wants_graphviz {
                 println!("{}", dot_string);
-            } else if let Some(pdf_path) = args.pdf {
-                write_pdf_from_dot(dot_string, &pdf_path, "PDF")?;
+            } else if let Some(pdf_path) = args.pdf.as_ref() {
+                write_pdf_from_dot(dot_string, pdf_path, "PDF")?;
             }
+
+            Ok(json!({
+                "subcommand": "visualize",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "emitted_graphviz": wants_graphviz,
+                "pdf_output": args.pdf.as_ref().map(|p| p.display().to_string()),
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::Validate(args) => {
             if !args.run_inference
@@ -795,12 +1531,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     || args.inference_error_on_blank_nodes
                     || args.inference_debug)
             {
-                return Err(
-                    "inference tuning flags require --run-inference=true (default true)".into(),
-                );
+                return Err("inference tuning flags require --run-inference".into());
             }
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
-            let (report, inference_outcome) = if args.run_inference {
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let inference_outcome = if args.run_inference {
                 let config = build_inference_config(
                     args.inference_min_iterations,
                     args.inference_max_iterations,
@@ -808,15 +1544,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     args.inference_error_on_blank_nodes,
                     args.inference_debug,
                 );
-                match validator.validate_with_inference(config) {
-                    Ok((outcome, report)) => (report, Some(outcome)),
-                    Err(err) => return Err(format!("Inference failed: {}", err).into()),
-                }
+                let inference_start = Instant::now();
+                let outcome = validator
+                    .run_inference_with_config(config)
+                    .map_err(|err| format!("Inference failed: {}", err))?;
+                let inference_ms = elapsed_ms(inference_start);
+                Some((outcome, inference_ms))
             } else {
-                (validator.validate(), None)
+                None
             };
+            let validate_start = Instant::now();
+            let report = validator.validate();
+            let validate_ms = elapsed_ms(validate_start);
 
-            if let Some(outcome) = inference_outcome {
+            if let Some((outcome, _)) = &inference_outcome {
                 info!(
                     "Inference added {} triple(s) in {} iteration(s); converged={}",
                     outcome.triples_added, outcome.iterations_executed, outcome.converged
@@ -827,6 +1568,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 follow_bnodes: args.follow_bnodes,
             };
 
+            let report_assembly_start = Instant::now();
             match args.format {
                 ValidateOutputFormat::Turtle => {
                     let report_str = report.to_turtle_with_options(report_options)?;
@@ -846,6 +1588,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", report_str);
                 }
             }
+            let report_assembly_ms = elapsed_ms(report_assembly_start);
 
             if args.graphviz {
                 let dot_string = validator.to_graphviz()?;
@@ -921,9 +1664,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             emit_validator_traces(&validator, &args.trace)?;
+
+            Ok(json!({
+                "subcommand": "validate",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": inference_outcome.as_ref().map(|(_, ms)| *ms),
+                    "report_assembly": report_assembly_ms,
+                },
+                "report": {
+                    "conforms": report.conforms(),
+                    "component_frequency_entries": report.get_component_frequencies().len(),
+                    "format": match args.format {
+                        ValidateOutputFormat::Turtle => "turtle",
+                        ValidateOutputFormat::Dump => "dump",
+                        ValidateOutputFormat::RdfXml => "rdfxml",
+                        ValidateOutputFormat::NTriples => "ntriples",
+                    },
+                    "follow_bnodes": args.follow_bnodes,
+                },
+                "inference": inference_outcome.as_ref().map(|(outcome, _)| {
+                    json!({
+                        "iterations_executed": outcome.iterations_executed,
+                        "triples_added": outcome.triples_added,
+                        "converged": outcome.converged,
+                        "inferred_quad_count": outcome.inferred_quads.len(),
+                    })
+                }),
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::Infer(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, args.shacl_ir.shacl_ir.as_ref())?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let config = build_inference_config(
                 args.min_iterations,
                 args.max_iterations,
@@ -931,9 +1706,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.error_on_blank_nodes,
                 args.debug,
             );
+            let inference_start = Instant::now();
             let outcome = validator
                 .run_inference_with_config(config)
                 .map_err(|e| format!("Inference failed: {}", e))?;
+            let inference_ms = elapsed_ms(inference_start);
             info!(
                 "Inference added {} triple(s) in {} iteration(s); converged={}",
                 outcome.triples_added, outcome.iterations_executed, outcome.converged
@@ -944,13 +1721,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .data_graph_quads()
                     .map_err(|e| format!("Failed to read data graph: {}", e))?
             } else {
-                outcome.inferred_quads
+                outcome.inferred_quads.clone()
             };
 
+            let report_assembly_start = Instant::now();
             let turtle_bytes = serialize_quads_to_turtle(&quads_to_emit)?;
 
-            if let Some(path) = args.output_file {
-                fs::write(&path, &turtle_bytes)
+            if let Some(path) = args.output_file.as_ref() {
+                fs::write(path, &turtle_bytes)
                     .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
                 info!(
                     "Wrote {} triple(s) to {}",
@@ -960,6 +1738,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 io::stdout().write_all(&turtle_bytes)?;
             }
+            let report_assembly_ms = elapsed_ms(report_assembly_start);
 
             if args.graphviz {
                 let dot_string = validator.to_graphviz()?;
@@ -973,10 +1752,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             emit_validator_traces(&validator, &args.trace)?;
+
+            Ok(json!({
+                "subcommand": "infer",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": inference_ms,
+                    "report_assembly": report_assembly_ms,
+                },
+                "inference": {
+                    "iterations_executed": outcome.iterations_executed,
+                    "triples_added": outcome.triples_added,
+                    "converged": outcome.converged,
+                    "inferred_quad_count": outcome.inferred_quads.len(),
+                    "emitted_quad_count": quads_to_emit.len(),
+                    "union_output": args.union,
+                    "output_file": args.output_file.as_ref().map(|p| p.display().to_string()),
+                },
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
-        #[cfg(feature = "shacl-compiler")]
+        #[cfg(feature = "srcgen-compiler")]
         Commands::Compile(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator_shapes_only_for_compile(&args)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let shapes_file_is_ir = args
                 .shapes
                 .shapes_file
@@ -991,19 +1792,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .shape_ir_with_imports(args.import_depth)
                     .map_err(|e| e.to_string())?
             };
-            let plan = PlanIR::from_shape_ir(&shape_ir).map_err(|e| e.to_string())?;
-            let plan_json = plan
-                .to_json_pretty()
-                .map_err(|e| format!("plan serialization error: {}", e))?;
-            let generated = generate_rust_modules_from_plan(&plan)?;
-            let generated_root = generated.root;
-            let generated_files = generated.files;
-
-            if let Some(plan_out) = &args.plan_out {
-                fs::write(plan_out, &plan_json)?;
-            }
-
-            info!("Using compile backend: shacl-compiler");
+            let (generated_root, generated_files, generated_binary_files, backend_name) =
+                match args.resolve_backend()? {
+                    ResolvedCompileBackend::Srcgen(backend) => {
+                        let srcgen_ir =
+                            lower_shape_ir_to_srcgen_ir(&shape_ir).map_err(|e| e.to_string())?;
+                        if let Some(plan_out) = &args.plan_out {
+                            fs::write(plan_out, srcgen_ir.to_json_pretty()?)?;
+                        }
+                        let backend_name = match backend {
+                            SrcGenBackend::Specialized => "specialized",
+                            SrcGenBackend::Tables => "tables",
+                        };
+                        info!("Using compiler track=srcgen backend={backend_name}");
+                        let generated =
+                            generate_srcgen_modules_from_ir_with_backend(&srcgen_ir, backend)?;
+                        (
+                            generated.root,
+                            generated.files,
+                            generated.binary_files,
+                            backend_name,
+                        )
+                    }
+                };
 
             let out_dir = &args.out_dir;
             let src_dir = out_dir.join("src");
@@ -1012,6 +1823,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::create_dir_all(&generated_dir)?;
             fs::write(generated_dir.join("mod.rs"), generated_root)?;
             for (name, content) in generated_files {
+                let path = generated_dir.join(name);
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(path, content)?;
+            }
+            for (name, content) in generated_binary_files {
                 let path = generated_dir.join(name);
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent)?;
@@ -1060,11 +1878,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if output.status.success() {
                                 let rev =
                                     String::from_utf8_lossy(&output.stdout).trim().to_string();
-                                if rev.is_empty() {
-                                    None
-                                } else {
-                                    Some(rev)
-                                }
+                                if rev.is_empty() { None } else { Some(rev) }
                             } else {
                                 None
                             }
@@ -1080,9 +1894,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2021\"\n\n[dependencies]\noxigraph = {{ version = \"0.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.0-a8\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
-                args.bin_name,
-                shifty_dep,
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2024\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.1\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
+                args.bin_name, shifty_dep,
             );
             fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
 
@@ -1095,14 +1908,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cmd.arg("--release");
             }
             cmd.arg("--manifest-path").arg(out_dir.join("Cargo.toml"));
-            // Ensure ccache (if configured via workspace env) uses a writable temp dir
-            // when compiling the generated crate in restricted environments.
-            let ccache_tmp = workspace_root.join(out_dir).join("ccache-tmp");
-            let ccache_dir = workspace_root.join(out_dir).join("ccache");
-            fs::create_dir_all(&ccache_tmp)?;
-            fs::create_dir_all(&ccache_dir)?;
-            cmd.env("CCACHE_TEMPDIR", &ccache_tmp);
-            cmd.env("CCACHE_DIR", &ccache_dir);
             let status = cmd.status()?;
             if !status.success() {
                 return Err("failed to build compiled executable".into());
@@ -1113,10 +1918,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .join(if args.release { "release" } else { "debug" })
                 .join(&args.bin_name);
             println!("Built executable: {}", target_dir.display());
+
+            Ok(json!({
+                "subcommand": "compile",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "backend": backend_name,
+                "out_dir": out_dir.display().to_string(),
+                "bin_name": args.bin_name,
+                "release": args.release,
+                "binary_path": target_dir.display().to_string(),
+                "plan_out": args.plan_out.as_ref().map(|p| p.display().to_string()),
+                "shape_ir": {
+                    "node_shapes": shape_ir.node_shapes.len(),
+                    "property_shapes": shape_ir.property_shapes.len(),
+                    "components": shape_ir.components.len(),
+                    "rules": shape_ir.rules.len(),
+                }
+            }))
         }
         Commands::Heat(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let validate_start = Instant::now();
             let report = validator.validate();
+            let validate_ms = elapsed_ms(validate_start);
 
             let frequencies: HashMap<(String, String, String), usize> =
                 report.get_component_frequencies();
@@ -1125,38 +1956,137 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sorted_frequencies.sort_by(|a, b| b.1.cmp(&a.1));
 
             println!("ID\tLabel\tType\tInvocations");
-            for ((id, label, item_type), count) in sorted_frequencies {
+            for ((id, label, item_type), count) in &sorted_frequencies {
                 println!("{}\t{}\t{}\t{}", id, label, item_type, count);
             }
+
+            Ok(json!({
+                "subcommand": "heat",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "report": {
+                    "conforms": report.conforms(),
+                    "frequency_rows": sorted_frequencies.len(),
+                },
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::VisualizeHeatmap(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let validate_start = Instant::now();
             let dot_string = run_validation_then_get_heatmap_dot(&validator, args.all)?;
+            let validate_ms = elapsed_ms(validate_start);
             let wants_graphviz = args.graphviz || args.pdf.is_none();
 
             if wants_graphviz {
                 println!("{}", dot_string);
-            } else if let Some(pdf_path) = args.pdf {
-                write_pdf_from_dot(dot_string, &pdf_path, "PDF heatmap")?;
+            } else if let Some(pdf_path) = args.pdf.as_ref() {
+                write_pdf_from_dot(dot_string, pdf_path, "PDF heatmap")?;
             }
+
+            Ok(json!({
+                "subcommand": "visualize-heatmap",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "emitted_graphviz": wants_graphviz,
+                "pdf_output": args.pdf.as_ref().map(|p| p.display().to_string()),
+                "include_all_nodes": args.all,
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
         Commands::GenerateIr(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator_shapes_only(&args)?;
+            let graph_fetching_ms = elapsed_ms(fetch_start);
             let mut shape_ir = validator.context().shape_ir().clone();
             shape_ir.data_graph = None;
+            let report_assembly_start = Instant::now();
             ir_cache::write_shape_ir(&args.output_file, &shape_ir)
                 .map_err(|e| format!("Failed to write SHACL-IR cache: {}", e))?;
+            let report_assembly_ms = elapsed_ms(report_assembly_start);
             println!("Wrote SHACL-IR cache to {}", args.output_file.display());
+
+            Ok(json!({
+                "subcommand": "generate-ir",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": serde_json::Value::Null,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": report_assembly_ms,
+                },
+                "output_file": args.output_file.display().to_string(),
+                "shape_ir": {
+                    "node_shapes": shape_ir.node_shapes.len(),
+                    "property_shapes": shape_ir.property_shapes.len(),
+                    "components": shape_ir.components.len(),
+                    "rules": shape_ir.rules.len(),
+                }
+            }))
         }
         Commands::Trace(args) => {
+            let fetch_start = Instant::now();
             let validator = get_validator(&args.common, None)?;
-            // Run validation to populate execution traces
+            let graph_fetching_ms = elapsed_ms(fetch_start);
+            let validate_start = Instant::now();
             let report = validator.validate();
-
+            let validate_ms = elapsed_ms(validate_start);
             report.print_traces();
+
+            Ok(json!({
+                "subcommand": "trace",
+                "phases_ms": {
+                    "graph_fetching": graph_fetching_ms,
+                    "validate": validate_ms,
+                    "inference": serde_json::Value::Null,
+                    "report_assembly": 0.0,
+                },
+                "report": {
+                    "conforms": report.conforms(),
+                },
+                "validator_stats": validator_stats_json(&validator),
+            }))
         }
     }
-    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+    init_logging(cli.log_level, cli.verbose, cli.quiet);
+    let command_name = cli.command.name();
+    let benchmark_json_path = cli.benchmark_json.clone();
+    let start = Instant::now();
+    let result = run_command(cli.command);
+    let wall_time_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    if let Some(path) = benchmark_json_path.as_ref() {
+        let benchmark = match &result {
+            Ok(metrics) => json!({
+                "command": command_name,
+                "success": true,
+                "wall_time_ms": wall_time_ms,
+                "metrics": metrics,
+            }),
+            Err(err) => json!({
+                "command": command_name,
+                "success": false,
+                "wall_time_ms": wall_time_ms,
+                "error": err.to_string(),
+            }),
+        };
+        emit_benchmark_json(path, &benchmark)?;
+    }
+
+    result.map(|_| ())
 }
 #[derive(Parser, Debug, Clone, Default)]
 struct TraceOutputArgs {
@@ -1179,7 +2109,7 @@ impl TraceOutputArgs {
     }
 }
 
-#[cfg(feature = "shacl-compiler")]
+#[cfg(feature = "srcgen-compiler")]
 fn write_shape_graph_ttl(
     shape_ir: &ShapeIR,
     path: &Path,
@@ -1206,4 +2136,37 @@ fn write_shape_graph_ttl(
     serializer.finish()?;
     fs::write(path, &writer)?;
     Ok(())
+}
+
+#[cfg(all(test, feature = "srcgen-compiler"))]
+mod tests {
+    use super::*;
+
+    fn parse_compile_args(extra: &[&str]) -> CompileArgs {
+        let mut argv = vec!["shifty", "compile", "--shapes-file", "shapes.ttl"];
+        argv.extend_from_slice(extra);
+        let cli = Cli::try_parse_from(argv).expect("compile args should parse");
+        match cli.command {
+            Commands::Compile(args) => args,
+            _ => panic!("expected compile command"),
+        }
+    }
+
+    #[test]
+    fn compile_defaults_to_srcgen_specialized_backend() {
+        let args = parse_compile_args(&[]);
+        assert!(matches!(
+            args.resolve_backend().expect("backend should resolve"),
+            ResolvedCompileBackend::Srcgen(SrcGenBackend::Specialized)
+        ));
+    }
+
+    #[test]
+    fn compile_tables_backend_is_supported() {
+        let args = parse_compile_args(&["--backend", "tables"]);
+        assert!(matches!(
+            args.resolve_backend().expect("backend should resolve"),
+            ResolvedCompileBackend::Srcgen(SrcGenBackend::Tables)
+        ));
+    }
 }
