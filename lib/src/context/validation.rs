@@ -265,6 +265,8 @@ pub struct ValidationContext {
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
     /// Component result memoization cache for deduplicating identical constraint validations
     pub(crate) component_memo_cache: RwLock<HashMap<crate::component_memo::ComponentMemoKey, crate::component_memo::ComponentMemoValue>>,
+    /// Path batching cache for deduplicating identical path queries across property shapes
+    pub(crate) path_batch_cache: RwLock<HashMap<String, Arc<HashMap<Term, Vec<Term>>>>>,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
     focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
     compiled_sparql_index: RwLock<CompiledSparqlIndex>,
@@ -338,6 +340,7 @@ impl ValidationContext {
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
             component_memo_cache: RwLock::new(HashMap::new()),
+            path_batch_cache: RwLock::new(HashMap::new()),
             node_conformance_cache: RwLock::new(HashMap::new()),
             focus_predicate_summary: RwLock::new(None),
             compiled_sparql_index: RwLock::new(CompiledSparqlIndex::default()),
