@@ -1,3 +1,4 @@
+pub mod cost_estimation;
 pub mod data;
 pub mod memoization;
 pub mod path_sharing;
@@ -56,11 +57,14 @@ pub struct AnalyzerRegistry {
 impl AnalyzerRegistry {
     pub fn with_defaults() -> Self {
         let mut registry = Self::default();
+        // Static analyzers
         registry.register(shape::ShapeStructureAnalyzer);
         registry.register(data::DataGraphProfileAnalyzer);
         registry.register(target_sharing::TargetSharingAnalyzer);
         registry.register(path_sharing::PathSharingAnalyzer);
         registry.register(memoization::MemoizationAnalyzer);
+        // Runtime analyzers
+        registry.register(cost_estimation::CostEstimationAnalyzer);
         registry
     }
 
