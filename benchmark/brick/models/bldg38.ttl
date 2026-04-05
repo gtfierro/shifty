@@ -1,0 +1,83 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg38#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AHU01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg38.AHU.AHU01.CCV,
+        ns2:bldg38.AHU.AHU01.Cooling_Valve_Output,
+        ns2:bldg38.AHU.AHU01.Outside_Air_Temp_Virtual,
+        ns2:bldg38.AHU.AHU01.Supply_Air_Temp,
+        ns2:bldg38.AHU.AHU01.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU02 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg38.AHU.AHU02.CCV,
+        ns2:bldg38.AHU.AHU02.Cooling_Valve_Output,
+        ns2:bldg38.AHU.AHU02.Supply_Air_Temp,
+        ns2:bldg38.AHU.AHU02.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU03 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg38.AHU.AHU03.CCV,
+        ns2:bldg38.AHU.AHU03.Cooling_Valve_Output,
+        ns2:bldg38.AHU.AHU03.Supply_Air_Temp,
+        ns2:bldg38.AHU.AHU03.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg38 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "117061^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:bldg38.AHU.AHU01.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg38.AHU.AHU01.CCV" .
+
+ns2:bldg38.AHU.AHU01.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg38.AHU.AHU01.Cooling Valve Output" .
+
+ns2:bldg38.AHU.AHU01.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg38.AHU.AHU01.Outside Air Temp Virtual" .
+
+ns2:bldg38.AHU.AHU01.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg38.AHU.AHU01.Supply Air Temp" .
+
+ns2:bldg38.AHU.AHU01.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg38.AHU.AHU01.Supply Air Temp Setpoint" .
+
+ns2:bldg38.AHU.AHU02.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg38.AHU.AHU02.CCV" .
+
+ns2:bldg38.AHU.AHU02.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg38.AHU.AHU02.Cooling Valve Output" .
+
+ns2:bldg38.AHU.AHU02.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg38.AHU.AHU02.Supply Air Temp" .
+
+ns2:bldg38.AHU.AHU02.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg38.AHU.AHU02.Supply Air Temp Setpoint" .
+
+ns2:bldg38.AHU.AHU03.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg38.AHU.AHU03.CCV" .
+
+ns2:bldg38.AHU.AHU03.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg38.AHU.AHU03.Cooling Valve Output" .
+
+ns2:bldg38.AHU.AHU03.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg38.AHU.AHU03.Supply Air Temp" .
+
+ns2:bldg38.AHU.AHU03.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg38.AHU.AHU03.Supply Air Temp Setpoint" .
+
+ns2:bldg38.CHW.Enable a brick:Enable_Command ;
+    rdfs:label "bldg38.CHW.Enable" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg38.CHW.Enable .
+

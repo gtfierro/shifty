@@ -1,0 +1,266 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg26#> .
+@prefix ns3: <http://buildsys.org/ontologies/bldg26#bldg26.CHW.Pump1_Start/> .
+@prefix ns4: <http://buildsys.org/ontologies/bldg26#bldg26.CHW.Pump2_Start/> .
+@prefix ns5: <http://buildsys.org/ontologies/bldg26#bldg26.CHW.Pump3_Start/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AHU_SF01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg26.AHU.AHU_SF01.Cooling_Valve_Output,
+        ns2:bldg26.AHU.AHU_SF01.Heating_Valve_Output,
+        ns2:bldg26.AHU.AHU_SF01.Mixed_Air_Temp,
+        ns2:bldg26.AHU.AHU_SF01.Mode,
+        ns2:bldg26.AHU.AHU_SF01.Outside_Air_Temp_Virtual,
+        ns2:bldg26.AHU.AHU_SF01.Supply_Air_Pressure,
+        ns2:bldg26.AHU.AHU_SF01.Supply_Air_Temp,
+        ns2:bldg26.AHU.AHU_SF01.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU_SF02 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg26.AHU.AHU_SF02.CCV,
+        ns2:bldg26.AHU.AHU_SF02.Cooling_Valve_Output,
+        ns2:bldg26.AHU.AHU_SF02.Heating_Valve_Output,
+        ns2:bldg26.AHU.AHU_SF02.Mixed_Air_Temp,
+        ns2:bldg26.AHU.AHU_SF02.Mode,
+        ns2:bldg26.AHU.AHU_SF02.Outside_Air_Temp_Virtual,
+        ns2:bldg26.AHU.AHU_SF02.Supply_Air_Pressure,
+        ns2:bldg26.AHU.AHU_SF02.Supply_Air_Temp,
+        ns2:bldg26.AHU.AHU_SF02.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU_SF1_2 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg26.AHU.AHU_SF1_2.Return_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg26 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "53229^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:Olson_ChilledWater_Demand_kBtu a brick:Electric_Meter ;
+    rdfs:label "Olson_ChilledWater_Demand_kBtu" ;
+    brick:isPointOf ns2:chiller .
+
+ns2:Olson_Electricity_Demand_kBtu a brick:Building_Electric_Meter ;
+    rdfs:label "Olson_Electricity_Demand_kBtu" .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "b07381b4-4e66-4833-bd74-6fad8e74a669" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "b6a84e32-959c-4643-96df-53684749f60d" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Mode> ref:hasExternalReference [ ref:hasTimeseriesId "996ad6d2-848d-4dd4-adcb-a9968ea935e9" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "2a0ffeaa-122d-4823-abc1-593cb42b8ef1" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Supply_Air_Pressure> ref:hasExternalReference [ ref:hasTimeseriesId "2c1f54f6-edbc-4f52-ba65-2eda3550d5d5" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "73d74f1e-a5ae-423f-8ac4-838926144b35" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF01.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "5bb1b0ba-1880-4aa7-be67-52d1489ea08d" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "c61782a2-1c8f-47a5-a4ab-d42de495725d" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "042273af-2d5e-4ac1-94bc-bf576b3d5791" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "e21528d4-98e4-4498-88c0-95f890bb2c0c" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "e01b5b4c-869d-44ab-831a-74d9abc5b7e3" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.Supply_Air_Pressure> ref:hasExternalReference [ ref:hasTimeseriesId "02bfc4e3-ec24-4d88-8f87-9dacca43ce52" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "d30b6c69-e96d-4a81-965f-c5283887a8c0" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF02.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "68903f75-1f74-433e-bcbb-79a3e4cfc570" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.AHU.AHU_SF1_2.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b581f427-0bd7-43eb-b643-6c53eff9a417" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Building_Chilled_Water_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "46440add-7d6c-49b5-b26d-fe128e142000" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c6b692df-a3d4-4892-8b84-25d57840a27e" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "357a4c1c-539f-4893-9ab6-46ad5d2e1d18" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP1_FREQ_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "dafa89bc-2d73-41ec-b380-32adb338c5ad" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP1_PCT_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "31906aeb-4f14-4743-9700-1f6d4fa88d88" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP1_POWER> ref:hasExternalReference [ ref:hasTimeseriesId "aeefdc82-7724-4125-a723-33cab07ab5a7" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP1_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "325bd863-aaba-4c64-8a93-392a2b1e45f7" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP2_FREQ_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "88fd62be-258f-4d5b-ad3f-dbb7a7b5eb44" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP2_PCT_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "70121530-4983-48e2-b52f-0ba7cc5aba4e" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP2_POWER> ref:hasExternalReference [ ref:hasTimeseriesId "288d8aef-c37d-416f-b37c-55eed3bac1b3" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP2_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "e7825603-e09a-45d5-b67e-8b43d23afd5e" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP3_FREQ_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "9109126b-7eda-4571-b482-c9b051de7352" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP3_PCT_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "df8d3f8b-e458-495b-bde9-a85d61302e6e" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP3_POWER> ref:hasExternalReference [ ref:hasTimeseriesId "92ebcf85-3a54-4ce3-a257-d5a97ba0e099" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.CHWP3_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "a9e182bf-378f-432c-be32-c0d791219538" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "e83bf29d-6b6a-4f3a-a04c-aff2e8af6218" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Enable> ref:hasExternalReference [ ref:hasTimeseriesId "5a1515cc-30d6-4978-b311-c2303964ad65" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "63c5d855-7919-4835-b9dc-f1ad150ab2f5" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Pump1_Start/Stop> ref:hasExternalReference [ ref:hasTimeseriesId "fd06a85b-5fca-48af-afa4-4b9c0d704033" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Pump2_Start/Stop> ref:hasExternalReference [ ref:hasTimeseriesId "44293e5f-95c4-428e-90fd-b205b2d826c6" ] .
+
+<http://buildsys.org/ontologies/bldg26#bldg26.CHW.Pump3_Start/Stop> ref:hasExternalReference [ ref:hasTimeseriesId "3304dcd5-5e89-4163-a984-01fe42d83f98" ] .
+
+ns2:bldg26.AHU.AHU_SF01.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Cooling Valve Output" .
+
+ns2:bldg26.AHU.AHU_SF01.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Heating Valve Output" .
+
+ns2:bldg26.AHU.AHU_SF01.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Mixed Air Temp" .
+
+ns2:bldg26.AHU.AHU_SF01.Mode a brick:Mode ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Mode" .
+
+ns2:bldg26.AHU.AHU_SF01.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Outside Air Temp Virtual" .
+
+ns2:bldg26.AHU.AHU_SF01.Supply_Air_Pressure a brick:Supply_Air_Static_Pressure_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Supply Air Pressure" .
+
+ns2:bldg26.AHU.AHU_SF01.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Supply Air Temp" .
+
+ns2:bldg26.AHU.AHU_SF01.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg26.AHU.AHU_SF01.Supply Air Temp Setpoint" .
+
+ns2:bldg26.AHU.AHU_SF02.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg26.AHU.AHU_SF02.CCV" .
+
+ns2:bldg26.AHU.AHU_SF02.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Cooling Valve Output" .
+
+ns2:bldg26.AHU.AHU_SF02.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Heating Valve Output" .
+
+ns2:bldg26.AHU.AHU_SF02.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Mixed Air Temp" .
+
+ns2:bldg26.AHU.AHU_SF02.Mode a brick:Mode ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Mode" .
+
+ns2:bldg26.AHU.AHU_SF02.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Outside Air Temp Virtual" .
+
+ns2:bldg26.AHU.AHU_SF02.Supply_Air_Pressure a brick:Supply_Air_Static_Pressure_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Supply Air Pressure" .
+
+ns2:bldg26.AHU.AHU_SF02.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Supply Air Temp" .
+
+ns2:bldg26.AHU.AHU_SF02.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg26.AHU.AHU_SF02.Supply Air Temp Setpoint" .
+
+ns2:bldg26.AHU.AHU_SF1_2.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.AHU.AHU_SF1_2.Return Air Temp" .
+
+ns2:bldg26.CHW.Building_Chilled_Water_Delta_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.CHW.Building Chilled Water Flow" .
+
+ns2:bldg26.CHW.Building_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg26.CHW.Building Chilled Water Flow" .
+
+ns2:bldg26.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg26.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg26.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg26.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg26.CHW.CHWP1_FREQ_OUTPUT a brick:Output_Frequency_Sensor ;
+    rdfs:label "bldg26.CHW.CHWP1_FREQ OUTPUT" .
+
+ns2:bldg26.CHW.CHWP1_PCT_OUTPUT a brick:Cooling_Request_Percent_Setpoint ;
+    rdfs:label "bldg26.CHW.CHWP1_PCT OUTPUT" .
+
+ns2:bldg26.CHW.CHWP1_POWER a brick:Power_Sensor ;
+    rdfs:label "bldg26.CHW.CHWP1_POWER" .
+
+ns2:bldg26.CHW.CHWP1_SPEED a brick:Chilled_Water_Pump_VFD_Speed ;
+    rdfs:label "bldg26.CHW.CHWP1_SPEED" .
+
+ns2:bldg26.CHW.CHWP2_FREQ_OUTPUT a brick:Output_Frequency_Sensor ;
+    rdfs:label "bldg26.CHW.CHWP2_FREQ OUTPUT" .
+
+ns2:bldg26.CHW.CHWP2_PCT_OUTPUT a brick:Cooling_Request_Percent_Setpoint ;
+    rdfs:label "bldg26.CHW.CHWP2_PCT OUTPUT" .
+
+ns2:bldg26.CHW.CHWP2_POWER a brick:Power_Sensor ;
+    rdfs:label "bldg26.CHW.CHWP2_POWER" .
+
+ns2:bldg26.CHW.CHWP2_SPEED a brick:Chilled_Water_Pump_VFD_Speed ;
+    rdfs:label "bldg26.CHW.CHWP2_SPEED" .
+
+ns2:bldg26.CHW.CHWP3_FREQ_OUTPUT a brick:Output_Frequency_Sensor ;
+    rdfs:label "bldg26.CHW.CHWP3_FREQ OUTPUT" .
+
+ns2:bldg26.CHW.CHWP3_PCT_OUTPUT a brick:Cooling_Request_Percent_Setpoint ;
+    rdfs:label "bldg26.CHW.CHWP3_PCT OUTPUT" .
+
+ns2:bldg26.CHW.CHWP3_POWER a brick:Power_Sensor ;
+    rdfs:label "bldg26.CHW.CHWP3_POWER" .
+
+ns2:bldg26.CHW.CHWP3_SPEED a brick:Chilled_Water_Pump_VFD_Speed ;
+    rdfs:label "bldg26.CHW.CHWP3_SPEED" .
+
+ns2:bldg26.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg26.CHW.ECONOMIZER" .
+
+ns2:bldg26.CHW.Enable a brick:Enable_Command ;
+    rdfs:label "bldg26.CHW.Enable" .
+
+ns2:bldg26.CHW.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg26.CHW.Outside Air Temp" .
+
+ns3:Stop a brick:Start_Stop_Command ;
+    rdfs:label "bldg26.CHW.Pump1_Start/Stop" .
+
+ns4:Stop a brick:Start_Stop_Command ;
+    rdfs:label "bldg26.CHW.Pump2_Start/Stop" .
+
+ns5:Stop a brick:Start_Stop_Command ;
+    rdfs:label "bldg26.CHW.Pump3_Start/Stop" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg26.CHW.Building_Chilled_Water_Delta_Temp,
+        ns2:bldg26.CHW.Building_Chilled_Water_Flow,
+        ns2:bldg26.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg26.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg26.CHW.CHWP1_FREQ_OUTPUT,
+        ns2:bldg26.CHW.CHWP1_PCT_OUTPUT,
+        ns2:bldg26.CHW.CHWP1_POWER,
+        ns2:bldg26.CHW.CHWP1_SPEED,
+        ns2:bldg26.CHW.CHWP2_FREQ_OUTPUT,
+        ns2:bldg26.CHW.CHWP2_PCT_OUTPUT,
+        ns2:bldg26.CHW.CHWP2_POWER,
+        ns2:bldg26.CHW.CHWP2_SPEED,
+        ns2:bldg26.CHW.CHWP3_FREQ_OUTPUT,
+        ns2:bldg26.CHW.CHWP3_PCT_OUTPUT,
+        ns2:bldg26.CHW.CHWP3_POWER,
+        ns2:bldg26.CHW.CHWP3_SPEED,
+        ns2:bldg26.CHW.ECONOMIZER,
+        ns2:bldg26.CHW.Enable,
+        ns2:bldg26.CHW.Outside_Air_Temp,
+        ns3:Stop,
+        ns4:Stop,
+        ns5:Stop .
+

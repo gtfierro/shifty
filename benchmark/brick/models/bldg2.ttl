@@ -1,0 +1,760 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg2#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AC02 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg2.AHU.AC02.Outside_Air_Temp,
+        ns2:bldg2.AHU.AC02.Return_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC03 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg2.AHU.AC03.Outside_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC04 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg2.AHU.AC04.Outside_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC2 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg2.AHU.AC2.CCV,
+        ns2:bldg2.AHU.AC2.Heating_Valve_Output,
+        ns2:bldg2.AHU.AC2.Supply_Air_Temp,
+        ns2:bldg2.AHU.AC2.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC3 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg2.AHU.AC3.CCV,
+        ns2:bldg2.AHU.AC3.Heating_Valve_Output,
+        ns2:bldg2.AHU.AC3.Supply_Air_Temp,
+        ns2:bldg2.AHU.AC3.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC4 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg2.AHU.AC4.CCV,
+        ns2:bldg2.AHU.AC4.Heating_Valve_Output,
+        ns2:bldg2.AHU.AC4.Supply_Air_Temp,
+        ns2:bldg2.AHU.AC4.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU01 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM120,
+        ns2:VAVRM121,
+        ns2:VAVRM123,
+        ns2:VAVRM127,
+        ns2:VAVRM130,
+        ns2:VAVRM131,
+        ns2:VAVRM132,
+        ns2:VAVRM135,
+        ns2:VAVRM136,
+        ns2:VAVRM137,
+        ns2:VAVRM151,
+        ns2:VAVRM204,
+        ns2:VAVRM207,
+        ns2:VAVRM208,
+        ns2:VAVRM212,
+        ns2:VAVRM214,
+        ns2:VAVRM217,
+        ns2:VAVRM221,
+        ns2:VAVRM222,
+        ns2:VAVRM237,
+        ns2:VAVRM242 .
+
+ns2:AHU02 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM101,
+        ns2:VAVRM102,
+        ns2:VAVRM148A,
+        ns2:VAVRM148B .
+
+ns2:bldg2 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "26793^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:Asmundson_ChilledWater_Demand_kBtu a brick:Electric_Meter ;
+    rdfs:label "Asmundson_ChilledWater_Demand_kBtu" ;
+    brick:isPointOf ns2:chiller .
+
+ns2:Asmundson_Electricity_Demand_kBtu a brick:Building_Electric_Meter ;
+    rdfs:label "Asmundson_Electricity_Demand_kBtu" .
+
+ns2:floor1 a brick:Floor ;
+    brick:hasPart ns2:RM101_room,
+        ns2:RM102_room,
+        ns2:RM120_room,
+        ns2:RM121_room,
+        ns2:RM123_room,
+        ns2:RM127_room,
+        ns2:RM130_room,
+        ns2:RM131_room,
+        ns2:RM132_room,
+        ns2:RM135_room,
+        ns2:RM136_room,
+        ns2:RM137_room,
+        ns2:RM148A_room,
+        ns2:RM148B_room,
+        ns2:RM151_room .
+
+ns2:floor2 a brick:Floor ;
+    brick:hasPart ns2:RM204_room,
+        ns2:RM207_room,
+        ns2:RM208_room,
+        ns2:RM212_room,
+        ns2:RM214_room,
+        ns2:RM217_room,
+        ns2:RM221_room,
+        ns2:RM222_room,
+        ns2:RM237_room,
+        ns2:RM242_room .
+
+<http://buildsys.org/ontologies/bldg2#Asmundson_ChilledWater_Demand_kBtu> ref:hasExternalReference [ ref:hasTimeseriesId "f58e9dba-ed32-4bf0-ad9f-1f44be182773" ] .
+
+<http://buildsys.org/ontologies/bldg2#Asmundson_Electricity_Demand_kBtu> ref:hasExternalReference [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ],
+        [ ref:hasTimeseriesId "7d552957-bf20-4f73-ad02-45653a844f7c" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC02.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ba85e48a-ff86-4208-b9c9-6fdea781b2dd" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC02.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "dd464cc6-8323-4e5a-866d-eab4d8b70446" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC03.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "1c6d9ea8-f32f-4aa3-a267-3c5a2f297028" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC04.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "063306a5-86c5-4e85-8cc1-b7443624151c" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC2.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "c756927a-2e7c-4545-8a10-ab82c52a446c" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC2.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "c172c10c-a177-4697-92bf-6b6b1eb50533" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC2.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "0a4ef706-b5c2-4f80-be05-4b84d51fa819" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC2.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "3799d427-0209-42e9-9321-06f1ebfb2ced" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC3.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "78883812-04d1-424a-a615-80b22bcc6f56" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC3.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "8e38b8bb-68ef-44c5-936a-a360bd6d784f" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC3.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "a1be5877-dac4-43be-93d7-20f83a014fc7" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC3.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "31e4fd23-155b-47a3-9ca6-e54b5f836c8e" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC4.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "ebd88574-1bd6-4e41-a788-89185f74268b" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC4.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "ba94919d-fc29-441f-b6fe-a664d87b8e44" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC4.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "0daecea7-ff54-4473-af19-ca8281ef6b4e" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.AHU.AC4.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "cf4c5bd8-c078-4f9a-9466-076249a34dfa" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b3452ef9-9ded-4034-9004-c9192f98546e" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Building_Chilled_Water_Return_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a3b705e8-7838-44d9-b14c-d7bb9ba145cf" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "af234e3d-57e7-4356-b066-ef18e43c3cbb" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Building_Chilled_Water_Supply_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "3ddead69-9029-46cc-9cbc-fa385ed10744" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "04a3cce3-ee48-4bc6-8a74-daca51797f06" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Loop_Chilled_Water_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "7e714994-9426-4f2d-a514-04dcd54cba3b" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Loop_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "7e326d0f-abd0-4a1b-b3da-3ae3858cebc2" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.CHW.Loop_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c6e8d0b9-0c05-470f-b8bb-c9176c2731e6" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM120.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "ef3be8b0-0731-4084-9c30-edd188da25c5" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM120.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "c4f7b533-4907-4d70-9c5c-0014af097c88" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM121.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "774f6990-b0db-40e4-b5d3-6eb18fdad089" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM121.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "c8df54e5-4c8b-46a2-b981-92e28c13842a" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM123.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "20d08e84-9088-4290-ade8-b38b852718ba" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM123.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "422dbc81-ace7-4b38-bee2-3b2c10b2b0e8" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM127.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "4055c2d1-8ebd-49a2-92c4-83d945fd9611" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM127.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "5d14225f-a38c-45f5-a1a5-a7c93d4627ed" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM130.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "358536b2-d176-45de-8b64-befe098d2470" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM130.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "c6e2678b-d8c3-490f-89df-84391a5a0543" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM131.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "b2b7e6ce-3c10-41a7-8199-66a455dc6f6d" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM131.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "e064d1a2-0d13-42cf-89c7-2ab7de891fa5" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM132.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "220edb1b-d114-471d-8819-b8246bfde7b3" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM132.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "c0ccf5a9-3d9a-430f-83a8-a0f00f08581e" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM135.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "f74a867d-2649-4e09-861f-38bfc96dee7f" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM135.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "1ef24a6f-a5fe-4bc1-bafe-2d5317bdd4da" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM136.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "2594ac55-ca30-4271-915d-3e63f10608cd" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM136.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "d005ad03-3c52-4071-aaee-e7db336f5fac" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM137.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "a5f96142-af3c-461a-bf46-490a0cb3aa39" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM137.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "1aeb7943-8694-4a8a-a9cf-44cfdc2456a7" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM151.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "ec85bc72-1a11-4806-a452-0e8e90194438" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM151.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "990b1276-bff6-4deb-b05b-edbf9d81d893" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM204.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "6030896b-8a3b-4399-bc2f-1ccb17639a3d" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM204.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "edc3452e-4a86-4d22-9553-a482d5b0a39b" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM207.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "6e55c169-a512-48ea-be9c-befc7999d7fe" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM207.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "be4fed3d-0b70-434f-b4fa-93a9054df6cd" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM208.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "2f158910-b3a4-4f1b-8ffe-12a737689b32" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM208.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "65045512-12a0-41fb-adaf-08abbaf75468" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM212.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "8f1fa81f-740b-4d6b-bdf6-c05f79414994" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM212.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "03478621-2c29-4e7e-9e55-62d8b849ee96" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM214.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "8d2d3ec8-635b-4d89-a947-f1072f889e69" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM214.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "e91567ec-421c-497a-b49f-98a2c7c80521" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM217.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "c1615b39-5989-4fbd-8821-40a98db2b0f1" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM217.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "f32b7117-4307-4338-abc4-4c6cbbc7578c" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM221.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "d0bc793c-744c-4f9a-a732-5f54c0abd04c" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM221.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "d3f40c0c-629a-4257-ab21-0f2b99393b42" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM222.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "649043e8-df59-454a-b594-33330d57abc2" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM222.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "733e7c53-520b-46e9-a5a3-91d9060e5e7c" ],
+        [ ref:hasTimeseriesId "ede87375-bd89-4019-96a5-62b71811be8c" ],
+        [ ref:hasTimeseriesId "b7a66a04-4192-4497-8ac3-5b2995188b55" ],
+        [ ref:hasTimeseriesId "86fc1b43-7074-4a01-be6d-72c4f5cdab43" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM237.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "d6c64e74-3f36-41dd-8052-dcf2436f5248" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM237.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "fe6af5da-5fde-48b1-8cb4-77fe9717eb06" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM242.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "6b829b44-ce7f-422f-8da5-4484ff4e8724" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU01.RM242.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "6e36e31d-ba34-4a10-a2c9-efe29c17bd02" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM101.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "a0843bac-c5fa-4317-b435-0a6908df7950" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM101.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "99759c20-2983-4024-9ced-614b55e367b1" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM102.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "f3e5d465-05a6-4fe6-9623-dcf94d558716" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM102.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "6a3b7fa0-542c-48cc-b998-b0c5afe4d37b" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM148A.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "008e8d47-3d64-42d9-a464-b0ebafb7821e" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM148A.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "a27ab742-3e92-4123-88da-2d6188844cb7" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM148B.CHWV> ref:hasExternalReference [ ref:hasTimeseriesId "37e2df7b-d50d-405f-adea-af8d80f1fd2f" ] .
+
+<http://buildsys.org/ontologies/bldg2#bldg2.ZONE.AHU02.RM148B.HWV> ref:hasExternalReference [ ref:hasTimeseriesId "316fb355-058e-4a01-a9e6-e7a1dbbea0c7" ] .
+
+ns2:bldg2.AHU.AC02.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC02.Outside Air Temp" .
+
+ns2:bldg2.AHU.AC02.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC02.Return Air Temp" .
+
+ns2:bldg2.AHU.AC03.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC03.Outside Air Temp" .
+
+ns2:bldg2.AHU.AC04.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC04.Outside Air Temp" .
+
+ns2:bldg2.AHU.AC2.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg2.AHU.AC2.CCV" .
+
+ns2:bldg2.AHU.AC2.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg2.AHU.AC2.Heating Valve Output" .
+
+ns2:bldg2.AHU.AC2.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC2.Supply Air Temp" .
+
+ns2:bldg2.AHU.AC2.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg2.AHU.AC2.Supply Air Temp Setpoint" .
+
+ns2:bldg2.AHU.AC3.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg2.AHU.AC3.CCV" .
+
+ns2:bldg2.AHU.AC3.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg2.AHU.AC3.Heating Valve Output" .
+
+ns2:bldg2.AHU.AC3.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC3.Supply Air Temp" .
+
+ns2:bldg2.AHU.AC3.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg2.AHU.AC3.Supply Air Temp Setpoint" .
+
+ns2:bldg2.AHU.AC4.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg2.AHU.AC4.CCV" .
+
+ns2:bldg2.AHU.AC4.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg2.AHU.AC4.Heating Valve Output" .
+
+ns2:bldg2.AHU.AC4.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg2.AHU.AC4.Supply Air Temp" .
+
+ns2:bldg2.AHU.AC4.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg2.AHU.AC4.Supply Air Temp Setpoint" .
+
+ns2:bldg2.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg2.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg2.CHW.Building_Chilled_Water_Return_Temp_Setpoint a brick:Chilled_Water_Return_Temperature_Setpoint ;
+    rdfs:label "bldg2.CHW.Building Chilled Water Return Temp Setpoint" .
+
+ns2:bldg2.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg2.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg2.CHW.Building_Chilled_Water_Supply_Temp_Setpoint a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg2.CHW.Building Chilled Water Supply Temp Setpoint" .
+
+ns2:bldg2.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg2.CHW.ECONOMIZER" .
+
+ns2:bldg2.CHW.ENABLE a brick:Enable_Command ;
+    rdfs:label "bldg2.CHW.ENABLE" .
+
+ns2:bldg2.CHW.Loop_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg2.CHW.Loop Chilled Water Flow" .
+
+ns2:bldg2.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg2.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg2.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg2.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg2.ZONE.AHU01.RM120.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM120.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM120.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM120.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM121.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM121.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM121.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM121.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM123.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM123.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM123.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM123.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM127.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM127.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM127.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM127.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM130.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM130.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM130.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM130.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM131.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM131.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM131.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM131.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM132.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM132.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM132.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM132.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM135.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM135.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM135.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM135.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM136.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM136.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM136.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM136.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM137.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM137.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM137.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM137.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM151.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM151.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM151.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM151.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM204.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM204.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM204.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM204.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM207.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM207.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM207.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM207.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM208.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM208.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM208.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM208.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM212.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM212.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM212.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM212.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM214.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM214.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM214.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM214.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM217.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM217.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM217.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM217.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM221.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM221.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM221.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM221.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM222.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM222.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM222.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM222.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM237.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM237.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM237.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM237.HWV" .
+
+ns2:bldg2.ZONE.AHU01.RM242.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM242.CHWV" .
+
+ns2:bldg2.ZONE.AHU01.RM242.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU01.RM242.HWV" .
+
+ns2:bldg2.ZONE.AHU02.RM101.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM101.CHWV" .
+
+ns2:bldg2.ZONE.AHU02.RM101.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM101.HWV" .
+
+ns2:bldg2.ZONE.AHU02.RM102.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM102.CHWV" .
+
+ns2:bldg2.ZONE.AHU02.RM102.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM102.HWV" .
+
+ns2:bldg2.ZONE.AHU02.RM148A.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM148A.CHWV" .
+
+ns2:bldg2.ZONE.AHU02.RM148A.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM148A.HWV" .
+
+ns2:bldg2.ZONE.AHU02.RM148B.CHWV a brick:Chilled_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM148B.CHWV" .
+
+ns2:bldg2.ZONE.AHU02.RM148B.HWV a brick:Hot_Water_Valve_Command ;
+    rdfs:label "bldg2.ZONE.AHU02.RM148B.HWV" .
+
+ns2:RM101 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM101_room .
+
+ns2:RM102 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM102_room .
+
+ns2:RM120 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM120_room .
+
+ns2:RM121 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM121_room .
+
+ns2:RM123 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM123_room .
+
+ns2:RM127 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM127_room .
+
+ns2:RM130 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM130_room .
+
+ns2:RM131 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM131_room .
+
+ns2:RM132 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM132_room .
+
+ns2:RM135 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM135_room .
+
+ns2:RM136 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM136_room .
+
+ns2:RM137 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM137_room .
+
+ns2:RM148A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM148A_room .
+
+ns2:RM148B a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM148B_room .
+
+ns2:RM151 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM151_room .
+
+ns2:RM204 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM204_room .
+
+ns2:RM207 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM207_room .
+
+ns2:RM208 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM208_room .
+
+ns2:RM212 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM212_room .
+
+ns2:RM214 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM214_room .
+
+ns2:RM217 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM217_room .
+
+ns2:RM221 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM221_room .
+
+ns2:RM222 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM222_room .
+
+ns2:RM237 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM237_room .
+
+ns2:RM242 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM242_room .
+
+ns2:VAVRM101 a brick:VAV ;
+    brick:feeds ns2:RM101 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU02.RM101.CHWV,
+        ns2:bldg2.ZONE.AHU02.RM101.HWV .
+
+ns2:VAVRM102 a brick:VAV ;
+    brick:feeds ns2:RM102 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU02.RM102.CHWV,
+        ns2:bldg2.ZONE.AHU02.RM102.HWV .
+
+ns2:VAVRM120 a brick:VAV ;
+    brick:feeds ns2:RM120 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM120.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM120.HWV .
+
+ns2:VAVRM121 a brick:VAV ;
+    brick:feeds ns2:RM121 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM121.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM121.HWV .
+
+ns2:VAVRM123 a brick:VAV ;
+    brick:feeds ns2:RM123 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM123.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM123.HWV .
+
+ns2:VAVRM127 a brick:VAV ;
+    brick:feeds ns2:RM127 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM127.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM127.HWV .
+
+ns2:VAVRM130 a brick:VAV ;
+    brick:feeds ns2:RM130 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM130.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM130.HWV .
+
+ns2:VAVRM131 a brick:VAV ;
+    brick:feeds ns2:RM131 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM131.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM131.HWV .
+
+ns2:VAVRM132 a brick:VAV ;
+    brick:feeds ns2:RM132 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM132.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM132.HWV .
+
+ns2:VAVRM135 a brick:VAV ;
+    brick:feeds ns2:RM135 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM135.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM135.HWV .
+
+ns2:VAVRM136 a brick:VAV ;
+    brick:feeds ns2:RM136 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM136.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM136.HWV .
+
+ns2:VAVRM137 a brick:VAV ;
+    brick:feeds ns2:RM137 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM137.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM137.HWV .
+
+ns2:VAVRM148A a brick:VAV ;
+    brick:feeds ns2:RM148A ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU02.RM148A.CHWV,
+        ns2:bldg2.ZONE.AHU02.RM148A.HWV .
+
+ns2:VAVRM148B a brick:VAV ;
+    brick:feeds ns2:RM148B ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU02.RM148B.CHWV,
+        ns2:bldg2.ZONE.AHU02.RM148B.HWV .
+
+ns2:VAVRM151 a brick:VAV ;
+    brick:feeds ns2:RM151 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM151.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM151.HWV .
+
+ns2:VAVRM204 a brick:VAV ;
+    brick:feeds ns2:RM204 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM204.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM204.HWV .
+
+ns2:VAVRM207 a brick:VAV ;
+    brick:feeds ns2:RM207 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM207.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM207.HWV .
+
+ns2:VAVRM208 a brick:VAV ;
+    brick:feeds ns2:RM208 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM208.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM208.HWV .
+
+ns2:VAVRM212 a brick:VAV ;
+    brick:feeds ns2:RM212 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM212.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM212.HWV .
+
+ns2:VAVRM214 a brick:VAV ;
+    brick:feeds ns2:RM214 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM214.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM214.HWV .
+
+ns2:VAVRM217 a brick:VAV ;
+    brick:feeds ns2:RM217 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM217.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM217.HWV .
+
+ns2:VAVRM221 a brick:VAV ;
+    brick:feeds ns2:RM221 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM221.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM221.HWV .
+
+ns2:VAVRM222 a brick:VAV ;
+    brick:feeds ns2:RM222 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM222.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM222.HWV .
+
+ns2:VAVRM237 a brick:VAV ;
+    brick:feeds ns2:RM237 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM237.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM237.HWV .
+
+ns2:VAVRM242 a brick:VAV ;
+    brick:feeds ns2:RM242 ;
+    brick:hasPoint ns2:bldg2.ZONE.AHU01.RM242.CHWV,
+        ns2:bldg2.ZONE.AHU01.RM242.HWV .
+
+ns2:RM101_room a brick:Room .
+
+ns2:RM102_room a brick:Room .
+
+ns2:RM120_room a brick:Room .
+
+ns2:RM121_room a brick:Room .
+
+ns2:RM123_room a brick:Room .
+
+ns2:RM127_room a brick:Room .
+
+ns2:RM130_room a brick:Room .
+
+ns2:RM131_room a brick:Room .
+
+ns2:RM132_room a brick:Room .
+
+ns2:RM135_room a brick:Room .
+
+ns2:RM136_room a brick:Room .
+
+ns2:RM137_room a brick:Room .
+
+ns2:RM148A_room a brick:Room .
+
+ns2:RM148B_room a brick:Room .
+
+ns2:RM151_room a brick:Room .
+
+ns2:RM204_room a brick:Room .
+
+ns2:RM207_room a brick:Room .
+
+ns2:RM208_room a brick:Room .
+
+ns2:RM212_room a brick:Room .
+
+ns2:RM214_room a brick:Room .
+
+ns2:RM217_room a brick:Room .
+
+ns2:RM221_room a brick:Room .
+
+ns2:RM222_room a brick:Room .
+
+ns2:RM237_room a brick:Room .
+
+ns2:RM242_room a brick:Room .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg2.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg2.CHW.Building_Chilled_Water_Return_Temp_Setpoint,
+        ns2:bldg2.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg2.CHW.Building_Chilled_Water_Supply_Temp_Setpoint,
+        ns2:bldg2.CHW.ECONOMIZER,
+        ns2:bldg2.CHW.ENABLE,
+        ns2:bldg2.CHW.Loop_Chilled_Water_Flow,
+        ns2:bldg2.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg2.CHW.Loop_Chilled_Water_Supply_Temp .
+

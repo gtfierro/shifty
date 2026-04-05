@@ -1,0 +1,75 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix ns2: <http://buildsys.org/ontologies/bldg17#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:bldg17 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "92555^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg17.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg17.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg17.CHW.Building_Chilled_Water_Supply_Temp_Sp,
+        ns2:bldg17.CHW.ECONOMIZER,
+        ns2:bldg17.CHW.ENABLE,
+        ns2:bldg17.CHW.LOOP_DP,
+        ns2:bldg17.CHW.Loop_Chilled_Water_Flow,
+        ns2:bldg17.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg17.CHW.Loop_Chilled_Water_Supply_Temp,
+        ns2:bldg17.CHW.Outside_Air_Temp,
+        ns2:bldg17.CHW.PUMPENABLE .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "621a91f0-3f9b-41f1-bed9-2ccf9dd7c37d" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "e9b59947-62b2-4b12-8e34-98dbe92126c3" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Building_Chilled_Water_Supply_Temp_Sp> ref:hasExternalReference [ ref:hasTimeseriesId "6a4c0de9-eb7a-4d71-956a-054a00a94114" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "17c0bb05-c084-48e5-a77c-bc3b9efee2cc" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.LOOP_DP> ref:hasExternalReference [ ref:hasTimeseriesId "09e50848-511a-4cd2-bcf9-7b301dbd7f99" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Loop_Chilled_Water_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "a4243033-32f0-45fa-b274-fad3b863c8b7" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Loop_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "1893757c-0c5d-4c26-819f-2c43e67dadd6" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Loop_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b9701c31-5783-41ee-8f7b-a2560a50068c" ] .
+
+<http://buildsys.org/ontologies/bldg17#bldg17.CHW.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3c42794c-a092-474e-b469-95061ae6e82c" ] .
+
+ns2:bldg17.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg17.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg17.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg17.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg17.CHW.Building_Chilled_Water_Supply_Temp_Sp a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg17.CHW.Building Chilled Water Supply Temp Sp" .
+
+ns2:bldg17.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg17.CHW.ECONOMIZER" .
+
+ns2:bldg17.CHW.ENABLE a brick:Enable_Command ;
+    rdfs:label "bldg17.CHW.ENABLE" .
+
+ns2:bldg17.CHW.LOOP_DP a brick:Chilled_Water_Differential_Pressure_Sensor ;
+    rdfs:label "bldg17.CHW.LOOP DP" .
+
+ns2:bldg17.CHW.Loop_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg17.CHW.Loop Chilled Water Flow" .
+
+ns2:bldg17.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg17.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg17.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg17.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg17.CHW.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg17.CHW.Outside Air Temp" .
+
+ns2:bldg17.CHW.PUMPENABLE a brick:Pump_Command ;
+    rdfs:label "bldg17.CHW.PUMPENABLE" .
+

@@ -1,0 +1,123 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix ns2: <http://buildsys.org/ontologies/bldg16#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AC01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg16.AHU.AC01.Mixed_Air_Temp,
+        ns2:bldg16.AHU.AC01.Supply_Air_Temp .
+
+ns2:AC03 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg16.AHU.AC03.Day_Night_Mode,
+        ns2:bldg16.AHU.AC03.Heat_Cool_Mode,
+        ns2:bldg16.AHU.AC03.Zone_Air_Temp,
+        ns2:bldg16.AHU.AC03.Zone_Air_Temp_Setpoint .
+
+ns2:AC04 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg16.AHU.AC04.Day_Night_Mode,
+        ns2:bldg16.AHU.AC04.Heat_Cool_Mode,
+        ns2:bldg16.AHU.AC04.Zone_Air_Temp,
+        ns2:bldg16.AHU.AC04.Zone_Air_Temp_Setpoint .
+
+ns2:AC05 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg16.AHU.AC05.Day_Night_Mode,
+        ns2:bldg16.AHU.AC05.Heat_Cool_Mode,
+        ns2:bldg16.AHU.AC05.Zone_Air_Temp,
+        ns2:bldg16.AHU.AC05.Zone_Air_Temp_Setpoint .
+
+ns2:AC06 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg16.AHU.AC06.Day_Night_Mode,
+        ns2:bldg16.AHU.AC06.Heat_Cool_Mode,
+        ns2:bldg16.AHU.AC06.Zone_Air_Temp,
+        ns2:bldg16.AHU.AC06.Zone_Air_Temp_Setpoint .
+
+ns2:AH02 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg16.AHU.AH02.Mixed_Air_Temp,
+        ns2:bldg16.AHU.AH02.Supply_Air_Temp .
+
+ns2:bldg16 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "117804" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC01.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "a43ae1bb-3c0b-4d6c-8f60-7fbf2bf31ea6" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC03.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "cdacd29d-e209-470b-addc-de94edd1e89a" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC03.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "4c655709-52c3-4f30-9d02-d7dcededc66b" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC04.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "df5f8afa-b9ca-4d08-b067-ea7c72fd16f6" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC04.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a8e9b14d-11ea-4fd1-9e74-dd9f821ba1ce" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC05.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "0d645f7c-5c77-4846-a864-27f2980aaf4f" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC05.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "8c605302-fe7e-4e4c-ba60-ac77cfdebc78" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC06.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ca8b472f-e348-4c27-bce1-1de1bf0beb14" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AC06.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "99b87925-2335-458f-a118-9211589e5112" ] .
+
+<http://buildsys.org/ontologies/bldg16#bldg16.AHU.AH02.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "064ca921-2642-4d54-bbdb-3046382da8c4" ] .
+
+ns2:bldg16.AHU.AC01.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AC01.Mixed Air Temp" .
+
+ns2:bldg16.AHU.AC01.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AC01.Supply Air Temp" .
+
+ns2:bldg16.AHU.AC03.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg16.AHU.AC03.Day Night Mode" .
+
+ns2:bldg16.AHU.AC03.Heat_Cool_Mode a brick:Mode_Command ;
+    rdfs:label "bldg16.AHU.AC03.Heat Cool Mode" .
+
+ns2:bldg16.AHU.AC03.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AC03.Zone Air Temp" .
+
+ns2:bldg16.AHU.AC03.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg16.AHU.AC03.Zone Air Temp Setpoint" .
+
+ns2:bldg16.AHU.AC04.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg16.AHU.AC04.Day Night Mode" .
+
+ns2:bldg16.AHU.AC04.Heat_Cool_Mode a brick:Mode_Command ;
+    rdfs:label "bldg16.AHU.AC04.Heat Cool Mode" .
+
+ns2:bldg16.AHU.AC04.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AC04.Zone Air Temp" .
+
+ns2:bldg16.AHU.AC04.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg16.AHU.AC04.Zone Air Temp Setpoint" .
+
+ns2:bldg16.AHU.AC05.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg16.AHU.AC05.Day Night Mode" .
+
+ns2:bldg16.AHU.AC05.Heat_Cool_Mode a brick:Mode_Command ;
+    rdfs:label "bldg16.AHU.AC05.Heat Cool Mode" .
+
+ns2:bldg16.AHU.AC05.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AC05.Zone Air Temp" .
+
+ns2:bldg16.AHU.AC05.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg16.AHU.AC05.Zone Air Temp Setpoint" .
+
+ns2:bldg16.AHU.AC06.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg16.AHU.AC06.Day Night Mode" .
+
+ns2:bldg16.AHU.AC06.Heat_Cool_Mode a brick:Mode_Command ;
+    rdfs:label "bldg16.AHU.AC06.Heat Cool Mode" .
+
+ns2:bldg16.AHU.AC06.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AC06.Zone Air Temp" .
+
+ns2:bldg16.AHU.AC06.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg16.AHU.AC06.Zone Air Temp Setpoint" .
+
+ns2:bldg16.AHU.AH02.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AH02.Mixed Air Temp" .
+
+ns2:bldg16.AHU.AH02.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg16.AHU.AH02.Supply Air Temp" .
+

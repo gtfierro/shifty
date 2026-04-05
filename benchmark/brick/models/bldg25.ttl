@@ -1,0 +1,148 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg25#> .
+@prefix ns3: <http://buildsys.org/ontologies/bldg25#bldg25.CHW.Pump1_Start/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AHU04 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM206A,
+        ns2:VAVRM210 ;
+    brick:hasPoint ns2:bldg25.AHU.AHU04.CCV,
+        ns2:bldg25.AHU.AHU04.Cooling_Valve_Output,
+        ns2:bldg25.AHU.AHU04.Heating_Valve_Output,
+        ns2:bldg25.AHU.AHU04.Mixed_Air_Temp,
+        ns2:bldg25.AHU.AHU04.Outside_Air_Temp_Virtual,
+        ns2:bldg25.AHU.AHU04.Return_Air_Temp,
+        ns2:bldg25.AHU.AHU04.Supply_Air_Temp,
+        ns2:bldg25.AHU.AHU04.Supply_Air_Temp_Setpoint,
+        ns2:bldg25.AHU.AHU04.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg25 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "19351^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:floor2 a brick:Floor ;
+    brick:hasPart ns2:RM206A_room,
+        ns2:RM210_room .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "62bac719-e814-4059-982e-50051608a799" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "966b6687-1b18-4a0e-8850-fd5ac800d9c0" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "56e836de-0631-4113-a22e-39890036842c" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "806fe27d-a4c4-49c1-857e-aabf3d014da4" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "20ad5dad-bb4f-4050-abcc-200135a3fabf" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ed336d6a-d3dc-4dde-ad6f-c6eb7a2bb68e" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "fe170ef2-f381-4fa5-a6fa-e01326335ff9" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.AHU.AHU04.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "fb8f320c-be98-43b3-821b-2e3d1437246f" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.CHW.Pump1_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "c791dc9e-a0da-4b2f-95ba-99243bd92211" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.CHW.Pump1_Start/Stop> ref:hasExternalReference [ ref:hasTimeseriesId "e6839890-07ce-4143-8a1d-fbbee8ab5371" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.ZONE.AHU04.RM206A.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "05604177-d5b4-4890-a68c-5a4b7e9d165d" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.ZONE.AHU04.RM206A.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "48226b7e-30f5-4b1f-b7f2-1ca1e2ec53c1" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.ZONE.AHU04.RM206A.Zone_Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6927570e-bc67-4c30-97cf-f760a6603988" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.ZONE.AHU04.RM210.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3dac1bfd-ef17-4773-8909-d2d411b8a34b" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.ZONE.AHU04.RM210.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "4f8c2575-978a-488d-98ce-589817daad45" ] .
+
+<http://buildsys.org/ontologies/bldg25#bldg25.ZONE.AHU04.RM210.Zone_Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c5531b18-291e-4389-bc8a-0d4b0e645a4f" ] .
+
+ns2:bldg25.AHU.AHU04.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg25.AHU.AHU04.CCV" .
+
+ns2:bldg25.AHU.AHU04.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg25.AHU.AHU04.Cooling Valve Output" .
+
+ns2:bldg25.AHU.AHU04.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg25.AHU.AHU04.Heating Valve Output" .
+
+ns2:bldg25.AHU.AHU04.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.AHU.AHU04.Mixed Air Temp" .
+
+ns2:bldg25.AHU.AHU04.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.AHU.AHU04.Outside Air Temp Virtual" .
+
+ns2:bldg25.AHU.AHU04.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.AHU.AHU04.Return Air Temp" .
+
+ns2:bldg25.AHU.AHU04.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.AHU.AHU04.Supply Air Temp" .
+
+ns2:bldg25.AHU.AHU04.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg25.AHU.AHU04.Supply Air Temp Setpoint" .
+
+ns2:bldg25.AHU.AHU04.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.AHU.AHU04.Zone Air Temp" .
+
+ns2:bldg25.CHW.Pump1_SPEED a brick:Speed_Status ;
+    rdfs:label "bldg25.CHW.Pump1_SPEED" .
+
+ns3:Stop a brick:Start_Stop_Command ;
+    rdfs:label "bldg25.CHW.Pump1_Start/Stop" .
+
+ns2:bldg25.ZONE.AHU04.RM206A.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.ZONE.AHU04.RM206A.Zone Air Temp" .
+
+ns2:bldg25.ZONE.AHU04.RM206A.Zone_Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg25.ZONE.AHU04.RM206A.Zone Heating Mode" .
+
+ns2:bldg25.ZONE.AHU04.RM206A.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg25.ZONE.AHU04.RM206A.Zone Reheat Valve Command" .
+
+ns2:bldg25.ZONE.AHU04.RM206A.Zone_Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.ZONE.AHU04.RM206A.Zone Supply Air Temp" .
+
+ns2:bldg25.ZONE.AHU04.RM210.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.ZONE.AHU04.RM210.Zone Air Temp" .
+
+ns2:bldg25.ZONE.AHU04.RM210.Zone_Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg25.ZONE.AHU04.RM210.Zone Heating Mode" .
+
+ns2:bldg25.ZONE.AHU04.RM210.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg25.ZONE.AHU04.RM210.Zone Reheat Valve Command" .
+
+ns2:bldg25.ZONE.AHU04.RM210.Zone_Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg25.ZONE.AHU04.RM210.Zone Supply Air Temp" .
+
+ns2:RM206A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM206A_room .
+
+ns2:RM210 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM210_room .
+
+ns2:VAVRM206A a brick:VAV ;
+    brick:feeds ns2:RM206A ;
+    brick:hasPoint ns2:bldg25.ZONE.AHU04.RM206A.Zone_Air_Temp,
+        ns2:bldg25.ZONE.AHU04.RM206A.Zone_Heating_Mode,
+        ns2:bldg25.ZONE.AHU04.RM206A.Zone_Reheat_Valve_Command,
+        ns2:bldg25.ZONE.AHU04.RM206A.Zone_Supply_Air_Temp .
+
+ns2:VAVRM210 a brick:VAV ;
+    brick:feeds ns2:RM210 ;
+    brick:hasPoint ns2:bldg25.ZONE.AHU04.RM210.Zone_Air_Temp,
+        ns2:bldg25.ZONE.AHU04.RM210.Zone_Heating_Mode,
+        ns2:bldg25.ZONE.AHU04.RM210.Zone_Reheat_Valve_Command,
+        ns2:bldg25.ZONE.AHU04.RM210.Zone_Supply_Air_Temp .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg25.CHW.Pump1_SPEED,
+        ns3:Stop .
+
+ns2:RM206A_room a brick:Room .
+
+ns2:RM210_room a brick:Room .
+
