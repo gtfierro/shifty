@@ -13,3 +13,4 @@
 /profile.json.gz
 /flamegraph.svg
 *.pyc
+shapes.ir
