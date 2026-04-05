@@ -30,11 +30,7 @@ impl Analyzer for PathSharingAnalyzer {
         }
 
         let unique_paths = path_id_usage.len() as u64;
-        let shared_refs = if total_path_refs > unique_paths {
-            total_path_refs - unique_paths
-        } else {
-            0
-        };
+        let shared_refs = total_path_refs.saturating_sub(unique_paths);
 
         // Count how many paths are used by multiple shapes
         let highly_shared_paths = path_id_usage

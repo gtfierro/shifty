@@ -1,118 +1,368 @@
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ns1: <https://w3id.org/rec#> .
+@prefix ns2: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 [] a sh:ValidationReport ;
     sh:conforms false ;
     sh:result [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario2#LuminaireCommand> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario6#LuminaireCommand> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario4#SmartSwitchProperty> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario4#LuminaireCommand> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario6#UserInputProperty> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario6#UserInputProperty> ;
-            sh:resultMessage "s223: http://data.ashrae.org/standard223/1.0/data/patterns-scenario6#UserInputProperty has an enumeration value of http://data.ashrae.org/standard223#OnOff-Unknown which is not a valid http://data.ashrae.org/standard223#EnumerationKind-OnOff." ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasValue> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraint _:f7d5f6824a32601d29009542d3861533 ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Building_Chilled_Water_Return_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.CHW.Building_Chilled_Water_Return_Temp has type https://brickschema.org/schema/Brick#Chilled_Water_Return_Temperature_Sensor which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Entering_Chilled_Water_Temperature_Sensor." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
             sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
-            sh:sourceShape _:d860a9b7c3e511e718c2a92a3757a3d ;
-            sh:value <http://data.ashrae.org/standard223#OnOff-Unknown> ],
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Building_Chilled_Water_Return_Temp> ],
         [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario3#LuminaireCommand> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario3#UserSwitchProperty> ;
-            sh:resultMessage "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasEnumerationKind> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraintComponent sh:ClassConstraintComponent ;
-            sh:sourceShape _:f675543c09aaea26adda6c79c83a8eef ;
-            sh:value <http://data.ashrae.org/standard223#EnumerationKind-OnOff> ],
-        [ a sh:ValidationResult ;
-            sh:focusNode <http://data.ashrae.org/standard223/1.0/data/patterns-scenario4#SmartSwitchProperty> ;
-            sh:resultMessage "s223: http://data.ashrae.org/standard223/1.0/data/patterns-scenario4#SmartSwitchProperty has an enumeration value of http://data.ashrae.org/standard223#OnOff-Unknown which is not a valid http://data.ashrae.org/standard223#EnumerationKind-OnOff." ;
-            sh:resultPath <http://data.ashrae.org/standard223#hasValue> ;
-            sh:resultSeverity sh:Violation ;
-            sh:sourceConstraint _:f7d5f6824a32601d29009542d3861533 ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM100.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM100.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
             sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
-            sh:sourceShape _:d860a9b7c3e511e718c2a92a3757a3d ;
-            sh:value <http://data.ashrae.org/standard223#OnOff-Unknown> ] .
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM100.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM115> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM115 has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM115> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM120.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM120.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM120.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM110_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM110_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM110_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM100_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM100_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM100_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM107B> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM107B has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM107B> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Loop_Chilled_Water_Supply_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.CHW.Loop_Chilled_Water_Supply_Temp has type https://brickschema.org/schema/Brick#Chilled_Water_Supply_Temperature_Sensor which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Leaving_Chilled_Water_Temperature_Sensor." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Loop_Chilled_Water_Supply_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM110.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM110.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM110.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM120_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM120_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM120_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM107A> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM107A has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM107A> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM112.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM112.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM112.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM112_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM112_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM112_room> ],
+        [ a sh:ValidationResult ;
+            sh:detail [ a sh:ValidationResult ;
+                    sh:focusNode _:n526040fb51234a1999ed4af5c2c5f139b1 ;
+                    sh:resultMessage "Less than 1 values on [ <http://qudt.org/schema/qudt/value> Literal(\"9973^^<http://www.w3.org/2001/XMLSchema#integer>\") ; <https://w3id.org/rec#value> Literal(\"9973^^<http://www.w3.org/2001/XMLSchema#integer>\") ; brick:hasUnits unit:FT_2 ; brick:value Literal(\"9973^^<http://www.w3.org/2001/XMLSchema#integer>\") ]->brick:hasUnit" ;
+                    sh:resultPath brick:hasUnit ;
+                    sh:resultSeverity sh:Violation ;
+                    sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+                    sh:sourceShape [ a sh:PropertyShape ;
+                            sh:in ( <http://qudt.org/vocab/unit/FT2> <http://qudt.org/vocab/unit/M2> ) ;
+                            sh:maxCount 1 ;
+                            sh:minCount 1 ;
+                            sh:path brick:hasUnit ] ],
+                [ a sh:ValidationResult ;
+                    sh:focusNode _:n526040fb51234a1999ed4af5c2c5f139b1 ;
+                    sh:resultMessage "Node Literal(\"9973^^<http://www.w3.org/2001/XMLSchema#integer>\") must conform to one or more shapes in [ sh:datatype xsd:decimal ] , [ sh:datatype xsd:integer ] , [ sh:datatype xsd:double ] , [ sh:datatype xsd:float ] , [ sh:datatype xsd:byte ] , [ sh:datatype xsd:short ] , [ sh:datatype xsd:int ] , [ sh:datatype xsd:long ] , [ sh:datatype xsd:unsignedByte ] , [ sh:datatype xsd:unsignedShort ] , [ sh:datatype xsd:unsignedInt ] , [ sh:datatype xsd:unsignedLong ] , [ sh:datatype xsd:positiveInteger ] , [ sh:datatype xsd:nonNegativeInteger ] , [ sh:datatype xsd:negativeInteger ] , [ sh:datatype xsd:nonPositiveInteger ]" ;
+                    sh:resultPath brick:value ;
+                    sh:resultSeverity sh:Violation ;
+                    sh:sourceConstraintComponent sh:OrConstraintComponent ;
+                    sh:sourceShape [ a sh:PropertyShape ;
+                            sh:maxCount 1 ;
+                            sh:minCount 1 ;
+                            sh:or <https://brickschema.org/schema/BrickShape#NumericValue> ;
+                            sh:path brick:value ] ;
+                    sh:value "9973^^<http://www.w3.org/2001/XMLSchema#integer>" ] ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1> ;
+            sh:resultMessage "Value does not conform to Shape <https://brickschema.org/schema/BrickShape#AreaShape>. See details for more information." ;
+            sh:resultPath brick:area ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:NodeConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#hasareaShape> ;
+            sh:value _:n526040fb51234a1999ed4af5c2c5f139b1 ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM103_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM103_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM103_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Building_Chilled_Water_Supply_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.CHW.Building_Chilled_Water_Supply_Temp has type https://brickschema.org/schema/Brick#Chilled_Water_Supply_Temperature_Sensor which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Leaving_Chilled_Water_Temperature_Sensor." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Building_Chilled_Water_Supply_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM110> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM110 has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM110> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM107B_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM107B_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM107B_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Loop_Chilled_Water_Return_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.CHW.Loop_Chilled_Water_Return_Temp has type https://brickschema.org/schema/Brick#Chilled_Water_Return_Temperature_Sensor which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Entering_Chilled_Water_Temperature_Sensor." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.CHW.Loop_Chilled_Water_Return_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM103> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM103 has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM103> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM107A_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM107A_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM107A_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM115.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM115.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM115.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM115_room> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM115_room has type https://brickschema.org/schema/Brick#Room which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Room." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM115_room> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM120> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM120 has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM120> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM103.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM103.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM103.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#floor1> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#floor1 has type https://brickschema.org/schema/Brick#Storey which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Level." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#floor1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107B.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107B.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107B.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107B.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107B.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107B.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107A.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107A.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107A.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM112> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM112 has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM112> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM112.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM112.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM112.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#RM100> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#RM100 has type https://brickschema.org/schema/Brick#HVAC_Zone which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#HVACZone." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#RM100> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1 has type https://brickschema.org/schema/Brick#Building which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Building." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM110.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM110.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM110.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM100.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM100.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM100.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM120.Zone_Air_Control_Temp> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM120.Zone_Air_Control_Temp has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM120.Zone_Air_Control_Temp> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#floor1> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#floor1 has type https://brickschema.org/schema/Brick#Floor which was deprecated in version 1.4.0. For now, it has been updated to also be of type https://w3id.org/rec#Level." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#floor1> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM115.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM115.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM115.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107A.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107A.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU01.RM107A.Zone_Air_Temp_Setpoint> ],
+        [ a sh:ValidationResult ;
+            sh:focusNode <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM103.Zone_Air_Temp_Setpoint> ;
+            sh:resultMessage "http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM103.Zone_Air_Temp_Setpoint has type https://brickschema.org/schema/Brick#Zone_Air_Temperature_Setpoint which was deprecated in version 1.3.0. For now, it has been updated to also be of type https://brickschema.org/schema/Brick#Target_Zone_Air_Temperature_Setpoint." ;
+            sh:resultSeverity sh:Warning ;
+            sh:sourceConstraint _:d482b42e8dc0e96771c0edce9a0a52ea ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape <https://brickschema.org/schema/BrickShape#DeprecationRuleForInstances> ;
+            sh:value <http://buildsys.org/ontologies/bldg1#bldg1.ZONE.AHU02.RM103.Zone_Air_Temp_Setpoint> ] .
 
-_:Naac8a726feb34915b3f355b90b20a212 a sh:SPARQLConstraint ;
-    rdfs:comment "Checks for valid enumeration value consistent with the stated `EnumerationKind`."^^xsd:string ;
-    sh:message "s223: {$this} has an enumeration value of {?value} which is not a valid {?kind}."^^xsd:string ;
-    sh:prefixes <http://data.ashrae.org/standard223/1.0/model/all> ;
-    sh:select """
-SELECT $this ?value ?kind
-WHERE {
-$this s223:hasValue ?value .
-$this s223:hasEnumerationKind ?kind .
-FILTER (NOT EXISTS {?value a/rdfs:subClassOf* ?kind}) .
-}
-"""^^xsd:string .
+_:n526040fb51234a1999ed4af5c2c5f139b1 ns2:value "9973^^<http://www.w3.org/2001/XMLSchema#integer>" ;
+    brick:hasUnits <http://qudt.org/vocab/unit/FT_2> ;
+    brick:value "9973^^<http://www.w3.org/2001/XMLSchema#integer>" ;
+    ns1:value "9973^^<http://www.w3.org/2001/XMLSchema#integer>" .
 
-_:d860a9b7c3e511e718c2a92a3757a3d rdfs:comment "Checks for valid enumeration value consistent with the stated `EnumerationKind`."^^xsd:string ;
-    sh:path <http://data.ashrae.org/standard223#hasValue> ;
-    sh:sparql _:Naac8a726feb34915b3f355b90b20a212 .
-
-_:f7d5f6824a32601d29009542d3861533 a sh:SPARQLConstraint ;
-    rdfs:comment "Checks for valid enumeration value consistent with the stated `EnumerationKind`."^^xsd:string ;
-    sh:message "s223: {$this} has an enumeration value of {?value} which is not a valid {?kind}."^^xsd:string ;
-    sh:prefixes <http://data.ashrae.org/standard223/1.0/model/all> ;
-    sh:select """
-SELECT $this ?value ?kind
-WHERE {
-$this s223:hasValue ?value .
-$this s223:hasEnumerationKind ?kind .
-FILTER (NOT EXISTS {?value a/rdfs:subClassOf* ?kind}) .
-}
-"""^^xsd:string .
-
-_:f675543c09aaea26adda6c79c83a8eef rdfs:comment "An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-    sh:class <http://data.ashrae.org/standard223#EnumerationKind> ;
-    sh:maxCount 1 ;
-    sh:message "s223: An `EnumerableProperty` shall be associated with exactly one `EnumerationKind` using the relation `hasEnumerationKind`."^^xsd:string ;
-    sh:minCount 1 ;
-    sh:path <http://data.ashrae.org/standard223#hasEnumerationKind> .
+_:d482b42e8dc0e96771c0edce9a0a52ea a sh:SPARQLConstraint ;
+    sh:message "{$this} has type {?class} which was deprecated in version {?depver}. For now, it has been updated to also be of type {?newClass}."^^xsd:string ;
+    sh:prefixes <https://brickschema.org/schema/1.4/Brick> ;
+    sh:select """SELECT $this ?class ?newClass ?depver WHERE {
+$this a ?class .
+?class owl:deprecated true .
+?class brick:deprecatedInVersion ?depver .
+?class brick:isReplacedBy ?newClass .
+}"""^^xsd:string .
 

@@ -863,15 +863,14 @@ impl PropertyShape {
         }
 
         // Populate cache with new results
-        if !new_results.is_empty() {
-            if let Ok(mut cache) = context.path_batch_cache.write() {
-                let batch = cache.entry(cache_key).or_insert_with(|| Arc::new(HashMap::new()));
-                let mut updated_batch = (**batch).clone();
-                for (focus, values) in &new_results {
-                    updated_batch.insert(focus.clone(), values.clone());
-                }
-                *batch = Arc::new(updated_batch);
+        if !new_results.is_empty()
+            && let Ok(mut cache) = context.path_batch_cache.write() {
+            let batch = cache.entry(cache_key).or_insert_with(|| Arc::new(HashMap::new()));
+            let mut updated_batch = (**batch).clone();
+            for (focus, values) in &new_results {
+                updated_batch.insert(focus.clone(), values.clone());
             }
+            *batch = Arc::new(updated_batch);
         }
 
         // Merge new results with cached results

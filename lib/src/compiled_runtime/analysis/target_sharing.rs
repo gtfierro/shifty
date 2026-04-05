@@ -34,11 +34,7 @@ impl Analyzer for TargetSharingAnalyzer {
         }
 
         let unique_count = unique_target_ids.len() as u64;
-        let shared_refs = if total_target_refs > unique_count {
-            total_target_refs - unique_count
-        } else {
-            0
-        };
+        let shared_refs = total_target_refs.saturating_sub(unique_count);
 
         // Store statistics
         state

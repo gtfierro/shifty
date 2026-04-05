@@ -1,0 +1,13 @@
+platform,data_file,triples,run,seconds,timed_out,failed,graph_fetching_seconds,validate_seconds,inference_seconds,report_assembly_seconds,target_collection_seconds,component_execution_seconds
+shifty-pre,benchmark/s223/models/design-patterns.ttl,442,1,4.9078779489999995,False,False,1.1206444330000003,3.150270961,0.550097713,0.004304678,,
+shifty-pre,benchmark/s223/models/design-patterns.ttl,442,2,4.846578601,False,False,1.137857844,3.160589442,0.468962153,0.004263788999999999,,
+shifty-pre,benchmark/s223/models/design-patterns.ttl,442,3,4.747422974,False,False,1.148851368,3.070740251,0.450208573,0.004260747,,
+shifty,benchmark/s223/models/design-patterns.ttl,442,1,5.807343262,False,False,2.105868384,3.1401983680000005,0.471733338,0.004206813,,
+shifty,benchmark/s223/models/design-patterns.ttl,442,2,5.673569898,False,False,1.846418854,3.233495458,0.501683819,0.004322014,,
+shifty,benchmark/s223/models/design-patterns.ttl,442,3,5.357368443,False,False,1.851377631,3.026509067,0.387046702,0.004236303,,
+pyshacl,benchmark/s223/models/design-patterns.ttl,442,1,1064.8654294039588,False,False,,,,,,
+pyshacl,benchmark/s223/models/design-patterns.ttl,442,2,1141.0060896340292,False,False,,,,,,
+pyshacl,benchmark/s223/models/design-patterns.ttl,442,3,1479.1707464710344,False,False,,,,,,
+topquadrant,benchmark/s223/models/design-patterns.ttl,442,1,148.8760872411076,False,False,,,,,,
+topquadrant,benchmark/s223/models/design-patterns.ttl,442,2,124.26042982400395,False,False,,,,,,
+topquadrant,benchmark/s223/models/design-patterns.ttl,442,3,131.41041059605777,False,False,,,,,,

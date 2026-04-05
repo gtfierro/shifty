@@ -3,7 +3,7 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Graph, NamedOrBlankNode, Quad, Term, Triple, TripleRef};
+use oxigraph::model::{NamedOrBlankNode, Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{

@@ -27,6 +27,9 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+/// Type alias for the path batch cache map to reduce type complexity
+type PathBatchCacheMap = RwLock<HashMap<String, Arc<HashMap<Term, Vec<Term>>>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ComponentGraphCallKey {
     component_id: ComponentID,
@@ -266,7 +269,7 @@ pub struct ValidationContext {
     /// Component result memoization cache for deduplicating identical constraint validations
     pub(crate) component_memo_cache: RwLock<HashMap<crate::component_memo::ComponentMemoKey, crate::component_memo::ComponentMemoValue>>,
     /// Path batching cache for deduplicating identical path queries across property shapes
-    pub(crate) path_batch_cache: RwLock<HashMap<String, Arc<HashMap<Term, Vec<Term>>>>>,
+    pub(crate) path_batch_cache: PathBatchCacheMap,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
     focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
     compiled_sparql_index: RwLock<CompiledSparqlIndex>,

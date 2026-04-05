@@ -36,7 +36,8 @@ pub fn hash_target(target: &Target) -> u64 {
         Target::Advanced { .. } => {
             // Advanced targets include SPARQL queries which are more complex
             // For now, hash as a unique type to avoid false deduplication
-            // TODO: Consider hashing SPARQL query text for better sharing
+            // NOTE: Currently uses pointer-based hashing for SPARQL targets.
+            // Future enhancement: Hash query text for better sharing (see OPTIMIZATION_STATUS.md Future Work).
             "advanced".hash(&mut hasher);
             // Use a unique identifier to prevent accidental collisions
             std::ptr::addr_of!(target).hash(&mut hasher);

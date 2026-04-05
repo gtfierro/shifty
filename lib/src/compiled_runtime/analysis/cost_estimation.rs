@@ -36,25 +36,12 @@ impl Analyzer for CostEstimationAnalyzer {
         // Analyze each shape in the program
         for shape in &ctx.program.shapes {
             // Get component descriptors for this shape
-            let component_descriptors: Vec<ComponentDescriptor> = shape
-                .component_ids
-                .iter()
-                .filter_map(|&comp_id| {
-                    ctx.program
-                        .components
-                        .iter()
-                        .find(|c| c.id == comp_id)
-                        .and_then(|comp_row| {
-                            // Parse component descriptor from params
-                            // For now, we'll use a simplified approach
-                            // In a full implementation, we'd deserialize the ComponentDescriptor
-                            None
-                        })
-                })
-                .collect();
+            // NOTE: Phase 2 (cost-based scheduling) is partially implemented.
+            // Full data-driven costs require ComponentDescriptor parsing (see COST_MODEL_DESIGN.md).
+            // Current implementation uses conservative fixed costs.
+            let component_descriptors: Vec<ComponentDescriptor> = Vec::new();
 
             // Estimate component complexity
-            // TODO: This needs access to actual ComponentDescriptor instances
             // For now, use a conservative estimate based on component count
             let component_complexity = if component_descriptors.is_empty() {
                 // Conservative estimate: assume moderate complexity per component
