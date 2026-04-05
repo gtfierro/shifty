@@ -743,8 +743,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         let rule_metadata = generated_rule_metadata(#rule_index);
                         let trigger = trigger_for_dependencies(&rule_metadata.dependencies, &delta);
                         if !trigger.is_none() {
-                            let mut condition_cache: std::collections::HashMap<(String, String), bool> =
-                                std::collections::HashMap::new();
                             let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
                             #rule_focus_sources
                             focus_nodes = sort_and_dedup_terms(focus_nodes);
@@ -788,7 +786,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     )?;
                                     if added > 0 {
                                         inserted += added;
-                                        condition_cache.clear();
                                         reset_srcgen_shape_conformance_cache();
                                     }
                                 }
@@ -814,8 +811,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                         let rule_metadata = generated_rule_metadata(#rule_index);
                         let trigger = trigger_for_dependencies(&rule_metadata.dependencies, &delta);
                         if !trigger.is_none() {
-                            let mut condition_cache: std::collections::HashMap<(String, String), bool> =
-                                std::collections::HashMap::new();
                             let mut focus_nodes: Vec<oxigraph::model::Term> = Vec::new();
                             #rule_focus_sources
                             focus_nodes = sort_and_dedup_terms(focus_nodes);
@@ -1027,7 +1022,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                                     &mut round_inserted_quads,
                                 )?;
                                 if added > 0 && #has_condition_shapes {
-                                    condition_cache.clear();
                                     reset_srcgen_shape_conformance_cache();
                                 }
                                 inserted += added;
@@ -2113,6 +2107,10 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                 let mut advanced_target_select_focus_cache: std::collections::HashMap<
                     String,
                     Vec<oxigraph::model::Term>,
+                > = std::collections::HashMap::new();
+                let mut condition_cache: std::collections::HashMap<
+                    (String, String),
+                    bool,
                 > = std::collections::HashMap::new();
                 #(#specialized_rule_blocks)*
                 if inserted == inserted_before_round {

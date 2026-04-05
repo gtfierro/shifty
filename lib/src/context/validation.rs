@@ -273,6 +273,10 @@ pub struct ValidationContext {
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
     focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
     compiled_sparql_index: RwLock<CompiledSparqlIndex>,
+    /// Condition conformance cache for inference rule conditions
+    /// Key: (condition_shape_id, focus_node)
+    /// Value: conformance result (true/false)
+    pub(crate) inference_condition_cache: RwLock<HashMap<(ID, Term), bool>>,
 }
 
 impl ValidationContext {
@@ -347,6 +351,7 @@ impl ValidationContext {
             node_conformance_cache: RwLock::new(HashMap::new()),
             focus_predicate_summary: RwLock::new(None),
             compiled_sparql_index: RwLock::new(CompiledSparqlIndex::default()),
+            inference_condition_cache: RwLock::new(HashMap::new()),
         }
     }
 
