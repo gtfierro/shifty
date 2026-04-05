@@ -1824,10 +1824,12 @@ impl Validator {
                 }
                 if outcome.total_inference_time_ms > 0 {
                     info!(
-                        "Performance: total={}ms, SPARQL={}ms ({} rules), Triple={}ms ({} rules), Focus={}ms, WaveComp={}ms",
+                        "Performance: total={}ms, SPARQL={}ms ({} rules: {} compiled, {} generic), Triple={}ms ({} rules), Focus={}ms, WaveComp={}ms",
                         outcome.total_inference_time_ms,
                         outcome.sparql_execution_time_ms,
                         outcome.sparql_rules_executed,
+                        outcome.compiled_sparql_rules,
+                        outcome.generic_sparql_rules,
                         outcome.triple_execution_time_ms,
                         outcome.triple_rules_executed,
                         outcome.focus_collection_time_ms,

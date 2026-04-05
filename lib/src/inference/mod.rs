@@ -78,6 +78,9 @@ pub struct InferenceOutcome {
     pub triple_execution_time_ms: u128,
     pub focus_collection_time_ms: u128,
     pub wave_computation_time_ms: u128,
+    /// SPARQL execution breakdown
+    pub compiled_sparql_rules: usize,
+    pub generic_sparql_rules: usize,
 }
 
 #[derive(Debug)]
@@ -256,6 +259,8 @@ impl<'a> InferenceEngine<'a> {
                 triple_execution_time_ms: 0,
                 focus_collection_time_ms: 0,
                 wave_computation_time_ms: 0,
+                compiled_sparql_rules: 0,
+                generic_sparql_rules: 0,
             });
         }
 
@@ -279,6 +284,8 @@ impl<'a> InferenceEngine<'a> {
         let mut total_wave_computation_time = std::time::Duration::ZERO;
         let mut total_sparql_rules = 0;
         let mut total_triple_rules = 0;
+        let mut total_compiled_sparql = 0;
+        let mut total_generic_sparql = 0;
 
         if self.config.trace {
             info!(
@@ -307,6 +314,8 @@ impl<'a> InferenceEngine<'a> {
             total_wave_computation_time += iter_wave_stats.wave_computation_time;
             total_sparql_rules += iter_wave_stats.sparql_rules;
             total_triple_rules += iter_wave_stats.triple_rules;
+            total_compiled_sparql += iter_wave_stats.compiled_sparql;
+            total_generic_sparql += iter_wave_stats.generic_sparql;
 
             if self.config.trace {
                 info!(
@@ -393,6 +402,8 @@ impl<'a> InferenceEngine<'a> {
             triple_execution_time_ms: total_triple_time.as_millis(),
             focus_collection_time_ms: total_focus_time.as_millis(),
             wave_computation_time_ms: total_wave_computation_time.as_millis(),
+            compiled_sparql_rules: total_compiled_sparql,
+            generic_sparql_rules: total_generic_sparql,
         })
     }
 
@@ -496,13 +507,13 @@ impl<'a> InferenceEngine<'a> {
     }
 
     /// Execute all rules in a wave in parallel
-    /// Returns: Vec<(plan_index, triples_added, quads, exec_time, is_sparql)>
+    /// Returns: Vec<(plan_index, triples_added, quads, exec_time, is_sparql, is_compiled_sparql)>
     fn execute_wave_parallel(
         &self,
         wave: &ParallelWave,
         focus_map: &HashMap<usize, Vec<Term>>,
         delta: &DeltaIndex,
-    ) -> Result<Vec<(usize, usize, Vec<Quad>, std::time::Duration, bool)>, InferenceError> {
+    ) -> Result<Vec<(usize, usize, Vec<Quad>, std::time::Duration, bool, bool)>, InferenceError> {
         use rayon::prelude::*;
 
         // Parallel execution of independent rules
@@ -512,11 +523,12 @@ impl<'a> InferenceEngine<'a> {
             .map(|&plan_index| {
                 let plan = &self.plans[plan_index];
                 let is_sparql = matches!(plan.rule, Rule::Sparql(_));
+                let is_compiled_sparql = is_sparql && plan.native_sparql.is_some();
 
                 // Get pre-computed focus nodes
                 let Some(focus_nodes) = focus_map.get(&plan_index) else {
                     // No focus nodes means rule was skipped (trigger didn't match)
-                    return Ok((plan_index, 0, Vec::new(), std::time::Duration::ZERO, is_sparql));
+                    return Ok((plan_index, 0, Vec::new(), std::time::Duration::ZERO, is_sparql, is_compiled_sparql));
                 };
 
                 if self.config.trace {
@@ -568,7 +580,7 @@ impl<'a> InferenceEngine<'a> {
                     ));
                 }
 
-                Ok((plan_index, added, thread_collected, exec_time, is_sparql))
+                Ok((plan_index, added, thread_collected, exec_time, is_sparql, is_compiled_sparql))
             })
             .collect();
 
@@ -615,6 +627,8 @@ impl<'a> InferenceEngine<'a> {
             wave_computation_time: wave_comp_time,
             sparql_rules: 0,
             triple_rules: 0,
+            compiled_sparql: 0,
+            generic_sparql: 0,
         };
 
         // Execute waves in dependency order
@@ -647,11 +661,16 @@ impl<'a> InferenceEngine<'a> {
 
             // Collect results sequentially (maintains determinism)
             let mut wave_added = 0;
-            for (plan_index, added, quads, exec_time, is_sparql) in wave_results {
+            for (plan_index, added, quads, exec_time, is_sparql, is_compiled_sparql) in wave_results {
                 // Track timing
                 if is_sparql {
                     wave_stats.sparql_time += exec_time;
                     wave_stats.sparql_rules += 1;
+                    if is_compiled_sparql {
+                        wave_stats.compiled_sparql += 1;
+                    } else {
+                        wave_stats.generic_sparql += 1;
+                    }
                 } else {
                     wave_stats.triple_time += exec_time;
                     wave_stats.triple_rules += 1;
@@ -1557,6 +1576,17 @@ struct ParallelWave {
     plan_indices: Vec<usize>,
 }
 
+/// Represents a batch of PathCopy rules that can be executed together
+#[derive(Debug, Clone)]
+struct PathCopyBatch {
+    /// Map from source predicate to target predicate
+    predicate_pairs: Vec<(NamedNode, NamedNode)>,
+    /// Plan indices for rules in this batch
+    plan_indices: Vec<usize>,
+    /// Source path (should be same for all rules in batch)
+    source_path: crate::sparql::LoweredPropertyPath,
+}
+
 /// Statistics about wave execution for a single iteration
 #[derive(Debug, Clone, Default)]
 struct WaveStats {
@@ -1570,6 +1600,8 @@ struct WaveStats {
     wave_computation_time: std::time::Duration,
     sparql_rules: usize,
     triple_rules: usize,
+    compiled_sparql: usize,
+    generic_sparql: usize,
 }
 
 #[derive(Debug, Clone, Default)]
