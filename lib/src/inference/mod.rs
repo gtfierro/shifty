@@ -70,6 +70,14 @@ pub struct InferenceOutcome {
     pub avg_rules_per_wave: f64,
     pub max_wave_parallelism: usize,
     pub sequential_waves: usize,  // Waves with only 1 rule
+    /// Performance profiling statistics
+    pub total_inference_time_ms: u128,
+    pub sparql_rules_executed: usize,
+    pub triple_rules_executed: usize,
+    pub sparql_execution_time_ms: u128,
+    pub triple_execution_time_ms: u128,
+    pub focus_collection_time_ms: u128,
+    pub wave_computation_time_ms: u128,
 }
 
 #[derive(Debug)]
@@ -241,6 +249,13 @@ impl<'a> InferenceEngine<'a> {
                 avg_rules_per_wave: 0.0,
                 max_wave_parallelism: 0,
                 sequential_waves: 0,
+                total_inference_time_ms: 0,
+                sparql_rules_executed: 0,
+                triple_rules_executed: 0,
+                sparql_execution_time_ms: 0,
+                triple_execution_time_ms: 0,
+                focus_collection_time_ms: 0,
+                wave_computation_time_ms: 0,
             });
         }
 
@@ -255,6 +270,15 @@ impl<'a> InferenceEngine<'a> {
         let mut total_rules_in_waves = 0;
         let mut max_wave_size = 0;
         let mut single_rule_waves = 0;
+
+        // Performance profiling tracking
+        let inference_start = Instant::now();
+        let mut total_sparql_time = std::time::Duration::ZERO;
+        let mut total_triple_time = std::time::Duration::ZERO;
+        let mut total_focus_time = std::time::Duration::ZERO;
+        let mut total_wave_computation_time = std::time::Duration::ZERO;
+        let mut total_sparql_rules = 0;
+        let mut total_triple_rules = 0;
 
         if self.config.trace {
             info!(
@@ -275,6 +299,14 @@ impl<'a> InferenceEngine<'a> {
             total_rules_in_waves += iter_wave_stats.total_rules;
             max_wave_size = max_wave_size.max(iter_wave_stats.max_wave_size);
             single_rule_waves += iter_wave_stats.single_rule_waves;
+
+            // Accumulate profiling statistics
+            total_sparql_time += iter_wave_stats.sparql_time;
+            total_triple_time += iter_wave_stats.triple_time;
+            total_focus_time += iter_wave_stats.focus_time;
+            total_wave_computation_time += iter_wave_stats.wave_computation_time;
+            total_sparql_rules += iter_wave_stats.sparql_rules;
+            total_triple_rules += iter_wave_stats.triple_rules;
 
             if self.config.trace {
                 info!(
@@ -336,6 +368,8 @@ impl<'a> InferenceEngine<'a> {
             }
         }
 
+        let total_inference_time = inference_start.elapsed();
+
         Ok(InferenceOutcome {
             iterations_executed,
             triples_added: total_added,
@@ -352,6 +386,13 @@ impl<'a> InferenceEngine<'a> {
             },
             max_wave_parallelism: max_wave_size,
             sequential_waves: single_rule_waves,
+            total_inference_time_ms: total_inference_time.as_millis(),
+            sparql_rules_executed: total_sparql_rules,
+            triple_rules_executed: total_triple_rules,
+            sparql_execution_time_ms: total_sparql_time.as_millis(),
+            triple_execution_time_ms: total_triple_time.as_millis(),
+            focus_collection_time_ms: total_focus_time.as_millis(),
+            wave_computation_time_ms: total_wave_computation_time.as_millis(),
         })
     }
 
@@ -436,12 +477,12 @@ impl<'a> InferenceEngine<'a> {
     }
 
     /// Execute all rules in a wave in parallel
-    /// Returns: Vec<(plan_index, triples_added, quads)>
+    /// Returns: Vec<(plan_index, triples_added, quads, focus_time, exec_time, is_sparql)>
     fn execute_wave_parallel(
         &self,
         wave: &ParallelWave,
         delta: &DeltaIndex,
-    ) -> Result<Vec<(usize, usize, Vec<Quad>)>, InferenceError> {
+    ) -> Result<Vec<(usize, usize, Vec<Quad>, std::time::Duration, std::time::Duration, bool)>, InferenceError> {
         use rayon::prelude::*;
 
         // Parallel execution of independent rules
@@ -450,11 +491,14 @@ impl<'a> InferenceEngine<'a> {
             .par_iter()
             .map(|&plan_index| {
                 let plan = &self.plans[plan_index];
+                let is_sparql = matches!(plan.rule, Rule::Sparql(_));
 
                 // Get focus nodes for this rule
+                let focus_start = Instant::now();
                 let Some(focus_nodes) = self.focus_nodes_for_plan(plan, delta)? else {
-                    return Ok((plan_index, 0, Vec::new()));
+                    return Ok((plan_index, 0, Vec::new(), std::time::Duration::ZERO, std::time::Duration::ZERO, is_sparql));
                 };
+                let focus_time = focus_start.elapsed();
 
                 if self.config.trace {
                     let now = Instant::now();
@@ -468,6 +512,7 @@ impl<'a> InferenceEngine<'a> {
                 let mut thread_seen = HashSet::new();
 
                 // Execute rule based on type
+                let exec_start = Instant::now();
                 let added = match &plan.rule {
                     Rule::Sparql(sparql_rule) => {
                         self.context
@@ -494,6 +539,7 @@ impl<'a> InferenceEngine<'a> {
                         &mut thread_collected,
                     )?,
                 };
+                let exec_time = exec_start.elapsed();
 
                 if self.config.trace {
                     self.context.trace_sink.record(TraceEvent::ExitRule(
@@ -503,7 +549,7 @@ impl<'a> InferenceEngine<'a> {
                     ));
                 }
 
-                Ok((plan_index, added, thread_collected))
+                Ok((plan_index, added, thread_collected, focus_time, exec_time, is_sparql))
             })
             .collect();
 
@@ -527,6 +573,7 @@ impl<'a> InferenceEngine<'a> {
         }
 
         // Compute parallel waves from scheduled plans
+        let wave_comp_start = Instant::now();
         let waves = if self.config.optimize.parallel_rule_execution {
             self.dependency_graph.compute_waves(&scheduled)
         } else {
@@ -535,6 +582,7 @@ impl<'a> InferenceEngine<'a> {
                 plan_indices: scheduled,
             }]
         };
+        let wave_comp_time = wave_comp_start.elapsed();
 
         // Track wave statistics
         let mut wave_stats = WaveStats {
@@ -542,6 +590,12 @@ impl<'a> InferenceEngine<'a> {
             total_rules: 0,
             max_wave_size: 0,
             single_rule_waves: 0,
+            sparql_time: std::time::Duration::ZERO,
+            triple_time: std::time::Duration::ZERO,
+            focus_time: std::time::Duration::ZERO,
+            wave_computation_time: wave_comp_time,
+            sparql_rules: 0,
+            triple_rules: 0,
         };
 
         // Execute waves in dependency order
@@ -568,7 +622,16 @@ impl<'a> InferenceEngine<'a> {
 
             // Collect results sequentially (maintains determinism)
             let mut wave_added = 0;
-            for (plan_index, added, quads) in wave_results {
+            for (plan_index, added, quads, focus_time, exec_time, is_sparql) in wave_results {
+                // Track timing
+                wave_stats.focus_time += focus_time;
+                if is_sparql {
+                    wave_stats.sparql_time += exec_time;
+                    wave_stats.sparql_rules += 1;
+                } else {
+                    wave_stats.triple_time += exec_time;
+                    wave_stats.triple_rules += 1;
+                }
                 if added > 0 {
                     producer_plan_indices.insert(plan_index);
                 }
@@ -1477,6 +1540,12 @@ struct WaveStats {
     total_rules: usize,
     max_wave_size: usize,
     single_rule_waves: usize,
+    sparql_time: std::time::Duration,
+    triple_time: std::time::Duration,
+    focus_time: std::time::Duration,
+    wave_computation_time: std::time::Duration,
+    sparql_rules: usize,
+    triple_rules: usize,
 }
 
 #[derive(Debug, Clone, Default)]

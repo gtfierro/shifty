@@ -1822,6 +1822,18 @@ impl Validator {
                         outcome.sequential_waves
                     );
                 }
+                if outcome.total_inference_time_ms > 0 {
+                    info!(
+                        "Performance: total={}ms, SPARQL={}ms ({} rules), Triple={}ms ({} rules), Focus={}ms, WaveComp={}ms",
+                        outcome.total_inference_time_ms,
+                        outcome.sparql_execution_time_ms,
+                        outcome.sparql_rules_executed,
+                        outcome.triple_execution_time_ms,
+                        outcome.triple_rules_executed,
+                        outcome.focus_collection_time_ms,
+                        outcome.wave_computation_time_ms
+                    );
+                }
             }
             Err(err) => warn!(
                 "Finished inference with shape graph <{}> and data graph <{}>; failed with error: {}",
