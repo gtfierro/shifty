@@ -1804,14 +1804,25 @@ impl Validator {
         );
         let outcome = crate::inference::run_inference(&self.context, config);
         match &outcome {
-            Ok(outcome) => info!(
-                "Finished inference with shape graph <{}> and data graph <{}>; iterations={} triples_added={} converged={}",
-                self.context.model.shape_graph_iri,
-                self.context.data_graph_iri,
-                outcome.iterations_executed,
-                outcome.triples_added,
-                outcome.converged
-            ),
+            Ok(outcome) => {
+                info!(
+                    "Finished inference with shape graph <{}> and data graph <{}>; iterations={} triples_added={} converged={}",
+                    self.context.model.shape_graph_iri,
+                    self.context.data_graph_iri,
+                    outcome.iterations_executed,
+                    outcome.triples_added,
+                    outcome.converged
+                );
+                if outcome.total_waves_executed > 0 {
+                    info!(
+                        "Wave statistics: {} waves executed, avg {:.1} rules/wave, max parallelism={}, sequential waves={}",
+                        outcome.total_waves_executed,
+                        outcome.avg_rules_per_wave,
+                        outcome.max_wave_parallelism,
+                        outcome.sequential_waves
+                    );
+                }
+            }
             Err(err) => warn!(
                 "Finished inference with shape graph <{}> and data graph <{}>; failed with error: {}",
                 self.context.model.shape_graph_iri, self.context.data_graph_iri, err

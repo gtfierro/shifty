@@ -461,6 +461,33 @@ fn trace_event_to_json(event: &TraceEvent) -> serde_json::Value {
             "component_id": component_id.0,
             "source": format!("{:?}", source),
         }),
+        TraceEvent::InferenceConditionCacheHit(shape_id, focus_node) => json!({
+            "type": "InferenceConditionCacheHit",
+            "shape_id": shape_id.0,
+            "focus_node": focus_node.to_string(),
+        }),
+        TraceEvent::ParallelWaveStarted {
+            wave_index,
+            rules_count,
+            ts,
+        } => json!({
+            "type": "ParallelWaveStarted",
+            "wave_index": wave_index,
+            "rules_count": rules_count,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
+        TraceEvent::ParallelWaveCompleted {
+            wave_index,
+            rules_count,
+            triples_added,
+            ts,
+        } => json!({
+            "type": "ParallelWaveCompleted",
+            "wave_index": wave_index,
+            "rules_count": rules_count,
+            "triples_added": triples_added,
+            "ts": ts.duration_since(*START_INSTANT).as_nanos() as u64,
+        }),
     }
 }
 
@@ -589,6 +616,33 @@ fn trace_events_to_py(py: Python<'_>, events: &[TraceEvent]) -> PyResult<Py<PyAn
                 dict.set_item("type", "ComponentCacheHit")?;
                 dict.set_item("component_id", component_id.0)?;
                 dict.set_item("source", format!("{:?}", source))?;
+            }
+            TraceEvent::InferenceConditionCacheHit(shape_id, focus_node) => {
+                dict.set_item("type", "InferenceConditionCacheHit")?;
+                dict.set_item("shape_id", shape_id.0)?;
+                dict.set_item("focus_node", focus_node.to_string())?;
+            }
+            TraceEvent::ParallelWaveStarted {
+                wave_index,
+                rules_count,
+                ts,
+            } => {
+                dict.set_item("type", "ParallelWaveStarted")?;
+                dict.set_item("wave_index", wave_index)?;
+                dict.set_item("rules_count", rules_count)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
+            }
+            TraceEvent::ParallelWaveCompleted {
+                wave_index,
+                rules_count,
+                triples_added,
+                ts,
+            } => {
+                dict.set_item("type", "ParallelWaveCompleted")?;
+                dict.set_item("wave_index", wave_index)?;
+                dict.set_item("rules_count", rules_count)?;
+                dict.set_item("triples_added", triples_added)?;
+                dict.set_item("ts", ts.duration_since(*START_INSTANT).as_nanos() as u64)?;
             }
         }
         list.append(dict)?;

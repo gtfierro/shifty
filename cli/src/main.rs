@@ -1254,6 +1254,41 @@ fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json:
                 term,
             )
         }
+        TraceEvent::InferenceConditionCacheHit(shape_id, focus_node) => {
+            let term = shape_term_for_node(*shape_id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "InferenceConditionCacheHit",
+                    "shape_id": shape_id.0,
+                    "focus_node": term_to_string(focus_node),
+                }),
+                "NodeShape",
+                shape_frame_name("NodeShape", term, &format!("NodeShape_{}", shape_id.0)),
+                term,
+            )
+        }
+        TraceEvent::ParallelWaveStarted {
+            wave_index,
+            rules_count,
+            ts,
+        } => json!({
+            "type": "ParallelWaveStarted",
+            "wave_index": wave_index,
+            "rules_count": rules_count,
+            "ts": get_ts_nanos(*ts),
+        }),
+        TraceEvent::ParallelWaveCompleted {
+            wave_index,
+            rules_count,
+            triples_added,
+            ts,
+        } => json!({
+            "type": "ParallelWaveCompleted",
+            "wave_index": wave_index,
+            "rules_count": rules_count,
+            "triples_added": triples_added,
+            "ts": get_ts_nanos(*ts),
+        }),
     }
 }
 
