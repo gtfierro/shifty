@@ -57,6 +57,22 @@ pub enum TraceEvent {
     ComponentExecutionEnd(ComponentID, SourceShape, Instant),
     /// Component result retrieved from cache (for memoization)
     ComponentCacheHit(ComponentID, SourceShape),
+    /// Inference condition conformance cache hit
+    /// (condition_shape_id, focus_node)
+    InferenceConditionCacheHit(ID, Term),
+    /// Parallel wave execution started
+    ParallelWaveStarted {
+        wave_index: usize,
+        rules_count: usize,
+        ts: Instant,
+    },
+    /// Parallel wave execution completed
+    ParallelWaveCompleted {
+        wave_index: usize,
+        rules_count: usize,
+        triples_added: usize,
+        ts: Instant,
+    },
 }
 
 /// Consumer for trace events. Implementations may buffer, stream, or drop.
