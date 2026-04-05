@@ -476,13 +476,33 @@ impl<'a> InferenceEngine<'a> {
         Ok(plans)
     }
 
-    /// Execute all rules in a wave in parallel
-    /// Returns: Vec<(plan_index, triples_added, quads, focus_time, exec_time, is_sparql)>
-    fn execute_wave_parallel(
+    /// Pre-compute focus nodes for all rules in a wave
+    /// Returns: HashMap<plan_index, focus_nodes>
+    fn batch_collect_focus_nodes(
         &self,
         wave: &ParallelWave,
         delta: &DeltaIndex,
-    ) -> Result<Vec<(usize, usize, Vec<Quad>, std::time::Duration, std::time::Duration, bool)>, InferenceError> {
+    ) -> Result<HashMap<usize, Vec<Term>>, InferenceError> {
+        let mut focus_map = HashMap::new();
+
+        for &plan_index in &wave.plan_indices {
+            let plan = &self.plans[plan_index];
+            if let Some(focus_nodes) = self.focus_nodes_for_plan(plan, delta)? {
+                focus_map.insert(plan_index, focus_nodes);
+            }
+        }
+
+        Ok(focus_map)
+    }
+
+    /// Execute all rules in a wave in parallel
+    /// Returns: Vec<(plan_index, triples_added, quads, exec_time, is_sparql)>
+    fn execute_wave_parallel(
+        &self,
+        wave: &ParallelWave,
+        focus_map: &HashMap<usize, Vec<Term>>,
+        delta: &DeltaIndex,
+    ) -> Result<Vec<(usize, usize, Vec<Quad>, std::time::Duration, bool)>, InferenceError> {
         use rayon::prelude::*;
 
         // Parallel execution of independent rules
@@ -493,12 +513,11 @@ impl<'a> InferenceEngine<'a> {
                 let plan = &self.plans[plan_index];
                 let is_sparql = matches!(plan.rule, Rule::Sparql(_));
 
-                // Get focus nodes for this rule
-                let focus_start = Instant::now();
-                let Some(focus_nodes) = self.focus_nodes_for_plan(plan, delta)? else {
-                    return Ok((plan_index, 0, Vec::new(), std::time::Duration::ZERO, std::time::Duration::ZERO, is_sparql));
+                // Get pre-computed focus nodes
+                let Some(focus_nodes) = focus_map.get(&plan_index) else {
+                    // No focus nodes means rule was skipped (trigger didn't match)
+                    return Ok((plan_index, 0, Vec::new(), std::time::Duration::ZERO, is_sparql));
                 };
-                let focus_time = focus_start.elapsed();
 
                 if self.config.trace {
                     let now = Instant::now();
@@ -549,7 +568,7 @@ impl<'a> InferenceEngine<'a> {
                     ));
                 }
 
-                Ok((plan_index, added, thread_collected, focus_time, exec_time, is_sparql))
+                Ok((plan_index, added, thread_collected, exec_time, is_sparql))
             })
             .collect();
 
@@ -617,14 +636,19 @@ impl<'a> InferenceEngine<'a> {
                     });
             }
 
+            // Batch collect focus nodes for all rules in wave (sequential)
+            let focus_start = Instant::now();
+            let focus_map = self.batch_collect_focus_nodes(wave, delta)?;
+            let focus_time = focus_start.elapsed();
+            wave_stats.focus_time += focus_time;
+
             // Parallel execution within wave
-            let wave_results = self.execute_wave_parallel(wave, delta)?;
+            let wave_results = self.execute_wave_parallel(wave, &focus_map, delta)?;
 
             // Collect results sequentially (maintains determinism)
             let mut wave_added = 0;
-            for (plan_index, added, quads, focus_time, exec_time, is_sparql) in wave_results {
+            for (plan_index, added, quads, exec_time, is_sparql) in wave_results {
                 // Track timing
-                wave_stats.focus_time += focus_time;
                 if is_sparql {
                     wave_stats.sparql_time += exec_time;
                     wave_stats.sparql_rules += 1;
