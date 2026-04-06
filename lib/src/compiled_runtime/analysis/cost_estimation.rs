@@ -269,10 +269,10 @@ mod tests {
         analyzer.run(&ctx, &mut state).unwrap();
 
         assert_eq!(state.counters.get("shape_count"), Some(&3));
-        assert!(state.counters.get("total_estimated_cost").is_some());
-        assert!(state.counters.get("max_shape_cost").is_some());
-        assert!(state.counters.get("min_shape_cost").is_some());
-        assert!(state.counters.get("avg_shape_cost").is_some());
+        assert!(state.counters.contains_key("total_estimated_cost"));
+        assert!(state.counters.contains_key("max_shape_cost"));
+        assert!(state.counters.contains_key("min_shape_cost"));
+        assert!(state.counters.contains_key("avg_shape_cost"));
 
         // Max should be greater than min (shape 2 has more components)
         let max = state.counters.get("max_shape_cost").unwrap();

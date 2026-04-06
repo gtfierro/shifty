@@ -507,13 +507,14 @@ impl<'a> InferenceEngine<'a> {
     }
 
     /// Execute all rules in a wave in parallel
-    /// Returns: Vec<(plan_index, triples_added, quads, exec_time, is_sparql, is_compiled_sparql)>
+    /// Execute all rules in a wave in parallel
+    /// Returns: Vec<WaveExecutionResult>
     fn execute_wave_parallel(
         &self,
         wave: &ParallelWave,
         focus_map: &HashMap<usize, Vec<Term>>,
         delta: &DeltaIndex,
-    ) -> Result<Vec<(usize, usize, Vec<Quad>, std::time::Duration, bool, bool)>, InferenceError> {
+    ) -> Result<Vec<WaveExecutionResult>, InferenceError> {
         use rayon::prelude::*;
 
         // Parallel execution of independent rules
@@ -557,7 +558,7 @@ impl<'a> InferenceEngine<'a> {
                             plan.sparql_prefilter.as_ref(),
                             plan.native_sparql.as_ref(),
                             delta,
-                            &focus_nodes,
+                            focus_nodes,
                             &mut thread_seen,
                             &mut thread_collected,
                         )?
@@ -565,7 +566,7 @@ impl<'a> InferenceEngine<'a> {
                     Rule::Triple(triple_rule) => self.apply_triple_rule(
                         triple_rule,
                         delta,
-                        &focus_nodes,
+                        focus_nodes,
                         &mut thread_seen,
                         &mut thread_collected,
                     )?,
@@ -1576,16 +1577,9 @@ struct ParallelWave {
     plan_indices: Vec<usize>,
 }
 
-/// Represents a batch of PathCopy rules that can be executed together
-#[derive(Debug, Clone)]
-struct PathCopyBatch {
-    /// Map from source predicate to target predicate
-    predicate_pairs: Vec<(NamedNode, NamedNode)>,
-    /// Plan indices for rules in this batch
-    plan_indices: Vec<usize>,
-    /// Source path (should be same for all rules in batch)
-    source_path: crate::sparql::LoweredPropertyPath,
-}
+/// Result type for parallel wave execution
+/// (plan_index, triples_added, quads, exec_time, is_sparql, is_compiled_sparql)
+type WaveExecutionResult = (usize, usize, Vec<Quad>, std::time::Duration, bool, bool);
 
 /// Statistics about wave execution for a single iteration
 #[derive(Debug, Clone, Default)]
