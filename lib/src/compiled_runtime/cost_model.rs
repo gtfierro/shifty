@@ -149,9 +149,7 @@ mod tests {
 
     #[test]
     fn test_expensive_components() {
-        let node = ComponentDescriptor::Node {
-            shape: ID(1),
-        };
+        let node = ComponentDescriptor::Node { shape: ID(1) };
         assert_eq!(estimate_component_complexity(&node), 20);
 
         let qualified = ComponentDescriptor::QualifiedValueShape {
@@ -164,7 +162,9 @@ mod tests {
 
         // SPARQL is very expensive
         let sparql = ComponentDescriptor::Sparql {
-            constraint_node: NamedNode::new("http://example.org/constraint").unwrap().into(),
+            constraint_node: NamedNode::new("http://example.org/constraint")
+                .unwrap()
+                .into(),
         };
         assert_eq!(estimate_component_complexity(&sparql), 100);
     }

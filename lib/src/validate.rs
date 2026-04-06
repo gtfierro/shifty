@@ -408,7 +408,12 @@ impl ValidateShape for NodeShape {
                 let target_hash = hash_target(target);
 
                 // Check global cache for this specific target expression
-                let targets = if let Some(cached) = context.global_target_cache.read().unwrap().get(&target_hash) {
+                let targets = if let Some(cached) = context
+                    .global_target_cache
+                    .read()
+                    .unwrap()
+                    .get(&target_hash)
+                {
                     Arc::clone(cached)
                 } else {
                     // Cache miss - evaluate target and store in global cache
@@ -424,7 +429,11 @@ impl ValidateShape for NodeShape {
                         .collect();
 
                     let arc_nodes: Arc<[Term]> = nodes.into();
-                    context.global_target_cache.write().unwrap().insert(target_hash, Arc::clone(&arc_nodes));
+                    context
+                        .global_target_cache
+                        .write()
+                        .unwrap()
+                        .insert(target_hash, Arc::clone(&arc_nodes));
                     arc_nodes
                 };
 
@@ -671,7 +680,12 @@ impl ValidateShape for PropertyShape {
                 let target_hash = hash_target(target);
 
                 // Check global cache for this specific target expression
-                let targets = if let Some(cached) = context.global_target_cache.read().unwrap().get(&target_hash) {
+                let targets = if let Some(cached) = context
+                    .global_target_cache
+                    .read()
+                    .unwrap()
+                    .get(&target_hash)
+                {
                     Arc::clone(cached)
                 } else {
                     // Cache miss - evaluate target and store in global cache
@@ -687,7 +701,11 @@ impl ValidateShape for PropertyShape {
                         .collect();
 
                     let arc_nodes: Arc<[Term]> = nodes.into();
-                    context.global_target_cache.write().unwrap().insert(target_hash, Arc::clone(&arc_nodes));
+                    context
+                        .global_target_cache
+                        .write()
+                        .unwrap()
+                        .insert(target_hash, Arc::clone(&arc_nodes));
                     arc_nodes
                 };
 
@@ -864,8 +882,11 @@ impl PropertyShape {
 
         // Populate cache with new results
         if !new_results.is_empty()
-            && let Ok(mut cache) = context.path_batch_cache.write() {
-            let batch = cache.entry(cache_key).or_insert_with(|| Arc::new(HashMap::new()));
+            && let Ok(mut cache) = context.path_batch_cache.write()
+        {
+            let batch = cache
+                .entry(cache_key)
+                .or_insert_with(|| Arc::new(HashMap::new()));
             let mut updated_batch = (**batch).clone();
             for (focus, values) in &new_results {
                 updated_batch.insert(focus.clone(), values.clone());
@@ -1061,7 +1082,9 @@ impl PropertyShape {
                 // Check global path batch cache first
                 let sparql_path = self.sparql_path();
                 let cache_hit = if let Ok(cache) = context.path_batch_cache.read() {
-                    cache.get(&sparql_path).and_then(|batch| batch.get(focus_node).cloned())
+                    cache
+                        .get(&sparql_path)
+                        .and_then(|batch| batch.get(focus_node).cloned())
                 } else {
                     None
                 };

@@ -162,7 +162,9 @@ mod tests {
         let scheduler = CostBasedScheduler;
         let mut state = AnalysisState::default();
 
-        state.counters.insert("total_estimated_cost".to_string(), 1000);
+        state
+            .counters
+            .insert("total_estimated_cost".to_string(), 1000);
         state.counters.insert("shape_count".to_string(), 4);
 
         scheduler.rewrite(&mut plan, &state).unwrap();

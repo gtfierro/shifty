@@ -267,7 +267,9 @@ pub struct ValidationContext {
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
     /// Component result memoization cache for deduplicating identical constraint validations
-    pub(crate) component_memo_cache: RwLock<HashMap<crate::component_memo::ComponentMemoKey, crate::component_memo::ComponentMemoValue>>,
+    pub(crate) component_memo_cache: RwLock<
+        HashMap<crate::component_memo::ComponentMemoKey, crate::component_memo::ComponentMemoValue>,
+    >,
     /// Path batching cache for deduplicating identical path queries across property shapes
     pub(crate) path_batch_cache: PathBatchCacheMap,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,

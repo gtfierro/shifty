@@ -69,7 +69,7 @@ pub struct InferenceOutcome {
     pub total_waves_executed: usize,
     pub avg_rules_per_wave: f64,
     pub max_wave_parallelism: usize,
-    pub sequential_waves: usize,  // Waves with only 1 rule
+    pub sequential_waves: usize, // Waves with only 1 rule
     /// Performance profiling statistics
     pub total_inference_time_ms: u128,
     pub sparql_rules_executed: usize,
@@ -529,7 +529,14 @@ impl<'a> InferenceEngine<'a> {
                 // Get pre-computed focus nodes
                 let Some(focus_nodes) = focus_map.get(&plan_index) else {
                     // No focus nodes means rule was skipped (trigger didn't match)
-                    return Ok((plan_index, 0, Vec::new(), std::time::Duration::ZERO, is_sparql, is_compiled_sparql));
+                    return Ok((
+                        plan_index,
+                        0,
+                        Vec::new(),
+                        std::time::Duration::ZERO,
+                        is_sparql,
+                        is_compiled_sparql,
+                    ));
                 };
 
                 if self.config.trace {
@@ -581,7 +588,14 @@ impl<'a> InferenceEngine<'a> {
                     ));
                 }
 
-                Ok((plan_index, added, thread_collected, exec_time, is_sparql, is_compiled_sparql))
+                Ok((
+                    plan_index,
+                    added,
+                    thread_collected,
+                    exec_time,
+                    is_sparql,
+                    is_compiled_sparql,
+                ))
             })
             .collect();
 
@@ -662,7 +676,8 @@ impl<'a> InferenceEngine<'a> {
 
             // Collect results sequentially (maintains determinism)
             let mut wave_added = 0;
-            for (plan_index, added, quads, exec_time, is_sparql, is_compiled_sparql) in wave_results {
+            for (plan_index, added, quads, exec_time, is_sparql, is_compiled_sparql) in wave_results
+            {
                 // Track timing
                 if is_sparql {
                     wave_stats.sparql_time += exec_time;

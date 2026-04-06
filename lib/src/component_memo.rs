@@ -86,10 +86,7 @@ fn hash_value_nodes(value_nodes: &Option<Vec<Term>>) -> u64 {
 /// 1. Have deterministic results (same inputs → same outputs)
 /// 2. Have no side effects
 /// 3. Don't depend on external state beyond the data graph
-pub fn is_memoizable_component(
-    component_id: ComponentID,
-    context: &ValidationContext,
-) -> bool {
+pub fn is_memoizable_component(component_id: ComponentID, context: &ValidationContext) -> bool {
     // Get component descriptor from ShapeIR
     let descriptor = context.shape_ir.components.get(&component_id);
 
@@ -151,18 +148,15 @@ pub fn memo_value_to_results(
         ComponentMemoValue::Pass => {
             vec![ComponentValidationResult::Pass(context.clone())]
         }
-        ComponentMemoValue::Fail(failures) => {
-            failures.iter()
-                .map(|f| ComponentValidationResult::Fail(context.clone(), f.clone()))
-                .collect()
-        }
+        ComponentMemoValue::Fail(failures) => failures
+            .iter()
+            .map(|f| ComponentValidationResult::Fail(context.clone(), f.clone()))
+            .collect(),
     }
 }
 
 /// Convert ComponentValidationResult to ComponentMemoValue.
-pub fn results_to_memo_value(
-    results: &[ComponentValidationResult],
-) -> ComponentMemoValue {
+pub fn results_to_memo_value(results: &[ComponentValidationResult]) -> ComponentMemoValue {
     let failures: Vec<ValidationFailure> = results
         .iter()
         .filter_map(|r| match r {
@@ -192,8 +186,18 @@ mod tests {
             NamedNode::new("http://example.org/val2").unwrap().into(),
         ]);
 
-        let key1 = ComponentMemoKey::new(component_id, focus.clone().into(), &values, values.as_ref().map_or(0, |v| v.len()));
-        let key2 = ComponentMemoKey::new(component_id, focus.into(), &values, values.as_ref().map_or(0, |v| v.len()));
+        let key1 = ComponentMemoKey::new(
+            component_id,
+            focus.clone().into(),
+            &values,
+            values.as_ref().map_or(0, |v| v.len()),
+        );
+        let key2 = ComponentMemoKey::new(
+            component_id,
+            focus.into(),
+            &values,
+            values.as_ref().map_or(0, |v| v.len()),
+        );
 
         assert_eq!(key1, key2);
         assert_eq!(key1.value_nodes_hash, key2.value_nodes_hash);

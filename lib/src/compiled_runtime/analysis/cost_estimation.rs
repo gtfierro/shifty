@@ -1,7 +1,5 @@
 use crate::compiled_runtime::analysis::{AnalysisContext, AnalysisPhase, AnalysisState, Analyzer};
-use crate::compiled_runtime::cost_model::{
-    estimate_shape_component_complexity, ShapeCost,
-};
+use crate::compiled_runtime::cost_model::{ShapeCost, estimate_shape_component_complexity};
 use crate::shacl_ir::ComponentDescriptor;
 
 /// Analyzer that estimates validation costs for shapes.
@@ -65,11 +63,7 @@ impl Analyzer for CostEstimationAnalyzer {
             };
 
             // Calculate total cost for this shape
-            let shape_cost = ShapeCost::new(
-                shape.id,
-                estimated_target_count,
-                component_complexity,
-            );
+            let shape_cost = ShapeCost::new(shape.id, estimated_target_count, component_complexity);
 
             total_cost = total_cost.saturating_add(shape_cost.total_cost);
             max_cost = max_cost.max(shape_cost.total_cost);
@@ -128,10 +122,9 @@ impl Analyzer for CostEstimationAnalyzer {
                 .filter(|c| c.total_cost >= high_cost_threshold)
                 .count() as u64;
 
-            state.counters.insert(
-                "high_cost_shapes".to_string(),
-                high_cost_shapes,
-            );
+            state
+                .counters
+                .insert("high_cost_shapes".to_string(), high_cost_shapes);
         }
 
         // Summary note
