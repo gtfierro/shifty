@@ -14,3 +14,15 @@
 /flamegraph.svg
 *.pyc
 shapes.ir
+
+# Benchmark and comparison outputs
+/benchmark-*.csv
+/benchmark/hyperfine-json/
+/benchmark/hyperfine-plots/
+/benchmark/*.png
+/benchmark/*.csv
+/benchmark/*.html
+/benchmark/phase1-results-summary.md
+/MEMOIZATION_BENCHMARK_RESULTS.md
+/integration/artifacts/
+/report.json
