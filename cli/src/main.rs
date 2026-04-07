@@ -3,7 +3,9 @@ use graphviz_rust::cmd::{CommandArg, Format};
 use graphviz_rust::exec_dot;
 use log::{LevelFilter, info};
 use oxigraph::io::{RdfFormat, RdfSerializer};
-use oxigraph::model::{Graph, NamedOrBlankNode, Quad, Term, Triple, TripleRef};
+#[cfg(feature = "srcgen-compiler")]
+use oxigraph::model::{Graph, Triple};
+use oxigraph::model::{NamedOrBlankNode, Quad, Term, TripleRef};
 use serde_json::json;
 #[cfg(feature = "srcgen-compiler")]
 use shacl_srcgen_compiler::{
@@ -22,6 +24,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "srcgen-compiler")]
 use std::process::Command;
 use std::time::Instant;
+use url::Url;
 
 fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
     let is_ir = path
@@ -37,6 +40,29 @@ fn try_read_shape_ir_from_path(path: &Path) -> Option<Result<shifty::shacl_ir::S
         ir_cache::read_shape_ir(path)
             .map_err(|e| format!("Failed to read SHACL-IR cache {}: {}", path.display(), e)),
     )
+}
+
+fn cli_url_value(path: &Path) -> Option<String> {
+    let value = path.to_str()?;
+    let url = Url::parse(value).ok()?;
+    match url.scheme() {
+        "http" | "https" => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn path_or_url_source(path: &PathBuf) -> Source {
+    cli_url_value(path.as_path())
+        .map(Source::Graph)
+        .unwrap_or_else(|| Source::File(path.clone()))
+}
+
+fn shape_ir_arg_from_path(path: &PathBuf) -> Option<Result<shifty::shacl_ir::ShapeIR, String>> {
+    if cli_url_value(path.as_path()).is_some() {
+        None
+    } else {
+        try_read_shape_ir_from_path(path)
+    }
 }
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -112,7 +138,7 @@ fn init_logging(base: LogLevel, verbose: u8, quiet: u8) {
 
 #[derive(Parser, Debug)]
 struct ShapesSourceCli {
-    /// Path to the shapes file (optional for data-bearing commands; defaults to the data graph when omitted)
+    /// Path or URL to the shapes file (optional for data-bearing commands; defaults to the data graph when omitted)
     #[arg(short, long, value_name = "FILE")]
     shapes_file: Option<PathBuf>,
 
@@ -128,7 +154,7 @@ struct ShapesSourceCli {
         .args(&["data_file", "data_graph"]),
 ))]
 struct DataSourceCli {
-    /// Path to the data file
+    /// Path or URL to the data file
     #[arg(short, long, value_name = "FILE")]
     data_file: Option<PathBuf>,
 
@@ -170,10 +196,6 @@ struct GenerateIrArgs {
     #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
 
-    /// Disable store optimization when building the SHACL-IR
-    #[arg(long)]
-    no_store_optimize: bool,
-
     /// Output path for the serialized SHACL-IR file
     #[arg(short, long, value_name = "FILE")]
     output_file: PathBuf,
@@ -212,10 +234,6 @@ struct CompileArgs {
     /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
     #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
-
-    /// Disable store optimization when building the plan
-    #[arg(long)]
-    no_store_optimize: bool,
 
     /// Output directory for the generated crate and binary
     #[arg(long, value_name = "DIR", default_value = "target/compiled-shacl")]
@@ -323,10 +341,6 @@ struct CommonArgs {
     /// Use a temporary OntoEnv workspace (set to false to reuse a local store if present)
     #[arg(long, default_value_t = false, value_parser = clap::value_parser!(bool))]
     temporary: bool,
-
-    /// Disable optimizing the store before validation/inference
-    #[arg(long)]
-    no_store_optimize: bool,
 }
 
 #[derive(Parser)]
@@ -541,7 +555,7 @@ fn get_validator(
     shacl_ir_path: Option<&PathBuf>,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let data_source = if let Some(path) = &common.data.data_file {
-        Source::File(path.clone())
+        path_or_url_source(path)
     } else {
         Source::Graph(common.data.data_graph.clone().unwrap())
     };
@@ -556,18 +570,17 @@ fn get_validator(
         .with_force_refresh(common.force_refresh)
         .with_temporary_env(common.temporary)
         .with_import_depth(common.import_depth)
-        .with_shapes_data_union(!common.no_union_graphs)
-        .with_store_optimization(!common.no_store_optimize);
+        .with_shapes_data_union(!common.no_union_graphs);
 
     if let Some(path) = shacl_ir_path {
         let shape_ir = ir_cache::read_shape_ir(path)
             .map_err(|e| format!("Failed to read SHACL-IR cache: {}", e))?;
         builder = builder.with_shape_ir(shape_ir);
     } else if let Some(path) = &common.shapes.shapes_file {
-        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+        if let Some(shape_ir) = shape_ir_arg_from_path(path) {
             builder = builder.with_shape_ir(shape_ir?);
         } else {
-            builder = builder.with_shapes_source(Source::File(path.clone()));
+            builder = builder.with_shapes_source(path_or_url_source(path));
         }
     } else if let Some(graph) = &common.shapes.shapes_graph {
         builder = builder.with_shapes_source(Source::Graph(graph.clone()));
@@ -583,10 +596,10 @@ fn get_validator_shapes_only(
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &args.shapes.shapes_file {
-        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+        if let Some(shape_ir) = shape_ir_arg_from_path(path) {
             builder = builder.with_shape_ir(shape_ir?);
         } else {
-            builder = builder.with_shapes_source(Source::File(path.clone()));
+            builder = builder.with_shapes_source(path_or_url_source(path));
         }
     } else if let Some(graph) = &args.shapes.shapes_graph {
         builder = builder.with_shapes_source(Source::Graph(graph.clone()));
@@ -603,7 +616,6 @@ fn get_validator_shapes_only(
         .with_force_refresh(args.force_refresh)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
-        .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
         // Generate SHACL-IR with shape-only optimization, but disable data-dependent
         // target pruning because generate-ir uses Source::Empty.
@@ -619,10 +631,10 @@ fn get_validator_shapes_only_for_compile(
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
     if let Some(path) = &args.shapes.shapes_file {
-        if let Some(shape_ir) = try_read_shape_ir_from_path(path) {
+        if let Some(shape_ir) = shape_ir_arg_from_path(path) {
             builder = builder.with_shape_ir(shape_ir?);
         } else {
-            builder = builder.with_shapes_source(Source::File(path.clone()));
+            builder = builder.with_shapes_source(path_or_url_source(path));
         }
     } else if let Some(graph) = &args.shapes.shapes_graph {
         builder = builder.with_shapes_source(Source::Graph(graph.clone()));
@@ -639,7 +651,6 @@ fn get_validator_shapes_only_for_compile(
         .with_force_refresh(args.force_refresh)
         .with_temporary_env(args.temporary)
         .with_import_depth(args.import_depth)
-        .with_store_optimization(!args.no_store_optimize)
         .with_shapes_data_union(true)
         .with_shape_optimization(true)
         .with_data_dependent_shape_optimization(false)
@@ -2025,7 +2036,7 @@ fn run_command(command: Commands) -> Result<serde_json::Value, Box<dyn std::erro
                 }
             };
             let cargo_toml = format!(
-                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2024\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\" }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = \"0.5.1\"\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
+                "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.0.1\"\nedition = \"2024\"\n\n[dependencies]\noxigraph = {{ version = \"0.5.5\", default-features = false }}\nrayon = \"1\"\nregex = \"1\"\nserde_json = \"1\"\nbincode = {{ version = \"2\", features = [\"serde\"] }}\noxsdatatypes = \"0.2.2\"\nfixedbitset = \"0.5\"\ndashmap = \"6\"\n{}\nontoenv = {{ git = \"https://github.com/gtfierro/ontoenv-rs\" }}\nlog = \"0.4\"\nenv_logger = \"0.11\"\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\n\n[profile.bench]\ndebug = 2\nstrip = \"none\"\n",
                 args.bin_name, shifty_dep,
             );
             fs::write(out_dir.join("Cargo.toml"), cargo_toml)?;
@@ -2269,10 +2280,35 @@ fn write_shape_graph_ttl(
     Ok(())
 }
 
-#[cfg(all(test, feature = "srcgen-compiler"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn http_shape_file_argument_is_treated_as_graph_source() {
+        let source = path_or_url_source(&PathBuf::from("https://example.com/shapes.ttl"));
+        match source {
+            Source::Graph(url) => assert_eq!(url, "https://example.com/shapes.ttl"),
+            other => panic!("expected graph source, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn local_shape_file_argument_remains_file_source() {
+        let source = path_or_url_source(&PathBuf::from("examples/shapes.ttl"));
+        match source {
+            Source::File(path) => assert_eq!(path, PathBuf::from("examples/shapes.ttl")),
+            other => panic!("expected file source, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn remote_ir_urls_do_not_get_treated_as_local_shape_ir_files() {
+        let path = PathBuf::from("https://example.com/cache.ir");
+        assert!(shape_ir_arg_from_path(&path).is_none());
+    }
+
+    #[cfg(feature = "srcgen-compiler")]
     fn parse_compile_args(extra: &[&str]) -> CompileArgs {
         let mut argv = vec!["shifty", "compile", "--shapes-file", "shapes.ttl"];
         argv.extend_from_slice(extra);
@@ -2283,6 +2319,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "srcgen-compiler")]
     #[test]
     fn compile_defaults_to_srcgen_specialized_backend() {
         let args = parse_compile_args(&[]);
@@ -2292,6 +2329,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "srcgen-compiler")]
     #[test]
     fn compile_tables_backend_is_supported() {
         let args = parse_compile_args(&["--backend", "tables"]);

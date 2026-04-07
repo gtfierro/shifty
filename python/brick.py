@@ -26,15 +26,22 @@ def run_shacl_pipeline(model_path: str, env: OntoEnv = ENV) -> bool:
     model_name = env.add(model_path)
     print(f"Fetching dependencies for model: {model_name}")
     model_graph: Graph = env.get_graph(model_name)
-    shape_graph, imported = env.get_closure(model_name)
-    print(f"Imported ontologies for SHACL shape graph: {imported}")
+    closure_graph, imported = env.get_closure(model_name)
+    print(f"Imported ontologies for SHACL closure graph: {imported}")
+
+    # The closure graph already includes OntoEnv-resolved imports, so avoid
+    # asking Rust to resolve the same owl:imports again from an in-memory graph.
+    compiled = shifty.generate_ir(closure_graph, do_imports=False)
 
     print("Running SHACL inference...")
-    inferred = shifty.infer(model_graph, shape_graph)
+    inferred = compiled.infer(model_graph, do_imports=False)
     print(inferred.serialize(format="turtle"))
 
-    valid, _results_graph, report_string = shifty.validate(
-        model_graph, shape_graph, inference={"debug": True}
+    valid, _results_graph, report_string = compiled.validate(
+        model_graph,
+        run_inference=True,
+        inference={"debug": True},
+        do_imports=False,
     )
     print("Validation Report:")
     print(report_string)

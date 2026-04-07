@@ -781,17 +781,7 @@ impl ValidatorBuilder {
 
         if optimize_store {
             info!(
-                "Optimizing store with shape graph <{}> and data graph <{}>",
-                shapes_graph_iri, data_graph_iri
-            );
-            model.store.optimize().map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Error optimizing store: {}",
-                    e
-                )))
-            })?;
-            info!(
-                "Finished store optimization with shape graph <{}> and data graph <{}>",
+                "Store optimization requested for shape graph <{}> and data graph <{}>, but oxigraph default features are disabled so this step is skipped",
                 shapes_graph_iri, data_graph_iri
             );
         } else {

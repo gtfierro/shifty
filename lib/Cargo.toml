@@ -27,7 +27,7 @@ sha2 = { workspace = true }
 rayon = "1.10.0"
 spargebra = "0.4.5"
 ntest = "0.9.3"
-ontoenv = "0.5.1"
+ontoenv = { git = "https://github.com/gtfierro/ontoenv-rs" }
 #ontoenv = { path = "../../ontoenv-rs/lib" }
 serde_json.workspace = true
 serde = { workspace = true }
@@ -35,6 +35,7 @@ fixedbitset = "0.5.7"
 
 [features]
 compiled-tests = []
+rocksdb = ["oxigraph/rocksdb", "ontoenv/rocksdb"]
 
 [build-dependencies]
 oxrdf = { workspace = true }

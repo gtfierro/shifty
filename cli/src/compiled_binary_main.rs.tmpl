@@ -1439,14 +1439,6 @@ fn load_store_for_path(path: &Path) -> Result<(Store, NamedNode), String> {
     );
     stage_mark(&format!("data graph load finish triples={}", triple_count));
 
-    info!("Starting store optimization");
-    stage_mark("store optimize start");
-    store
-        .optimize()
-        .map_err(|e| format!("store optimize failed: {}", e))?;
-    info!("Finished store optimization");
-    stage_mark("store optimize finish");
-
     Ok((store, data_graph))
 }
 
@@ -1724,9 +1716,6 @@ fn handle_validate_api(body: &[u8]) -> Result<Value, String> {
     let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
     let _ = load_embedded_shape_graph(&store)?;
     let _ = load_data_graph_from_bytes(&store, &data_graph, graph.as_bytes(), format)?;
-    store
-        .optimize()
-        .map_err(|e| format!("store optimize failed: {}", e))?;
     let graph_fetching_ms = elapsed_ms(graph_fetching_start);
 
     let mut inference_metrics = Value::Null;
@@ -1786,9 +1775,6 @@ fn handle_infer_api(body: &[u8]) -> Result<Value, String> {
     let data_graph = NamedNode::new(DATA_GRAPH).map_err(|e| format!("invalid data graph IRI: {}", e))?;
     let _ = load_embedded_shape_graph(&store)?;
     let _ = load_data_graph_from_bytes(&store, &data_graph, graph.as_bytes(), format)?;
-    store
-        .optimize()
-        .map_err(|e| format!("store optimize failed: {}", e))?;
     let graph_fetching_ms = elapsed_ms(graph_fetching_start);
 
     reset_runtime_metrics();
