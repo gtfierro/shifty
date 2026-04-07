@@ -26,3 +26,35 @@ shapes.ir
 /MEMOIZATION_BENCHMARK_RESULTS.md
 /integration/artifacts/
 /report.json
+
+# AI-generated internal docs and scratch files
+/AGENTS.md
+/AOT-TODO.md
+/BRICK_VS_S223_MEMOIZATION.md
+/COST_MODEL_DESIGN.md
+/GEMINI.md
+/moretodo
+/OPTIMIZATION_ANALYSIS.md
+/OPTIMIZATION_STATUS.md
+/OPTIMIZATION_SUMMARY.md
+/OPTIMIZE.md
+/PR.md
+/PRODUCTION_READINESS.md
+/PROFILE.md
+/SPARQL_COMPILATION_FEASIBILITY.md
+
+# Test outputs and logs
+/BuildingMOTIF.log
+/folded.txt
+/pyshacl.ttl
+/shape_flamegraph.svg
+/trace.jsonl
+/trace.shapes.json
+
+# Test/scratch scripts
+/223test.sh
+/shape-flamegraph.sh
+/test-new-compiler.sh
+/simple.py
+/simpler.py
+/test_parallel.sh
