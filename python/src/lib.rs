@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 
 use ::shifty::shacl_ir::ShapeIR;
 use ::shifty::trace::TraceEvent;
-use ::shifty::{InferenceConfig, Source, ValidationReportOptions, Validator};
-use ontoenv::config::Config;
+use ::shifty::{InferenceConfig, InferenceOutcome, Source, ValidationReportOptions, Validator};
 use oxigraph::model::{
     BlankNode, Graph, GraphName, Literal, NamedNode, NamedOrBlankNode, NamedOrBlankNodeRef, Quad,
     Term, TermRef,
@@ -18,7 +17,6 @@ use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use pyo3::wrap_pyfunction;
 use serde_json::json;
 use std::sync::Once;
-use tempfile::tempdir;
 
 fn map_err<E: std::fmt::Display>(err: E) -> PyErr {
     PyValueError::new_err(err.to_string())
@@ -159,15 +157,37 @@ fn graph_to_quads(
     Ok(quads)
 }
 
-fn build_env_config(root: &Path) -> PyResult<Config> {
-    let root_path = root.to_path_buf();
-    Config::builder()
-        .root(root_path.clone())
-        .locations(vec![root_path])
-        .offline(false)
-        .temporary(true)
+fn build_validator_from_graph_quads(
+    shapes_quads: Option<Vec<Quad>>,
+    data_quads: Vec<Quad>,
+    enable_af: bool,
+    enable_rules: bool,
+    skip_invalid_rules: bool,
+    warnings_are_errors: bool,
+    do_imports: bool,
+) -> PyResult<Validator> {
+    let mut builder = Validator::builder();
+    if let Some(shapes_quads) = shapes_quads {
+        builder = builder.with_shapes_source(Source::Quads {
+            graph: PY_SHAPES_GRAPH_IRI.to_string(),
+            quads: shapes_quads,
+        });
+    }
+
+    let validator = builder
+        .with_data_source(Source::Quads {
+            graph: PY_DATA_GRAPH_IRI.to_string(),
+            quads: data_quads,
+        })
+        .with_af_enabled(enable_af)
+        .with_rules_enabled(enable_rules)
+        .with_skip_invalid_rules(skip_invalid_rules)
+        .with_warnings_are_errors(warnings_are_errors)
+        .with_do_imports(do_imports)
         .build()
-        .map_err(map_err)
+        .map_err(map_err)?;
+
+    Ok(validator)
 }
 
 fn build_validator_from_graphs(
@@ -180,33 +200,48 @@ fn build_validator_from_graphs(
     warnings_are_errors: bool,
     do_imports: bool,
 ) -> PyResult<Validator> {
-    let temp_dir = tempdir().map_err(map_err)?;
     let data_quads = graph_to_quads(py, data_graph, PY_DATA_GRAPH_IRI)?;
-    let config = build_env_config(temp_dir.path())?;
-    let mut builder = Validator::builder();
-    if let Some(shapes_graph) = shapes_graph {
-        let shapes_quads = graph_to_quads(py, shapes_graph, PY_SHAPES_GRAPH_IRI)?;
-        builder = builder.with_shapes_source(Source::Quads {
-            graph: PY_SHAPES_GRAPH_IRI.to_string(),
-            quads: shapes_quads,
-        });
-    }
+    let shapes_quads = if let Some(shapes_graph) = shapes_graph {
+        Some(graph_to_quads(py, shapes_graph, PY_SHAPES_GRAPH_IRI)?)
+    } else {
+        None
+    };
 
-    let validator = builder
+    py.detach(move || {
+        build_validator_from_graph_quads(
+            shapes_quads,
+            data_quads,
+            enable_af,
+            enable_rules,
+            skip_invalid_rules,
+            warnings_are_errors,
+            do_imports,
+        )
+    })
+}
+
+fn build_validator_from_ir_quads(
+    shape_ir: &ShapeIR,
+    data_quads: Vec<Quad>,
+    enable_af: bool,
+    enable_rules: bool,
+    skip_invalid_rules: bool,
+    warnings_are_errors: bool,
+    do_imports: bool,
+) -> PyResult<Validator> {
+    Validator::builder()
+        .with_shape_ir(shape_ir.clone())
         .with_data_source(Source::Quads {
             graph: PY_DATA_GRAPH_IRI.to_string(),
             quads: data_quads,
         })
-        .with_env_config(config)
         .with_af_enabled(enable_af)
         .with_rules_enabled(enable_rules)
         .with_skip_invalid_rules(skip_invalid_rules)
         .with_warnings_are_errors(warnings_are_errors)
         .with_do_imports(do_imports)
         .build()
-        .map_err(map_err)?;
-
-    Ok(validator)
+        .map_err(map_err)
 }
 
 fn build_validator_from_ir(
@@ -219,24 +254,18 @@ fn build_validator_from_ir(
     warnings_are_errors: bool,
     do_imports: bool,
 ) -> PyResult<Validator> {
-    let temp_dir = tempdir().map_err(map_err)?;
     let data_quads = graph_to_quads(py, data_graph, PY_DATA_GRAPH_IRI)?;
-    let config = build_env_config(temp_dir.path())?;
-
-    Validator::builder()
-        .with_shape_ir(shape_ir.clone())
-        .with_data_source(Source::Quads {
-            graph: PY_DATA_GRAPH_IRI.to_string(),
-            quads: data_quads,
-        })
-        .with_env_config(config)
-        .with_af_enabled(enable_af)
-        .with_rules_enabled(enable_rules)
-        .with_skip_invalid_rules(skip_invalid_rules)
-        .with_warnings_are_errors(warnings_are_errors)
-        .with_do_imports(do_imports)
-        .build()
-        .map_err(map_err)
+    py.detach(move || {
+        build_validator_from_ir_quads(
+            shape_ir,
+            data_quads,
+            enable_af,
+            enable_rules,
+            skip_invalid_rules,
+            warnings_are_errors,
+            do_imports,
+        )
+    })
 }
 
 fn build_inference_config(
@@ -794,6 +823,24 @@ fn graph_from_oxigraph_graph(py: Python<'_>, ox_graph: &Graph) -> PyResult<Py<Py
     Ok(graph.into())
 }
 
+struct InferExecution {
+    output_quads: Vec<Quad>,
+    graphviz: Option<String>,
+    heatmap: Option<String>,
+    trace_events: Vec<TraceEvent>,
+    inference_outcome: Option<InferenceOutcome>,
+}
+
+struct ValidateExecution {
+    conforms: bool,
+    report_turtle: String,
+    report_graph: Graph,
+    graphviz: Option<String>,
+    heatmap: Option<String>,
+    trace_events: Vec<TraceEvent>,
+    inference_outcome: Option<InferenceOutcome>,
+}
+
 fn execute_infer(
     py: Python<'_>,
     validator: Validator,
@@ -813,12 +860,6 @@ fn execute_infer(
 ) -> PyResult<Py<PyAny>> {
     let should_collect_traces =
         trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
-    let trace_buf = if should_collect_traces {
-        Some(validator.context().trace_events())
-    } else {
-        None
-    };
-
     let config = build_inference_config(
         min_iterations,
         max_iterations,
@@ -826,46 +867,74 @@ fn execute_infer(
         error_on_blank_nodes,
         debug,
     )?;
-    let outcome = validator
-        .run_inference_with_config(config)
+    let execution = py
+        .detach(|| -> Result<InferExecution, String> {
+            let outcome = validator
+                .run_inference_with_config(config)
+                .map_err(|err| err.to_string())?;
+            let output_quads = if union {
+                validator.data_graph_quads()?
+            } else {
+                outcome.inferred_quads.clone()
+            };
+            let graphviz_dot = if graphviz {
+                Some(validator.to_graphviz()?)
+            } else {
+                None
+            };
+            let heatmap_dot = if heatmap {
+                let _report = validator.validate();
+                Some(validator.to_graphviz_heatmap(heatmap_all)?)
+            } else {
+                None
+            };
+            let trace_events = if should_collect_traces {
+                validator
+                    .context()
+                    .trace_events()
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            Ok(InferExecution {
+                output_quads,
+                graphviz: graphviz_dot,
+                heatmap: heatmap_dot,
+                trace_events,
+                inference_outcome: Some(outcome),
+            })
+        })
         .map_err(map_err)?;
 
-    let output_graph = if union {
-        let all_data_quads = validator.data_graph_quads().map_err(map_err)?;
-        graph_from_quads(py, &all_data_quads)?
-    } else {
-        graph_from_quads(py, &outcome.inferred_quads)?
-    };
+    let output_graph = graph_from_quads(py, &execution.output_quads)?;
 
     let diagnostics = PyDict::new(py);
 
-    if graphviz {
-        let dot = validator.to_graphviz().map_err(map_err)?;
+    if let Some(dot) = execution.graphviz {
         diagnostics.set_item("graphviz", dot)?;
     }
 
-    if heatmap {
-        let _report = validator.validate();
-        let heatmap_dot = validator
-            .to_graphviz_heatmap(heatmap_all)
-            .map_err(map_err)?;
+    if let Some(heatmap_dot) = execution.heatmap {
         diagnostics.set_item("heatmap", heatmap_dot)?;
     }
 
-    if let Some(buf) = trace_buf {
-        let events = buf
-            .lock()
-            .ok()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
-        write_trace_outputs(&events, trace_file.as_deref(), trace_jsonl.as_deref())?;
+    if should_collect_traces {
+        write_trace_outputs(
+            &execution.trace_events,
+            trace_file.as_deref(),
+            trace_jsonl.as_deref(),
+        )?;
         if trace_events {
-            let py_events = trace_events_to_py(py, &events)?;
+            let py_events = trace_events_to_py(py, &execution.trace_events)?;
             diagnostics.set_item("trace_events", py_events)?;
         }
     }
 
-    if return_inference_outcome {
+    if return_inference_outcome && let Some(outcome) = execution.inference_outcome {
         let stats = PyDict::new(py);
         stats.set_item("iterations_executed", outcome.iterations_executed)?;
         stats.set_item("triples_added", outcome.triples_added)?;
@@ -1080,62 +1149,89 @@ fn execute_validate(
 ) -> PyResult<Py<PyAny>> {
     let should_collect_traces =
         trace_events || trace_file.is_some() || trace_jsonl.is_some() || heatmap;
-    let trace_buf = if should_collect_traces {
-        Some(validator.context().trace_events())
-    } else {
-        None
-    };
+    let execution = py
+        .detach(|| -> Result<ValidateExecution, String> {
+            let (report, inference_outcome) = if settings.run_inference {
+                let config = build_inference_config(
+                    settings.min_iterations,
+                    settings.max_iterations,
+                    settings.run_until_converged,
+                    settings.error_on_blank_nodes,
+                    settings.debug,
+                )
+                .map_err(|err| err.to_string())?;
+                let (outcome, report) = validator
+                    .validate_with_inference(config)
+                    .map_err(|err| err.to_string())?;
+                (report, Some(outcome))
+            } else {
+                (validator.validate(), None)
+            };
 
-    let (report, inference_outcome) = if settings.run_inference {
-        let config = build_inference_config(
-            settings.min_iterations,
-            settings.max_iterations,
-            settings.run_until_converged,
-            settings.error_on_blank_nodes,
-            settings.debug,
-        )?;
-        match validator.validate_with_inference(config) {
-            Ok((outcome, report)) => (report, Some(outcome)),
-            Err(err) => return Err(map_err(err)),
-        }
-    } else {
-        (validator.validate(), None)
-    };
+            let conforms = report.conforms();
+            let report_turtle = report
+                .to_turtle_with_options(ValidationReportOptions { follow_bnodes })
+                .map_err(|err| err.to_string())?;
+            let report_graph =
+                report.to_graph_with_options(ValidationReportOptions { follow_bnodes });
+            let graphviz_dot = if graphviz {
+                Some(validator.to_graphviz()?)
+            } else {
+                None
+            };
+            let heatmap_dot = if heatmap {
+                Some(validator.to_graphviz_heatmap(heatmap_all)?)
+            } else {
+                None
+            };
+            let trace_events = if should_collect_traces {
+                validator
+                    .context()
+                    .trace_events()
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
-    let conforms = report.conforms();
-    let report_turtle = report
-        .to_turtle_with_options(ValidationReportOptions { follow_bnodes })
+            Ok(ValidateExecution {
+                conforms,
+                report_turtle,
+                report_graph,
+                graphviz: graphviz_dot,
+                heatmap: heatmap_dot,
+                trace_events,
+                inference_outcome,
+            })
+        })
         .map_err(map_err)?;
-    let report_graph_ox = report.to_graph_with_options(ValidationReportOptions { follow_bnodes });
-    let report_graph = graph_from_oxigraph_graph(py, &report_graph_ox)?;
+
+    let report_graph = graph_from_oxigraph_graph(py, &execution.report_graph)?;
     let diagnostics = PyDict::new(py);
 
-    if graphviz {
-        let dot = validator.to_graphviz().map_err(map_err)?;
+    if let Some(dot) = execution.graphviz {
         diagnostics.set_item("graphviz", dot)?;
     }
 
-    if heatmap {
-        let dot = validator
-            .to_graphviz_heatmap(heatmap_all)
-            .map_err(map_err)?;
+    if let Some(dot) = execution.heatmap {
         diagnostics.set_item("heatmap", dot)?;
     }
 
-    if let Some(buf) = trace_buf {
-        let events = buf
-            .lock()
-            .ok()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
-        write_trace_outputs(&events, trace_file.as_deref(), trace_jsonl.as_deref())?;
+    if should_collect_traces {
+        write_trace_outputs(
+            &execution.trace_events,
+            trace_file.as_deref(),
+            trace_jsonl.as_deref(),
+        )?;
         if trace_events {
-            let py_events = trace_events_to_py(py, &events)?;
+            let py_events = trace_events_to_py(py, &execution.trace_events)?;
             diagnostics.set_item("trace_events", py_events)?;
         }
     }
 
-    if return_inference_outcome && let Some(outcome) = inference_outcome {
+    if return_inference_outcome && let Some(outcome) = execution.inference_outcome {
         let stats = PyDict::new(py);
         stats.set_item("iterations_executed", outcome.iterations_executed)?;
         stats.set_item("triples_added", outcome.triples_added)?;
@@ -1145,17 +1241,17 @@ fn execute_validate(
 
     if diagnostics.is_empty() {
         let items: Vec<Py<PyAny>> = vec![
-            conforms.into_py_any(py)?,
+            execution.conforms.into_py_any(py)?,
             report_graph.clone_ref(py).into_py_any(py)?,
-            report_turtle.into_py_any(py)?,
+            execution.report_turtle.into_py_any(py)?,
         ];
         let tuple = PyTuple::new(py, &items)?;
         Ok(tuple.into_py_any(py)?)
     } else {
         let items: Vec<Py<PyAny>> = vec![
-            conforms.into_py_any(py)?,
+            execution.conforms.into_py_any(py)?,
             report_graph.clone_ref(py).into_py_any(py)?,
-            report_turtle.into_py_any(py)?,
+            execution.report_turtle.into_py_any(py)?,
             diagnostics.into_py_any(py)?,
         ];
         let tuple = PyTuple::new(py, &items)?;
@@ -1318,23 +1414,24 @@ fn generate_ir(
     warnings_are_errors: bool,
     do_imports: bool,
 ) -> PyResult<PyCompiledShapeGraph> {
-    let temp_dir = tempdir().map_err(map_err)?;
     let shapes_quads = graph_to_quads(py, shapes_graph, PY_SHAPES_GRAPH_IRI)?;
-    let config = build_env_config(temp_dir.path())?;
-    let validator = Validator::builder()
-        .with_shapes_source(Source::Quads {
-            graph: PY_SHAPES_GRAPH_IRI.to_string(),
-            quads: shapes_quads,
-        })
-        .with_data_source(Source::Empty)
-        .with_env_config(config)
-        .with_af_enabled(enable_af)
-        .with_rules_enabled(enable_rules)
-        .with_skip_invalid_rules(skip_invalid_rules)
-        .with_warnings_are_errors(warnings_are_errors)
-        .with_do_imports(do_imports)
-        .build()
-        .map_err(map_err)?;
+    let validator = py.detach(move || {
+        Validator::builder()
+            .with_shapes_source(Source::Quads {
+                graph: PY_SHAPES_GRAPH_IRI.to_string(),
+                quads: shapes_quads,
+            })
+            .with_data_source(Source::Empty)
+            .with_af_enabled(enable_af)
+            .with_rules_enabled(enable_rules)
+            .with_skip_invalid_rules(skip_invalid_rules)
+            .with_warnings_are_errors(warnings_are_errors)
+            .with_do_imports(do_imports)
+            .with_shape_optimization(true)
+            .with_data_dependent_shape_optimization(false)
+            .build()
+            .map_err(map_err)
+    })?;
 
     let mut shape_ir = validator.context().shape_ir().clone();
     shape_ir.data_graph = None;

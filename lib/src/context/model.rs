@@ -208,18 +208,6 @@ impl ShapesModel {
             shape_graph_iri, shape_graph_base_iri
         );
 
-        info!("Optimizing store with shape graph <{}>", shape_graph_iri);
-        store.optimize().map_err(|e| {
-            Box::new(std::io::Error::other(format!(
-                "Error optimizing store: {}",
-                e
-            )))
-        })?;
-        info!(
-            "Finished store optimization with shape graph <{}>",
-            shape_graph_iri
-        );
-
         let mut ctx = ParsingContext::new(
             store,
             Arc::new(RwLock::new(env)),

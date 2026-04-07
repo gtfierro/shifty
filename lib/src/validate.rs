@@ -35,6 +35,28 @@ fn format_term_for_sparql(term: &Term) -> String {
     }
 }
 
+fn node_shape_label(shape: &NodeShape, context: &ValidationContext) -> String {
+    context
+        .model
+        .nodeshape_id_lookup()
+        .read()
+        .unwrap()
+        .get_term(*shape.identifier())
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| format!("nodeshape:{}", shape.identifier().0))
+}
+
+fn property_shape_label(shape: &PropertyShape, context: &ValidationContext) -> String {
+    context
+        .model
+        .propshape_id_lookup()
+        .read()
+        .unwrap()
+        .get_term(*shape.identifier())
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| format!("propertyshape:{}", shape.identifier().0))
+}
+
 pub(crate) fn is_path_summary_able(path: &Path) -> bool {
     match path {
         Path::Simple(Term::NamedNode(_)) => true,
@@ -315,6 +337,12 @@ fn constraint_can_use_count_without_values(
     )
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ConstraintOrderingContext {
+    summary_value_count: Option<usize>,
+    path_is_definitely_absent: bool,
+}
+
 fn constraint_is_vacuous_when_value_count_is_zero(
     context: &ValidationContext,
     constraint_id: crate::types::ComponentID,
@@ -336,6 +364,9 @@ fn constraint_is_vacuous_when_value_count_is_zero(
             | ComponentDescriptor::MaxLength { .. }
             | ComponentDescriptor::Pattern { .. }
             | ComponentDescriptor::Node { .. }
+            | ComponentDescriptor::Disjoint { .. }
+            | ComponentDescriptor::LessThan { .. }
+            | ComponentDescriptor::LessThanOrEquals { .. }
             | ComponentDescriptor::Not { .. }
             | ComponentDescriptor::And { .. }
             | ComponentDescriptor::Or { .. }
@@ -346,6 +377,150 @@ fn constraint_is_vacuous_when_value_count_is_zero(
         }
         _ => false,
     }
+}
+
+fn property_constraint_sort_key(
+    descriptor: Option<&ComponentDescriptor>,
+    constraint_id: crate::types::ComponentID,
+    ordering: ConstraintOrderingContext,
+) -> Option<(u8, u8, u64)> {
+    let Some(summary_count) = ordering.summary_value_count else {
+        if !ordering.path_is_definitely_absent {
+            return None;
+        }
+        return Some((
+            zero_value_group(descriptor),
+            descriptor_family_rank(descriptor),
+            constraint_id.0,
+        ));
+    };
+
+    let group = if summary_count == 0 {
+        zero_value_group(descriptor)
+    } else {
+        nonzero_value_group(descriptor)
+    };
+    Some((group, descriptor_family_rank(descriptor), constraint_id.0))
+}
+
+fn descriptor_family_rank(descriptor: Option<&ComponentDescriptor>) -> u8 {
+    match descriptor {
+        Some(ComponentDescriptor::MinCount { .. }) => 0,
+        Some(ComponentDescriptor::MaxCount { .. }) => 1,
+        Some(ComponentDescriptor::HasValue { .. }) => 2,
+        Some(ComponentDescriptor::Equals { .. }) => 3,
+        Some(ComponentDescriptor::Class { .. }) => 4,
+        Some(ComponentDescriptor::Datatype { .. }) => 5,
+        Some(ComponentDescriptor::NodeKind { .. }) => 6,
+        Some(ComponentDescriptor::In { .. }) => 7,
+        Some(ComponentDescriptor::LanguageIn { .. }) => 8,
+        Some(ComponentDescriptor::UniqueLang { .. }) => 9,
+        Some(ComponentDescriptor::MinLength { .. }) => 10,
+        Some(ComponentDescriptor::MaxLength { .. }) => 11,
+        Some(ComponentDescriptor::Pattern { .. }) => 12,
+        Some(ComponentDescriptor::MinExclusive { .. }) => 13,
+        Some(ComponentDescriptor::MinInclusive { .. }) => 14,
+        Some(ComponentDescriptor::MaxExclusive { .. }) => 15,
+        Some(ComponentDescriptor::MaxInclusive { .. }) => 16,
+        Some(ComponentDescriptor::Disjoint { .. }) => 17,
+        Some(ComponentDescriptor::LessThan { .. }) => 18,
+        Some(ComponentDescriptor::LessThanOrEquals { .. }) => 19,
+        Some(ComponentDescriptor::Node { .. }) => 20,
+        Some(ComponentDescriptor::Property { .. }) => 21,
+        Some(ComponentDescriptor::QualifiedValueShape { .. }) => 22,
+        Some(ComponentDescriptor::Not { .. }) => 23,
+        Some(ComponentDescriptor::And { .. }) => 24,
+        Some(ComponentDescriptor::Or { .. }) => 25,
+        Some(ComponentDescriptor::Xone { .. }) => 26,
+        Some(ComponentDescriptor::Closed { .. }) => 27,
+        Some(ComponentDescriptor::Sparql { .. }) => 28,
+        Some(ComponentDescriptor::Custom { .. }) => 29,
+        None => 255,
+    }
+}
+
+fn zero_value_group(descriptor: Option<&ComponentDescriptor>) -> u8 {
+    match descriptor {
+        Some(ComponentDescriptor::MinCount { .. })
+        | Some(ComponentDescriptor::HasValue { .. })
+        | Some(ComponentDescriptor::Equals { .. }) => 0,
+        Some(ComponentDescriptor::QualifiedValueShape { min_count, .. })
+            if min_count.is_some_and(|min| min > 0) =>
+        {
+            0
+        }
+        Some(ComponentDescriptor::MaxCount { .. }) => 1,
+        Some(ComponentDescriptor::Sparql { .. }) | Some(ComponentDescriptor::Custom { .. }) => 4,
+        Some(ComponentDescriptor::Node { .. })
+        | Some(ComponentDescriptor::Property { .. })
+        | Some(ComponentDescriptor::QualifiedValueShape { .. })
+        | Some(ComponentDescriptor::Not { .. })
+        | Some(ComponentDescriptor::And { .. })
+        | Some(ComponentDescriptor::Or { .. })
+        | Some(ComponentDescriptor::Xone { .. }) => 3,
+        _ => 2,
+    }
+}
+
+fn nonzero_value_group(descriptor: Option<&ComponentDescriptor>) -> u8 {
+    match descriptor {
+        Some(ComponentDescriptor::MinCount { .. }) | Some(ComponentDescriptor::MaxCount { .. }) => {
+            0
+        }
+        Some(ComponentDescriptor::Class { .. })
+        | Some(ComponentDescriptor::Datatype { .. })
+        | Some(ComponentDescriptor::NodeKind { .. })
+        | Some(ComponentDescriptor::In { .. })
+        | Some(ComponentDescriptor::LanguageIn { .. })
+        | Some(ComponentDescriptor::UniqueLang { .. })
+        | Some(ComponentDescriptor::MinLength { .. })
+        | Some(ComponentDescriptor::MaxLength { .. })
+        | Some(ComponentDescriptor::Pattern { .. })
+        | Some(ComponentDescriptor::MinExclusive { .. })
+        | Some(ComponentDescriptor::MinInclusive { .. })
+        | Some(ComponentDescriptor::MaxExclusive { .. })
+        | Some(ComponentDescriptor::MaxInclusive { .. })
+        | Some(ComponentDescriptor::HasValue { .. }) => 1,
+        Some(ComponentDescriptor::Equals { .. })
+        | Some(ComponentDescriptor::Disjoint { .. })
+        | Some(ComponentDescriptor::LessThan { .. })
+        | Some(ComponentDescriptor::LessThanOrEquals { .. }) => 2,
+        Some(ComponentDescriptor::Node { .. })
+        | Some(ComponentDescriptor::Property { .. })
+        | Some(ComponentDescriptor::QualifiedValueShape { .. })
+        | Some(ComponentDescriptor::Not { .. })
+        | Some(ComponentDescriptor::And { .. })
+        | Some(ComponentDescriptor::Or { .. })
+        | Some(ComponentDescriptor::Xone { .. })
+        | Some(ComponentDescriptor::Closed { .. }) => 3,
+        Some(ComponentDescriptor::Sparql { .. }) | Some(ComponentDescriptor::Custom { .. }) => 4,
+        None => 5,
+    }
+}
+
+fn order_property_constraints_for_focus(
+    context: &ValidationContext,
+    constraints: &[crate::types::ComponentID],
+    ordering: ConstraintOrderingContext,
+) -> Vec<crate::types::ComponentID> {
+    if ordering.summary_value_count.is_none() && !ordering.path_is_definitely_absent {
+        return constraints.to_vec();
+    }
+
+    let mut ordered = constraints.to_vec();
+    ordered.sort_by_key(|constraint_id| {
+        let descriptor = context
+            .shape_ir()
+            .components
+            .get(constraint_id)
+            .or_else(|| context.model.get_component_descriptor(constraint_id));
+        property_constraint_sort_key(descriptor, *constraint_id, ordering).unwrap_or((
+            255,
+            255,
+            constraint_id.0,
+        ))
+    });
+    ordered
 }
 
 fn batched_property_sparql_failures_by_constraint(
@@ -417,7 +592,7 @@ impl ValidateShape for NodeShape {
                     Arc::clone(cached)
                 } else {
                     // Cache miss - evaluate target and store in global cache
-                    info!(
+                    debug!(
                         "get targets from target: {:?} on shape {}",
                         target,
                         self.identifier()
@@ -458,15 +633,20 @@ impl ValidateShape for NodeShape {
             target_selection_started.elapsed(),
         );
 
+        let shape_label = node_shape_label(self, context);
+        info!(
+            "NodeShape {} [{}]: targets={} property_shapes={} constraints={} focus_nodes={}",
+            self.identifier().0,
+            shape_label,
+            self.targets.len(),
+            self.property_shapes().len(),
+            self.constraints().len(),
+            focus_nodes.len()
+        );
+
         if focus_nodes.is_empty() {
             return Ok(());
         }
-
-        info!(
-            "Node shape {} has {} focus nodes",
-            self.identifier(),
-            focus_nodes.len()
-        );
 
         let constraints = context.order_constraints(self.constraints());
 
@@ -492,15 +672,6 @@ impl ValidateShape for NodeShape {
                 let now = Instant::now();
                 let mut local_events = Vec::new();
                 local_events.push(TraceEvent::EnterNodeShape(*self.identifier(), now));
-
-                let shape_label = context
-                    .model
-                    .nodeshape_id_lookup()
-                    .read()
-                    .unwrap()
-                    .get_term(*self.identifier())
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| format!("nodeshape:{}", self.identifier().0));
 
                 let describe_component = |id: &crate::types::ComponentID| -> String {
                     let descriptor = context
@@ -689,7 +860,7 @@ impl ValidateShape for PropertyShape {
                     Arc::clone(cached)
                 } else {
                     // Cache miss - evaluate target and store in global cache
-                    info!(
+                    debug!(
                         "get targets from target: {:?} on shape {}",
                         target,
                         self.identifier()
@@ -728,6 +899,17 @@ impl ValidateShape for PropertyShape {
             SourceShape::PropertyShape(*self.identifier()),
             ShapeTimingPhase::PropertyTarget,
             target_selection_started.elapsed(),
+        );
+
+        let shape_label = property_shape_label(self, context);
+        info!(
+            "PropertyShape {} [{}]: targets={} constraints={} focus_nodes={} path={}",
+            self.identifier().0,
+            shape_label,
+            self.targets.len(),
+            self.constraints().len(),
+            focus_nodes.len(),
+            self.sparql_path()
         );
 
         if focus_nodes.is_empty() {
@@ -996,7 +1178,7 @@ impl PropertyShape {
         };
 
         let mut value_node_map: HashMap<Term, Vec<Term>> = HashMap::new();
-        let constraints = context.order_constraints(self.constraints());
+        let static_constraints = context.order_constraints(self.constraints());
         let local_batched_sparql_failures;
         let batched_sparql_failures = if let Some(prebatched) = prebatched_sparql_failures {
             prebatched
@@ -1004,12 +1186,12 @@ impl PropertyShape {
             local_batched_sparql_failures = batched_property_sparql_failures_by_constraint(
                 self,
                 &focus_nodes_for_this_shape,
-                &constraints,
+                &static_constraints,
                 context,
             )?;
             &local_batched_sparql_failures
         };
-        let cardinality_only = constraints_are_cardinality_only(context, &constraints);
+        let cardinality_only = constraints_are_cardinality_only(context, &static_constraints);
         let value_node_var = Variable::new("valueNode")
             .map_err(|e| format!("Internal error creating SPARQL variable: {}", e))?;
         let focus_var = Variable::new("focus")
@@ -1110,6 +1292,15 @@ impl PropertyShape {
                 value_selection_started.elapsed(),
             );
 
+            let ordered_constraints = order_property_constraints_for_focus(
+                context,
+                &static_constraints,
+                ConstraintOrderingContext {
+                    summary_value_count,
+                    path_is_definitely_absent,
+                },
+            );
+
             let mut constraint_validation_context = Context::new(
                 focus_node.clone(),
                 Some(self.path().clone()),
@@ -1132,9 +1323,9 @@ impl PropertyShape {
             debug!(
                 "Property shape {} has {} constraints",
                 shape_label,
-                constraints.len()
+                ordered_constraints.len()
             );
-            for &constraint_id in &constraints {
+            for &constraint_id in &ordered_constraints {
                 debug!(
                     "Evaluating constraint {} ({}) for property shape {}",
                     constraint_id,
@@ -1315,5 +1506,105 @@ impl PropertyShape {
         events.push(TraceEvent::ExitShapeExecution(source, Instant::now()));
 
         Ok(all_results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::ComponentID;
+
+    #[test]
+    fn zero_value_sorting_prioritizes_required_checks_before_sparql() {
+        let ordering = ConstraintOrderingContext {
+            summary_value_count: Some(0),
+            path_is_definitely_absent: true,
+        };
+
+        let min_count_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::MinCount { min_count: 1 }),
+            ComponentID(1),
+            ordering,
+        )
+        .expect("key");
+        let equals_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::Equals {
+                property: Term::NamedNode(NamedNode::new_unchecked("urn:equals")),
+            }),
+            ComponentID(2),
+            ordering,
+        )
+        .expect("key");
+        let sparql_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(NamedNode::new_unchecked("urn:sparql")),
+            }),
+            ComponentID(3),
+            ordering,
+        )
+        .expect("key");
+
+        assert!(min_count_key < sparql_key);
+        assert!(equals_key < sparql_key);
+    }
+
+    #[test]
+    fn nonzero_sorting_prioritizes_count_then_local_then_cross_property() {
+        let ordering = ConstraintOrderingContext {
+            summary_value_count: Some(3),
+            path_is_definitely_absent: false,
+        };
+
+        let max_count_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::MaxCount { max_count: 5 }),
+            ComponentID(1),
+            ordering,
+        )
+        .expect("key");
+        let datatype_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::Datatype {
+                datatype: Term::NamedNode(NamedNode::new_unchecked("urn:datatype")),
+            }),
+            ComponentID(2),
+            ordering,
+        )
+        .expect("key");
+        let less_than_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::LessThan {
+                property: Term::NamedNode(NamedNode::new_unchecked("urn:other")),
+            }),
+            ComponentID(3),
+            ordering,
+        )
+        .expect("key");
+        let sparql_key = property_constraint_sort_key(
+            Some(&ComponentDescriptor::Sparql {
+                constraint_node: Term::NamedNode(NamedNode::new_unchecked("urn:sparql")),
+            }),
+            ComponentID(4),
+            ordering,
+        )
+        .expect("key");
+
+        assert!(max_count_key < datatype_key);
+        assert!(datatype_key < less_than_key);
+        assert!(less_than_key < sparql_key);
+    }
+
+    #[test]
+    fn unknown_runtime_facts_preserve_static_order() {
+        let ordering = ConstraintOrderingContext {
+            summary_value_count: None,
+            path_is_definitely_absent: false,
+        };
+
+        assert_eq!(
+            property_constraint_sort_key(
+                Some(&ComponentDescriptor::MinCount { min_count: 1 }),
+                ComponentID(1),
+                ordering,
+            ),
+            None
+        );
     }
 }

@@ -78,6 +78,8 @@ Key options (mirroring the CLI flags):
 - RDFlib inputs are ingested in-memory (no temporary Turtle graph files written by the binding).
   When `do_imports=True`, Shifty reads `owl:imports` IRIs from the in-memory root graph and
   asks OntoEnv to resolve those dependencies from their declared locations.
+- If you already used Python `ontoenv` to build a closure graph, pass that graph into Shifty
+  with `do_imports=False` so Rust does not resolve the same imports a second time.
 - Inference knobs: `min_iterations`, `max_iterations`, `run_until_converged`/`no_converge`,
   `error_on_blank_nodes`, `debug`, `union` (include original data); the `inference={...}` dict
   still works and aliases like `inference_min_iterations` remain.
@@ -101,6 +103,14 @@ make html
 
 The build writes `llms.txt` into the HTML output directory
 (`python/docs/_build/html/llms.txt`).
+
+## Tests
+
+Run the Python binding tests from `python/` with:
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
 
 ## Packaging notes
 

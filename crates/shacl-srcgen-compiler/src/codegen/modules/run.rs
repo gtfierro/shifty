@@ -397,7 +397,6 @@ pub fn generate(ir: &SrcGenIR) -> Result<String, String> {
                     quads: data_quads,
                 })
                 .with_shapes_data_union(true)
-                .with_store_optimization(false)
                 .with_do_imports(false);
 
             if let Some(shape_ir) = shape_ir_override {

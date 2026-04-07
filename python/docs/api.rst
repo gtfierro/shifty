@@ -24,6 +24,8 @@ Functions
    - ``skip_invalid_rules`` / ``warnings_are_errors`` / ``do_imports``
    - RDFlib graphs are ingested in-memory. With ``do_imports=True``, ``owl:imports``
      IRIs from the root graph are resolved via OntoEnv from their declared locations.
+   - If the graph already came from Python ``ontoenv.get_closure(...)``, use
+     ``do_imports=False`` to avoid resolving the same imports twice.
    - ``graphviz`` / ``heatmap`` / ``heatmap_all`` / ``trace_events``
    - ``trace_file`` / ``trace_jsonl`` / ``return_inference_outcome``
    - ``union``: include original data alongside inferred triples (inference output)
