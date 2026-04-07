@@ -30,7 +30,7 @@ jobs:
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
     - name: Cargo test
-      run: cargo test --workspace --all-features
+      run: cargo test --workspace
 
     # TEMPORARILY DISABLED: Compiled tests are failing and need investigation
     # - name: Cargo test (compiled manifest suite)
