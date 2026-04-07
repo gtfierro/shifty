@@ -1,0 +1,39 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg33#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:ABOVE a brick:HVAC_Zone .
+
+ns2:AH01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg33.AHU.AH01.Cooling_Valve_Output ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg33 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "3437^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:bldg33.AH1.ZONE.ABOVE.STPT a brick:Setpoint ;
+    rdfs:label "bldg33.AH1.ZONE.ABOVE.STPT" .
+
+<http://buildsys.org/ontologies/bldg33#bldg33.AHU.AH01.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "5f26d771-7bd8-483d-b017-ef6cb835bcb3" ] .
+
+<http://buildsys.org/ontologies/bldg33#bldg33.CHW.SUPFLOW> ref:hasExternalReference [ ref:hasTimeseriesId "ddb8f05d-d847-474b-ace7-08745735faff" ] .
+
+<http://buildsys.org/ontologies/bldg33#bldg33.CHW.SUPTEMP> ref:hasExternalReference [ ref:hasTimeseriesId "c50eebd1-47bc-4b2e-b377-445850aa65d5" ] .
+
+ns2:bldg33.AHU.AH01.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg33.AHU.AH01.Cooling Valve Output" .
+
+ns2:bldg33.CHW.SUPFLOW a brick:Supply_Air_flow ;
+    rdfs:label "bldg33.CHW.SUPFLOW" .
+
+ns2:bldg33.CHW.SUPTEMP a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg33.CHW.SUPTEMP" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg33.CHW.SUPFLOW,
+        ns2:bldg33.CHW.SUPTEMP .
+

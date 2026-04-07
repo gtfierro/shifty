@@ -1,0 +1,377 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix ns2: <http://buildsys.org/ontologies/bldg19#> .
+@prefix ns3: <http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump3_Start/> .
+@prefix ns4: <http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump4_Start/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:bldg19 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "52560^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:S1 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg19.AHU.S1.CCV,
+        ns2:bldg19.AHU.S1.Cooling_Valve_Output,
+        ns2:bldg19.AHU.S1.Heating_Valve_Output,
+        ns2:bldg19.AHU.S1.Mixed_Air_Temp,
+        ns2:bldg19.AHU.S1.Mode,
+        ns2:bldg19.AHU.S1.Outside_Air_Temp,
+        ns2:bldg19.AHU.S1.Return_Air_Temp,
+        ns2:bldg19.AHU.S1.Supply_Air_Temp,
+        ns2:bldg19.AHU.S1.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:S2 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg19.AHU.S2.CCV,
+        ns2:bldg19.AHU.S2.Cooling_Valve_Output,
+        ns2:bldg19.AHU.S2.Heating_Valve_Output,
+        ns2:bldg19.AHU.S2.Mixed_Air_Temp,
+        ns2:bldg19.AHU.S2.Mode,
+        ns2:bldg19.AHU.S2.Outside_Air_Temp,
+        ns2:bldg19.AHU.S2.Return_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:S3 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg19.AHU.S3.CCV,
+        ns2:bldg19.AHU.S3.Cooling_Valve_Output,
+        ns2:bldg19.AHU.S3.Heating_Valve_Output,
+        ns2:bldg19.AHU.S3.Mode,
+        ns2:bldg19.AHU.S3.Outside_Air_Temp,
+        ns2:bldg19.AHU.S3.Return_Air_Temp,
+        ns2:bldg19.AHU.S3.Supply_Air_Temp,
+        ns2:bldg19.AHU.S3.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:S4 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg19.AHU.S4.CCV,
+        ns2:bldg19.AHU.S4.Cooling_Valve_Output,
+        ns2:bldg19.AHU.S4.Heating_Valve_Output,
+        ns2:bldg19.AHU.S4.Mode,
+        ns2:bldg19.AHU.S4.Outside_Air_Temp,
+        ns2:bldg19.AHU.S4.Return_Air_Temp,
+        ns2:bldg19.AHU.S4.Supply_Air_Temp,
+        ns2:bldg19.AHU.S4.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:S6 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg19.AHU.S6.CCV,
+        ns2:bldg19.AHU.S6.Cooling_Valve_Output,
+        ns2:bldg19.AHU.S6.Heating_Valve_Output,
+        ns2:bldg19.AHU.S6.Mixed_Air_Temp,
+        ns2:bldg19.AHU.S6.Mode,
+        ns2:bldg19.AHU.S6.Outside_Air_Temp,
+        ns2:bldg19.AHU.S6.Outside_Air_Temp_Virtual,
+        ns2:bldg19.AHU.S6.Return_Air_Temp,
+        ns2:bldg19.AHU.S6.Supply_Air_Temp,
+        ns2:bldg19.AHU.S6.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "3c5fa52c-8669-4d75-9218-6aff13bffd3b" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "fde43920-52fb-42e9-af7c-525c09996aa2" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "96d11b35-2e2d-4599-9ac5-8f4f71ca33c9" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "dcf89d11-c679-444f-bdc2-0f76d1835309" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "fd12b747-cec5-4fdc-a47c-a81585770089" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "470f5873-7693-4f1a-aa79-c1985426b597" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S1.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "3e01cf5e-73e3-442e-aa68-4488bafe2134" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S2.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "f091f2cc-f161-4bc4-8f82-faa3ace61338" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S2.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "7064bbe7-90ab-44c6-a5cc-8d85dceb4c09" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S2.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "3a5a6f34-db42-49c9-9f35-d7e686ec4b46" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S2.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "85df1a30-f157-40b5-9472-6195eb2e1fa6" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S2.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "51ab0715-dd1c-48a3-ba5e-9a3c22574acf" ],
+        [ ref:hasTimeseriesId "8079b928-c773-455f-89c6-31f0e73deb8c" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "b41ab7d1-d1ba-456b-9fcd-8239acf1805d" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "ad4492a2-3a6c-4ccf-8186-51e676d95c93" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "932d0a40-baaa-4820-bb3b-075d5481a8e8" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "49803fd4-92f4-4dba-949a-21af542bf520" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "af1c549c-6b9c-4377-9b1f-726900ddc38f" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "a74b5f24-4464-4b73-b5b9-8abe20f887df" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S3.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "384653ff-2a5a-4599-9909-c0bfdf452b85" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "e2364fd9-e643-4cca-aa30-c779e47b14f0" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "42d69a6f-a8fb-43d2-80e3-61005e5b70bf" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "53ac3187-5e88-4a08-b892-58825b1c2fd0" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b3faade3-adb3-4fa8-884a-3499b88f4db9" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "2b4288de-415c-4def-a406-2e9d0ff9bfc0" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "daf7149a-1f38-4a2f-ad88-f641c9710072" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S4.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "00e6a9e9-cbd6-4f70-95c9-55a397e04752" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "f3e71753-bc9b-401a-854b-66ef40974001" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "afda7771-76fc-432b-bced-8bd06ad5c0c0" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "9b67279c-b1ff-4f5a-ba1f-9b080895314a" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "a8bb27d3-fa78-49a0-9b72-7d488ddc2d0f" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "b86b66a4-8172-4eb2-84e0-11586add2462" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "1132198e-fa1b-4666-a1eb-3b617620a626" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c2eea01c-c964-411e-8f08-8e1ca5c7e430" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.AHU.S6.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "ba7e3371-f35c-4529-b7aa-4a3a1cb573f4" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Building_Chilled_Water_Delta_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "e72afbdb-d43c-4cb3-a2cd-2d26e7a41eae" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Building_Chilled_Water_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "477648cc-964f-4bb5-a99c-2e89433cde1b" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "80c1861b-795d-479c-829f-56cdce846cef" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "2f4c1a4c-9159-49bf-9c82-5db65ce6c5d5" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Building_Chilled_Water_Supply_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "b5d34302-c2fd-40cd-8523-99b3e6d9c963" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Enable> ref:hasExternalReference [ ref:hasTimeseriesId "10f408db-4207-4657-a7ff-ac758f959459" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.LOOP_DP> ref:hasExternalReference [ ref:hasTimeseriesId "1e40b032-3168-4c9a-875d-41c1d7755753" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Loop_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "bf638ad7-7630-44a2-a61e-429c832c9303" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Loop_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "7681e2e8-6091-4921-a0c2-a984a1c737d7" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "454f4da2-901b-4dec-9ab8-81990a2530bd" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump1_VFD_Power> ref:hasExternalReference [ ref:hasTimeseriesId "a3f65f5f-d9c5-4481-aab3-22929ed8fe93" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump2_VFD_Power> ref:hasExternalReference [ ref:hasTimeseriesId "168a8b6f-3877-40be-a720-79fdaab61350" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump3_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "077b6cd3-d6f4-4c4e-b82b-d89efe8d353f" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump3_Start/Stop> ref:hasExternalReference [ ref:hasTimeseriesId "fdb7e04b-e8d5-403b-898a-19b7020dde49" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump4_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "0815587d-9174-44c0-a73e-a7a4dcab82e1" ] .
+
+<http://buildsys.org/ontologies/bldg19#bldg19.CHW.Pump4_Start/Stop> ref:hasExternalReference [ ref:hasTimeseriesId "c5928ec0-ef30-4fa6-a5d2-b81550e48091" ] .
+
+ns2:bldg19.AHU.S1.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S1.CCV" .
+
+ns2:bldg19.AHU.S1.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S1.Cooling Valve Output" .
+
+ns2:bldg19.AHU.S1.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg19.AHU.S1.Heating Valve Output" .
+
+ns2:bldg19.AHU.S1.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S1.Mixed Air Temp" .
+
+ns2:bldg19.AHU.S1.Mode a brick:Mode ;
+    rdfs:label "bldg19.AHU.S1.Mode" .
+
+ns2:bldg19.AHU.S1.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S1.Outside Air Temp" .
+
+ns2:bldg19.AHU.S1.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S1.Return Air Temp" .
+
+ns2:bldg19.AHU.S1.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S1.Supply Air Temp" .
+
+ns2:bldg19.AHU.S1.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg19.AHU.S1.Supply Air Temp Setpoint" .
+
+ns2:bldg19.AHU.S2.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S2.CCV" .
+
+ns2:bldg19.AHU.S2.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S2.Cooling Valve Output" .
+
+ns2:bldg19.AHU.S2.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg19.AHU.S2.Heating Valve Output" .
+
+ns2:bldg19.AHU.S2.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S2.Mixed Air Temp" .
+
+ns2:bldg19.AHU.S2.Mode a brick:Mode ;
+    rdfs:label "bldg19.AHU.S2.Mode" .
+
+ns2:bldg19.AHU.S2.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S2.Outside Air Temp" .
+
+ns2:bldg19.AHU.S2.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S2.Return Air Temp" .
+
+ns2:bldg19.AHU.S3.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S3.CCV" .
+
+ns2:bldg19.AHU.S3.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S3.Cooling Valve Output" .
+
+ns2:bldg19.AHU.S3.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg19.AHU.S3.Heating Valve Output" .
+
+ns2:bldg19.AHU.S3.Mode a brick:Mode ;
+    rdfs:label "bldg19.AHU.S3.Mode" .
+
+ns2:bldg19.AHU.S3.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S3.Outside Air Temp" .
+
+ns2:bldg19.AHU.S3.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S3.Return Air Temp" .
+
+ns2:bldg19.AHU.S3.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S3.Supply Air Temp" .
+
+ns2:bldg19.AHU.S3.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg19.AHU.S3.Supply Air Temp Setpoint" .
+
+ns2:bldg19.AHU.S4.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S4.CCV" .
+
+ns2:bldg19.AHU.S4.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S4.Cooling Valve Output" .
+
+ns2:bldg19.AHU.S4.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg19.AHU.S4.Heating Valve Output" .
+
+ns2:bldg19.AHU.S4.Mode a brick:Mode ;
+    rdfs:label "bldg19.AHU.S4.Mode" .
+
+ns2:bldg19.AHU.S4.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S4.Outside Air Temp" .
+
+ns2:bldg19.AHU.S4.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S4.Return Air Temp" .
+
+ns2:bldg19.AHU.S4.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S4.Supply Air Temp" .
+
+ns2:bldg19.AHU.S4.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg19.AHU.S4.Supply Air Temp Setpoint" .
+
+ns2:bldg19.AHU.S6.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S6.CCV" .
+
+ns2:bldg19.AHU.S6.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg19.AHU.S6.Cooling Valve Output" .
+
+ns2:bldg19.AHU.S6.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg19.AHU.S6.Heating Valve Output" .
+
+ns2:bldg19.AHU.S6.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S6.Mixed Air Temp" .
+
+ns2:bldg19.AHU.S6.Mode a brick:Mode ;
+    rdfs:label "bldg19.AHU.S6.Mode" .
+
+ns2:bldg19.AHU.S6.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S6.Outside Air Temp" .
+
+ns2:bldg19.AHU.S6.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S6.Outside Air Temp Virtual" .
+
+ns2:bldg19.AHU.S6.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S6.Return Air Temp" .
+
+ns2:bldg19.AHU.S6.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.AHU.S6.Supply Air Temp" .
+
+ns2:bldg19.AHU.S6.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg19.AHU.S6.Supply Air Temp Setpoint" .
+
+ns2:bldg19.CHW.Building_Chilled_Water_Delta_Temp a brick:Chilled_Water_Differential_Temperature_Sensor ;
+    rdfs:label "bldg19.CHW.Building Chilled Water Delta Temp" .
+
+ns2:bldg19.CHW.Building_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg19.CHW.Building Chilled Water Flow" .
+
+ns2:bldg19.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg19.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg19.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg19.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg19.CHW.Building_Chilled_Water_Supply_Temp_Setpoint a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg19.CHW.Building Chilled Water Supply Temp Setpoint" .
+
+ns2:bldg19.CHW.Enable a brick:Enable_Command ;
+    rdfs:label "bldg19.CHW.Enable" .
+
+ns2:bldg19.CHW.LOOP_DP a brick:Chilled_Water_Differential_Pressure_Sensor ;
+    rdfs:label "bldg19.CHW.LOOP DP" .
+
+ns2:bldg19.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg19.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg19.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg19.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg19.CHW.OA_ENABLE a brick:Outside_Air_Damper_Command ;
+    rdfs:label "bldg19.CHW.OA ENABLE" .
+
+ns2:bldg19.CHW.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg19.CHW.Outside Air Temp" .
+
+ns2:bldg19.CHW.Pump1_VFD_Power a brick:Power_Sensor ;
+    rdfs:label "bldg19.CHW.Pump1_VFD Power" .
+
+ns2:bldg19.CHW.Pump2_VFD_Power a brick:Power_Sensor ;
+    rdfs:label "bldg19.CHW.Pump2_VFD Power" .
+
+ns2:bldg19.CHW.Pump3_SPEED a brick:Speed_Status ;
+    rdfs:label "bldg19.CHW.Pump3_SPEED" .
+
+ns3:Stop a brick:Start_Stop_Command ;
+    rdfs:label "bldg19.CHW.Pump3_Start/Stop" .
+
+ns2:bldg19.CHW.Pump4_SPEED a brick:Speed_Status ;
+    rdfs:label "bldg19.CHW.Pump4_SPEED" .
+
+ns4:Stop a brick:Start_Stop_Command ;
+    rdfs:label "bldg19.CHW.Pump4_Start/Stop" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg19.CHW.Building_Chilled_Water_Delta_Temp,
+        ns2:bldg19.CHW.Building_Chilled_Water_Flow,
+        ns2:bldg19.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg19.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg19.CHW.Building_Chilled_Water_Supply_Temp_Setpoint,
+        ns2:bldg19.CHW.Enable,
+        ns2:bldg19.CHW.LOOP_DP,
+        ns2:bldg19.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg19.CHW.Loop_Chilled_Water_Supply_Temp,
+        ns2:bldg19.CHW.OA_ENABLE,
+        ns2:bldg19.CHW.Outside_Air_Temp,
+        ns2:bldg19.CHW.Pump1_VFD_Power,
+        ns2:bldg19.CHW.Pump2_VFD_Power,
+        ns2:bldg19.CHW.Pump3_SPEED,
+        ns3:Stop,
+        ns2:bldg19.CHW.Pump4_SPEED,
+        ns4:Stop .
+

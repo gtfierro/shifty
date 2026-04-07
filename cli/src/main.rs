@@ -1158,6 +1158,137 @@ fn trace_event_to_json(event: &TraceEvent, validator: &Validator) -> serde_json:
             "inserted": inserted,
             "ts": get_ts_nanos(*ts),
         }),
+        TraceEvent::TargetCollectionStart(source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "TargetCollectionStart",
+                    "source": fallback,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::TargetCollectionEnd(source, target_count, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "TargetCollectionEnd",
+                    "source": fallback,
+                    "target_count": target_count,
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::TargetCacheHit(source, cached_count) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "TargetCacheHit",
+                    "source": fallback,
+                    "cached_count": cached_count,
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::ComponentExecutionStart(component_id, source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "ComponentExecutionStart",
+                    "component_id": component_id.0,
+                    "source": fallback,
+                    "frame": component_frame_name(*component_id, shape_ir),
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::ComponentExecutionEnd(component_id, source, ts) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "ComponentExecutionEnd",
+                    "component_id": component_id.0,
+                    "source": fallback,
+                    "frame": component_frame_name(*component_id, shape_ir),
+                    "ts": get_ts_nanos(*ts),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::ComponentCacheHit(component_id, source) => {
+            let kind = shape_kind_label(source);
+            let term = shape_term_for_source(source, shape_ir);
+            let fallback = format!("{:?}", source);
+            annotate_shape_value(
+                json!({
+                    "type": "ComponentCacheHit",
+                    "component_id": component_id.0,
+                    "source": fallback,
+                    "frame": component_frame_name(*component_id, shape_ir),
+                }),
+                kind,
+                shape_frame_name(kind, term, &fallback),
+                term,
+            )
+        }
+        TraceEvent::InferenceConditionCacheHit(shape_id, focus_node) => {
+            let term = shape_term_for_node(*shape_id, shape_ir);
+            annotate_shape_value(
+                json!({
+                    "type": "InferenceConditionCacheHit",
+                    "shape_id": shape_id.0,
+                    "focus_node": term_to_string(focus_node),
+                }),
+                "NodeShape",
+                shape_frame_name("NodeShape", term, &format!("NodeShape_{}", shape_id.0)),
+                term,
+            )
+        }
+        TraceEvent::ParallelWaveStarted {
+            wave_index,
+            rules_count,
+            ts,
+        } => json!({
+            "type": "ParallelWaveStarted",
+            "wave_index": wave_index,
+            "rules_count": rules_count,
+            "ts": get_ts_nanos(*ts),
+        }),
+        TraceEvent::ParallelWaveCompleted {
+            wave_index,
+            rules_count,
+            triples_added,
+            ts,
+        } => json!({
+            "type": "ParallelWaveCompleted",
+            "wave_index": wave_index,
+            "rules_count": rules_count,
+            "triples_added": triples_added,
+            "ts": get_ts_nanos(*ts),
+        }),
     }
 }
 

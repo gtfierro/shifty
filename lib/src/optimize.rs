@@ -10,6 +10,10 @@ pub struct InferenceOptimizationConfig {
     pub explicit_rule_dependency_graph: bool,
     /// Skip disconnected rule families whose read/target signatures cannot match the current dataset.
     pub prune_rule_families_by_dataset: bool,
+    /// Cache condition conformance results across iterations
+    pub cache_condition_conformance: bool,
+    /// Execute independent rules in parallel using wave-based scheduling
+    pub parallel_rule_execution: bool,
 }
 
 impl Default for InferenceOptimizationConfig {
@@ -17,6 +21,8 @@ impl Default for InferenceOptimizationConfig {
         Self {
             explicit_rule_dependency_graph: true,
             prune_rule_families_by_dataset: true,
+            cache_condition_conformance: true,
+            parallel_rule_execution: true,
         }
     }
 }

@@ -1,0 +1,833 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg27#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AC07 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM050,
+        ns2:VAVRM055N,
+        ns2:VAVRM055S,
+        ns2:VAVRM057,
+        ns2:VAVRM066N,
+        ns2:VAVRM066S,
+        ns2:VAVRM068,
+        ns2:VAVRM152,
+        ns2:VAVRM154,
+        ns2:VAVRM156,
+        ns2:VAVRM156A,
+        ns2:VAVRM158,
+        ns2:VAVRM160,
+        ns2:VAVRM162,
+        ns2:VAVRM164,
+        ns2:VAVRM166,
+        ns2:VAVRM168 ;
+    brick:hasPoint ns2:bldg27.AHU.AC07.CCV,
+        ns2:bldg27.AHU.AC07.Cooling_Valve_Output,
+        ns2:bldg27.AHU.AC07.Mixed_Air_Temp,
+        ns2:bldg27.AHU.AC07.Mode,
+        ns2:bldg27.AHU.AC07.Outside_Air_Temp_Virtual,
+        ns2:bldg27.AHU.AC07.Return_Air_Temp,
+        ns2:bldg27.AHU.AC07.Supply_Air_Temp,
+        ns2:bldg27.AHU.AC07.Supply_Air_Temp_Setpoint,
+        ns2:bldg27.AHU.AC07.Zone_Air_Temp .
+
+ns2:bldg27 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "20605^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:damperVAVRM050 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM050.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM050 .
+
+ns2:damperVAVRM055N a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM055N.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM055N .
+
+ns2:damperVAVRM055S a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM055S.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM055S .
+
+ns2:damperVAVRM057 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM057.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM057 .
+
+ns2:damperVAVRM066N a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM066N.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM066N .
+
+ns2:damperVAVRM066S a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM066S.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM066S .
+
+ns2:damperVAVRM068 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM068.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM068 .
+
+ns2:damperVAVRM152 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM152.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM152 .
+
+ns2:damperVAVRM154 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM154.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM154 .
+
+ns2:damperVAVRM156 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM156.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM156 .
+
+ns2:damperVAVRM156A a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM156A.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM156A .
+
+ns2:damperVAVRM158 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM158.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM158 .
+
+ns2:damperVAVRM160 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM160.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM160 .
+
+ns2:damperVAVRM162 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM162.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM162 .
+
+ns2:damperVAVRM164 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM164.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM164 .
+
+ns2:damperVAVRM166 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM166.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM166 .
+
+ns2:damperVAVRM168 a brick:Damper ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM168.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM168 .
+
+ns2:floor0 a brick:Floor ;
+    brick:hasPart ns2:RM050_room,
+        ns2:RM055N_room,
+        ns2:RM055S_room,
+        ns2:RM057_room,
+        ns2:RM066N_room,
+        ns2:RM066S_room,
+        ns2:RM068_room .
+
+ns2:floor1 a brick:Floor ;
+    brick:hasPart ns2:RM152_room,
+        ns2:RM154_room,
+        ns2:RM156A_room,
+        ns2:RM156_room,
+        ns2:RM158_room,
+        ns2:RM160_room,
+        ns2:RM162_room,
+        ns2:RM164_room,
+        ns2:RM166_room,
+        ns2:RM168_room .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "4afc6f1e-436c-4cc2-8ea6-5b2015d9df07" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "f7707ab6-b071-45e7-a46d-ee08235ee38e" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "ab5fc19c-e432-4d28-9078-7e7da21482f5" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3dd4e105-0f78-4111-8b5e-fd9365c37bf6" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3bd3958b-db9a-4bbd-bd8f-3b288e0885f7" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "f76b0217-d907-4976-9feb-d82a6954c0de" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.AHU.AC07.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "32b6e9b2-e63f-4703-8be4-208b614100fe" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM050.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "aa16bea2-2ff7-4f69-ae4d-1cb242c62deb" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM050.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c7aeaa51-a3c1-48c0-a7f5-57079c30216e" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM050.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a353c09d-0944-46a5-b8e4-5ec0f90abc1e" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM050.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "a9a49678-e7b8-4a2c-8e22-d400c173a489" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055N.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "af0edb1c-c4b8-466e-b855-067037f8aeeb" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055N.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "9b8e4482-a2b1-4ff4-b155-890d1ce8bd0f" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055N.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "f274a42b-94cf-4ab0-b479-97fdfcfb4a2f" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055N.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "a7ccc686-6474-44c2-a118-233a072995b3" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055S.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "71872115-9c1a-43e1-8257-cb5d7bf9282a" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055S.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "8b5c7448-8f32-46e1-bfd0-e9141ff15c88" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055S.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "885cb15d-7538-4778-b9c2-58c0e478b284" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM055S.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "53196e75-06c6-4518-88f1-7274b3853e50" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM057.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "6c57909a-dbef-4bb3-bd09-94a7799f329b" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM057.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "cf92fef7-b71e-421a-9516-999d1586db69" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM057.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "ece86e59-f3da-4db5-b274-62f28c060916" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM057.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "afbfba81-77c3-4e8c-9bc0-38ff627ea7f2" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066N.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "d69c34a0-79e8-4fde-aced-9689611fb9de" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066N.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3710ea08-6815-4b4a-bd1b-9e1770467667" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066N.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "70ec6971-c018-4695-bdb5-a3accf348063" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066N.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "ff3c2b28-65b1-4393-be04-ec2897dde5cf" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066S.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "fadad9a2-831a-4876-a46a-f439d914b659" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066S.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "f49bd0ab-b746-4fc6-9d39-1ce0b7309ef2" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066S.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "22db3984-fdaa-4233-875d-54cd8d5a14c2" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM066S.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "3909bb43-c7e0-49e4-962a-b26825b550e4" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM068.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "fd51605e-0405-485f-99cf-42a4afce8e4d" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM068.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "070a8e5f-0df6-4c5d-a034-25e818a26e23" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM068.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "e9e781c0-c07a-43f9-a2e7-55c0b0d62b34" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM068.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "994cee27-2322-4715-99ba-7b220bd7a6b1" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM152.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "f417c5bd-6084-474e-8365-b045ff4d784c" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM152.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "15826946-22c8-40a8-be93-38b13865d964" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM152.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "de91d814-dbd2-45c3-b9af-8f7d0ecf4b74" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM152.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "b50a111f-d89f-44c2-a4c0-afa91bdf6d6f" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM154.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "133ccaa2-d267-40de-8399-407aa2d80313" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM154.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "2f2f91b1-4b2a-4985-bfba-6bca789c5abf" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM154.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "2251b3fe-69f5-4cda-9058-e237d52b5768" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM154.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "620ca814-b4c1-4a60-98fa-088cf0b17630" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "f0f94483-0b99-4a98-9766-a23de6493228" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c2ef64c8-2680-438c-b605-59907228f552" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "f2677301-34df-42f4-9ec2-32b4e1ed868a" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "ac0cf96c-403e-4df8-b351-871a47fb55d5" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156A.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "c6127347-592c-49fd-84da-20326e46c90d" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156A.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "f42b118d-7fbe-48cb-846a-02f7dc977d32" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156A.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "1f9ae8d1-d92e-4052-b0a8-754f93513989" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM156A.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "9f369254-9ea9-4be4-b94d-8f9181d295fc" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM158.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "a0295bd7-9f55-49b6-9fc5-cd9c81367c50" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM158.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "e9dcf1df-1643-4299-92ba-5112bbd5c3c7" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM158.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "ff81a7ae-3b82-4077-83ed-d4eba820c035" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM158.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "e1162243-d0ed-462d-a3b0-714408a36904" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM160.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "9765ea57-8a9d-48e2-bd5c-8ae50ab78edf" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM160.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "925da243-0ce7-4780-a336-443be5388275" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM160.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "4aa6d09b-b925-4914-bd24-c9df84d938bf" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM160.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "1b75a067-66f1-4605-bfac-7371f5d0d2c1" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM162.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "daef3351-5629-443a-89be-e425f75a95df" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM162.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "39d8faa3-0b5b-49e5-ba7c-33dd1b01f4f1" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM162.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "8983d276-1112-488f-965e-2a841ed293b4" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM162.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "2dd4319c-9e41-40dd-8b47-2054315ec870" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM164.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "7212e0b9-a1d7-4bcb-b50a-a6a6f4426857" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM164.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "7d98152b-62bd-445c-a931-9f0f015ef776" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM164.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "01301899-cc3c-4c2f-849c-2dfeb2e5c4d5" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM164.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "5b443d49-4369-4d20-92b8-9ea70f3c8aeb" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM166.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "bcfbb266-f8a0-40ce-8c8b-225261e76505" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM166.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "8fb12076-2963-4e60-9585-b219a124fb0b" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM166.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a005373e-4888-45df-aeb5-749b5de4a7cc" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM166.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "eb039dd7-ca68-4c92-b542-86e40502ff6f" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM168.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "f6a09486-cbf4-49be-97fa-ef6dfea6c895" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM168.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "992330c4-9be8-4410-a5cb-18728f0eecb4" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM168.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a30599ff-5ce1-4545-ba33-db278692d2ae" ] .
+
+<http://buildsys.org/ontologies/bldg27#bldg27.ZONE.AC07.RM168.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "b9041114-ff97-4364-ba24-39d0c09b7305" ] .
+
+ns2:RM050 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM050_room .
+
+ns2:RM055N a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM055N_room .
+
+ns2:RM055S a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM055S_room .
+
+ns2:RM057 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM057_room .
+
+ns2:RM066N a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM066N_room .
+
+ns2:RM066S a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM066S_room .
+
+ns2:RM068 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM068_room .
+
+ns2:RM152 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM152_room .
+
+ns2:RM154 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM154_room .
+
+ns2:RM156 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM156_room .
+
+ns2:RM156A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM156A_room .
+
+ns2:RM158 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM158_room .
+
+ns2:RM160 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM160_room .
+
+ns2:RM162 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM162_room .
+
+ns2:RM164 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM164_room .
+
+ns2:RM166 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM166_room .
+
+ns2:RM168 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM168_room .
+
+ns2:bldg27.AHU.AC07.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg27.AHU.AC07.CCV" .
+
+ns2:bldg27.AHU.AC07.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg27.AHU.AC07.Cooling Valve Output" .
+
+ns2:bldg27.AHU.AC07.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.AHU.AC07.Mixed Air Temp" .
+
+ns2:bldg27.AHU.AC07.Mode a brick:Mode ;
+    rdfs:label "bldg27.AHU.AC07.Mode" .
+
+ns2:bldg27.AHU.AC07.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.AHU.AC07.Outside Air Temp Virtual" .
+
+ns2:bldg27.AHU.AC07.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.AHU.AC07.Return Air Temp" .
+
+ns2:bldg27.AHU.AC07.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.AHU.AC07.Supply Air Temp" .
+
+ns2:bldg27.AHU.AC07.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.AHU.AC07.Supply Air Temp Setpoint" .
+
+ns2:bldg27.AHU.AC07.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.AHU.AC07.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM050.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM050.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM050.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM050.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM050.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM050.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM050.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM050.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM050.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM050.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM050.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM050.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM055N.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM055N.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM055N.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM055N.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM055N.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM055N.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM055N.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM055N.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM055N.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM055N.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM055N.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM055N.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM055S.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM055S.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM055S.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM055S.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM055S.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM055S.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM055S.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM055S.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM055S.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM055S.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM055S.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM055S.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM057.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM057.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM057.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM057.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM057.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM057.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM057.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM057.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM057.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM057.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM057.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM057.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM066N.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM066N.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM066N.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM066N.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM066N.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM066N.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM066N.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM066N.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM066N.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM066N.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM066N.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM066N.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM066S.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM066S.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM066S.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM066S.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM066S.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM066S.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM066S.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM066S.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM066S.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM066S.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM066S.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM066S.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM068.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM068.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM068.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM068.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM068.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM068.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM068.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM068.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM068.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM068.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM068.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM068.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM152.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM152.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM152.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM152.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM152.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM152.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM152.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM152.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM152.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM152.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM152.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM152.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM154.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM154.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM154.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM154.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM154.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM154.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM154.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM154.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM154.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM154.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM154.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM154.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM156.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM156.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM156.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM156.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM156.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM156.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM156.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM156.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM156.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM156.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM156.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM156.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM156A.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM156A.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM156A.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM156A.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM156A.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM156A.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM156A.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM156A.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM156A.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM156A.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM156A.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM156A.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM158.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM158.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM158.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM158.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM158.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM158.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM158.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM158.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM158.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM158.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM158.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM158.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM160.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM160.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM160.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM160.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM160.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM160.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM160.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM160.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM160.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM160.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM160.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM160.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM162.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM162.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM162.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM162.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM162.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM162.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM162.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM162.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM162.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM162.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM162.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM162.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM164.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM164.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM164.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM164.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM164.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM164.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM164.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM164.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM164.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM164.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM164.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM164.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM166.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM166.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM166.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM166.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM166.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM166.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM166.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM166.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM166.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM166.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM166.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM166.Zone Supply Air Flow" .
+
+ns2:bldg27.ZONE.AC07.RM168.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg27.ZONE.AC07.RM168.Day Night Mode" .
+
+ns2:bldg27.ZONE.AC07.RM168.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg27.ZONE.AC07.RM168.Heating Mode" .
+
+ns2:bldg27.ZONE.AC07.RM168.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM168.Zone Air Damper Command" .
+
+ns2:bldg27.ZONE.AC07.RM168.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM168.Zone Air Temp" .
+
+ns2:bldg27.ZONE.AC07.RM168.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg27.ZONE.AC07.RM168.Zone Air Temp Setpoint" .
+
+ns2:bldg27.ZONE.AC07.RM168.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg27.ZONE.AC07.RM168.Zone Supply Air Flow" .
+
+ns2:RM050_room a brick:Room .
+
+ns2:RM055N_room a brick:Room .
+
+ns2:RM055S_room a brick:Room .
+
+ns2:RM057_room a brick:Room .
+
+ns2:RM066N_room a brick:Room .
+
+ns2:RM066S_room a brick:Room .
+
+ns2:RM068_room a brick:Room .
+
+ns2:RM152_room a brick:Room .
+
+ns2:RM154_room a brick:Room .
+
+ns2:RM156A_room a brick:Room .
+
+ns2:RM156_room a brick:Room .
+
+ns2:RM158_room a brick:Room .
+
+ns2:RM160_room a brick:Room .
+
+ns2:RM162_room a brick:Room .
+
+ns2:RM164_room a brick:Room .
+
+ns2:RM166_room a brick:Room .
+
+ns2:RM168_room a brick:Room .
+
+ns2:VAVRM050 a brick:VAV ;
+    brick:feeds ns2:RM050 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM050.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM050.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM050.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM050.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM050.Zone_Supply_Air_Flow .
+
+ns2:VAVRM055N a brick:VAV ;
+    brick:feeds ns2:RM055N ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM055N.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM055N.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM055N.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM055N.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM055N.Zone_Supply_Air_Flow .
+
+ns2:VAVRM055S a brick:VAV ;
+    brick:feeds ns2:RM055S ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM055S.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM055S.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM055S.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM055S.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM055S.Zone_Supply_Air_Flow .
+
+ns2:VAVRM057 a brick:VAV ;
+    brick:feeds ns2:RM057 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM057.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM057.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM057.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM057.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM057.Zone_Supply_Air_Flow .
+
+ns2:VAVRM066N a brick:VAV ;
+    brick:feeds ns2:RM066N ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM066N.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM066N.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM066N.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM066N.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM066N.Zone_Supply_Air_Flow .
+
+ns2:VAVRM066S a brick:VAV ;
+    brick:feeds ns2:RM066S ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM066S.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM066S.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM066S.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM066S.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM066S.Zone_Supply_Air_Flow .
+
+ns2:VAVRM068 a brick:VAV ;
+    brick:feeds ns2:RM068 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM068.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM068.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM068.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM068.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM068.Zone_Supply_Air_Flow .
+
+ns2:VAVRM152 a brick:VAV ;
+    brick:feeds ns2:RM152 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM152.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM152.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM152.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM152.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM152.Zone_Supply_Air_Flow .
+
+ns2:VAVRM154 a brick:VAV ;
+    brick:feeds ns2:RM154 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM154.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM154.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM154.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM154.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM154.Zone_Supply_Air_Flow .
+
+ns2:VAVRM156 a brick:VAV ;
+    brick:feeds ns2:RM156 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM156.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM156.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM156.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM156.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM156.Zone_Supply_Air_Flow .
+
+ns2:VAVRM156A a brick:VAV ;
+    brick:feeds ns2:RM156A ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM156A.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM156A.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM156A.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM156A.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM156A.Zone_Supply_Air_Flow .
+
+ns2:VAVRM158 a brick:VAV ;
+    brick:feeds ns2:RM158 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM158.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM158.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM158.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM158.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM158.Zone_Supply_Air_Flow .
+
+ns2:VAVRM160 a brick:VAV ;
+    brick:feeds ns2:RM160 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM160.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM160.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM160.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM160.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM160.Zone_Supply_Air_Flow .
+
+ns2:VAVRM162 a brick:VAV ;
+    brick:feeds ns2:RM162 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM162.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM162.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM162.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM162.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM162.Zone_Supply_Air_Flow .
+
+ns2:VAVRM164 a brick:VAV ;
+    brick:feeds ns2:RM164 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM164.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM164.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM164.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM164.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM164.Zone_Supply_Air_Flow .
+
+ns2:VAVRM166 a brick:VAV ;
+    brick:feeds ns2:RM166 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM166.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM166.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM166.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM166.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM166.Zone_Supply_Air_Flow .
+
+ns2:VAVRM168 a brick:VAV ;
+    brick:feeds ns2:RM168 ;
+    brick:hasPoint ns2:bldg27.ZONE.AC07.RM168.Day_Night_Mode,
+        ns2:bldg27.ZONE.AC07.RM168.Heating_Mode,
+        ns2:bldg27.ZONE.AC07.RM168.Zone_Air_Temp,
+        ns2:bldg27.ZONE.AC07.RM168.Zone_Air_Temp_Setpoint,
+        ns2:bldg27.ZONE.AC07.RM168.Zone_Supply_Air_Flow .
+

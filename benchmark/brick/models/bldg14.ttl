@@ -1,0 +1,82 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix ns2: <http://buildsys.org/ontologies/bldg14#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AHU01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg14.AHU.AHU01.CCV,
+        ns2:bldg14.AHU.AHU01.Cooling_Valve_Output,
+        ns2:bldg14.AHU.AHU01.Mixed_Air_Temp,
+        ns2:bldg14.AHU.AHU01.Outside_Air_Temp,
+        ns2:bldg14.AHU.AHU01.Supply_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg14 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "42946^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.AHU.AHU01.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "1e586651-174d-4bbd-8993-9c8b51db58e2" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.AHU.AHU01.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "37479dc1-435b-4f5c-9e2b-d39fca2fd3dc" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.AHU.AHU01.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b39937e1-2343-4098-ac79-6341d75817e1" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.AHU.AHU01.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "a38b0d42-2e16-4d2e-a3a8-c0ccc1fcd2ca" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.CHW.CHWSSETPOINT> ref:hasExternalReference [ ref:hasTimeseriesId "922d1762-bcd5-46b1-a625-0ac713930e5d" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "918897ec-edce-41e5-8f07-f8ee403d9fb2" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.CHW.Loop_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "5ac73b81-a658-4bab-8391-7ef45a93e845" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.CHW.Loop_Chilled_Water_Return_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "d493c2f1-c88d-4988-9300-00b70d8cde54" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.CHW.Loop_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ae561838-09b4-4672-89f9-112b2c9994cd" ] .
+
+<http://buildsys.org/ontologies/bldg14#bldg14.CHW.Loop_Chilled_Water_Supply_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "b6d25d5d-ff15-4c9f-9852-c7b48e9c90bf" ] .
+
+ns2:bldg14.AHU.AHU01.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg14.AHU.AHU01.CCV" .
+
+ns2:bldg14.AHU.AHU01.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg14.AHU.AHU01.Cooling Valve Output" .
+
+ns2:bldg14.AHU.AHU01.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg14.AHU.AHU01.Mixed Air Temp" .
+
+ns2:bldg14.AHU.AHU01.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg14.AHU.AHU01.Outside Air Temp" .
+
+ns2:bldg14.AHU.AHU01.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg14.AHU.AHU01.Supply Air Temp" .
+
+ns2:bldg14.CHW.CHWSSETPOINT a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg14.CHW.CHWSSETPOINT" .
+
+ns2:bldg14.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg14.CHW.ECONOMIZER" .
+
+ns2:bldg14.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg14.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg14.CHW.Loop_Chilled_Water_Return_Temp_Setpoint a brick:Chilled_Water_Return_Temperature_Setpoint ;
+    rdfs:label "bldg14.CHW.Loop Chilled Water Return Temp Setpoint" .
+
+ns2:bldg14.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg14.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg14.CHW.Loop_Chilled_Water_Supply_Temp_Setpoint a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg14.CHW.Loop Chilled Water Supply Temp Setpoint" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg14.CHW.CHWSSETPOINT,
+        ns2:bldg14.CHW.ECONOMIZER,
+        ns2:bldg14.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg14.CHW.Loop_Chilled_Water_Return_Temp_Setpoint,
+        ns2:bldg14.CHW.Loop_Chilled_Water_Supply_Temp,
+        ns2:bldg14.CHW.Loop_Chilled_Water_Supply_Temp_Setpoint .
+

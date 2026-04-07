@@ -1,0 +1,25 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg24#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:bldg24 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "9105^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:MULTI a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg24.AHU.MULTI.Cooling_Valve_Output,
+        ns2:bldg24.AHU.MULTI.Heating_Valve_Output .
+
+<http://buildsys.org/ontologies/bldg24#bldg24.AHU.MULTI.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "9ed0fd3f-0698-4948-b111-7ecc456ff8f8" ] .
+
+<http://buildsys.org/ontologies/bldg24#bldg24.AHU.MULTI.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "e00c7545-1acc-463f-af8c-bcb2416b5502" ] .
+
+ns2:bldg24.AHU.MULTI.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg24.AHU.MULTI.Cooling Valve Output" .
+
+ns2:bldg24.AHU.MULTI.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg24.AHU.MULTI.Heating Valve Output" .
+

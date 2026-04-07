@@ -1,0 +1,207 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix ns2: <http://buildsys.org/ontologies/bldg23#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AHU05 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg23.AHU.AHU05.Cooling_Valve_Output,
+        ns2:bldg23.AHU.AHU05.Heating_Valve_Output,
+        ns2:bldg23.AHU.AHU05.Mixed_Air_Temp,
+        ns2:bldg23.AHU.AHU05.Mode,
+        ns2:bldg23.AHU.AHU05.Outside_Air_Temp,
+        ns2:bldg23.AHU.AHU05.Outside_Air_Temp_Virtual,
+        ns2:bldg23.AHU.AHU05.Return_Air_Temp,
+        ns2:bldg23.AHU.AHU05.Supply_Air_Temp,
+        ns2:bldg23.AHU.AHU05.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU06 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg23.AHU.AHU06.Cooling_Valve_Output,
+        ns2:bldg23.AHU.AHU06.Heating_Valve_Output,
+        ns2:bldg23.AHU.AHU06.Mixed_Air_Temp,
+        ns2:bldg23.AHU.AHU06.Mode,
+        ns2:bldg23.AHU.AHU06.Outside_Air_Temp_Virtual,
+        ns2:bldg23.AHU.AHU06.Return_Air_Temp,
+        ns2:bldg23.AHU.AHU06.Supply_Air_Temp,
+        ns2:bldg23.AHU.AHU06.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU07 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg23.AHU.AHU07.Cooling_Valve_Output,
+        ns2:bldg23.AHU.AHU07.Heating_Valve_Output,
+        ns2:bldg23.AHU.AHU07.Mode,
+        ns2:bldg23.AHU.AHU07.Outside_Air_Temp_Virtual,
+        ns2:bldg23.AHU.AHU07.Return_Air_Temp,
+        ns2:bldg23.AHU.AHU07.Supply_Air_Temp,
+        ns2:bldg23.AHU.AHU07.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg23 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "16618^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "f891e225-340a-4548-a274-41c8365e51e6" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "2c6eead7-6b3b-4367-95d2-01c633447415" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "8271192d-91db-4366-9f46-80297b215e32" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "57e96276-600f-4ed2-aa6b-8a9a662fcd84" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6bb02eb2-c9a3-4b35-89d8-1d7c7764ba91" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b8420361-9c3a-4d4f-9b03-aaa2950435c7" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU05.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "8542e6e6-cbe0-4486-8da5-110d15eaabbf" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU06.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "117e66f1-cd69-4650-a63d-0d291b6df648" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU06.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "47f93466-6669-47a4-9f4c-28515725ed3e" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU06.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "2b7274ee-f444-4c85-8023-74f0531848a1" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU06.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3c4e7576-20cd-48dd-8d00-14fef34e3c81" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU06.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c8237bba-8122-4606-b01e-3f42206b5461" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU06.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "8e5c430c-9899-4937-86d7-dc262c78044b" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU07.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "368eab7e-4e81-42e6-b68c-487db9b35320" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU07.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "79026d8f-13cd-410d-ad81-d89c51dcac45" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU07.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "38ae38ac-5c8d-4d78-8cc4-fc8dcf4ed5e5" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU07.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "0c66dee6-c91e-4de4-a9d4-3114c463d62a" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU07.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "425725e0-6de4-4b72-bb0e-f16200ca100e" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.AHU.AHU07.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "9a2c57dc-b35b-45ae-93d5-76d6a6b28a77" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Building_Chilled_Water_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "8765bb45-eead-41cf-b911-391ede115e15" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6bb67291-ccc1-4249-9af5-b4cabcd1afed" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c67affb6-b62c-4b8a-810e-ed6be5fc20df" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Building_Chilled_Water_Supply_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "87ea0d9d-5919-4400-bd25-d954c423845e" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "4a25bc4f-7c53-4235-93ea-bb6b69dff6aa" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Loop_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "8584b63c-1e02-4b83-8b23-848b097f2952" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Loop_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "96c3c75b-be1b-40c1-8f78-75d5c8ed2f7c" ] .
+
+<http://buildsys.org/ontologies/bldg23#bldg23.CHW.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "10bafc3a-17b4-4c8f-b1e4-58b250c36244" ] .
+
+ns2:bldg23.AHU.AHU05.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg23.AHU.AHU05.Cooling Valve Output" .
+
+ns2:bldg23.AHU.AHU05.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg23.AHU.AHU05.Heating Valve Output" .
+
+ns2:bldg23.AHU.AHU05.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU05.Mixed Air Temp" .
+
+ns2:bldg23.AHU.AHU05.Mode a brick:Mode ;
+    rdfs:label "bldg23.AHU.AHU05.Mode" .
+
+ns2:bldg23.AHU.AHU05.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU05.Outside Air Temp" .
+
+ns2:bldg23.AHU.AHU05.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU05.Outside Air Temp Virtual" .
+
+ns2:bldg23.AHU.AHU05.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU05.Return Air Temp" .
+
+ns2:bldg23.AHU.AHU05.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU05.Supply Air Temp" .
+
+ns2:bldg23.AHU.AHU05.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg23.AHU.AHU05.Supply Air Temp Setpoint" .
+
+ns2:bldg23.AHU.AHU06.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg23.AHU.AHU06.Cooling Valve Output" .
+
+ns2:bldg23.AHU.AHU06.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg23.AHU.AHU06.Heating Valve Output" .
+
+ns2:bldg23.AHU.AHU06.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU06.Mixed Air Temp" .
+
+ns2:bldg23.AHU.AHU06.Mode a brick:Mode ;
+    rdfs:label "bldg23.AHU.AHU06.Mode" .
+
+ns2:bldg23.AHU.AHU06.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU06.Outside Air Temp Virtual" .
+
+ns2:bldg23.AHU.AHU06.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU06.Return Air Temp" .
+
+ns2:bldg23.AHU.AHU06.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU06.Supply Air Temp" .
+
+ns2:bldg23.AHU.AHU06.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg23.AHU.AHU06.Supply Air Temp Setpoint" .
+
+ns2:bldg23.AHU.AHU07.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg23.AHU.AHU07.Cooling Valve Output" .
+
+ns2:bldg23.AHU.AHU07.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg23.AHU.AHU07.Heating Valve Output" .
+
+ns2:bldg23.AHU.AHU07.Mode a brick:Mode ;
+    rdfs:label "bldg23.AHU.AHU07.Mode" .
+
+ns2:bldg23.AHU.AHU07.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU07.Outside Air Temp Virtual" .
+
+ns2:bldg23.AHU.AHU07.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU07.Return Air Temp" .
+
+ns2:bldg23.AHU.AHU07.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.AHU.AHU07.Supply Air Temp" .
+
+ns2:bldg23.AHU.AHU07.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg23.AHU.AHU07.Supply Air Temp Setpoint" .
+
+ns2:bldg23.CHW.Building_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg23.CHW.Building Chilled Water Flow" .
+
+ns2:bldg23.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg23.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg23.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg23.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg23.CHW.Building_Chilled_Water_Supply_Temp_Setpoint a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg23.CHW.Building Chilled Water Supply Temp Setpoint" .
+
+ns2:bldg23.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg23.CHW.ECONOMIZER" .
+
+ns2:bldg23.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg23.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg23.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg23.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg23.CHW.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg23.CHW.Outside Air Temp" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg23.CHW.Building_Chilled_Water_Flow,
+        ns2:bldg23.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg23.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg23.CHW.Building_Chilled_Water_Supply_Temp_Setpoint,
+        ns2:bldg23.CHW.ECONOMIZER,
+        ns2:bldg23.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg23.CHW.Loop_Chilled_Water_Supply_Temp,
+        ns2:bldg23.CHW.Outside_Air_Temp .
+

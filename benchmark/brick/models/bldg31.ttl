@@ -1,0 +1,45 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg31#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:bldg31 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "53797^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:Sproul_ChilledWater_Demand_kBtu a brick:Electric_Meter ;
+    rdfs:label "Sproul_ChilledWater_Demand_kBtu" ;
+    brick:isPointOf ns2:chiller .
+
+ns2:Sproul_Electricity_Demand_kBtu a brick:Building_Electric_Meter ;
+    rdfs:label "Sproul_Electricity_Demand_kBtu" .
+
+<http://buildsys.org/ontologies/bldg31#bldg31.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "3d35cd3a-2fa8-4d76-8ab9-a01eaac2b659" ] .
+
+<http://buildsys.org/ontologies/bldg31#bldg31.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "40639fa7-f8bf-4247-b813-64a0696a28cf" ] .
+
+<http://buildsys.org/ontologies/bldg31#bldg31.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "0974ef4d-6ebf-46f6-98c0-ed79fa2bf071" ] .
+
+ns2:bldg31.CHW.BCHWR a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg31.CHW.BCHWR" .
+
+ns2:bldg31.CHW.BCHWS a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg31.CHW.BCHWS" .
+
+ns2:bldg31.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg31.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg31.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg31.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg31.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg31.CHW.ECONOMIZER" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg31.CHW.BCHWR,
+        ns2:bldg31.CHW.BCHWS,
+        ns2:bldg31.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg31.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg31.CHW.ECONOMIZER .
+

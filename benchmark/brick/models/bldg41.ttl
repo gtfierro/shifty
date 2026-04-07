@@ -1,0 +1,169 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg41#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AHU01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg41.AHU.AHU01.CCV,
+        ns2:bldg41.AHU.AHU01.Cooling_Valve_Output,
+        ns2:bldg41.AHU.AHU01.Heating_Valve_Output,
+        ns2:bldg41.AHU.AHU01.Mixed_Air_Temp,
+        ns2:bldg41.AHU.AHU01.Mode,
+        ns2:bldg41.AHU.AHU01.Outside_Air_Temp,
+        ns2:bldg41.AHU.AHU01.Outside_Air_Temp_Virtual,
+        ns2:bldg41.AHU.AHU01.Return_Air_Temp,
+        ns2:bldg41.AHU.AHU01.Supply_Air_Pressure,
+        ns2:bldg41.AHU.AHU01.Supply_Air_Temp,
+        ns2:bldg41.AHU.AHU01.Supply_Air_Temp_Setpoint,
+        ns2:bldg41.AHU.AHU01.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU02 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg41.AHU.AHU02.CCV,
+        ns2:bldg41.AHU.AHU02.Cooling_Valve_Output,
+        ns2:bldg41.AHU.AHU02.Heating_Valve_Output,
+        ns2:bldg41.AHU.AHU02.Supply_Air_Pressure,
+        ns2:bldg41.AHU.AHU02.Supply_Air_Temp,
+        ns2:bldg41.AHU.AHU02.Supply_Air_Temp_Setpoint ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU03 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg41.AHU.AHU03.Supply_Air_Pressure,
+        ns2:bldg41.AHU.AHU03.Supply_Air_Temp,
+        ns2:bldg41.AHU.AHU03.Supply_Air_Temp_Setpoint,
+        ns2:bldg41.AHU.AHU03.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg41 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "3439^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:bldg41.AHU.AHU01.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg41.AHU.AHU01.CCV" .
+
+ns2:bldg41.AHU.AHU01.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg41.AHU.AHU01.Cooling Valve Output" .
+
+ns2:bldg41.AHU.AHU01.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg41.AHU.AHU01.Heating Valve Output" .
+
+ns2:bldg41.AHU.AHU01.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Mixed Air Temp" .
+
+ns2:bldg41.AHU.AHU01.Mode a brick:Mode ;
+    rdfs:label "bldg41.AHU.AHU01.Mode" .
+
+ns2:bldg41.AHU.AHU01.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Outside Air Temp" .
+
+ns2:bldg41.AHU.AHU01.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Outside Air Temp Virtual" .
+
+ns2:bldg41.AHU.AHU01.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Return Air Temp" .
+
+ns2:bldg41.AHU.AHU01.Supply_Air_Pressure a brick:Supply_Air_Static_Pressure_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Supply Air Pressure" .
+
+ns2:bldg41.AHU.AHU01.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Supply Air Temp" .
+
+ns2:bldg41.AHU.AHU01.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg41.AHU.AHU01.Supply Air Temp Setpoint" .
+
+ns2:bldg41.AHU.AHU01.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU01.Zone Air Temp" .
+
+ns2:bldg41.AHU.AHU02.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg41.AHU.AHU02.CCV" .
+
+ns2:bldg41.AHU.AHU02.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg41.AHU.AHU02.Cooling Valve Output" .
+
+ns2:bldg41.AHU.AHU02.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg41.AHU.AHU02.Heating Valve Output" .
+
+ns2:bldg41.AHU.AHU02.Supply_Air_Pressure a brick:Supply_Air_Static_Pressure_Sensor ;
+    rdfs:label "bldg41.AHU.AHU02.Supply Air Pressure" .
+
+ns2:bldg41.AHU.AHU02.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU02.Supply Air Temp" .
+
+ns2:bldg41.AHU.AHU02.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg41.AHU.AHU02.Supply Air Temp Setpoint" .
+
+ns2:bldg41.AHU.AHU03.Supply_Air_Pressure a brick:Supply_Air_Static_Pressure_Sensor ;
+    rdfs:label "bldg41.AHU.AHU03.Supply Air Pressure" .
+
+ns2:bldg41.AHU.AHU03.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU03.Supply Air Temp" .
+
+ns2:bldg41.AHU.AHU03.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg41.AHU.AHU03.Supply Air Temp Setpoint" .
+
+ns2:bldg41.AHU.AHU03.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.AHU.AHU03.Zone Air Temp" .
+
+ns2:bldg41.CHW.Building_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg41.CHW.Building Chilled Water Flow" .
+
+ns2:bldg41.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg41.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg41.CHW.Building_Chilled_Water_Return_Temp_Setpoint a brick:Chilled_Water_Return_Temperature_Setpoint ;
+    rdfs:label "bldg41.CHW.Building Chilled Water Return Temp Setpoint" .
+
+ns2:bldg41.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg41.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg41.CHW.Building_Chilled_Water_Supply_Temp_Setpoint a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg41.CHW.Building Chilled Water Supply Temp Setpoint" .
+
+ns2:bldg41.CHW.CHWRDIFSP a brick:Chilled_Water_Differential_Pressure_Setpoint ;
+    rdfs:label "bldg41.CHW.CHWRDIFSP" .
+
+ns2:bldg41.CHW.ENABLE a brick:Enable_Command ;
+    rdfs:label "bldg41.CHW.ENABLE" .
+
+ns2:bldg41.CHW.Loop_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg41.CHW.Loop Chilled Water Flow" .
+
+ns2:bldg41.CHW.Loop_Chilled_Water_Return_Pressure a brick:Chilled_Water_Return_Pressure ;
+    rdfs:label "bldg41.CHW.Loop Chilled Water Return Pressure" .
+
+ns2:bldg41.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg41.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg41.CHW.Loop_Chilled_Water_Supply_Pressure a brick:Chilled_Water_Supply_Pressure ;
+    rdfs:label "bldg41.CHW.Loop Chilled Water Supply Pressure" .
+
+ns2:bldg41.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg41.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg41.CHW.Outside_Air_Temp_VirtHI a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.CHW.Outside Air Temp VirtHI" .
+
+ns2:bldg41.CHW.Outside_Air_Temp_VirtLO a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg41.CHW.Outside Air Temp VirtLO" .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg41.CHW.Building_Chilled_Water_Flow,
+        ns2:bldg41.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg41.CHW.Building_Chilled_Water_Return_Temp_Setpoint,
+        ns2:bldg41.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg41.CHW.Building_Chilled_Water_Supply_Temp_Setpoint,
+        ns2:bldg41.CHW.CHWRDIFSP,
+        ns2:bldg41.CHW.ENABLE,
+        ns2:bldg41.CHW.Loop_Chilled_Water_Flow,
+        ns2:bldg41.CHW.Loop_Chilled_Water_Return_Pressure,
+        ns2:bldg41.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg41.CHW.Loop_Chilled_Water_Supply_Pressure,
+        ns2:bldg41.CHW.Loop_Chilled_Water_Supply_Temp,
+        ns2:bldg41.CHW.Outside_Air_Temp_VirtHI,
+        ns2:bldg41.CHW.Outside_Air_Temp_VirtLO .
+

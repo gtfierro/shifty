@@ -1,0 +1,3231 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix smc: <urn:smc#> .
+
+smc:SupplyFan_AHU1 a brick:Supply_Fan ;
+    brick:isPartOf smc:AHU1 .
+
+smc:SupplyFan_AHU2 a brick:Supply_Fan ;
+    brick:isPartOf smc:AHU2 .
+
+smc:boiler a brick:Boiler ;
+    brick:feeds smc:AHU1,
+        smc:AHU2 ;
+    brick:hasPoint smc:boiler_flow,
+        smc:boiler_gas,
+        smc:boiler_returnTemp,
+        smc:boiler_suppliedTemp .
+
+smc:1-1-1_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "77aaf925-241b-47de-a665-f6fae3ec152e" ] .
+
+smc:1-1-1_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a65c7155-95d2-4558-b0ba-9fc39bb20dec" ] .
+
+smc:1-1-1_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e2b35501-b984-4973-b5f5-5c0a5c935c62" ] .
+
+smc:1-1-1_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "09ac7730-9b6f-4ef7-b997-ba4ad2140dbf" ] .
+
+smc:1-1-2_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c58a5272-67b5-469b-abf2-47c1ae148a81" ] .
+
+smc:1-1-2_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6d6cf7ff-017e-42ce-9ee3-78e2cc7c09ce" ] .
+
+smc:1-1-2_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d4f5cef7-5f8a-4bdd-9641-5cd75717ee71" ] .
+
+smc:1-1-2_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "971f063b-a8fb-4298-9d3a-fb4ab8d9f5d4" ] .
+
+smc:1-1-3_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b119868a-2a1f-4ee4-8ba8-1d243d1e0bb1" ] .
+
+smc:1-1-3_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9cebbac1-be31-47fd-b6a0-6d30ecda50a1" ] .
+
+smc:1-1-3_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2b732166-f113-43d1-bd27-4b02414619c7" ] .
+
+smc:1-1-3_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2e9de75a-cf10-42e7-b308-54af4918ef26" ] .
+
+smc:1-1-4_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b1610cf4-35d5-4806-abcd-76f3cc5ff2d9" ] .
+
+smc:1-1-4_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "92de5c6c-5601-4262-bf47-110514d670cc" ] .
+
+smc:1-1-4_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "745d12a8-a027-4877-ad04-4bf838accc1b" ] .
+
+smc:1-1-4_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5d03d979-f4f4-4241-ad12-b160eafacdd3" ] .
+
+smc:1-1-5_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2b634dd2-69b8-4cad-a69b-3c73d77de3ba" ] .
+
+smc:1-1-5_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "90caa7e8-89c6-4ca5-a184-a4a1b172f9ce" ] .
+
+smc:1-1-5_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "027a40ac-508e-432e-8aa0-7029bd4b34e2" ] .
+
+smc:1-1-5_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a14b69d0-07b6-45a9-be45-57ff9397c76e" ] .
+
+smc:1-1-6_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3dd0c5e8-2426-4e3c-bcf4-92bc695367e9" ] .
+
+smc:1-1-6_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2bc139e4-1e8c-4c88-b07c-88a061a49d2d" ] .
+
+smc:1-1-6_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0cd8118c-b11f-418c-8540-39e6dfde729d" ] .
+
+smc:1-1-6_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d50cfdc2-4a60-4168-ae39-8604ba3ad681" ] .
+
+smc:1-1-7_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b6cfde07-696d-4843-9026-b732d49fe6e1" ] .
+
+smc:1-1-7_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1d6c57a6-7548-43bc-93f3-8d808d7137ed" ] .
+
+smc:1-1-7_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7707705a-4989-454a-8a9f-ae43c9508b66" ] .
+
+smc:1-1-7_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5af6680e-a9a1-4be8-b394-1fabc7daca1c" ] .
+
+smc:1-1-8_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a84881a0-3f68-4743-92cf-9244486def0c" ] .
+
+smc:1-1-8_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6660cfa9-15a5-4981-a6af-9ad4d1c04540" ] .
+
+smc:1-1-8_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "996740ee-9992-4faa-bbc9-11f07cac59e1" ] .
+
+smc:1-1-8_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c11359f5-b7b9-42a4-8e8c-220497476fcf" ] .
+
+smc:1-2-1_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9c020ef2-995c-4de0-a943-8f9d804f4a1b" ] .
+
+smc:1-2-1_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9e9f49a9-49e4-4ee4-90f5-7026fc5d2207" ] .
+
+smc:1-2-1_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "11ae9a3a-a732-47d8-9884-fc8ad5262867" ] .
+
+smc:1-2-1_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ab788103-6e4e-457c-917d-b48c1a5c3a6b" ] .
+
+smc:1-2-2_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cc77aa9e-72e4-46cc-a3ef-0edb51c8e44d" ] .
+
+smc:1-2-2_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6cd89ea7-40e8-4e2a-ad40-6ed08b74ed0c" ] .
+
+smc:1-2-2_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "14b42a11-059a-41ee-8431-d18f69f8bf6b" ] .
+
+smc:1-2-2_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5b316a39-25bd-4348-afc2-5b656ae2d520" ] .
+
+smc:1-2-3_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c42f0631-97e0-4bc8-b5bc-a4948d596c82" ] .
+
+smc:1-2-3_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "934c8f03-a341-462b-9d70-c663e4badd44" ] .
+
+smc:1-2-3_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "afc529c9-d0aa-4a1d-8d18-f3ce53258575" ] .
+
+smc:1-2-3_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b9f2712f-f22c-4693-9e91-4f261a947251" ] .
+
+smc:1-2-4_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "872370cf-ee37-4c10-92ca-047c36cfad91" ] .
+
+smc:1-2-4_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7543b793-f3bb-479a-9ce7-ccf64d51148a" ] .
+
+smc:1-2-4_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ad07a668-a50d-4ad9-a17a-f6c921dc774e" ] .
+
+smc:1-2-4_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "18f87b89-776b-494e-9c39-d5b037da7364" ] .
+
+smc:1-2-5_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "484672f0-c0a3-4a63-aa0c-22a5252f18bd" ] .
+
+smc:1-2-5_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b31a939c-5e38-4efc-ad1e-187b7703cfec" ] .
+
+smc:1-2-5_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ad964c26-e15e-404b-bb25-7ffaee2c1431" ] .
+
+smc:1-2-5_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a5332c63-ede9-490f-8db0-d54225b85c6c" ] .
+
+smc:1-2-6_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cd2917d4-2e77-43e2-8451-592f7d1f9ab5" ] .
+
+smc:1-2-6_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9ef5fbff-7d8b-46d8-9c83-09907265dd44" ] .
+
+smc:1-2-6_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "712d094f-381f-4c51-88ee-4544af9bff79" ] .
+
+smc:1-2-6_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "64548bb6-4aa4-4dff-b682-3c90b5da4db4" ] .
+
+smc:1-2-7_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4c7f6eba-7358-4728-ba97-0aad5aa34761" ] .
+
+smc:1-2-7_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b48ff55d-b2d7-4efe-8019-160f55f7b07a" ] .
+
+smc:1-2-7_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5a4da092-6744-400b-b78d-801696374585" ] .
+
+smc:1-2-7_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "85cf3c79-9716-4e8c-aec1-c5c5469fbc61" ] .
+
+smc:1-2-8_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "add797ff-5ee6-411e-b6d6-4b836c0fb38a" ] .
+
+smc:1-2-8_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e4a326d1-1405-40a8-8859-c3a696dc5c9d" ] .
+
+smc:1-2-8_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0365d8ad-1156-4eec-b5c8-3ad6fd74cff0" ] .
+
+smc:1-2-8_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c493c40b-62a7-4337-ade6-bd272caf520c" ] .
+
+smc:1-3-10_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e821f2d4-4464-49c6-80ab-81cc1656ad7e" ] .
+
+smc:1-3-10_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "be52a931-18bb-45be-b7c2-882d251fa83c" ] .
+
+smc:1-3-10_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "553af831-2b90-4669-828d-306e1a9af483" ] .
+
+smc:1-3-10_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "49d161c0-430f-4dd8-badf-c2c06d056995" ] .
+
+smc:1-3-1_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b71fa73b-551b-4d79-aa65-3ed00969ed82" ] .
+
+smc:1-3-1_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ec9b2390-0168-4fb1-9fed-44ec2e37a4c4" ] .
+
+smc:1-3-1_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f41672b9-e5a2-450f-9bec-0678802a0ee1" ] .
+
+smc:1-3-1_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "214b807d-92d8-4281-aec2-b1f840e38192" ] .
+
+smc:1-3-2_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "caf9cce9-8d13-40ac-a27d-3a1b175a4fe5" ] .
+
+smc:1-3-2_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a5bf261b-65c4-4565-be67-33c45a3b6038" ] .
+
+smc:1-3-2_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "96f0a616-3203-4dc7-aa74-3fbe9e9112ee" ] .
+
+smc:1-3-2_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "df9e108d-f71a-4718-a6f2-613cad37a125" ] .
+
+smc:1-3-3_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "85b636be-1194-4ddc-ae0b-b894d3be9b61" ] .
+
+smc:1-3-3_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9f05a836-77c6-4a5e-b050-d1a722bbf5d2" ] .
+
+smc:1-3-3_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "237f6b87-f94b-4513-82b7-d18c2021034b" ] .
+
+smc:1-3-3_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c9366fc8-14b1-41cd-b7ce-172423240599" ] .
+
+smc:1-3-4_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fe42c836-f7b8-4894-ac50-242351416835" ] .
+
+smc:1-3-4_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0bbff594-ab96-463a-b845-1166774a5cd5" ] .
+
+smc:1-3-4_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c7bd32a1-d5b4-4da6-ba2d-3791fef822ff" ] .
+
+smc:1-3-4_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "de8ddc6d-e261-43e3-9bd0-2bb725b3c42f" ] .
+
+smc:1-3-5_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "afac90e2-04a7-4a74-bbbc-91f39e861882" ] .
+
+smc:1-3-5_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ceaec870-5170-4fef-85e9-678434dc0e90" ] .
+
+smc:1-3-5_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "714fe3a5-3d13-43fc-947e-ba7b9181e05d" ] .
+
+smc:1-3-5_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e6e469e0-a371-4eac-a2e2-26d3e99f0500" ] .
+
+smc:1-3-6_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "da0ffc16-29a6-4ea8-b464-237a6b46dbbd" ] .
+
+smc:1-3-6_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c27853f9-5b02-441a-8077-5b4df7c27021" ] .
+
+smc:1-3-6_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "752e311e-138a-4fab-aaa9-6b9b8d2d4e71" ] .
+
+smc:1-3-6_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "56bec2f3-38ea-41d6-8f37-b654338fd31b" ] .
+
+smc:1-3-7_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c8193ac3-923a-4f7e-8e75-b7c114d3fa0b" ] .
+
+smc:1-3-7_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6ea08784-ff03-4530-a8a1-2e39926a4d5e" ] .
+
+smc:1-3-7_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "df176ae2-d048-4fa7-8943-bdbc9ab0dab6" ] .
+
+smc:1-3-7_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "264cb356-359d-4d1f-9672-4447d88cc336" ] .
+
+smc:1-3-8_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7bb24c90-25f0-4472-acef-f359389cf86e" ] .
+
+smc:1-3-8_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8ea830ee-9e19-422c-96f5-cf7b14d3ea9d" ] .
+
+smc:1-3-8_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cf40ee27-f124-4ab1-90d7-a385a6860dba" ] .
+
+smc:1-3-8_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "231bc3d1-a831-4414-a34f-f4c5189d0b5e" ] .
+
+smc:1-3-9_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3930e7d5-ddb8-4045-89ac-136d9df3fea7" ] .
+
+smc:1-3-9_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c214d7fa-9e13-4099-a588-c2e0e76e2dc6" ] .
+
+smc:1-3-9_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e3c6abab-275b-4540-8983-b1cb8de5df70" ] .
+
+smc:1-3-9_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "81b6ef34-6ab9-4670-bd2a-4169fc843f5b" ] .
+
+smc:1-4-1_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6e85dad9-b756-4b7a-9ac3-d8c4d373804c" ] .
+
+smc:1-4-1_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e0c04a45-ad26-4af4-8030-13540360d06c" ] .
+
+smc:1-4-1_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "38c00393-29b8-4450-a094-9c2b6b326dca" ] .
+
+smc:1-4-1_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "bad0e3a0-49a8-43d7-944a-cc0abf0a6f6a" ] .
+
+smc:1-4-2_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f0cfbbd8-88b0-441d-8b08-89019b27c5e2" ] .
+
+smc:1-4-2_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4ab5644e-638c-43ab-adf5-7d3b373b5b8b" ] .
+
+smc:1-4-2_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9cd6ce0a-62ba-4973-b1be-58a8119f6b72" ] .
+
+smc:1-4-2_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "25015a9c-28ba-4b9f-b37b-4754c6a54619" ] .
+
+smc:1-4-3_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "06faee22-8d85-47b9-8d3a-cf7dd7d5f162" ] .
+
+smc:1-4-3_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1165a254-e8c7-45a9-9b5b-40fff90c5996" ] .
+
+smc:1-4-3_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "61ec925a-dd81-48e5-a17a-a0f04da55047" ] .
+
+smc:1-4-3_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fbdb6ba2-8712-4e90-9bc4-a69c680776ac" ] .
+
+smc:1-4-4_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c0c48017-5f50-42f1-93a9-3d7d4f84fb8e" ] .
+
+smc:1-4-4_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b5ea5a01-5c7c-4698-8068-3573166b0365" ] .
+
+smc:1-4-4_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9584afee-a389-482f-abcf-5eae9d82e443" ] .
+
+smc:1-4-4_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "506d83e0-a79a-45bf-921c-7cc2d1043644" ] .
+
+smc:1-4-5_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7972e781-826e-4d0f-ad0c-7fa616a16e63" ] .
+
+smc:1-4-5_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5b10f072-1633-4a55-82a3-447fc8e2b70d" ] .
+
+smc:1-4-5_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e4c957a8-a8d4-468c-8e5c-082bcba1bed0" ] .
+
+smc:1-4-5_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b4f0e941-b149-4c80-9b6b-a3d6115625ac" ] .
+
+smc:1-4-6_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b911ccbf-16d1-4259-a4b5-8b883937647a" ] .
+
+smc:1-4-6_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ea396fb3-db27-40ed-a11d-768d9853091c" ] .
+
+smc:1-4-6_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a0ec584a-758b-424d-a25d-e143ea20bc52" ] .
+
+smc:1-4-6_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ad0e2ccc-13de-49ec-9751-7ff787fcc8c0" ] .
+
+smc:1-4-7_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "40909474-b3f4-4621-9b32-7b6ddd5a5163" ] .
+
+smc:1-4-7_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cf0e4e03-93d5-4e95-94ce-361877f7aa17" ] .
+
+smc:1-4-7_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e0b02a03-91cc-4d18-824d-9fcb62cc889c" ] .
+
+smc:1-4-7_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7b71f7d3-6200-4870-b807-7d24f49c6570" ] .
+
+smc:1-4-8_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "257e5af8-3437-4839-b930-cc80dc2e1f6b" ] .
+
+smc:1-4-8_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f8fe8ae3-411b-4d57-a179-2d5a4e56b577" ] .
+
+smc:1-4-8_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b2022bba-c814-431c-b7c8-a5d9544b6bfc" ] .
+
+smc:1-4-8_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "100b7c86-97c1-4fdb-9771-62ed8078aef5" ] .
+
+smc:1-4-9_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "21eac8a7-05d9-4d49-a43e-6f1ed7a5d78f" ] .
+
+smc:1-4-9_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "506d99f4-405b-4b3f-9be5-70d165515ee2" ] .
+
+smc:1-4-9_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "140b47ce-1514-4d1f-9a7a-8c7a5ec7a561" ] .
+
+smc:1-4-9_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2a1fe036-f35b-4adf-9dfe-0225855364e0" ] .
+
+smc:1-5-10_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "194fb79d-5536-4382-84c9-b8b14f95acd8" ] .
+
+smc:1-5-10_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2b1befd6-0e11-4429-b818-4bfc01b5c70c" ] .
+
+smc:1-5-10_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "dde16227-5564-4b1d-9494-6193e5a4b449" ] .
+
+smc:1-5-10_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ae855939-8201-49ec-9789-ebc8dd718c7e" ] .
+
+smc:1-5-11_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "82d3753b-80b1-455e-9be8-357fc391a779" ] .
+
+smc:1-5-11_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a1447035-0330-48c4-b2ba-585b5f1bcdea" ] .
+
+smc:1-5-11_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "74db7dea-af84-457d-a5c6-658409b6cde5" ] .
+
+smc:1-5-11_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ae7bdd52-8f27-4ec4-a2b0-4443d19976da" ] .
+
+smc:1-5-12_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1d3083ed-3576-49dd-9ab5-ad422baa9bfa" ] .
+
+smc:1-5-12_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7d823290-9ee8-409c-ba09-7ab7f324469f" ] .
+
+smc:1-5-12_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b7c386b3-6f99-46ad-a1af-023d72fc4b4c" ] .
+
+smc:1-5-12_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "52b7568e-deae-4857-a22a-fdc70c530920" ] .
+
+smc:1-5-13_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3ceaffaa-7645-4e70-b8fb-35551e52d4ea" ] .
+
+smc:1-5-13_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0ff3e31f-04ea-4d0f-928f-7a9568329b16" ] .
+
+smc:1-5-13_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "301730a6-e766-42be-9a44-3a6ef0626c7f" ] .
+
+smc:1-5-13_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ebfad681-7ab2-49bb-ba46-3c400b973a25" ] .
+
+smc:1-5-16_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cc2a9a9a-3aa6-4419-8516-4af5fd3ff210" ] .
+
+smc:1-5-16_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "783d050f-0606-4c42-b58b-f79d40b886b9" ] .
+
+smc:1-5-16_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6840eb1d-029b-4ace-afba-62856b92469f" ] .
+
+smc:1-5-16_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d0c18023-ef35-4ad4-9c4a-bbeb8986be87" ] .
+
+smc:1-5-1_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3f24dfaa-ee9f-40e5-8f41-22a8324b3b81" ] .
+
+smc:1-5-1_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "38d8561f-eaf2-4ec7-8036-5e906facf39c" ] .
+
+smc:1-5-1_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "bf2d9608-f1ef-4737-b670-f65e3b0e530e" ] .
+
+smc:1-5-1_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e3404f02-ab94-49e8-b878-5e2bb999801e" ] .
+
+smc:1-5-2_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "150cdbec-2935-44e2-b241-64b58757daf7" ] .
+
+smc:1-5-2_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9a54c78e-78f8-4fc4-91a4-5d5e173e6ee4" ] .
+
+smc:1-5-2_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "76327a1c-cc27-4998-a8e0-36785f532927" ] .
+
+smc:1-5-2_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4f3a875c-2318-48f4-b5cd-ae1b510d5b91" ] .
+
+smc:1-5-3_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0a61af6e-80b0-4ac6-9b24-872f0ad9b49c" ] .
+
+smc:1-5-3_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f6c13945-47eb-498e-87e0-772adc3be999" ] .
+
+smc:1-5-3_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7290efcc-4f11-469c-b3b6-316e2779d449" ] .
+
+smc:1-5-3_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c3613620-c908-4fe5-a337-836ef95fb4c5" ] .
+
+smc:1-5-4_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ad4d17ea-da28-4ed6-aafa-15b690c0fe0b" ] .
+
+smc:1-5-4_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b9d9d4e9-7883-4f11-9984-c4c397785350" ] .
+
+smc:1-5-4_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "32fe71af-fdb9-4b1e-88d6-eb989263d906" ] .
+
+smc:1-5-4_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7d9bbbe6-391b-4c5a-8d78-ac5b7ee2a324" ] .
+
+smc:1-5-5_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "139de008-d815-41ae-92b4-cb03626e0668" ] .
+
+smc:1-5-5_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b46a405e-9d8a-4877-9693-a22940878502" ] .
+
+smc:1-5-5_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2b4e102b-2eae-48be-93f7-03667b9db2a9" ] .
+
+smc:1-5-5_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0bba550c-4c1d-41e2-84ab-cc692b053f7c" ] .
+
+smc:1-5-6_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "dfa790d4-23f9-4314-b7a3-c9bb5b7a7904" ] .
+
+smc:1-5-6_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "518f33d2-d4a4-457b-8a63-79f05acd4a9a" ] .
+
+smc:1-5-6_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "18cd7631-ed7a-4b70-8948-6a4df87b1af3" ] .
+
+smc:1-5-6_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "79c4c9c1-6c45-4231-8864-41c85c689d55" ] .
+
+smc:1-5-7_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "27d1d30d-da3f-408b-a937-b994a00b6301" ] .
+
+smc:1-5-7_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3684ca72-39e9-4564-a95f-5c021bc6ff4c" ] .
+
+smc:1-5-7_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "bc5c534a-ffed-4200-b4c7-0a70ebc62fb2" ] .
+
+smc:1-5-7_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5afc918c-385c-45fc-b196-496d5415a4e4" ] .
+
+smc:1-5-8_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "16c08160-b28f-4e81-9486-2add7281d032" ] .
+
+smc:1-5-8_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0a30ae5e-ee99-4ca5-9798-acd22f69da26" ] .
+
+smc:1-5-8_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8bc5e401-9dc7-4b1e-84cc-78184fe59543" ] .
+
+smc:1-5-8_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "425066cf-0c8a-4bf5-b81b-76dd06a1af94" ] .
+
+smc:1-5-9_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "461727c7-6b19-4016-ad8f-fa2cdb63621d" ] .
+
+smc:1-5-9_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5202ff20-4e60-4760-8a36-e07636081355" ] .
+
+smc:1-5-9_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d6e53f66-1065-47b5-8f46-fe17cce3acb2" ] .
+
+smc:1-5-9_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3ddef207-adc4-4884-bf1d-a2a4faf4c8ef" ] .
+
+smc:2-1-11_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "25954c55-6a12-4c36-8423-5491ac3d1b9c" ] .
+
+smc:2-1-11_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "343731e3-4f75-49ea-b193-de966b39a8cd" ] .
+
+smc:2-1-11_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d1bbaa6c-acbe-4fb0-a05c-a2d598cae4b3" ] .
+
+smc:2-1-11_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6ff099a0-5b4b-485c-8bb2-c2d34ad303dc" ] .
+
+smc:2-1-12_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "123f68f2-ce52-482a-bf63-11ba1e34cf00" ] .
+
+smc:2-1-12_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "91453578-d2fb-4712-a1b4-0f8805b0ac86" ] .
+
+smc:2-1-12_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "85515657-d893-4ffe-9a6a-5daf8f5ab85e" ] .
+
+smc:2-1-12_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7bbe954c-c64c-4d19-81c4-084981dbd410" ] .
+
+smc:2-1-13_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fb64c9ca-f399-4bfb-bc83-5ae927655311" ] .
+
+smc:2-1-13_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "19835836-184f-4b27-9a4b-b91db0c27695" ] .
+
+smc:2-1-13_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "974fea81-63de-4033-bb09-925d67bc66ce" ] .
+
+smc:2-1-13_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b7601244-8034-4eda-8200-fa2f81297034" ] .
+
+smc:2-1-14_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "51d5d4d6-6779-4063-9650-5e8d7f902ef5" ] .
+
+smc:2-1-14_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b3708760-2e35-495f-9c5b-aeb700bc2735" ] .
+
+smc:2-1-14_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4f1db341-aaa5-4c99-9775-bf19ccf879f9" ] .
+
+smc:2-1-14_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "44cadaac-6bc2-418d-b0d1-5aebe6a2b166" ] .
+
+smc:2-1-15_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b5a7f4eb-b3c4-4fef-bd10-07640b2652fe" ] .
+
+smc:2-1-15_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5f85025a-8a9e-46f6-a9cb-54b84a4a8044" ] .
+
+smc:2-1-15_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "712b60a0-e9a9-425d-ad07-370ee9129629" ] .
+
+smc:2-1-15_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a9c85646-238b-4204-8034-aa1e9be51c50" ] .
+
+smc:2-1-16_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a5f12207-dccd-46e1-903d-c3338c3773ae" ] .
+
+smc:2-1-16_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "248e2d70-cbc8-42ae-8e93-ee773bc2915a" ] .
+
+smc:2-1-16_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b0728981-b81b-4f97-9451-37540cc6a4af" ] .
+
+smc:2-1-16_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9e82dfd7-95fd-41cc-964a-b15605198c23" ] .
+
+smc:2-1-17_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "107a681a-9058-45c0-9816-7d21d2873e20" ] .
+
+smc:2-1-17_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e59ed92d-f33d-4866-aba4-9edcff4f02e2" ] .
+
+smc:2-1-17_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "559f8156-1a94-47f4-8d34-ed577e8bf5ba" ] .
+
+smc:2-1-17_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "02a1e8a4-2181-4ab1-9945-a80707afd16d" ] .
+
+smc:2-1-18_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2aaa919d-ded5-4e8d-971d-b19f2c958e0a" ] .
+
+smc:2-1-18_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b5a6334c-123f-4cf7-bb3e-debe5329d793" ] .
+
+smc:2-1-18_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a3010896-9d03-4717-94b8-7f31ee95f75e" ] .
+
+smc:2-1-18_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f71a39e1-5386-41b4-9721-9d61a233a5e8" ] .
+
+smc:2-1-19_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ef906369-dc3b-4bad-9a09-c57c042551c8" ] .
+
+smc:2-1-19_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0a1c5b24-54ec-4210-8193-1f4ca1f71ef7" ] .
+
+smc:2-1-19_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "417b2e5b-9e98-4679-aa73-8594a3f373ab" ] .
+
+smc:2-1-19_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b435f6fe-37c1-47d2-a1fb-a9b639424765" ] .
+
+smc:2-1-20_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "90198589-a6f3-4036-9585-93b8d3127e7d" ] .
+
+smc:2-1-20_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "18e7212b-1351-40e8-b0ac-318c79faee24" ] .
+
+smc:2-1-20_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "611a5fd4-3c1f-49a2-bd67-f2889387ba0f" ] .
+
+smc:2-1-20_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8d88b9f9-1540-481e-ab76-a6366c48e819" ] .
+
+smc:2-1-27_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5c27ded5-fb34-4618-9be4-ac4a379f773f" ] .
+
+smc:2-1-27_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d67a84cf-7afd-4848-aa56-40330cd15bd3" ] .
+
+smc:2-1-27_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "da5cc505-3449-42b9-b58e-b5d0e72d4d8c" ] .
+
+smc:2-1-27_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "22f76ee1-5667-43a1-a67d-cdee1881abd7" ] .
+
+smc:2-2-12_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "121ab8bb-fd01-41b8-9432-770c19b43757" ] .
+
+smc:2-2-12_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c8a2e0a1-b239-47eb-b178-d21d794fa2be" ] .
+
+smc:2-2-12_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d1bea992-405c-4e5e-a315-579a0d351175" ] .
+
+smc:2-2-12_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "30b74a83-edd4-464f-bcb3-1951a9451d03" ] .
+
+smc:2-2-13_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6dcb3739-c9e4-465d-bf3b-9fea2405e3d6" ] .
+
+smc:2-2-13_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f58d016a-7e4e-4492-aabc-a720cbde1b29" ] .
+
+smc:2-2-13_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5b5244a8-90fb-4616-b142-e04079bdddaa" ] .
+
+smc:2-2-13_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9163a18b-9525-4c42-914a-d6460eb3f5d4" ] .
+
+smc:2-2-14_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "315352f4-a7fd-49b4-be2a-800ffe853b4a" ] .
+
+smc:2-2-14_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "dfb13fdf-033d-4885-8ac3-f821a241e2e1" ] .
+
+smc:2-2-14_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "66582d87-d9cf-4652-a573-d2817bb7a0fe" ] .
+
+smc:2-2-14_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "049e0f45-bbba-4e21-b89f-a3eeafbfb908" ] .
+
+smc:2-2-15_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "db575f93-838b-499f-ad6f-6385eeecd386" ] .
+
+smc:2-2-15_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f33f5701-78ae-4a19-9108-97a722ee0ede" ] .
+
+smc:2-2-15_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "942eff50-cf26-4549-84f7-4f5e13cd9d43" ] .
+
+smc:2-2-15_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "388b070b-07ef-47a4-bfc4-1be660e665c8" ] .
+
+smc:2-2-16_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "abb64a81-bf9c-4a73-ba1b-78695fabb698" ] .
+
+smc:2-2-16_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c08d5196-d16e-4f08-8e8e-a86fc73c68b6" ] .
+
+smc:2-2-16_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "70949619-bc8a-4700-88f4-29b22e6e03f1" ] .
+
+smc:2-2-16_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7ce99cef-d244-4bc9-885b-14886993f918" ] .
+
+smc:2-2-17_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1e96e4b7-0c77-471b-8fe4-f25a07162e54" ] .
+
+smc:2-2-17_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f797abf8-87d5-46ce-be21-e08c4a7f8aab" ] .
+
+smc:2-2-17_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "47e59cea-cb51-4e03-88ea-11e911b40fa5" ] .
+
+smc:2-2-17_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "08fd8f68-d0e6-480f-b096-210fdb70b11f" ] .
+
+smc:2-2-18_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "44384ce5-956f-4433-be47-ddcb45cb4d8c" ] .
+
+smc:2-2-18_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2a37bf77-15e3-4d6a-90bb-155d5601b237" ] .
+
+smc:2-2-18_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fd47c511-2ead-4aca-91f6-625d0400e794" ] .
+
+smc:2-2-18_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2a0516d2-5958-4c51-a544-fd28c909ef64" ] .
+
+smc:2-2-19_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "387ad982-d9d0-4db0-a3bd-6c8ae011d3a4" ] .
+
+smc:2-2-19_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "49041c38-b6d3-46e0-b270-1a28ec31d593" ] .
+
+smc:2-2-19_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "64008e3d-4468-45e1-92ad-82d6673d1ac6" ] .
+
+smc:2-2-19_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8072b8de-dd0f-4700-9584-e1037b8c8fba" ] .
+
+smc:2-2-20_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8756c74a-6eac-4c7e-8d58-88dbf7ba3d7c" ] .
+
+smc:2-2-20_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "aae275c1-918a-4842-9893-911414634950" ] .
+
+smc:2-2-20_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ba96fed4-67dd-4ba1-8dd9-0caaa0c4fe8b" ] .
+
+smc:2-2-20_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6bae6d05-e42c-4ce4-a806-e2cd8b3bc58d" ] .
+
+smc:2-2-21_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "72849147-2b81-4607-ba4f-fd51007cab91" ] .
+
+smc:2-2-21_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "911b3441-1f74-4d4d-9c13-956cbd3e590f" ] .
+
+smc:2-2-21_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "94832707-9416-483e-a78a-24e551d91ce7" ] .
+
+smc:2-2-21_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1598e0a3-5e75-421b-8171-81f039efd67e" ] .
+
+smc:2-2-22_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "332bb3f8-713c-42df-82c5-fbfefc296da9" ] .
+
+smc:2-2-22_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2dcad37d-4308-4c9a-a5ed-8cf728bff56a" ] .
+
+smc:2-2-22_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "bd2b68d3-77a2-42d1-be37-22777deb1692" ] .
+
+smc:2-2-22_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ffdbe2a6-982d-489c-800e-a9b1525abc6f" ] .
+
+smc:2-3-14_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3626af4f-23d0-4ef7-a2dc-fc7a2bd9cc2c" ] .
+
+smc:2-3-14_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f1bece0c-af08-4201-bad7-8ea4083c295e" ] .
+
+smc:2-3-14_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a1bfb101-3c09-40c9-95e5-345efcf4f976" ] .
+
+smc:2-3-14_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7c27c31d-3c2c-4cb3-a5ef-adba8f3be84a" ] .
+
+smc:2-3-15_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "49532b96-ff50-4656-9924-8ea90704b1af" ] .
+
+smc:2-3-15_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3808a56b-deac-479e-be5a-c6551d67f783" ] .
+
+smc:2-3-15_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "172e04ce-40f3-4763-925e-c0c1835a0cc4" ] .
+
+smc:2-3-15_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3ea4ec3b-8fb2-4c43-b32b-a66ee4b6da29" ] .
+
+smc:2-3-16_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "db5dd071-4ab9-4d0b-b43a-3f0e849b5c58" ] .
+
+smc:2-3-16_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ca81613c-2e3f-4534-ba41-38779a387e66" ] .
+
+smc:2-3-16_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fbd3694b-c267-4b4b-b33a-f43b26f4089e" ] .
+
+smc:2-3-16_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "045a286f-cfc8-460e-b22f-b08e555dbd73" ] .
+
+smc:2-3-17_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a0a041a0-9d9e-43e9-9cb0-0b8dbfbd296f" ] .
+
+smc:2-3-17_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d8ddaa07-0557-4240-b2ee-2a63187dbd63" ] .
+
+smc:2-3-17_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "942335a3-84b8-4058-857b-81afd3e6b46d" ] .
+
+smc:2-3-17_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f8ddc743-25bf-4631-9880-772d67357472" ] .
+
+smc:2-3-18_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f9754c0c-f503-4cc3-a95b-ba68dd05de13" ] .
+
+smc:2-3-18_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0b0f38db-cf93-4ff0-81d3-0de80e4e90f6" ] .
+
+smc:2-3-18_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8fa3e6e5-1829-4668-872e-dbdd1c8aa7f8" ] .
+
+smc:2-3-18_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "146c3b4a-dfe7-43ec-a42a-b3ed96442d83" ] .
+
+smc:2-3-19_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "82103ea2-8310-41ae-bd1b-03be6108c790" ] .
+
+smc:2-3-19_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f9baa2b7-b2de-4b14-ad14-c97f16912162" ] .
+
+smc:2-3-19_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c3464ae6-3e82-4ffd-a85f-5e0e4bd6831b" ] .
+
+smc:2-3-19_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2e19f52b-cc36-4835-8a4b-ee34c27644bf" ] .
+
+smc:2-3-20_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ad7e658e-538a-4d96-8066-a788317c34f0" ] .
+
+smc:2-3-20_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4e20e863-ca9e-4105-b2d1-315793af12a7" ] .
+
+smc:2-3-20_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "51ce12d7-9003-46e5-be12-410eccb41ea7" ] .
+
+smc:2-3-20_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "69087ff9-b0a5-41e7-b8ae-1794c7aed558" ] .
+
+smc:2-3-21_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d966dc4c-e0be-42be-879f-f56495846b26" ] .
+
+smc:2-3-21_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1320ee13-41ac-41b0-8c93-4ca10fbb646b" ] .
+
+smc:2-3-21_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4b3fca8b-b382-4f48-830a-b10662925e87" ] .
+
+smc:2-3-21_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f2ec945c-775e-4e51-b058-36886e72b40e" ] .
+
+smc:2-3-22_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e8c203ac-e0e3-41ef-ba64-a982f1bdf411" ] .
+
+smc:2-3-22_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1aa30a62-f380-4dde-91bd-5552124d3fa4" ] .
+
+smc:2-3-22_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e9b82d9a-121f-44c8-b32d-c16ed717a1ad" ] .
+
+smc:2-3-22_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c4ec7b8c-9ab0-494d-a8c4-264655ea1516" ] .
+
+smc:2-4-14_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "be7c3077-f71e-4296-8e7c-6b7f085a30bb" ] .
+
+smc:2-4-14_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "53cfcaac-01ef-4359-ae15-e7f6b48cdaf2" ] .
+
+smc:2-4-14_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "088e4336-83f0-4f83-b67d-d0e31100c628" ] .
+
+smc:2-4-14_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0c346cd5-b1bc-4bd8-aee4-e5018fe28808" ] .
+
+smc:2-4-15_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8cfc0138-f1d5-4802-a169-d1785c28949d" ] .
+
+smc:2-4-15_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c4fe402e-c993-4e06-b184-ae2ba0b91caf" ] .
+
+smc:2-4-15_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "23a0214b-4498-40b2-8afb-81af2b3c3895" ] .
+
+smc:2-4-15_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9a351e57-f85f-4149-bb66-32a4eaf568ac" ] .
+
+smc:2-4-16_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c662efcd-261d-4694-99fa-b6b2528c697c" ] .
+
+smc:2-4-16_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f387e0c5-2979-4353-a362-582110aa0d6c" ] .
+
+smc:2-4-16_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "66018cab-b2e1-4ad6-ac06-b71f787ec265" ] .
+
+smc:2-4-16_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "73f98c21-d5f2-4635-86bc-9c9f56865375" ] .
+
+smc:2-4-17A_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "69d9d1b2-69c5-4899-8c27-509e1c0faf0a" ] .
+
+smc:2-4-17A_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e89a9c74-01bb-4fb8-a312-429bc976b846" ] .
+
+smc:2-4-17A_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "83539811-fb4a-4f59-84a4-6c4b889901b3" ] .
+
+smc:2-4-17A_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "de9a7e9b-1465-4a6f-8c44-073051bb880b" ] .
+
+smc:2-4-17_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b95b7b3b-a3de-4997-950c-64e18edb8866" ] .
+
+smc:2-4-17_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "97efba35-ccd8-4796-bc17-774f2fb2dbc9" ] .
+
+smc:2-4-17_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "88d318a6-fa0e-4128-93be-a80f3111ed28" ] .
+
+smc:2-4-17_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "847ace9a-681c-460f-93c2-ad4cb7a66dc3" ] .
+
+smc:2-4-18_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "65cb811c-f13c-44d8-ad14-003a68166a34" ] .
+
+smc:2-4-18_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2f900541-174b-4148-9f9f-732cfcd18bdb" ] .
+
+smc:2-4-18_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c2c16336-c424-4785-a366-aefb4047d954" ] .
+
+smc:2-4-18_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e6572366-64fc-44e6-b1ea-1cde548554d3" ] .
+
+smc:2-4-19_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "499424f1-46ef-42d7-9864-bf44c33de838" ] .
+
+smc:2-4-19_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8571dc53-ff25-4a43-a280-74b247cf27b6" ] .
+
+smc:2-4-19_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0ccf9d2b-82ae-40c7-9e82-9c6896641d0d" ] .
+
+smc:2-4-19_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f00a67e4-4646-4efc-ae12-7a87236358f9" ] .
+
+smc:2-4-20_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "964ca4a9-52ad-497b-8a3d-4d3048ebcbfc" ] .
+
+smc:2-4-20_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fa8777e3-9cc6-44cf-b7f6-a06ec9f40e2d" ] .
+
+smc:2-4-20_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2ced4517-4753-418a-8f4f-31398dafc02e" ] .
+
+smc:2-4-20_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3caf1ce6-85fe-4b71-8c7a-56b0714f20ab" ] .
+
+smc:2-4-21_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "28673137-cc18-4720-bcc6-b786a3adebcf" ] .
+
+smc:2-4-21_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c012649a-31b0-4a10-88c9-5141b2b833ad" ] .
+
+smc:2-4-21_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "49a77258-accd-44fb-a259-79888492abfd" ] .
+
+smc:2-4-21_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d41cbece-24db-46ea-987f-9e68f44a51fd" ] .
+
+smc:2-4-24_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "baaf4d80-910a-4f4e-ad4a-8d450f0d1095" ] .
+
+smc:2-4-24_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "33cdb124-d020-4966-998c-127dd80b3c7d" ] .
+
+smc:2-4-24_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "090471df-56ce-4762-8659-e8bb3175b48b" ] .
+
+smc:2-4-24_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3c753e93-6eb5-4d8c-b9ad-144605565191" ] .
+
+smc:2-5-17B_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b1162371-1b3d-46e3-b895-4bc34069a295" ] .
+
+smc:2-5-17B_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "435f4b97-a05b-45ee-ac6b-abd7d440dbdb" ] .
+
+smc:2-5-17B_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "db82bab8-bed6-474a-a25b-9b92611bb296" ] .
+
+smc:2-5-17B_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c05c268a-562a-4554-abf3-0f767ebad520" ] .
+
+smc:2-5-19_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "720d9cf5-0d02-41af-8d84-c538d6aa6727" ] .
+
+smc:2-5-19_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "477e61c1-9359-4b63-8b75-bed2db6990f9" ] .
+
+smc:2-5-19_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a208489b-3a83-4768-9456-36f9b3253c2c" ] .
+
+smc:2-5-19_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ec032f1a-9701-41f1-abfc-2b123cad83ac" ] .
+
+smc:2-5-20_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f97eb429-fb82-4cb9-bd7f-2107c36b43a4" ] .
+
+smc:2-5-20_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7ce4d9b4-f787-4781-b98c-e6a29222b3b4" ] .
+
+smc:2-5-20_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "65b1a418-7ddd-4dc9-ac20-e2444dddf303" ] .
+
+smc:2-5-20_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6a8f9de2-88aa-42bd-b468-a60d6b89ed6e" ] .
+
+smc:2-5-21_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "80134146-66f5-4b1d-abec-2910acdbf2f4" ] .
+
+smc:2-5-21_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "76fc1ddf-c196-4c53-b258-ad96705e231a" ] .
+
+smc:2-5-21_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6aec7a37-86c9-465d-97fa-9d46b75928d5" ] .
+
+smc:2-5-21_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4a5ded90-63ab-4f32-964e-6b6667680bea" ] .
+
+smc:2-5-22_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "60e88542-e193-4796-ad19-131060a1f78d" ] .
+
+smc:2-5-22_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "bc4f577c-4a3e-4710-9b7e-dbb805bec674" ] .
+
+smc:2-5-22_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "efef5139-eb41-403d-b669-a673c525c5a5" ] .
+
+smc:2-5-22_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "70969014-0dd7-4f0d-8637-28546d72eec1" ] .
+
+smc:2-5-23_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ab988c23-1f42-4a6d-9cfc-2d4673570efa" ] .
+
+smc:2-5-23_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "dcb92466-1c60-4b4c-a6b8-709d24ac355a" ] .
+
+smc:2-5-23_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0cb38c1a-bc93-4246-b31a-622d591e99e0" ] .
+
+smc:2-5-23_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "754a16b1-3a3e-42a4-b963-4ec9a3a06d24" ] .
+
+smc:2-5-24_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b37a0bd9-bfdb-4638-a6a1-1ba908a01086" ] .
+
+smc:2-5-24_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "bed33b20-1140-46cc-892b-8c8a148cae83" ] .
+
+smc:2-5-24_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1cf2306c-adc9-467d-98c6-2d1394195014" ] .
+
+smc:2-5-24_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "54919c1a-8591-48cf-9594-ce333c851c1e" ] .
+
+smc:2-5-25_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c84f2f3d-c808-481a-afac-571c0e36fc1a" ] .
+
+smc:2-5-25_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fcde8a6f-23c2-47f7-b8b0-a09c33ac87bf" ] .
+
+smc:2-5-25_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fd0224a7-d6fe-42e0-803b-11ff4c4fd9aa" ] .
+
+smc:2-5-25_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7e9b15b0-f99d-4ea2-a404-e76f9172a070" ] .
+
+smc:2-B-1_ActFlow a brick:Supply_Air_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "35554a77-9536-4cea-8e8e-dc1d861911d4" ] .
+
+smc:2-B-1_DischargeTemp a brick:Discharge_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2ba7e4fb-914f-4d6c-9b16-d486ced51aa7" ] .
+
+smc:2-B-1_MaxFlowHeatSP a brick:Air_Flow_Setpoint ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "56af26bb-c9f7-4c3e-9458-e268396d75f7" ] .
+
+smc:2-B-1_Reheat a brick:Heating_Command ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6a34ad1f-ea9a-4b3d-b7b0-e39a877f008d" ] .
+
+smc:OutsideTempAHU1 a brick:Outside_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2e110125-283b-42a5-8bdd-d8a325595529" ] .
+
+smc:OutsideTempAHU2 a brick:Outside_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "dddf2c2b-5bbf-49f4-97c1-ce1fbbc13a76" ] .
+
+smc:ReheatCoil_1-1-1 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-2 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-3 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-4 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-5 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-6 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-7 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-1-8 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-1 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-2 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-3 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-4 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-5 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-6 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-7 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-2-8 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-1 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-10 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-2 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-3 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-4 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-5 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-6 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-7 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-8 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-3-9 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-1 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-2 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-3 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-4 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-5 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-6 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-7 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-8 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-4-9 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-1 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-10 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-11 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-12 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-13 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-16 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-2 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-3 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-4 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-5 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-6 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-7 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-8 a brick:Reheat_Coil .
+
+smc:ReheatCoil_1-5-9 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-11 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-12 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-13 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-14 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-15 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-16 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-17 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-18 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-19 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-20 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-1-27 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-12 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-13 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-14 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-15 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-16 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-17 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-18 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-19 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-20 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-21 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-2-22 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-14 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-15 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-16 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-17 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-18 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-19 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-20 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-21 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-3-22 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-14 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-15 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-16 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-17 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-17A a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-18 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-19 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-20 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-21 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-4-24 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-17B a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-19 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-20 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-21 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-22 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-23 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-24 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-5-25 a brick:Reheat_Coil .
+
+smc:ReheatCoil_2-B-1 a brick:Reheat_Coil .
+
+smc:SuppliedFanSpeedAHU1 a brick:Speed_Command ;
+    brick:isPointOf smc:AHU1 ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a752d35b-5501-486f-9cfa-0fd0acfd3354" ] .
+
+smc:SuppliedFanSpeedAHU2 a brick:Speed_Command ;
+    brick:isPointOf smc:AHU2 ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "75002132-cfe7-4b72-858c-7756f2c66e34" ] .
+
+smc:SuppliedTempAHU1 a brick:Supply_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1cadea09-8a9e-40a8-acb7-d5bb7924241a" ] .
+
+smc:SuppliedTempAHU2 a brick:Supply_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "56abadf7-2c7e-4461-b11a-911459a71e23" ] .
+
+smc:VAV_1-1-1 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-1" ;
+    brick:feeds smc:Zone_1-1-1 ;
+    brick:hasPart smc:ReheatCoil_1-1-1 ;
+    brick:hasPoint smc:1-1-1_ActFlow,
+        smc:1-1-1_DischargeTemp,
+        smc:1-1-1_MaxFlowHeatSP,
+        smc:1-1-1_Reheat,
+        smc:1-1-1_SpaceTemp .
+
+smc:VAV_1-1-2 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-2" ;
+    brick:feeds smc:Zone_1-1-2 ;
+    brick:hasPart smc:ReheatCoil_1-1-2 ;
+    brick:hasPoint smc:1-1-2_ActFlow,
+        smc:1-1-2_DischargeTemp,
+        smc:1-1-2_MaxFlowHeatSP,
+        smc:1-1-2_Reheat,
+        smc:1-1-2_SpaceTemp .
+
+smc:VAV_1-1-3 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-3" ;
+    brick:feeds smc:Zone_1-1-3 ;
+    brick:hasPart smc:ReheatCoil_1-1-3 ;
+    brick:hasPoint smc:1-1-3_ActFlow,
+        smc:1-1-3_DischargeTemp,
+        smc:1-1-3_MaxFlowHeatSP,
+        smc:1-1-3_Reheat,
+        smc:1-1-3_SpaceTemp .
+
+smc:VAV_1-1-4 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-4" ;
+    brick:feeds smc:Zone_1-1-4 ;
+    brick:hasPart smc:ReheatCoil_1-1-4 ;
+    brick:hasPoint smc:1-1-4_ActFlow,
+        smc:1-1-4_DischargeTemp,
+        smc:1-1-4_MaxFlowHeatSP,
+        smc:1-1-4_Reheat,
+        smc:1-1-4_SpaceTemp .
+
+smc:VAV_1-1-5 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-5" ;
+    brick:feeds smc:Zone_1-1-5 ;
+    brick:hasPart smc:ReheatCoil_1-1-5 ;
+    brick:hasPoint smc:1-1-5_ActFlow,
+        smc:1-1-5_DischargeTemp,
+        smc:1-1-5_MaxFlowHeatSP,
+        smc:1-1-5_Reheat,
+        smc:1-1-5_SpaceTemp .
+
+smc:VAV_1-1-6 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-6" ;
+    brick:feeds smc:Zone_1-1-6 ;
+    brick:hasPart smc:ReheatCoil_1-1-6 ;
+    brick:hasPoint smc:1-1-6_ActFlow,
+        smc:1-1-6_DischargeTemp,
+        smc:1-1-6_MaxFlowHeatSP,
+        smc:1-1-6_Reheat,
+        smc:1-1-6_SpaceTemp .
+
+smc:VAV_1-1-7 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-7" ;
+    brick:feeds smc:Zone_1-1-7 ;
+    brick:hasPart smc:ReheatCoil_1-1-7 ;
+    brick:hasPoint smc:1-1-7_ActFlow,
+        smc:1-1-7_DischargeTemp,
+        smc:1-1-7_MaxFlowHeatSP,
+        smc:1-1-7_Reheat,
+        smc:1-1-7_SpaceTemp .
+
+smc:VAV_1-1-8 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-1-8" ;
+    brick:feeds smc:Zone_1-1-8 ;
+    brick:hasPart smc:ReheatCoil_1-1-8 ;
+    brick:hasPoint smc:1-1-8_ActFlow,
+        smc:1-1-8_DischargeTemp,
+        smc:1-1-8_MaxFlowHeatSP,
+        smc:1-1-8_Reheat,
+        smc:1-1-8_SpaceTemp .
+
+smc:VAV_1-2-1 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-1" ;
+    brick:feeds smc:Zone_1-2-1 ;
+    brick:hasPart smc:ReheatCoil_1-2-1 ;
+    brick:hasPoint smc:1-2-1_ActFlow,
+        smc:1-2-1_DischargeTemp,
+        smc:1-2-1_MaxFlowHeatSP,
+        smc:1-2-1_Reheat,
+        smc:1-2-1_SpaceTemp .
+
+smc:VAV_1-2-2 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-2" ;
+    brick:feeds smc:Zone_1-2-2 ;
+    brick:hasPart smc:ReheatCoil_1-2-2 ;
+    brick:hasPoint smc:1-2-2_ActFlow,
+        smc:1-2-2_DischargeTemp,
+        smc:1-2-2_MaxFlowHeatSP,
+        smc:1-2-2_Reheat,
+        smc:1-2-2_SpaceTemp .
+
+smc:VAV_1-2-3 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-3" ;
+    brick:feeds smc:Zone_1-2-3 ;
+    brick:hasPart smc:ReheatCoil_1-2-3 ;
+    brick:hasPoint smc:1-2-3_ActFlow,
+        smc:1-2-3_DischargeTemp,
+        smc:1-2-3_MaxFlowHeatSP,
+        smc:1-2-3_Reheat,
+        smc:1-2-3_SpaceTemp .
+
+smc:VAV_1-2-4 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-4" ;
+    brick:feeds smc:Zone_1-2-4 ;
+    brick:hasPart smc:ReheatCoil_1-2-4 ;
+    brick:hasPoint smc:1-2-4_ActFlow,
+        smc:1-2-4_DischargeTemp,
+        smc:1-2-4_MaxFlowHeatSP,
+        smc:1-2-4_Reheat,
+        smc:1-2-4_SpaceTemp .
+
+smc:VAV_1-2-5 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-5" ;
+    brick:feeds smc:Zone_1-2-5 ;
+    brick:hasPart smc:ReheatCoil_1-2-5 ;
+    brick:hasPoint smc:1-2-5_ActFlow,
+        smc:1-2-5_DischargeTemp,
+        smc:1-2-5_MaxFlowHeatSP,
+        smc:1-2-5_Reheat,
+        smc:1-2-5_SpaceTemp .
+
+smc:VAV_1-2-6 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-6" ;
+    brick:feeds smc:Zone_1-2-6 ;
+    brick:hasPart smc:ReheatCoil_1-2-6 ;
+    brick:hasPoint smc:1-2-6_ActFlow,
+        smc:1-2-6_DischargeTemp,
+        smc:1-2-6_MaxFlowHeatSP,
+        smc:1-2-6_Reheat,
+        smc:1-2-6_SpaceTemp .
+
+smc:VAV_1-2-7 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-7" ;
+    brick:feeds smc:Zone_1-2-7 ;
+    brick:hasPart smc:ReheatCoil_1-2-7 ;
+    brick:hasPoint smc:1-2-7_ActFlow,
+        smc:1-2-7_DischargeTemp,
+        smc:1-2-7_MaxFlowHeatSP,
+        smc:1-2-7_Reheat,
+        smc:1-2-7_SpaceTemp .
+
+smc:VAV_1-2-8 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-2-8" ;
+    brick:feeds smc:Zone_1-2-8 ;
+    brick:hasPart smc:ReheatCoil_1-2-8 ;
+    brick:hasPoint smc:1-2-8_ActFlow,
+        smc:1-2-8_DischargeTemp,
+        smc:1-2-8_MaxFlowHeatSP,
+        smc:1-2-8_Reheat,
+        smc:1-2-8_SpaceTemp .
+
+smc:VAV_1-3-1 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-1" ;
+    brick:feeds smc:Zone_1-3-1 ;
+    brick:hasPart smc:ReheatCoil_1-3-1 ;
+    brick:hasPoint smc:1-3-1_ActFlow,
+        smc:1-3-1_DischargeTemp,
+        smc:1-3-1_MaxFlowHeatSP,
+        smc:1-3-1_Reheat,
+        smc:1-3-1_SpaceTemp .
+
+smc:VAV_1-3-10 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-10" ;
+    brick:feeds smc:Zone_1-3-10 ;
+    brick:hasPart smc:ReheatCoil_1-3-10 ;
+    brick:hasPoint smc:1-3-10_ActFlow,
+        smc:1-3-10_DischargeTemp,
+        smc:1-3-10_MaxFlowHeatSP,
+        smc:1-3-10_Reheat,
+        smc:1-3-10_SpaceTemp .
+
+smc:VAV_1-3-2 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-2" ;
+    brick:feeds smc:Zone_1-3-2 ;
+    brick:hasPart smc:ReheatCoil_1-3-2 ;
+    brick:hasPoint smc:1-3-2_ActFlow,
+        smc:1-3-2_DischargeTemp,
+        smc:1-3-2_MaxFlowHeatSP,
+        smc:1-3-2_Reheat,
+        smc:1-3-2_SpaceTemp .
+
+smc:VAV_1-3-3 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-3" ;
+    brick:feeds smc:Zone_1-3-3 ;
+    brick:hasPart smc:ReheatCoil_1-3-3 ;
+    brick:hasPoint smc:1-3-3_ActFlow,
+        smc:1-3-3_DischargeTemp,
+        smc:1-3-3_MaxFlowHeatSP,
+        smc:1-3-3_Reheat,
+        smc:1-3-3_SpaceTemp .
+
+smc:VAV_1-3-4 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-4" ;
+    brick:feeds smc:Zone_1-3-4 ;
+    brick:hasPart smc:ReheatCoil_1-3-4 ;
+    brick:hasPoint smc:1-3-4_ActFlow,
+        smc:1-3-4_DischargeTemp,
+        smc:1-3-4_MaxFlowHeatSP,
+        smc:1-3-4_Reheat,
+        smc:1-3-4_SpaceTemp .
+
+smc:VAV_1-3-5 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-5" ;
+    brick:feeds smc:Zone_1-3-5 ;
+    brick:hasPart smc:ReheatCoil_1-3-5 ;
+    brick:hasPoint smc:1-3-5_ActFlow,
+        smc:1-3-5_DischargeTemp,
+        smc:1-3-5_MaxFlowHeatSP,
+        smc:1-3-5_Reheat,
+        smc:1-3-5_SpaceTemp .
+
+smc:VAV_1-3-6 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-6" ;
+    brick:feeds smc:Zone_1-3-6 ;
+    brick:hasPart smc:ReheatCoil_1-3-6 ;
+    brick:hasPoint smc:1-3-6_ActFlow,
+        smc:1-3-6_DischargeTemp,
+        smc:1-3-6_MaxFlowHeatSP,
+        smc:1-3-6_Reheat,
+        smc:1-3-6_SpaceTemp .
+
+smc:VAV_1-3-7 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-7" ;
+    brick:feeds smc:Zone_1-3-7 ;
+    brick:hasPart smc:ReheatCoil_1-3-7 ;
+    brick:hasPoint smc:1-3-7_ActFlow,
+        smc:1-3-7_DischargeTemp,
+        smc:1-3-7_MaxFlowHeatSP,
+        smc:1-3-7_Reheat,
+        smc:1-3-7_SpaceTemp .
+
+smc:VAV_1-3-8 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-8" ;
+    brick:feeds smc:Zone_1-3-8 ;
+    brick:hasPart smc:ReheatCoil_1-3-8 ;
+    brick:hasPoint smc:1-3-8_ActFlow,
+        smc:1-3-8_DischargeTemp,
+        smc:1-3-8_MaxFlowHeatSP,
+        smc:1-3-8_Reheat,
+        smc:1-3-8_SpaceTemp .
+
+smc:VAV_1-3-9 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-3-9" ;
+    brick:feeds smc:Zone_1-3-9 ;
+    brick:hasPart smc:ReheatCoil_1-3-9 ;
+    brick:hasPoint smc:1-3-9_ActFlow,
+        smc:1-3-9_DischargeTemp,
+        smc:1-3-9_MaxFlowHeatSP,
+        smc:1-3-9_Reheat,
+        smc:1-3-9_SpaceTemp .
+
+smc:VAV_1-4-1 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-1" ;
+    brick:feeds smc:Zone_1-4-1 ;
+    brick:hasPart smc:ReheatCoil_1-4-1 ;
+    brick:hasPoint smc:1-4-1_ActFlow,
+        smc:1-4-1_DischargeTemp,
+        smc:1-4-1_MaxFlowHeatSP,
+        smc:1-4-1_Reheat,
+        smc:1-4-1_SpaceTemp .
+
+smc:VAV_1-4-2 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-2" ;
+    brick:feeds smc:Zone_1-4-2 ;
+    brick:hasPart smc:ReheatCoil_1-4-2 ;
+    brick:hasPoint smc:1-4-2_ActFlow,
+        smc:1-4-2_DischargeTemp,
+        smc:1-4-2_MaxFlowHeatSP,
+        smc:1-4-2_Reheat,
+        smc:1-4-2_SpaceTemp .
+
+smc:VAV_1-4-3 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-3" ;
+    brick:feeds smc:Zone_1-4-3 ;
+    brick:hasPart smc:ReheatCoil_1-4-3 ;
+    brick:hasPoint smc:1-4-3_ActFlow,
+        smc:1-4-3_DischargeTemp,
+        smc:1-4-3_MaxFlowHeatSP,
+        smc:1-4-3_Reheat,
+        smc:1-4-3_SpaceTemp .
+
+smc:VAV_1-4-4 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-4" ;
+    brick:feeds smc:Zone_1-4-4 ;
+    brick:hasPart smc:ReheatCoil_1-4-4 ;
+    brick:hasPoint smc:1-4-4_ActFlow,
+        smc:1-4-4_DischargeTemp,
+        smc:1-4-4_MaxFlowHeatSP,
+        smc:1-4-4_Reheat,
+        smc:1-4-4_SpaceTemp .
+
+smc:VAV_1-4-5 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-5" ;
+    brick:feeds smc:Zone_1-4-5 ;
+    brick:hasPart smc:ReheatCoil_1-4-5 ;
+    brick:hasPoint smc:1-4-5_ActFlow,
+        smc:1-4-5_DischargeTemp,
+        smc:1-4-5_MaxFlowHeatSP,
+        smc:1-4-5_Reheat,
+        smc:1-4-5_SpaceTemp .
+
+smc:VAV_1-4-6 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-6" ;
+    brick:feeds smc:Zone_1-4-6 ;
+    brick:hasPart smc:ReheatCoil_1-4-6 ;
+    brick:hasPoint smc:1-4-6_ActFlow,
+        smc:1-4-6_DischargeTemp,
+        smc:1-4-6_MaxFlowHeatSP,
+        smc:1-4-6_Reheat,
+        smc:1-4-6_SpaceTemp .
+
+smc:VAV_1-4-7 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-7" ;
+    brick:feeds smc:Zone_1-4-7 ;
+    brick:hasPart smc:ReheatCoil_1-4-7 ;
+    brick:hasPoint smc:1-4-7_ActFlow,
+        smc:1-4-7_DischargeTemp,
+        smc:1-4-7_MaxFlowHeatSP,
+        smc:1-4-7_Reheat,
+        smc:1-4-7_SpaceTemp .
+
+smc:VAV_1-4-8 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-8" ;
+    brick:feeds smc:Zone_1-4-8 ;
+    brick:hasPart smc:ReheatCoil_1-4-8 ;
+    brick:hasPoint smc:1-4-8_ActFlow,
+        smc:1-4-8_DischargeTemp,
+        smc:1-4-8_MaxFlowHeatSP,
+        smc:1-4-8_Reheat,
+        smc:1-4-8_SpaceTemp .
+
+smc:VAV_1-4-9 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-4-9" ;
+    brick:feeds smc:Zone_1-4-9 ;
+    brick:hasPart smc:ReheatCoil_1-4-9 ;
+    brick:hasPoint smc:1-4-9_ActFlow,
+        smc:1-4-9_DischargeTemp,
+        smc:1-4-9_MaxFlowHeatSP,
+        smc:1-4-9_Reheat,
+        smc:1-4-9_SpaceTemp .
+
+smc:VAV_1-5-1 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-1" ;
+    brick:feeds smc:Zone_1-5-1 ;
+    brick:hasPart smc:ReheatCoil_1-5-1 ;
+    brick:hasPoint smc:1-5-1_ActFlow,
+        smc:1-5-1_DischargeTemp,
+        smc:1-5-1_MaxFlowHeatSP,
+        smc:1-5-1_Reheat,
+        smc:1-5-1_SpaceTemp .
+
+smc:VAV_1-5-10 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-10" ;
+    brick:feeds smc:Zone_1-5-10 ;
+    brick:hasPart smc:ReheatCoil_1-5-10 ;
+    brick:hasPoint smc:1-5-10_ActFlow,
+        smc:1-5-10_DischargeTemp,
+        smc:1-5-10_MaxFlowHeatSP,
+        smc:1-5-10_Reheat,
+        smc:1-5-10_SpaceTemp .
+
+smc:VAV_1-5-11 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-11" ;
+    brick:feeds smc:Zone_1-5-11 ;
+    brick:hasPart smc:ReheatCoil_1-5-11 ;
+    brick:hasPoint smc:1-5-11_ActFlow,
+        smc:1-5-11_DischargeTemp,
+        smc:1-5-11_MaxFlowHeatSP,
+        smc:1-5-11_Reheat,
+        smc:1-5-11_SpaceTemp .
+
+smc:VAV_1-5-12 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-12" ;
+    brick:feeds smc:Zone_1-5-12 ;
+    brick:hasPart smc:ReheatCoil_1-5-12 ;
+    brick:hasPoint smc:1-5-12_ActFlow,
+        smc:1-5-12_DischargeTemp,
+        smc:1-5-12_MaxFlowHeatSP,
+        smc:1-5-12_Reheat,
+        smc:1-5-12_SpaceTemp .
+
+smc:VAV_1-5-13 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-13" ;
+    brick:feeds smc:Zone_1-5-13 ;
+    brick:hasPart smc:ReheatCoil_1-5-13 ;
+    brick:hasPoint smc:1-5-13_ActFlow,
+        smc:1-5-13_DischargeTemp,
+        smc:1-5-13_MaxFlowHeatSP,
+        smc:1-5-13_Reheat,
+        smc:1-5-13_SpaceTemp .
+
+smc:VAV_1-5-16 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-16" ;
+    brick:feeds smc:Zone_1-5-16 ;
+    brick:hasPart smc:ReheatCoil_1-5-16 ;
+    brick:hasPoint smc:1-5-16_ActFlow,
+        smc:1-5-16_DischargeTemp,
+        smc:1-5-16_MaxFlowHeatSP,
+        smc:1-5-16_Reheat,
+        smc:1-5-16_SpaceTemp .
+
+smc:VAV_1-5-2 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-2" ;
+    brick:feeds smc:Zone_1-5-2 ;
+    brick:hasPart smc:ReheatCoil_1-5-2 ;
+    brick:hasPoint smc:1-5-2_ActFlow,
+        smc:1-5-2_DischargeTemp,
+        smc:1-5-2_MaxFlowHeatSP,
+        smc:1-5-2_Reheat,
+        smc:1-5-2_SpaceTemp .
+
+smc:VAV_1-5-3 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-3" ;
+    brick:feeds smc:Zone_1-5-3 ;
+    brick:hasPart smc:ReheatCoil_1-5-3 ;
+    brick:hasPoint smc:1-5-3_ActFlow,
+        smc:1-5-3_DischargeTemp,
+        smc:1-5-3_MaxFlowHeatSP,
+        smc:1-5-3_Reheat,
+        smc:1-5-3_SpaceTemp .
+
+smc:VAV_1-5-4 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-4" ;
+    brick:feeds smc:Zone_1-5-4 ;
+    brick:hasPart smc:ReheatCoil_1-5-4 ;
+    brick:hasPoint smc:1-5-4_ActFlow,
+        smc:1-5-4_DischargeTemp,
+        smc:1-5-4_MaxFlowHeatSP,
+        smc:1-5-4_Reheat,
+        smc:1-5-4_SpaceTemp .
+
+smc:VAV_1-5-5 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-5" ;
+    brick:feeds smc:Zone_1-5-5 ;
+    brick:hasPart smc:ReheatCoil_1-5-5 ;
+    brick:hasPoint smc:1-5-5_ActFlow,
+        smc:1-5-5_DischargeTemp,
+        smc:1-5-5_MaxFlowHeatSP,
+        smc:1-5-5_Reheat,
+        smc:1-5-5_SpaceTemp .
+
+smc:VAV_1-5-6 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-6" ;
+    brick:feeds smc:Zone_1-5-6 ;
+    brick:hasPart smc:ReheatCoil_1-5-6 ;
+    brick:hasPoint smc:1-5-6_ActFlow,
+        smc:1-5-6_DischargeTemp,
+        smc:1-5-6_MaxFlowHeatSP,
+        smc:1-5-6_Reheat,
+        smc:1-5-6_SpaceTemp .
+
+smc:VAV_1-5-7 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-7" ;
+    brick:feeds smc:Zone_1-5-7 ;
+    brick:hasPart smc:ReheatCoil_1-5-7 ;
+    brick:hasPoint smc:1-5-7_ActFlow,
+        smc:1-5-7_DischargeTemp,
+        smc:1-5-7_MaxFlowHeatSP,
+        smc:1-5-7_Reheat,
+        smc:1-5-7_SpaceTemp .
+
+smc:VAV_1-5-8 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-8" ;
+    brick:feeds smc:Zone_1-5-8 ;
+    brick:hasPart smc:ReheatCoil_1-5-8 ;
+    brick:hasPoint smc:1-5-8_ActFlow,
+        smc:1-5-8_DischargeTemp,
+        smc:1-5-8_MaxFlowHeatSP,
+        smc:1-5-8_Reheat,
+        smc:1-5-8_SpaceTemp .
+
+smc:VAV_1-5-9 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "1-5-9" ;
+    brick:feeds smc:Zone_1-5-9 ;
+    brick:hasPart smc:ReheatCoil_1-5-9 ;
+    brick:hasPoint smc:1-5-9_ActFlow,
+        smc:1-5-9_DischargeTemp,
+        smc:1-5-9_MaxFlowHeatSP,
+        smc:1-5-9_Reheat,
+        smc:1-5-9_SpaceTemp .
+
+smc:VAV_2-1-11 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-11" ;
+    brick:feeds smc:Zone_2-1-11 ;
+    brick:hasPart smc:ReheatCoil_2-1-11 ;
+    brick:hasPoint smc:2-1-11_ActFlow,
+        smc:2-1-11_DischargeTemp,
+        smc:2-1-11_MaxFlowHeatSP,
+        smc:2-1-11_Reheat,
+        smc:2-1-11_SpaceTemp .
+
+smc:VAV_2-1-12 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-12" ;
+    brick:feeds smc:Zone_2-1-12 ;
+    brick:hasPart smc:ReheatCoil_2-1-12 ;
+    brick:hasPoint smc:2-1-12_ActFlow,
+        smc:2-1-12_DischargeTemp,
+        smc:2-1-12_MaxFlowHeatSP,
+        smc:2-1-12_Reheat,
+        smc:2-1-12_SpaceTemp .
+
+smc:VAV_2-1-13 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-13" ;
+    brick:feeds smc:Zone_2-1-13 ;
+    brick:hasPart smc:ReheatCoil_2-1-13 ;
+    brick:hasPoint smc:2-1-13_ActFlow,
+        smc:2-1-13_DischargeTemp,
+        smc:2-1-13_MaxFlowHeatSP,
+        smc:2-1-13_Reheat,
+        smc:2-1-13_SpaceTemp .
+
+smc:VAV_2-1-14 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-14" ;
+    brick:feeds smc:Zone_2-1-14 ;
+    brick:hasPart smc:ReheatCoil_2-1-14 ;
+    brick:hasPoint smc:2-1-14_ActFlow,
+        smc:2-1-14_DischargeTemp,
+        smc:2-1-14_MaxFlowHeatSP,
+        smc:2-1-14_Reheat,
+        smc:2-1-14_SpaceTemp .
+
+smc:VAV_2-1-15 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-15" ;
+    brick:feeds smc:Zone_2-1-15 ;
+    brick:hasPart smc:ReheatCoil_2-1-15 ;
+    brick:hasPoint smc:2-1-15_ActFlow,
+        smc:2-1-15_DischargeTemp,
+        smc:2-1-15_MaxFlowHeatSP,
+        smc:2-1-15_Reheat,
+        smc:2-1-15_SpaceTemp .
+
+smc:VAV_2-1-16 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-16" ;
+    brick:feeds smc:Zone_2-1-16 ;
+    brick:hasPart smc:ReheatCoil_2-1-16 ;
+    brick:hasPoint smc:2-1-16_ActFlow,
+        smc:2-1-16_DischargeTemp,
+        smc:2-1-16_MaxFlowHeatSP,
+        smc:2-1-16_Reheat,
+        smc:2-1-16_SpaceTemp .
+
+smc:VAV_2-1-17 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-17" ;
+    brick:feeds smc:Zone_2-1-17 ;
+    brick:hasPart smc:ReheatCoil_2-1-17 ;
+    brick:hasPoint smc:2-1-17_ActFlow,
+        smc:2-1-17_DischargeTemp,
+        smc:2-1-17_MaxFlowHeatSP,
+        smc:2-1-17_Reheat,
+        smc:2-1-17_SpaceTemp .
+
+smc:VAV_2-1-18 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-18" ;
+    brick:feeds smc:Zone_2-1-18 ;
+    brick:hasPart smc:ReheatCoil_2-1-18 ;
+    brick:hasPoint smc:2-1-18_ActFlow,
+        smc:2-1-18_DischargeTemp,
+        smc:2-1-18_MaxFlowHeatSP,
+        smc:2-1-18_Reheat,
+        smc:2-1-18_SpaceTemp .
+
+smc:VAV_2-1-19 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-19" ;
+    brick:feeds smc:Zone_2-1-19 ;
+    brick:hasPart smc:ReheatCoil_2-1-19 ;
+    brick:hasPoint smc:2-1-19_ActFlow,
+        smc:2-1-19_DischargeTemp,
+        smc:2-1-19_MaxFlowHeatSP,
+        smc:2-1-19_Reheat,
+        smc:2-1-19_SpaceTemp .
+
+smc:VAV_2-1-20 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-20" ;
+    brick:feeds smc:Zone_2-1-20 ;
+    brick:hasPart smc:ReheatCoil_2-1-20 ;
+    brick:hasPoint smc:2-1-20_ActFlow,
+        smc:2-1-20_DischargeTemp,
+        smc:2-1-20_MaxFlowHeatSP,
+        smc:2-1-20_Reheat,
+        smc:2-1-20_SpaceTemp .
+
+smc:VAV_2-1-27 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-1-27" ;
+    brick:feeds smc:Zone_2-1-27 ;
+    brick:hasPart smc:ReheatCoil_2-1-27 ;
+    brick:hasPoint smc:2-1-27_ActFlow,
+        smc:2-1-27_DischargeTemp,
+        smc:2-1-27_MaxFlowHeatSP,
+        smc:2-1-27_Reheat,
+        smc:2-1-27_SpaceTemp .
+
+smc:VAV_2-2-12 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-12" ;
+    brick:feeds smc:Zone_2-2-12 ;
+    brick:hasPart smc:ReheatCoil_2-2-12 ;
+    brick:hasPoint smc:2-2-12_ActFlow,
+        smc:2-2-12_DischargeTemp,
+        smc:2-2-12_MaxFlowHeatSP,
+        smc:2-2-12_Reheat,
+        smc:2-2-12_SpaceTemp .
+
+smc:VAV_2-2-13 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-13" ;
+    brick:feeds smc:Zone_2-2-13 ;
+    brick:hasPart smc:ReheatCoil_2-2-13 ;
+    brick:hasPoint smc:2-2-13_ActFlow,
+        smc:2-2-13_DischargeTemp,
+        smc:2-2-13_MaxFlowHeatSP,
+        smc:2-2-13_Reheat,
+        smc:2-2-13_SpaceTemp .
+
+smc:VAV_2-2-14 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-14" ;
+    brick:feeds smc:Zone_2-2-14 ;
+    brick:hasPart smc:ReheatCoil_2-2-14 ;
+    brick:hasPoint smc:2-2-14_ActFlow,
+        smc:2-2-14_DischargeTemp,
+        smc:2-2-14_MaxFlowHeatSP,
+        smc:2-2-14_Reheat,
+        smc:2-2-14_SpaceTemp .
+
+smc:VAV_2-2-15 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-15" ;
+    brick:feeds smc:Zone_2-2-15 ;
+    brick:hasPart smc:ReheatCoil_2-2-15 ;
+    brick:hasPoint smc:2-2-15_ActFlow,
+        smc:2-2-15_DischargeTemp,
+        smc:2-2-15_MaxFlowHeatSP,
+        smc:2-2-15_Reheat,
+        smc:2-2-15_SpaceTemp .
+
+smc:VAV_2-2-16 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-16" ;
+    brick:feeds smc:Zone_2-2-16 ;
+    brick:hasPart smc:ReheatCoil_2-2-16 ;
+    brick:hasPoint smc:2-2-16_ActFlow,
+        smc:2-2-16_DischargeTemp,
+        smc:2-2-16_MaxFlowHeatSP,
+        smc:2-2-16_Reheat,
+        smc:2-2-16_SpaceTemp .
+
+smc:VAV_2-2-17 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-17" ;
+    brick:feeds smc:Zone_2-2-17 ;
+    brick:hasPart smc:ReheatCoil_2-2-17 ;
+    brick:hasPoint smc:2-2-17_ActFlow,
+        smc:2-2-17_DischargeTemp,
+        smc:2-2-17_MaxFlowHeatSP,
+        smc:2-2-17_Reheat,
+        smc:2-2-17_SpaceTemp .
+
+smc:VAV_2-2-18 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-18" ;
+    brick:feeds smc:Zone_2-2-18 ;
+    brick:hasPart smc:ReheatCoil_2-2-18 ;
+    brick:hasPoint smc:2-2-18_ActFlow,
+        smc:2-2-18_DischargeTemp,
+        smc:2-2-18_MaxFlowHeatSP,
+        smc:2-2-18_Reheat,
+        smc:2-2-18_SpaceTemp .
+
+smc:VAV_2-2-19 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-19" ;
+    brick:feeds smc:Zone_2-2-19 ;
+    brick:hasPart smc:ReheatCoil_2-2-19 ;
+    brick:hasPoint smc:2-2-19_ActFlow,
+        smc:2-2-19_DischargeTemp,
+        smc:2-2-19_MaxFlowHeatSP,
+        smc:2-2-19_Reheat,
+        smc:2-2-19_SpaceTemp .
+
+smc:VAV_2-2-20 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-20" ;
+    brick:feeds smc:Zone_2-2-20 ;
+    brick:hasPart smc:ReheatCoil_2-2-20 ;
+    brick:hasPoint smc:2-2-20_ActFlow,
+        smc:2-2-20_DischargeTemp,
+        smc:2-2-20_MaxFlowHeatSP,
+        smc:2-2-20_Reheat,
+        smc:2-2-20_SpaceTemp .
+
+smc:VAV_2-2-21 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-21" ;
+    brick:feeds smc:Zone_2-2-21 ;
+    brick:hasPart smc:ReheatCoil_2-2-21 ;
+    brick:hasPoint smc:2-2-21_ActFlow,
+        smc:2-2-21_DischargeTemp,
+        smc:2-2-21_MaxFlowHeatSP,
+        smc:2-2-21_Reheat,
+        smc:2-2-21_SpaceTemp .
+
+smc:VAV_2-2-22 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-2-22" ;
+    brick:feeds smc:Zone_2-2-22 ;
+    brick:hasPart smc:ReheatCoil_2-2-22 ;
+    brick:hasPoint smc:2-2-22_ActFlow,
+        smc:2-2-22_DischargeTemp,
+        smc:2-2-22_MaxFlowHeatSP,
+        smc:2-2-22_Reheat,
+        smc:2-2-22_SpaceTemp .
+
+smc:VAV_2-3-14 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-14" ;
+    brick:feeds smc:Zone_2-3-14 ;
+    brick:hasPart smc:ReheatCoil_2-3-14 ;
+    brick:hasPoint smc:2-3-14_ActFlow,
+        smc:2-3-14_DischargeTemp,
+        smc:2-3-14_MaxFlowHeatSP,
+        smc:2-3-14_Reheat,
+        smc:2-3-14_SpaceTemp .
+
+smc:VAV_2-3-15 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-15" ;
+    brick:feeds smc:Zone_2-3-15 ;
+    brick:hasPart smc:ReheatCoil_2-3-15 ;
+    brick:hasPoint smc:2-3-15_ActFlow,
+        smc:2-3-15_DischargeTemp,
+        smc:2-3-15_MaxFlowHeatSP,
+        smc:2-3-15_Reheat,
+        smc:2-3-15_SpaceTemp .
+
+smc:VAV_2-3-16 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-16" ;
+    brick:feeds smc:Zone_2-3-16 ;
+    brick:hasPart smc:ReheatCoil_2-3-16 ;
+    brick:hasPoint smc:2-3-16_ActFlow,
+        smc:2-3-16_DischargeTemp,
+        smc:2-3-16_MaxFlowHeatSP,
+        smc:2-3-16_Reheat,
+        smc:2-3-16_SpaceTemp .
+
+smc:VAV_2-3-17 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-17" ;
+    brick:feeds smc:Zone_2-3-17 ;
+    brick:hasPart smc:ReheatCoil_2-3-17 ;
+    brick:hasPoint smc:2-3-17_ActFlow,
+        smc:2-3-17_DischargeTemp,
+        smc:2-3-17_MaxFlowHeatSP,
+        smc:2-3-17_Reheat,
+        smc:2-3-17_SpaceTemp .
+
+smc:VAV_2-3-18 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-18" ;
+    brick:feeds smc:Zone_2-3-18 ;
+    brick:hasPart smc:ReheatCoil_2-3-18 ;
+    brick:hasPoint smc:2-3-18_ActFlow,
+        smc:2-3-18_DischargeTemp,
+        smc:2-3-18_MaxFlowHeatSP,
+        smc:2-3-18_Reheat,
+        smc:2-3-18_SpaceTemp .
+
+smc:VAV_2-3-19 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-19" ;
+    brick:feeds smc:Zone_2-3-19 ;
+    brick:hasPart smc:ReheatCoil_2-3-19 ;
+    brick:hasPoint smc:2-3-19_ActFlow,
+        smc:2-3-19_DischargeTemp,
+        smc:2-3-19_MaxFlowHeatSP,
+        smc:2-3-19_Reheat,
+        smc:2-3-19_SpaceTemp .
+
+smc:VAV_2-3-20 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-20" ;
+    brick:feeds smc:Zone_2-3-20 ;
+    brick:hasPart smc:ReheatCoil_2-3-20 ;
+    brick:hasPoint smc:2-3-20_ActFlow,
+        smc:2-3-20_DischargeTemp,
+        smc:2-3-20_MaxFlowHeatSP,
+        smc:2-3-20_Reheat,
+        smc:2-3-20_SpaceTemp .
+
+smc:VAV_2-3-21 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-21" ;
+    brick:feeds smc:Zone_2-3-21 ;
+    brick:hasPart smc:ReheatCoil_2-3-21 ;
+    brick:hasPoint smc:2-3-21_ActFlow,
+        smc:2-3-21_DischargeTemp,
+        smc:2-3-21_MaxFlowHeatSP,
+        smc:2-3-21_Reheat,
+        smc:2-3-21_SpaceTemp .
+
+smc:VAV_2-3-22 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-3-22" ;
+    brick:feeds smc:Zone_2-3-22 ;
+    brick:hasPart smc:ReheatCoil_2-3-22 ;
+    brick:hasPoint smc:2-3-22_ActFlow,
+        smc:2-3-22_DischargeTemp,
+        smc:2-3-22_MaxFlowHeatSP,
+        smc:2-3-22_Reheat,
+        smc:2-3-22_SpaceTemp .
+
+smc:VAV_2-4-14 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-14" ;
+    brick:feeds smc:Zone_2-4-14 ;
+    brick:hasPart smc:ReheatCoil_2-4-14 ;
+    brick:hasPoint smc:2-4-14_ActFlow,
+        smc:2-4-14_DischargeTemp,
+        smc:2-4-14_MaxFlowHeatSP,
+        smc:2-4-14_Reheat,
+        smc:2-4-14_SpaceTemp .
+
+smc:VAV_2-4-15 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-15" ;
+    brick:feeds smc:Zone_2-4-15 ;
+    brick:hasPart smc:ReheatCoil_2-4-15 ;
+    brick:hasPoint smc:2-4-15_ActFlow,
+        smc:2-4-15_DischargeTemp,
+        smc:2-4-15_MaxFlowHeatSP,
+        smc:2-4-15_Reheat,
+        smc:2-4-15_SpaceTemp .
+
+smc:VAV_2-4-16 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-16" ;
+    brick:feeds smc:Zone_2-4-16 ;
+    brick:hasPart smc:ReheatCoil_2-4-16 ;
+    brick:hasPoint smc:2-4-16_ActFlow,
+        smc:2-4-16_DischargeTemp,
+        smc:2-4-16_MaxFlowHeatSP,
+        smc:2-4-16_Reheat,
+        smc:2-4-16_SpaceTemp .
+
+smc:VAV_2-4-17 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-17" ;
+    brick:feeds smc:Zone_2-4-17 ;
+    brick:hasPart smc:ReheatCoil_2-4-17 ;
+    brick:hasPoint smc:2-4-17_ActFlow,
+        smc:2-4-17_DischargeTemp,
+        smc:2-4-17_MaxFlowHeatSP,
+        smc:2-4-17_Reheat,
+        smc:2-4-17_SpaceTemp .
+
+smc:VAV_2-4-17A a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-17A" ;
+    brick:feeds smc:Zone_2-4-17A ;
+    brick:hasPart smc:ReheatCoil_2-4-17A ;
+    brick:hasPoint smc:2-4-17A_ActFlow,
+        smc:2-4-17A_DischargeTemp,
+        smc:2-4-17A_MaxFlowHeatSP,
+        smc:2-4-17A_Reheat,
+        smc:2-4-17A_SpaceTemp .
+
+smc:VAV_2-4-18 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-18" ;
+    brick:feeds smc:Zone_2-4-18 ;
+    brick:hasPart smc:ReheatCoil_2-4-18 ;
+    brick:hasPoint smc:2-4-18_ActFlow,
+        smc:2-4-18_DischargeTemp,
+        smc:2-4-18_MaxFlowHeatSP,
+        smc:2-4-18_Reheat,
+        smc:2-4-18_SpaceTemp .
+
+smc:VAV_2-4-19 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-19" ;
+    brick:feeds smc:Zone_2-4-19 ;
+    brick:hasPart smc:ReheatCoil_2-4-19 ;
+    brick:hasPoint smc:2-4-19_ActFlow,
+        smc:2-4-19_DischargeTemp,
+        smc:2-4-19_MaxFlowHeatSP,
+        smc:2-4-19_Reheat,
+        smc:2-4-19_SpaceTemp .
+
+smc:VAV_2-4-20 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-20" ;
+    brick:feeds smc:Zone_2-4-20 ;
+    brick:hasPart smc:ReheatCoil_2-4-20 ;
+    brick:hasPoint smc:2-4-20_ActFlow,
+        smc:2-4-20_DischargeTemp,
+        smc:2-4-20_MaxFlowHeatSP,
+        smc:2-4-20_Reheat,
+        smc:2-4-20_SpaceTemp .
+
+smc:VAV_2-4-21 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-21" ;
+    brick:feeds smc:Zone_2-4-21 ;
+    brick:hasPart smc:ReheatCoil_2-4-21 ;
+    brick:hasPoint smc:2-4-21_ActFlow,
+        smc:2-4-21_DischargeTemp,
+        smc:2-4-21_MaxFlowHeatSP,
+        smc:2-4-21_Reheat,
+        smc:2-4-21_SpaceTemp .
+
+smc:VAV_2-4-24 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-4-24" ;
+    brick:feeds smc:Zone_2-4-24 ;
+    brick:hasPart smc:ReheatCoil_2-4-24 ;
+    brick:hasPoint smc:2-4-24_ActFlow,
+        smc:2-4-24_DischargeTemp,
+        smc:2-4-24_MaxFlowHeatSP,
+        smc:2-4-24_Reheat,
+        smc:2-4-24_SpaceTemp .
+
+smc:VAV_2-5-17B a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-17B" ;
+    brick:feeds smc:Zone_2-5-17B ;
+    brick:hasPart smc:ReheatCoil_2-5-17B ;
+    brick:hasPoint smc:2-5-17B_ActFlow,
+        smc:2-5-17B_DischargeTemp,
+        smc:2-5-17B_MaxFlowHeatSP,
+        smc:2-5-17B_Reheat,
+        smc:2-5-17B_SpaceTemp .
+
+smc:VAV_2-5-19 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-19" ;
+    brick:feeds smc:Zone_2-5-19 ;
+    brick:hasPart smc:ReheatCoil_2-5-19 ;
+    brick:hasPoint smc:2-5-19_ActFlow,
+        smc:2-5-19_DischargeTemp,
+        smc:2-5-19_MaxFlowHeatSP,
+        smc:2-5-19_Reheat,
+        smc:2-5-19_SpaceTemp .
+
+smc:VAV_2-5-20 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-20" ;
+    brick:feeds smc:Zone_2-5-20 ;
+    brick:hasPart smc:ReheatCoil_2-5-20 ;
+    brick:hasPoint smc:2-5-20_ActFlow,
+        smc:2-5-20_DischargeTemp,
+        smc:2-5-20_MaxFlowHeatSP,
+        smc:2-5-20_Reheat,
+        smc:2-5-20_SpaceTemp .
+
+smc:VAV_2-5-21 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-21" ;
+    brick:feeds smc:Zone_2-5-21 ;
+    brick:hasPart smc:ReheatCoil_2-5-21 ;
+    brick:hasPoint smc:2-5-21_ActFlow,
+        smc:2-5-21_DischargeTemp,
+        smc:2-5-21_MaxFlowHeatSP,
+        smc:2-5-21_Reheat,
+        smc:2-5-21_SpaceTemp .
+
+smc:VAV_2-5-22 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-22" ;
+    brick:feeds smc:Zone_2-5-22 ;
+    brick:hasPart smc:ReheatCoil_2-5-22 ;
+    brick:hasPoint smc:2-5-22_ActFlow,
+        smc:2-5-22_DischargeTemp,
+        smc:2-5-22_MaxFlowHeatSP,
+        smc:2-5-22_Reheat,
+        smc:2-5-22_SpaceTemp .
+
+smc:VAV_2-5-23 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-23" ;
+    brick:feeds smc:Zone_2-5-23 ;
+    brick:hasPart smc:ReheatCoil_2-5-23 ;
+    brick:hasPoint smc:2-5-23_ActFlow,
+        smc:2-5-23_DischargeTemp,
+        smc:2-5-23_MaxFlowHeatSP,
+        smc:2-5-23_Reheat,
+        smc:2-5-23_SpaceTemp .
+
+smc:VAV_2-5-24 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-24" ;
+    brick:feeds smc:Zone_2-5-24 ;
+    brick:hasPart smc:ReheatCoil_2-5-24 ;
+    brick:hasPoint smc:2-5-24_ActFlow,
+        smc:2-5-24_DischargeTemp,
+        smc:2-5-24_MaxFlowHeatSP,
+        smc:2-5-24_Reheat,
+        smc:2-5-24_SpaceTemp .
+
+smc:VAV_2-5-25 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-5-25" ;
+    brick:feeds smc:Zone_2-5-25 ;
+    brick:hasPart smc:ReheatCoil_2-5-25 ;
+    brick:hasPoint smc:2-5-25_ActFlow,
+        smc:2-5-25_DischargeTemp,
+        smc:2-5-25_MaxFlowHeatSP,
+        smc:2-5-25_Reheat,
+        smc:2-5-25_SpaceTemp .
+
+smc:VAV_2-B-1 a brick:RVAV,
+        brick:VAV ;
+    rdfs:label "2-B-1" ;
+    brick:feeds smc:Zone_2-B-1 ;
+    brick:hasPart smc:ReheatCoil_2-B-1 ;
+    brick:hasPoint smc:2-B-1_ActFlow,
+        smc:2-B-1_DischargeTemp,
+        smc:2-B-1_MaxFlowHeatSP,
+        smc:2-B-1_Reheat,
+        smc:2-B-1_SpaceTemp .
+
+smc:Zone_1-1-1 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-1_SpaceTemp .
+
+smc:Zone_1-1-2 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-2_SpaceTemp .
+
+smc:Zone_1-1-3 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-3_SpaceTemp .
+
+smc:Zone_1-1-4 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-4_SpaceTemp .
+
+smc:Zone_1-1-5 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-5_SpaceTemp .
+
+smc:Zone_1-1-6 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-6_SpaceTemp .
+
+smc:Zone_1-1-7 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-7_SpaceTemp .
+
+smc:Zone_1-1-8 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-1-8_SpaceTemp .
+
+smc:Zone_1-2-1 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-1_SpaceTemp .
+
+smc:Zone_1-2-2 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-2_SpaceTemp .
+
+smc:Zone_1-2-3 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-3_SpaceTemp .
+
+smc:Zone_1-2-4 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-4_SpaceTemp .
+
+smc:Zone_1-2-5 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-5_SpaceTemp .
+
+smc:Zone_1-2-6 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-6_SpaceTemp .
+
+smc:Zone_1-2-7 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-7_SpaceTemp .
+
+smc:Zone_1-2-8 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-2-8_SpaceTemp .
+
+smc:Zone_1-3-1 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-1_SpaceTemp .
+
+smc:Zone_1-3-10 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-10_SpaceTemp .
+
+smc:Zone_1-3-2 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-2_SpaceTemp .
+
+smc:Zone_1-3-3 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-3_SpaceTemp .
+
+smc:Zone_1-3-4 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-4_SpaceTemp .
+
+smc:Zone_1-3-5 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-5_SpaceTemp .
+
+smc:Zone_1-3-6 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-6_SpaceTemp .
+
+smc:Zone_1-3-7 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-7_SpaceTemp .
+
+smc:Zone_1-3-8 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-8_SpaceTemp .
+
+smc:Zone_1-3-9 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-3-9_SpaceTemp .
+
+smc:Zone_1-4-1 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-1_SpaceTemp .
+
+smc:Zone_1-4-2 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-2_SpaceTemp .
+
+smc:Zone_1-4-3 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-3_SpaceTemp .
+
+smc:Zone_1-4-4 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-4_SpaceTemp .
+
+smc:Zone_1-4-5 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-5_SpaceTemp .
+
+smc:Zone_1-4-6 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-6_SpaceTemp .
+
+smc:Zone_1-4-7 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-7_SpaceTemp .
+
+smc:Zone_1-4-8 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-8_SpaceTemp .
+
+smc:Zone_1-4-9 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-4-9_SpaceTemp .
+
+smc:Zone_1-5-1 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-1_SpaceTemp .
+
+smc:Zone_1-5-10 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-10_SpaceTemp .
+
+smc:Zone_1-5-11 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-11_SpaceTemp .
+
+smc:Zone_1-5-12 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-12_SpaceTemp .
+
+smc:Zone_1-5-13 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-13_SpaceTemp .
+
+smc:Zone_1-5-16 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-16_SpaceTemp .
+
+smc:Zone_1-5-2 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-2_SpaceTemp .
+
+smc:Zone_1-5-3 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-3_SpaceTemp .
+
+smc:Zone_1-5-4 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-4_SpaceTemp .
+
+smc:Zone_1-5-5 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-5_SpaceTemp .
+
+smc:Zone_1-5-6 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-6_SpaceTemp .
+
+smc:Zone_1-5-7 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-7_SpaceTemp .
+
+smc:Zone_1-5-8 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-8_SpaceTemp .
+
+smc:Zone_1-5-9 a brick:HVAC_Zone ;
+    brick:hasPoint smc:1-5-9_SpaceTemp .
+
+smc:Zone_2-1-11 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-11_SpaceTemp .
+
+smc:Zone_2-1-12 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-12_SpaceTemp .
+
+smc:Zone_2-1-13 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-13_SpaceTemp .
+
+smc:Zone_2-1-14 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-14_SpaceTemp .
+
+smc:Zone_2-1-15 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-15_SpaceTemp .
+
+smc:Zone_2-1-16 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-16_SpaceTemp .
+
+smc:Zone_2-1-17 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-17_SpaceTemp .
+
+smc:Zone_2-1-18 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-18_SpaceTemp .
+
+smc:Zone_2-1-19 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-19_SpaceTemp .
+
+smc:Zone_2-1-20 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-20_SpaceTemp .
+
+smc:Zone_2-1-27 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-1-27_SpaceTemp .
+
+smc:Zone_2-2-12 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-12_SpaceTemp .
+
+smc:Zone_2-2-13 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-13_SpaceTemp .
+
+smc:Zone_2-2-14 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-14_SpaceTemp .
+
+smc:Zone_2-2-15 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-15_SpaceTemp .
+
+smc:Zone_2-2-16 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-16_SpaceTemp .
+
+smc:Zone_2-2-17 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-17_SpaceTemp .
+
+smc:Zone_2-2-18 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-18_SpaceTemp .
+
+smc:Zone_2-2-19 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-19_SpaceTemp .
+
+smc:Zone_2-2-20 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-20_SpaceTemp .
+
+smc:Zone_2-2-21 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-21_SpaceTemp .
+
+smc:Zone_2-2-22 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-2-22_SpaceTemp .
+
+smc:Zone_2-3-14 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-14_SpaceTemp .
+
+smc:Zone_2-3-15 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-15_SpaceTemp .
+
+smc:Zone_2-3-16 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-16_SpaceTemp .
+
+smc:Zone_2-3-17 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-17_SpaceTemp .
+
+smc:Zone_2-3-18 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-18_SpaceTemp .
+
+smc:Zone_2-3-19 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-19_SpaceTemp .
+
+smc:Zone_2-3-20 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-20_SpaceTemp .
+
+smc:Zone_2-3-21 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-21_SpaceTemp .
+
+smc:Zone_2-3-22 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-3-22_SpaceTemp .
+
+smc:Zone_2-4-14 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-14_SpaceTemp .
+
+smc:Zone_2-4-15 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-15_SpaceTemp .
+
+smc:Zone_2-4-16 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-16_SpaceTemp .
+
+smc:Zone_2-4-17 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-17_SpaceTemp .
+
+smc:Zone_2-4-17A a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-17A_SpaceTemp .
+
+smc:Zone_2-4-18 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-18_SpaceTemp .
+
+smc:Zone_2-4-19 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-19_SpaceTemp .
+
+smc:Zone_2-4-20 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-20_SpaceTemp .
+
+smc:Zone_2-4-21 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-21_SpaceTemp .
+
+smc:Zone_2-4-24 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-4-24_SpaceTemp .
+
+smc:Zone_2-5-17B a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-17B_SpaceTemp .
+
+smc:Zone_2-5-19 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-19_SpaceTemp .
+
+smc:Zone_2-5-20 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-20_SpaceTemp .
+
+smc:Zone_2-5-21 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-21_SpaceTemp .
+
+smc:Zone_2-5-22 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-22_SpaceTemp .
+
+smc:Zone_2-5-23 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-23_SpaceTemp .
+
+smc:Zone_2-5-24 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-24_SpaceTemp .
+
+smc:Zone_2-5-25 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-5-25_SpaceTemp .
+
+smc:Zone_2-B-1 a brick:HVAC_Zone ;
+    brick:hasPoint smc:2-B-1_SpaceTemp .
+
+smc:boiler_flow a brick:Hot_Water_Supply_Flow_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "81137143-b1c7-4e28-8c85-b383d97735a4" ] .
+
+smc:boiler_gas a brick:Gas_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "89f12123-bf91-40a9-a215-959b2a8f88a1" ] .
+
+smc:boiler_returnTemp a brick:Return_Water_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "78534063-2ab0-435e-b3c1-e0ebc3e6e799" ] .
+
+smc:boiler_suppliedTemp a brick:Hot_Water_Supply_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a4b91df3-2d4e-473e-90c6-111e39f821f6" ] .
+
+smc:1-1-1_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cfd3ea61-73fa-44e5-8386-b1dafafe9cc6" ] .
+
+smc:1-1-2_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1a803f27-c660-46e9-8e65-8bf3538c573f" ] .
+
+smc:1-1-3_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3c73a8c1-ffc1-4766-ba35-8925b8279814" ] .
+
+smc:1-1-4_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "acbe7c4a-c073-48c0-9ac0-799f39bac16e" ] .
+
+smc:1-1-5_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "09d28319-de4c-42b4-bccc-4e942c7f6730" ] .
+
+smc:1-1-6_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6b650e95-0b7d-4f89-a7b2-c36e6210511d" ] .
+
+smc:1-1-7_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a6b19b56-b549-46f3-8e59-138b67cac33b" ] .
+
+smc:1-1-8_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "21603d60-d3a5-4341-8377-2b2f9c11b303" ] .
+
+smc:1-2-1_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "de758ba1-fecf-48d0-be0e-b5675afdbc2e" ] .
+
+smc:1-2-2_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "917365f5-b5b2-42f1-a5f3-08bd129456a5" ] .
+
+smc:1-2-3_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2baf1459-7809-4a2b-8250-6b66fe84575c" ] .
+
+smc:1-2-4_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e9a81863-ebe3-475c-9da7-fd51fd45aa61" ] .
+
+smc:1-2-5_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3d48eda4-6b8c-4dca-9992-f85573a4fbb0" ] .
+
+smc:1-2-6_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8bfd0c15-f42b-4888-b70a-a4791cdb9916" ] .
+
+smc:1-2-7_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b981d8fb-5ec8-4099-ad33-a1f869a684ad" ] .
+
+smc:1-2-8_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3878cf1f-e1cd-4034-bec3-7774cf4b1ead" ] .
+
+smc:1-3-10_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8ba92a64-76c6-4b44-b9cf-8ef356ddd817" ] .
+
+smc:1-3-1_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "039bf78b-3014-426e-868b-fde67bc3269d" ] .
+
+smc:1-3-2_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "0f7cf498-dd3a-4a7d-9884-656a73b88613" ] .
+
+smc:1-3-3_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7903015b-6396-4cb4-b58e-ee16ab9e88d3" ] .
+
+smc:1-3-4_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e11b09b9-bbac-4476-8dbb-8b2140655fe0" ] .
+
+smc:1-3-5_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c37a9732-1ba7-4a7e-ab8e-3b3e31a9ab1f" ] .
+
+smc:1-3-6_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "596ce729-cf96-4e2c-87aa-0b4b3e3e7df1" ] .
+
+smc:1-3-7_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "fa654173-612c-4c5e-b727-e51573f845c3" ] .
+
+smc:1-3-8_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "dc2f3d13-8eeb-42ec-9697-d9195fd83ab3" ] .
+
+smc:1-3-9_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "42f10cbb-f93a-4218-9045-e1d7c4166615" ] .
+
+smc:1-4-1_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5edc74e4-051a-41ae-ab2f-114b4647034c" ] .
+
+smc:1-4-2_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "91ca80c3-e290-4291-895f-0de664ace960" ] .
+
+smc:1-4-3_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "15a73470-7cd7-49dc-bdcb-3678037a61e9" ] .
+
+smc:1-4-4_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9c4615cf-d2b9-482c-bfb9-b18922e70390" ] .
+
+smc:1-4-5_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "66a7d0f4-3444-467a-9fc0-780f1decb90b" ] .
+
+smc:1-4-6_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c10cc9fb-3d03-406d-8a02-e1772cbb13f7" ] .
+
+smc:1-4-7_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8d18269c-f697-4d8b-bbf6-6d31bf754a65" ] .
+
+smc:1-4-8_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e38120bf-b1c6-4564-9203-2455353452e9" ] .
+
+smc:1-4-9_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e89d5bec-5b94-4c22-9899-1c8d0dc38fd1" ] .
+
+smc:1-5-10_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8061506f-8128-48d9-b509-bb691ee8a40e" ] .
+
+smc:1-5-11_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "aa68141f-8761-4a7b-87a7-ba4d75291aff" ] .
+
+smc:1-5-12_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e3fbecd5-06bb-4c00-8b3c-9b4cfec73312" ] .
+
+smc:1-5-13_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "98868b09-d1f0-4e8b-af1f-01444ecf41ef" ] .
+
+smc:1-5-16_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5710b4aa-d18e-46da-b4c1-35e99d277b0b" ] .
+
+smc:1-5-1_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5b1f94e8-0d4f-4fd0-a6df-25426cf53c6c" ] .
+
+smc:1-5-2_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3e457b8b-6d6f-48e9-bc55-9b749b6b1e7c" ] .
+
+smc:1-5-3_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5c64440b-1517-45dd-8302-afe049741832" ] .
+
+smc:1-5-4_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9498ab17-f1c5-4cf5-9ee5-d0308e6cb1aa" ] .
+
+smc:1-5-5_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "881ae9c7-1415-4f07-ae11-e046ad1ba597" ] .
+
+smc:1-5-6_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4931dd0c-1d50-41b4-a81d-12f6ed20b0f9" ] .
+
+smc:1-5-7_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "f66362bb-75a9-4646-a91b-f1a03db90e95" ] .
+
+smc:1-5-8_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "d1597876-c845-42e0-8426-1a7db672a895" ] .
+
+smc:1-5-9_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "75b84a24-3ff9-4451-87bd-cbd7ff3c11a1" ] .
+
+smc:2-1-11_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "eb9e2c8e-f866-4af4-8cd5-49f2d65e3255" ] .
+
+smc:2-1-12_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "89405dcb-51bf-452b-9206-346c2b79fe5d" ] .
+
+smc:2-1-13_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1997fb83-bf27-4ac0-a464-26ceb8d6d143" ] .
+
+smc:2-1-14_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "707ca524-7e44-47dc-b73c-e76eb4857d55" ] .
+
+smc:2-1-15_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2326ff21-0c95-4012-9941-3d8f825019eb" ] .
+
+smc:2-1-16_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "342390fe-2b7f-4cf7-8a50-ab875219a18d" ] .
+
+smc:2-1-17_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "30af39bd-c93c-4477-ba02-ab920d8ac13e" ] .
+
+smc:2-1-18_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b2e57bcf-e850-4483-964f-9471501a9b00" ] .
+
+smc:2-1-19_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "c914bf18-0e24-48b2-b625-ffd5b7e71183" ] .
+
+smc:2-1-20_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7aa5cf2c-80a1-4570-b4af-2e92e76c8c03" ] .
+
+smc:2-1-27_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4aaf8d75-33e1-4c32-b555-68e5f86e6b56" ] .
+
+smc:2-2-12_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2c88d75c-bfaa-4b1d-a010-fdd2024bdede" ] .
+
+smc:2-2-13_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "42420314-4fe4-43ba-af28-6639a4a8b1a8" ] .
+
+smc:2-2-14_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4cbb8ff0-932f-4641-b76f-f0f394215448" ] .
+
+smc:2-2-15_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "600866fb-5363-46ea-8f61-bfa89c053120" ] .
+
+smc:2-2-16_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "1ab65cb9-d513-408d-ad44-5dcbbce23059" ] .
+
+smc:2-2-17_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8de74621-99ae-498f-8263-ff78a6284b01" ] .
+
+smc:2-2-18_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3f8615c5-d15b-47cf-990f-b5d059326933" ] .
+
+smc:2-2-19_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6d0d6e8e-d5f8-4901-a577-655c0e2289f6" ] .
+
+smc:2-2-20_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "6f1ed642-ea77-4fbe-9639-530215e36afc" ] .
+
+smc:2-2-21_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4e9950a8-a593-4c60-837e-475ad19d1326" ] .
+
+smc:2-2-22_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b3770bf0-689c-4657-9d3c-258909cbfd2f" ] .
+
+smc:2-3-14_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ed0026db-8a93-465a-9edd-d9521929e556" ] .
+
+smc:2-3-15_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cc18f7f5-0804-45bc-9be5-76eeecf5dff3" ] .
+
+smc:2-3-16_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5c8d94d7-ca6a-4823-9c96-5c6f1cceba13" ] .
+
+smc:2-3-17_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "4c372018-0f46-4ee9-aadd-735b8ff6ef7e" ] .
+
+smc:2-3-18_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "5a131216-5c4b-44f4-8ac0-0f3baf9981e7" ] .
+
+smc:2-3-19_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "32502d8b-869d-4b28-9acc-3499592549c8" ] .
+
+smc:2-3-20_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "2e272f80-9179-4a02-bac2-23b51793bc89" ] .
+
+smc:2-3-21_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "3733b778-26d4-4ca8-8852-7b9e9d2a7aa4" ] .
+
+smc:2-3-22_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "988e028e-4b49-46ed-9875-d745b60a5a8d" ] .
+
+smc:2-4-14_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "74e3a44b-d286-4b96-b6d5-d5793a1cee7c" ] .
+
+smc:2-4-15_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "9a325b94-d47d-4dbe-a37d-20ed09b970b2" ] .
+
+smc:2-4-16_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "544746d3-ba07-465f-9043-8c245c8650c4" ] .
+
+smc:2-4-17A_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "063efa8f-4453-4cda-b73e-454b9cf8453b" ] .
+
+smc:2-4-17_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a83dece1-f344-4884-b80b-4f8664a0a8ef" ] .
+
+smc:2-4-18_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "a6b15b57-aad6-474b-b326-ea614351fec3" ] .
+
+smc:2-4-19_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "88adaf3f-05e0-45fb-9a5e-b8e1eb131abe" ] .
+
+smc:2-4-20_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "48bea7ee-4c06-4168-b160-e6522f175501" ] .
+
+smc:2-4-21_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ffc3b8be-d208-461a-9d49-74204599c91c" ] .
+
+smc:2-4-24_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "cb6f731b-0f70-4d74-ab03-3d646961fb8b" ] .
+
+smc:2-5-17B_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ada35040-75b4-4bf0-8930-be25fde6ba9a" ] .
+
+smc:2-5-19_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "ee7c3375-cec8-4d36-9389-022241d71cd0" ] .
+
+smc:2-5-20_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "e37d8a05-3d48-4400-9556-52f4c2566a86" ] .
+
+smc:2-5-21_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "84cb698a-9c36-437c-8ba0-66c885ee8fc4" ] .
+
+smc:2-5-22_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "8576a79e-9557-473b-8266-b1a691fb59c9" ] .
+
+smc:2-5-23_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "7748c020-6a72-4d2a-bf0f-847120250b0d" ] .
+
+smc:2-5-24_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "b3570ad5-9df8-4305-bfe7-01398bf46e11" ] .
+
+smc:2-5-25_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "49836db9-cc6f-41b0-9835-68a9ae583b06" ] .
+
+smc:2-B-1_SpaceTemp a brick:Zone_Air_Temperature_Sensor ;
+    ref:hasExternalReference [ ref:hasTimeseriesId "17e9e1d2-5e18-4a7d-960f-e44ee6f83a53" ] .
+
+smc:AHU1 a brick:AHU ;
+    rdfs:label "AHU1" ;
+    brick:feeds smc:VAV_1-1-1,
+        smc:VAV_1-1-2,
+        smc:VAV_1-1-3,
+        smc:VAV_1-1-4,
+        smc:VAV_1-1-5,
+        smc:VAV_1-1-6,
+        smc:VAV_1-1-7,
+        smc:VAV_1-1-8,
+        smc:VAV_1-2-1,
+        smc:VAV_1-2-2,
+        smc:VAV_1-2-3,
+        smc:VAV_1-2-4,
+        smc:VAV_1-2-5,
+        smc:VAV_1-2-6,
+        smc:VAV_1-2-7,
+        smc:VAV_1-2-8,
+        smc:VAV_1-3-1,
+        smc:VAV_1-3-10,
+        smc:VAV_1-3-2,
+        smc:VAV_1-3-3,
+        smc:VAV_1-3-4,
+        smc:VAV_1-3-5,
+        smc:VAV_1-3-6,
+        smc:VAV_1-3-7,
+        smc:VAV_1-3-8,
+        smc:VAV_1-3-9,
+        smc:VAV_1-4-1,
+        smc:VAV_1-4-2,
+        smc:VAV_1-4-3,
+        smc:VAV_1-4-4,
+        smc:VAV_1-4-5,
+        smc:VAV_1-4-6,
+        smc:VAV_1-4-7,
+        smc:VAV_1-4-8,
+        smc:VAV_1-4-9,
+        smc:VAV_1-5-1,
+        smc:VAV_1-5-10,
+        smc:VAV_1-5-11,
+        smc:VAV_1-5-12,
+        smc:VAV_1-5-13,
+        smc:VAV_1-5-16,
+        smc:VAV_1-5-2,
+        smc:VAV_1-5-3,
+        smc:VAV_1-5-4,
+        smc:VAV_1-5-5,
+        smc:VAV_1-5-6,
+        smc:VAV_1-5-7,
+        smc:VAV_1-5-8,
+        smc:VAV_1-5-9 ;
+    brick:hasPoint smc:OutsideTempAHU1,
+        smc:SuppliedFanSpeedAHU1,
+        smc:SuppliedTempAHU1 .
+
+smc:AHU2 a brick:AHU ;
+    rdfs:label "AHU2" ;
+    brick:feeds smc:VAV_2-1-11,
+        smc:VAV_2-1-12,
+        smc:VAV_2-1-13,
+        smc:VAV_2-1-14,
+        smc:VAV_2-1-15,
+        smc:VAV_2-1-16,
+        smc:VAV_2-1-17,
+        smc:VAV_2-1-18,
+        smc:VAV_2-1-19,
+        smc:VAV_2-1-20,
+        smc:VAV_2-1-27,
+        smc:VAV_2-2-12,
+        smc:VAV_2-2-13,
+        smc:VAV_2-2-14,
+        smc:VAV_2-2-15,
+        smc:VAV_2-2-16,
+        smc:VAV_2-2-17,
+        smc:VAV_2-2-18,
+        smc:VAV_2-2-19,
+        smc:VAV_2-2-20,
+        smc:VAV_2-2-21,
+        smc:VAV_2-2-22,
+        smc:VAV_2-3-14,
+        smc:VAV_2-3-15,
+        smc:VAV_2-3-16,
+        smc:VAV_2-3-17,
+        smc:VAV_2-3-18,
+        smc:VAV_2-3-19,
+        smc:VAV_2-3-20,
+        smc:VAV_2-3-21,
+        smc:VAV_2-3-22,
+        smc:VAV_2-4-14,
+        smc:VAV_2-4-15,
+        smc:VAV_2-4-16,
+        smc:VAV_2-4-17,
+        smc:VAV_2-4-17A,
+        smc:VAV_2-4-18,
+        smc:VAV_2-4-19,
+        smc:VAV_2-4-20,
+        smc:VAV_2-4-21,
+        smc:VAV_2-4-24,
+        smc:VAV_2-5-17B,
+        smc:VAV_2-5-19,
+        smc:VAV_2-5-20,
+        smc:VAV_2-5-21,
+        smc:VAV_2-5-22,
+        smc:VAV_2-5-23,
+        smc:VAV_2-5-24,
+        smc:VAV_2-5-25,
+        smc:VAV_2-B-1 ;
+    brick:hasPoint smc:OutsideTempAHU2,
+        smc:SuppliedFanSpeedAHU2,
+        smc:SuppliedTempAHU2 .
+

@@ -1,0 +1,1914 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> . 
+@prefix ns2: <http://buildsys.org/ontologies/bldg34#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+ns2:AC01 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM1100,
+        ns2:VAVRM1113,
+        ns2:VAVRM1121,
+        ns2:VAVRM1127,
+        ns2:VAVRM1131,
+        ns2:VAVRM1135,
+        ns2:VAVRM1151,
+        ns2:VAVRM1153,
+        ns2:VAVRM1162,
+        ns2:VAVRM1163,
+        ns2:VAVRM1165,
+        ns2:VAVRM1202,
+        ns2:VAVRM1202A,
+        ns2:VAVRM1202B ;
+    brick:hasPoint ns2:bldg34.AHU.AC01.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC02 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM1167,
+        ns2:VAVRM1171,
+        ns2:VAVRM1213,
+        ns2:VAVRM1219,
+        ns2:VAVRM1222,
+        ns2:VAVRM1223,
+        ns2:VAVRM1224,
+        ns2:VAVRM1228,
+        ns2:VAVRM1232,
+        ns2:VAVRM1233,
+        ns2:VAVRM1233A,
+        ns2:VAVRM1233B,
+        ns2:VAVRM1236B,
+        ns2:VAVRM1236C,
+        ns2:VAVRM1271,
+        ns2:VAVRM1279,
+        ns2:VAVRM1282 ;
+    brick:hasPoint ns2:bldg34.AHU.AC02.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC03 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM1210A,
+        ns2:VAVRM1225C,
+        ns2:VAVRM1225D,
+        ns2:VAVRM1225H,
+        ns2:VAVRM1264 ;
+    brick:hasPoint ns2:bldg34.AHU.AC03.Heating_Valve_Output,
+        ns2:bldg34.AHU.AC03.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC04 a brick:Air_Handler_Unit ;
+    brick:feeds ns2:VAVRM1015A,
+        ns2:VAVRM1302,
+        ns2:VAVRM1303 ;
+    brick:hasPoint ns2:bldg34.AHU.AC04.Heating_Valve_Output ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC3 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg34.AHU.AC3.Cooling_Valve_Output ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AC4 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg34.AHU.AC4.Cooling_Valve_Output ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU01 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg34.AHU.AHU01.CCV,
+        ns2:bldg34.AHU.AHU01.Cooling_Valve_Output,
+        ns2:bldg34.AHU.AHU01.Mixed_Air_Temp,
+        ns2:bldg34.AHU.AHU01.Mode,
+        ns2:bldg34.AHU.AHU01.Outside_Air_Temp,
+        ns2:bldg34.AHU.AHU01.Outside_Air_Temp_Virtual,
+        ns2:bldg34.AHU.AHU01.Return_Air_Temp,
+        ns2:bldg34.AHU.AHU01.Supply_Air_Pressure,
+        ns2:bldg34.AHU.AHU01.Supply_Air_Temp,
+        ns2:bldg34.AHU.AHU01.Supply_Air_Temp_Setpoint,
+        ns2:bldg34.AHU.AHU01.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU02 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg34.AHU.AHU02.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:AHU03 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg34.AHU.AHU03.Zone_Air_Temp ;
+    brick:isFedBy ns2:chiller .
+
+ns2:PF1 a brick:Air_Handler_Unit ;
+    brick:hasPoint ns2:bldg34.AHU.PF1.Cooling_Valve_Output ;
+    brick:isFedBy ns2:chiller .
+
+ns2:bldg34 a brick:Building ;
+    brick:area [ brick:hasUnits unit:FT_2 ;
+            brick:value "58399^^<http://www.w3.org/2001/XMLSchema#integer>" ] .
+
+ns2:Thurman_ChilledWater_Demand_kBtu a brick:Electric_Meter ;
+    rdfs:label "Thurman_ChilledWater_Demand_kBtu" ;
+    brick:isPointOf ns2:chiller .
+
+ns2:Thurman_Electricity_Demand_kBtu a brick:Building_Electric_Meter ;
+    rdfs:label "Thurman_Electricity_Demand_kBtu" .
+
+ns2:damperVAVRM1100 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1100.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1100 .
+
+ns2:damperVAVRM1113 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1113.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1113 .
+
+ns2:damperVAVRM1121 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1121.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1121 .
+
+ns2:damperVAVRM1127 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1127.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1127 .
+
+ns2:damperVAVRM1131 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1131.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1131 .
+
+ns2:damperVAVRM1135 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1135.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1135 .
+
+ns2:damperVAVRM1151 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1151.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1151 .
+
+ns2:damperVAVRM1153 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1153.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1153 .
+
+ns2:damperVAVRM1162 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1162.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1162 .
+
+ns2:damperVAVRM1163 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1163.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1163 .
+
+ns2:damperVAVRM1165 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1165.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1165 .
+
+ns2:damperVAVRM1202 a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1202.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1202 .
+
+ns2:damperVAVRM1202A a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1202A.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1202A .
+
+ns2:damperVAVRM1202B a brick:Damper ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1202B.Zone_Air_Damper_Command ;
+    brick:isPartOf ns2:VAVRM1202B .
+
+ns2:floor1 a brick:Floor ;
+    brick:hasPart ns2:RM1015A_room,
+        ns2:RM1100_room,
+        ns2:RM1113_room,
+        ns2:RM1121_room,
+        ns2:RM1127_room,
+        ns2:RM1131_room,
+        ns2:RM1135_room,
+        ns2:RM1151_room,
+        ns2:RM1153_room,
+        ns2:RM1162_room,
+        ns2:RM1163_room,
+        ns2:RM1165_room,
+        ns2:RM1167_room,
+        ns2:RM1171_room,
+        ns2:RM1202A_room,
+        ns2:RM1202B_room,
+        ns2:RM1202_room,
+        ns2:RM1210A_room,
+        ns2:RM1213_room,
+        ns2:RM1219_room,
+        ns2:RM1222_room,
+        ns2:RM1223_room,
+        ns2:RM1224_room,
+        ns2:RM1225C_room,
+        ns2:RM1225D_room,
+        ns2:RM1225H_room,
+        ns2:RM1228_room,
+        ns2:RM1232_room,
+        ns2:RM1233A_room,
+        ns2:RM1233B_room,
+        ns2:RM1233_room,
+        ns2:RM1236B_room,
+        ns2:RM1236C_room,
+        ns2:RM1264_room,
+        ns2:RM1271_room,
+        ns2:RM1279_room,
+        ns2:RM1282_room,
+        ns2:RM1302_room,
+        ns2:RM1303_room .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AC03.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "d204d281-cfda-4f3b-b9d4-5df20fbe4cb4" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AC04.Heating_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "fe9310b7-f28b-49f9-b588-3631036ed229" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AC3.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "5c3e5825-5937-4112-b037-c015c0bbc06c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AC4.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "1825be78-b77e-4bbd-ad2a-887633a6ed7d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.CCV> ref:hasExternalReference [ ref:hasTimeseriesId "03695dbe-409b-4c9d-9d2d-0de09ca9cfcc" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "361fccbb-f5d7-4862-90b6-32da3c973369" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Mode> ref:hasExternalReference [ ref:hasTimeseriesId "2934daba-8c64-4b17-8512-465239434d42" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6dd892cb-ef6c-4334-83c7-91d300843c72" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Outside_Air_Temp_Virtual> ref:hasExternalReference [ ref:hasTimeseriesId "e40e9cf6-83b0-4b64-92c1-5e06b3f80275" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Return_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "e8bccd6c-fb18-4aab-9b86-09893d47cf2f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Supply_Air_Pressure> ref:hasExternalReference [ ref:hasTimeseriesId "fe1d99ed-42e4-4d36-9338-db16b66c605e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Supply_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "130d0d7b-cdd2-4b65-bfa9-812ea5379484" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Supply_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "ebc9e0ec-e24d-4770-86f1-5b532e662d45" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.AHU01.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "aedbdd2e-8f7d-4bcf-a8da-9e96b143621b" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.AHU.PF1.Cooling_Valve_Output> ref:hasExternalReference [ ref:hasTimeseriesId "a9bd552e-2043-4e62-b5b5-0a246f1cf0db" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Building_Chilled_Water_Delta_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "54ab8a2d-9922-4820-9ffa-4ef0c7ced1b8" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Building_Chilled_Water_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "d6b88909-7097-4561-a1fc-77423e39fe0a" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Building_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "f4342eac-56af-4a2a-9664-b3f3074809a5" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Building_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "9a703b94-a2d7-4bbb-8cd4-05a75f66a68d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Building_Chilled_Water_Supply_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "85784cab-a5e7-442e-bb69-065d6ced5f8c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2A_FREQ_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "2a83d677-8a0c-4478-ac80-b0e421600aa0" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2A_PCT_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "a3b8217f-ca2b-4497-aee3-d6680289f342" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2A_POWER> ref:hasExternalReference [ ref:hasTimeseriesId "badbb5a6-97d9-45a1-96e8-90fbf635a85b" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2A_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "5d2ff176-c8b6-4112-8618-d950fa5240be" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2B_FREQ_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "e31db949-43bc-446a-8ebb-d9669f7f484e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2B_PCT_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "b1838225-ee01-40e5-b1be-edbab55eb3c1" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2B_POWER> ref:hasExternalReference [ ref:hasTimeseriesId "1f9fcc5d-c290-440d-bb82-d8dde2ca18d0" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.CHWP2B_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "490a0528-b742-467b-9b3d-91bf9f488f43" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.ECONOMIZER> ref:hasExternalReference [ ref:hasTimeseriesId "f354bd96-8f61-44d9-a988-6b5e41cb6483" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Enable> ref:hasExternalReference [ ref:hasTimeseriesId "2ada4531-e983-43b2-93d4-913d9c2c8ed6" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Loop_Chilled_Water_Return_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "d263e078-1c97-4347-a315-9218b217825e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Loop_Chilled_Water_Supply_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ea2b4be8-2c2e-46ea-8b14-9008713ff8de" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.Outside_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ff071247-4db9-4e1c-a6d7-5956284c5254" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.WEST_CHWP_FREQ_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "a8507d5f-fce2-4958-bd9b-31151785b7cd" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.WEST_CHWP_PCT_OUTPUT> ref:hasExternalReference [ ref:hasTimeseriesId "389a1a2d-f0b0-4d1a-927d-172dbefac722" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.WEST_CHWP_POWER> ref:hasExternalReference [ ref:hasTimeseriesId "5e3c63d4-8baa-4352-8ae1-af1b147dad0a" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.CHW.WEST_CHWP_SPEED> ref:hasExternalReference [ ref:hasTimeseriesId "22a8ee8c-18dd-4fe8-b63c-baaa61807727" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1100.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "a8862381-a247-435c-ae9e-5fc3a4aa2c47" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1100.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "95fadb2b-3e3f-478c-94bf-0b9cbb0fdc33" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1100.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "414e0dac-a298-4494-b071-7eeaaa21eb69" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1100.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "854e50f1-e47f-4658-b586-f83343ec1b7d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1100.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "dcac3ea2-5698-4bcb-886d-1e4bd0295444" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1100.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "f10234e9-f76c-46aa-ab53-87978645d646" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1113.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "c709d80d-2801-40dd-991b-6e2bd7a3f0b3" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1113.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "18432c8d-869d-4417-b6bd-b725665a656d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1113.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "f9d8dddd-f8da-46ba-a7f5-c145528bae0d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1113.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "bcc0025c-fc59-4be3-aadf-4527333476f9" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1113.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "c31f55a9-1277-400e-bc40-6e333eec335d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1113.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "b58e10ab-ba6c-4024-b0cf-99cb7ee563c5" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1121.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "7db54ee5-ede7-4cc7-b9e0-b66d6d81ac2a" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1121.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "0a906d55-0b96-49a8-9615-61ea06f66e20" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1121.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6d342a02-c37a-4c98-baa5-5ae76ac1d9ac" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1121.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "f21ce025-6c2e-4d59-8f28-015f2e17fa91" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1121.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "c1e74a45-f0e9-4778-9fba-76ac053cb801" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1121.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "ea96c38e-1738-4f2c-a906-7540ac0f94d1" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1127.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "8b4cf871-b953-4eb2-8da9-088ce74deda3" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1127.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "75324977-01c2-48ec-9283-55f8ded94758" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1127.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "13b3855d-0a0e-4de6-9f7c-241c307d2579" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1127.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "040fc349-1120-4372-b88c-2a42f1fb41e9" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1127.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "b6cfa981-34da-4db6-a756-23527049eb33" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1127.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "187ef624-4d9e-402a-826d-348988b9e0af" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1131.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "c99026c2-cbd2-4eb9-905e-a428ea1f9d67" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1131.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "76ea10d1-c67f-4fbf-b1b9-458fa6e5fcff" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1131.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "08b1d1f2-b276-4840-9e80-2178c66f2e6f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1131.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "2fae8f98-8dda-4eb9-a199-96cc4b1bdecc" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1131.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "5492e93f-f17e-41e4-aa47-cdaa9e01645b" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1131.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "73600ae6-5185-4daa-8dcd-f7852a883c07" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1135.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "56e4e598-cb43-4098-9f50-1e254acd536c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1135.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "49527bcf-91f6-44b9-b9fa-32565c955863" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1135.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "68700fbd-8447-4bcf-a317-9eefaf10fdb4" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1135.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "b8798b58-f5d9-49a2-a9a3-01770e4d39e5" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1135.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "577332b3-563d-4e57-acf6-132a77ee5755" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1135.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "a2dbe662-7057-4128-b6c2-8c52801060ba" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1151.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "a1a193ca-f9bd-4ed5-a0a5-367c7c0c5dab" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1151.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "bc961b8f-942c-4bb4-96a8-5940bada18a1" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1151.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "f8ca6c7d-dc83-48c8-8bab-d52a7f71229d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1151.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "7c24d56a-90eb-439b-989d-5f762238c881" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1151.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "55e2da91-2440-4878-913e-1b199040b340" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1151.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "fcfbe621-7d54-4f87-a31e-3bf01dfd2157" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1153.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "39deb731-0dfe-4e7a-a3e0-b283b631fbdb" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1153.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "d56b648f-f0ae-4862-adc9-94b9c06f7a80" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1153.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "4b87092e-1646-4a34-b898-863c16523aa7" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1153.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "49293f17-7271-4272-a464-f45e529c46fd" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1153.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "9500a380-9e9b-4d6a-89b7-dc3c1c1fe670" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1153.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "4db84445-2a35-48ad-aef1-9a499cd70d41" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1162.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "67af2656-394a-486d-9a86-1426c325c720" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1162.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "79d18949-a87c-4c50-8f41-8b920dc1d719" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1162.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "040c922a-50ef-4fc8-b7b4-29eb7f705165" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1162.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "d25a6bcf-2e27-4461-98cc-3a4f3143fa89" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1162.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "43045635-52d5-46f2-b309-96ecf325ccd7" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1163.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "b47b04b3-4bdc-4af7-8892-590efaeffa96" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1163.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "07b78995-b644-4381-8d1e-e2f23e17749d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1163.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "fa050faf-1d34-412c-a671-288f783f0f97" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1163.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a30db2fc-86bc-437b-b47f-b7d035bce5f4" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1163.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "4604dae4-093c-417a-86a3-e9ef1711e6e4" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1163.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "9291db3b-9d01-49b7-b8b3-3640390bb745" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1165.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "b82f1efb-cb24-4e57-800c-b9ea84afb87f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1165.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "87dbfdb7-99a2-495e-b444-c91798652729" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1165.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "15f1d527-5596-42f6-b9db-2df3618f4191" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1165.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "309aaa2b-e98d-4719-b5c1-76cc67b0290c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1165.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "963fb133-3ede-4311-b8f4-fb0000d2dda7" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "334da0ff-fd9d-4d27-8d28-ac4a7a21d947" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "1b226d05-79d3-428c-8aab-f7e7d54f8134" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "77696d6f-ad63-4f61-bc91-9707b233b05d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "5cf5c08c-0fc6-46f5-b24e-9cf5f695aca3" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "147b1eda-a995-4200-bf75-dcba332cec6f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "188a432c-6343-4cec-95a1-41fe1ee0e1d7" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202A.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "839ccc7a-fb09-4771-9b88-fca02c60301e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202A.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "cb5192bc-a9d6-4431-8a71-e234190cd47f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202A.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "69f0928b-95fd-40db-83b3-3c24f91cda84" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202A.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "12a8e363-ff33-412b-b093-1b5ed3107939" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202A.Zone_Reheat_Valve_Command> ref:hasExternalReference [ ref:hasTimeseriesId "4e9cc704-a1f0-4949-9b0b-8266fdef1635" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202A.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "61b88482-d104-4324-9025-6eb4082122c2" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202B.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "7dbb951a-ad72-4400-ace9-56f6569f51f4" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202B.Zone_Air_Damper_Command> ref:hasExternalReference [ ref:hasTimeseriesId "f97d431e-4257-492b-bff5-18d9edfd6544" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202B.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "0cf76ac0-b108-44e8-bb72-cb7f8608de67" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202B.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "5fcd70bc-5bc7-4571-83aa-dd149a2ca92e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC01.RM1202B.Zone_Supply_Air_Flow> ref:hasExternalReference [ ref:hasTimeseriesId "ea58e29e-fe7d-4696-ae09-71479c18dfd6" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1167.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "e3dc4065-cee2-4229-b0ae-96fe9a6ce7b5" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1167.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "af46f9e6-f4a6-494b-9dfb-137c1e65735a" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1167.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "4a409434-7369-4954-9564-87971d95eaa6" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1171.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "29f0a790-2977-4231-a474-45fad18a60f7" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1171.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "f816392d-0ab0-49b4-992c-7bebf43bb668" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1171.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "a5caf187-7472-4482-9444-e755d22a0c9c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1213.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "1d5779e6-2795-4117-a3a0-d22dfd7ce9cf" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1213.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "01c94e78-1f38-4289-b1e6-8089c8ea393f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1213.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "d703a037-4acf-4e48-8d2d-a8e77377b8ca" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1219.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "a3e56d53-73f1-4934-a702-8bc5721d6b3d" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1219.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "488064ce-08d6-4feb-bc54-b0e1c80927ea" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1219.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "8beaff53-4bca-4160-9ee5-0101ef4c3448" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1222.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "9c0630dc-5cef-412f-917a-1d6e3df1de71" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1222.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "91aee4a1-6f63-4aa7-86a2-3467dc8c4db4" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1222.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "162f6b53-8e98-49b7-99d0-4790d413f147" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1223.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "ea28d0ed-6206-4564-a7da-f9b80d8c9b30" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1223.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "d54a8dfc-a1dd-461d-99cf-4802f6d828a8" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1223.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "b8df092d-0cfc-498a-a3fc-0b4a10864297" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1224.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "5274b757-eff6-49c7-a57f-7ff791c2cf84" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1224.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "29fad8b1-f604-47c6-82d7-51f159ccd103" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1224.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "da882063-4cbb-419e-9029-edc461a4ba99" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1228.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "4b1e2aac-9c4a-490d-93aa-9978849222d7" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1228.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6f3e090c-261a-410c-a4bd-c1f5ab663edb" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1228.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "1b2270c8-5e7e-44d8-915f-a38dcf5bcd7e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1232.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "04b52b2d-14ab-4d32-b11d-ded5733832b1" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1232.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "ccd10eaa-d254-4645-a886-12f93033b12e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1232.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "809cacab-7296-4cf8-b794-308b3953a5c1" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "914d84e8-9c04-422c-96aa-6cc2bca2fecd" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "c4857643-6501-4867-bac8-0e0e806e763c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "0a915f1c-b0d4-4140-8b64-d24f9cc6874a" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233A.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "c499779e-c509-4abe-976a-febe42287464" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233A.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "21afec90-f0d1-4a54-9e6a-2baf737bdf74" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233A.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "97647986-0c87-4562-84f3-47d30fd80aaf" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233B.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "658b7a7b-3900-43e0-a26d-93808b3ef2d0" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233B.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "48165651-6d92-4d20-bb1c-7fcd702c7a3f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1233B.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "f8bb29ff-a47a-43b1-8b57-360851cc639f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1236B.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "836bbfd7-aa18-482c-a43d-e40ff2dc1138" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1236B.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "bb394355-cf76-4ee0-957f-c6daebe78a10" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1236B.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "1e47f813-a0db-48d7-ab61-68303a295d6c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1236C.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "af76eac6-a2b1-41a5-82b7-fe724f4af7c6" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1236C.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "2ee85620-7298-443e-b8d9-9ad6d76f05c8" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1236C.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "91dad9f5-a149-4a87-9996-c7f8ecb04bee" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1271.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "04f0f804-889c-4968-806a-034003dcf2a2" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1271.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "6d26f42a-3561-4bb1-9351-a2cd4c5963b8" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1271.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "71d7b98d-4dc1-43d9-ad09-26a7108418f6" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1279.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "2a1e7f48-cd02-4fbe-abcb-9b6922f1edfd" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1279.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "7793339d-ff7d-4b97-803f-a18d7ac51011" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1279.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "716b9967-b646-4cb2-b839-9a64a8c01fb6" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1282.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "59358875-019c-4fb7-b43f-5687f5a2a1a8" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1282.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "2fb9160c-4d84-484a-934b-66cbd2e1acc9" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC02.RM1282.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "5c6a60a7-e5ba-43b5-9143-7b17a8d7a705" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1210A.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "3e149814-08a7-42e0-9944-1fdbbcbb250b" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1210A.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "b52d97ab-8f11-447a-86b9-a64ef5929814" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1210A.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "716c2778-c6b7-43e2-8778-52ae27ea5e32" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225C.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "05eda43b-908b-41fc-b33e-18dd0b793475" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225C.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "39212536-2bed-412d-93c6-fd38f5812d0e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225C.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "7781fdca-1eca-43cc-a5ff-a53d8cbf5000" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225D.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "2cbc5ba3-a235-43e4-9825-28faaabd5650" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225D.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "0aa1e339-53ba-4af8-bda9-57a5169e5091" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225D.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "3c702b9f-55b1-4afc-83f6-d7b26e4cccd3" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225H.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "ff567598-7c91-480d-b6ce-5d6d02ef6b2b" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225H.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "e71fc0c0-eb7e-4c14-bc17-d5a69e019d7e" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1225H.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "3aca863d-15cb-4256-a047-a27e66a47fb1" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1264.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "ceae947b-6abd-4a08-b494-6f666530e7f8" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1264.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "cc73d710-c97f-40c9-ae12-20d4d2aeaf71" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC03.RM1264.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "876ab164-aeb2-4534-812b-ca358b4d07bf" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1015A.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "b970eee4-2485-4254-8a44-60685dad926c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1015A.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "4cc0a272-220e-4fb5-bd6d-500f6449722c" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1015A.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "cbc35c82-95a8-4ab9-8d5a-40278c12b97f" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1302.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "e1cdf104-40c8-464f-9ed4-45355880ce63" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1302.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "71c9d4dd-753b-438c-bbb7-1eed00cf4231" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1302.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "e304e1d6-0cbc-4013-ad84-1881356d7034" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1303.Heating_Mode> ref:hasExternalReference [ ref:hasTimeseriesId "49dc4586-0fd9-4392-b2db-cfb2029f51a5" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1303.Zone_Air_Temp> ref:hasExternalReference [ ref:hasTimeseriesId "289bf9ae-df8a-49a9-be0c-ebcb3b5afa04" ] .
+
+<http://buildsys.org/ontologies/bldg34#bldg34.ZONE.AC04.RM1303.Zone_Air_Temp_Setpoint> ref:hasExternalReference [ ref:hasTimeseriesId "0f1208f6-29f8-43f1-8672-63bcfad9bf50" ] .
+
+ns2:RM1015A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1015A_room .
+
+ns2:RM1100 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1100_room .
+
+ns2:RM1113 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1113_room .
+
+ns2:RM1121 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1121_room .
+
+ns2:RM1127 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1127_room .
+
+ns2:RM1131 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1131_room .
+
+ns2:RM1135 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1135_room .
+
+ns2:RM1151 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1151_room .
+
+ns2:RM1153 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1153_room .
+
+ns2:RM1162 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1162_room .
+
+ns2:RM1163 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1163_room .
+
+ns2:RM1165 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1165_room .
+
+ns2:RM1167 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1167_room .
+
+ns2:RM1171 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1171_room .
+
+ns2:RM1202 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1202_room .
+
+ns2:RM1202A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1202A_room .
+
+ns2:RM1202B a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1202B_room .
+
+ns2:RM1210A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1210A_room .
+
+ns2:RM1213 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1213_room .
+
+ns2:RM1219 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1219_room .
+
+ns2:RM1222 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1222_room .
+
+ns2:RM1223 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1223_room .
+
+ns2:RM1224 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1224_room .
+
+ns2:RM1225C a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1225C_room .
+
+ns2:RM1225D a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1225D_room .
+
+ns2:RM1225H a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1225H_room .
+
+ns2:RM1228 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1228_room .
+
+ns2:RM1232 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1232_room .
+
+ns2:RM1233 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1233_room .
+
+ns2:RM1233A a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1233A_room .
+
+ns2:RM1233B a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1233B_room .
+
+ns2:RM1236B a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1236B_room .
+
+ns2:RM1236C a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1236C_room .
+
+ns2:RM1264 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1264_room .
+
+ns2:RM1271 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1271_room .
+
+ns2:RM1279 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1279_room .
+
+ns2:RM1282 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1282_room .
+
+ns2:RM1302 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1302_room .
+
+ns2:RM1303 a brick:HVAC_Zone ;
+    brick:hasPart ns2:RM1303_room .
+
+ns2:bldg34.AHU.AC01.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AC01.Zone Air Temp" .
+
+ns2:bldg34.AHU.AC02.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AC02.Zone Air Temp" .
+
+ns2:bldg34.AHU.AC03.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg34.AHU.AC03.Heating Valve Output" .
+
+ns2:bldg34.AHU.AC03.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AC03.Zone Air Temp" .
+
+ns2:bldg34.AHU.AC04.Heating_Valve_Output a brick:Command ;
+    rdfs:label "bldg34.AHU.AC04.Heating Valve Output" .
+
+ns2:bldg34.AHU.AC3.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg34.AHU.AC3.Cooling Valve Output" .
+
+ns2:bldg34.AHU.AC4.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg34.AHU.AC4.Cooling Valve Output" .
+
+ns2:bldg34.AHU.AHU01.CCV a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg34.AHU.AHU01.CCV" .
+
+ns2:bldg34.AHU.AHU01.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg34.AHU.AHU01.Cooling Valve Output" .
+
+ns2:bldg34.AHU.AHU01.Mixed_Air_Temp a brick:Mixed_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Mixed Air Temp" .
+
+ns2:bldg34.AHU.AHU01.Mode a brick:Mode ;
+    rdfs:label "bldg34.AHU.AHU01.Mode" .
+
+ns2:bldg34.AHU.AHU01.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Outside Air Temp" .
+
+ns2:bldg34.AHU.AHU01.Outside_Air_Temp_Virtual a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Outside Air Temp Virtual" .
+
+ns2:bldg34.AHU.AHU01.Return_Air_Temp a brick:Return_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Return Air Temp" .
+
+ns2:bldg34.AHU.AHU01.Supply_Air_Pressure a brick:Supply_Air_Static_Pressure_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Supply Air Pressure" .
+
+ns2:bldg34.AHU.AHU01.Supply_Air_Temp a brick:Supply_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Supply Air Temp" .
+
+ns2:bldg34.AHU.AHU01.Supply_Air_Temp_Setpoint a brick:Supply_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.AHU.AHU01.Supply Air Temp Setpoint" .
+
+ns2:bldg34.AHU.AHU01.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU01.Zone Air Temp" .
+
+ns2:bldg34.AHU.AHU02.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU02.Zone Air Temp" .
+
+ns2:bldg34.AHU.AHU03.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.AHU.AHU03.Zone Air Temp" .
+
+ns2:bldg34.AHU.PF1.Cooling_Valve_Output a brick:Cooling_Command,
+        brick:Valve_Command ;
+    rdfs:label "bldg34.AHU.PF1.Cooling Valve Output" .
+
+ns2:bldg34.CHW.Building_Chilled_Water_Delta_Temp a brick:Chilled_Water_Differential_Temperature_Sensor ;
+    rdfs:label "bldg34.CHW.Building Chilled Water Delta Temp" .
+
+ns2:bldg34.CHW.Building_Chilled_Water_Flow a brick:Chilled_Water_Flow_Sensor ;
+    rdfs:label "bldg34.CHW.Building Chilled Water Flow" .
+
+ns2:bldg34.CHW.Building_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg34.CHW.Building Chilled Water Return Temp" .
+
+ns2:bldg34.CHW.Building_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg34.CHW.Building Chilled Water Supply Temp" .
+
+ns2:bldg34.CHW.Building_Chilled_Water_Supply_Temp_Setpoint a brick:Chilled_Water_Supply_Temperature_Setpoint ;
+    rdfs:label "bldg34.CHW.Building Chilled Water Supply Temp Setpoint" .
+
+ns2:bldg34.CHW.CHWP2A_FREQ_OUTPUT a brick:Output_Frequency_Sensor ;
+    rdfs:label "bldg34.CHW.CHWP2A_FREQ OUTPUT" .
+
+ns2:bldg34.CHW.CHWP2A_PCT_OUTPUT a brick:Cooling_Request_Percent_Setpoint ;
+    rdfs:label "bldg34.CHW.CHWP2A_PCT OUTPUT" .
+
+ns2:bldg34.CHW.CHWP2A_POWER a brick:Power_Sensor ;
+    rdfs:label "bldg34.CHW.CHWP2A_POWER" .
+
+ns2:bldg34.CHW.CHWP2A_SPEED a brick:Chilled_Water_Pump_VFD_Speed ;
+    rdfs:label "bldg34.CHW.CHWP2A_SPEED" .
+
+ns2:bldg34.CHW.CHWP2B_FREQ_OUTPUT a brick:Output_Frequency_Sensor ;
+    rdfs:label "bldg34.CHW.CHWP2B_FREQ OUTPUT" .
+
+ns2:bldg34.CHW.CHWP2B_PCT_OUTPUT a brick:Cooling_Request_Percent_Setpoint ;
+    rdfs:label "bldg34.CHW.CHWP2B_PCT OUTPUT" .
+
+ns2:bldg34.CHW.CHWP2B_POWER a brick:Power_Sensor ;
+    rdfs:label "bldg34.CHW.CHWP2B_POWER" .
+
+ns2:bldg34.CHW.CHWP2B_SPEED a brick:Chilled_Water_Pump_VFD_Speed ;
+    rdfs:label "bldg34.CHW.CHWP2B_SPEED" .
+
+ns2:bldg34.CHW.ECONOMIZER a brick:Damper_Position_Command ;
+    rdfs:label "bldg34.CHW.ECONOMIZER" .
+
+ns2:bldg34.CHW.Enable a brick:Enable_Command ;
+    rdfs:label "bldg34.CHW.Enable" .
+
+ns2:bldg34.CHW.Loop_Chilled_Water_Return_Temp a brick:Chilled_Water_Return_Temperature_Sensor ;
+    rdfs:label "bldg34.CHW.Loop Chilled Water Return Temp" .
+
+ns2:bldg34.CHW.Loop_Chilled_Water_Supply_Temp a brick:Chilled_Water_Supply_Temperature_Sensor ;
+    rdfs:label "bldg34.CHW.Loop Chilled Water Supply Temp" .
+
+ns2:bldg34.CHW.Outside_Air_Temp a brick:Outside_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.CHW.Outside Air Temp" .
+
+ns2:bldg34.CHW.WEST_CHWP_FREQ_OUTPUT a brick:Output_Frequency_Sensor ;
+    rdfs:label "bldg34.CHW.WEST CHWP_FREQ OUTPUT" .
+
+ns2:bldg34.CHW.WEST_CHWP_PCT_OUTPUT a brick:Cooling_Request_Percent_Setpoint ;
+    rdfs:label "bldg34.CHW.WEST CHWP_PCT OUTPUT" .
+
+ns2:bldg34.CHW.WEST_CHWP_POWER a brick:Power_Sensor ;
+    rdfs:label "bldg34.CHW.WEST CHWP_POWER" .
+
+ns2:bldg34.CHW.WEST_CHWP_SPEED a brick:Chilled_Water_Pump_VFD_Speed ;
+    rdfs:label "bldg34.CHW.WEST CHWP_SPEED" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1100.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1100.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1113.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1113.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1121.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1121.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1127.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1127.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1131.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1131.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1135.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1135.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1151.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1151.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1153.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1153.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1162.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1162.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1162.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1162.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1162.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1162.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1162.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1162.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1162.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1162.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1162.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1162.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1163.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1163.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1165.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1165.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1165.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1165.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1165.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1165.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1165.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1165.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1165.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1165.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1165.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1165.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1202.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Zone_Reheat_Valve_Command a brick:Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Zone Reheat Valve Command" .
+
+ns2:bldg34.ZONE.AC01.RM1202A.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202A.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC01.RM1202B.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202B.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1202B.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202B.Heating Mode" .
+
+ns2:bldg34.ZONE.AC01.RM1202B.Zone_Air_Damper_Command a brick:Damper_Position_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202B.Zone Air Damper Command" .
+
+ns2:bldg34.ZONE.AC01.RM1202B.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202B.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC01.RM1202B.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202B.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC01.RM1202B.Zone_Supply_Air_Flow a brick:Supply_Air_Flow_Sensor ;
+    rdfs:label "bldg34.ZONE.AC01.RM1202B.Zone Supply Air Flow" .
+
+ns2:bldg34.ZONE.AC02.RM1167.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1167.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1167.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1167.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1167.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1167.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1167.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1167.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1167.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1167.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1171.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1171.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1171.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1171.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1171.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1171.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1171.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1171.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1171.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1171.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1213.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1213.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1213.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1213.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1213.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1213.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1213.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1213.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1213.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1213.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1219.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1219.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1219.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1219.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1219.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1219.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1219.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1219.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1219.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1219.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1222.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1222.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1222.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1222.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1222.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1222.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1222.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1222.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1222.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1222.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1223.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1223.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1223.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1223.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1223.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1223.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1223.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1223.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1223.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1223.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1224.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1224.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1224.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1224.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1224.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1224.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1224.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1224.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1224.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1224.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1228.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1228.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1228.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1228.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1228.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1228.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1228.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1228.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1228.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1228.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1232.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1232.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1232.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1232.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1232.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1232.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1232.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1232.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1232.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1232.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1233.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1233.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1233.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1233.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1233.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1233A.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233A.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1233A.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233A.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1233A.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233A.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1233A.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233A.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1233A.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233A.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1233B.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233B.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1233B.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233B.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1233B.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233B.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1233B.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233B.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1233B.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1233B.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1236B.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236B.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1236B.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236B.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1236B.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236B.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1236B.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236B.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1236B.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236B.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1236C.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236C.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1236C.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236C.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1236C.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236C.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1236C.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236C.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1236C.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1236C.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1271.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1271.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1271.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1271.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1271.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1271.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1271.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1271.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1271.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1271.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1279.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1279.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1279.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1279.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1279.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1279.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1279.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1279.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1279.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1279.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC02.RM1282.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC02.RM1282.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1282.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC02.RM1282.FAN" .
+
+ns2:bldg34.ZONE.AC02.RM1282.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC02.RM1282.Heating Mode" .
+
+ns2:bldg34.ZONE.AC02.RM1282.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC02.RM1282.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC02.RM1282.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC02.RM1282.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC03.RM1210A.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC03.RM1210A.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1210A.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC03.RM1210A.FAN" .
+
+ns2:bldg34.ZONE.AC03.RM1210A.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC03.RM1210A.Heating Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1210A.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC03.RM1210A.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC03.RM1210A.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC03.RM1210A.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC03.RM1225C.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225C.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1225C.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225C.FAN" .
+
+ns2:bldg34.ZONE.AC03.RM1225C.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225C.Heating Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1225C.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225C.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC03.RM1225C.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225C.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC03.RM1225D.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225D.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1225D.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225D.FAN" .
+
+ns2:bldg34.ZONE.AC03.RM1225D.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225D.Heating Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1225D.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225D.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC03.RM1225D.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225D.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC03.RM1225H.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225H.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1225H.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225H.FAN" .
+
+ns2:bldg34.ZONE.AC03.RM1225H.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225H.Heating Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1225H.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225H.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC03.RM1225H.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC03.RM1225H.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC03.RM1264.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC03.RM1264.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1264.FAN a brick:Fan_Status ;
+    rdfs:label "bldg34.ZONE.AC03.RM1264.FAN" .
+
+ns2:bldg34.ZONE.AC03.RM1264.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC03.RM1264.Heating Mode" .
+
+ns2:bldg34.ZONE.AC03.RM1264.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC03.RM1264.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC03.RM1264.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC03.RM1264.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC04.RM1015A.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC04.RM1015A.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC04.RM1015A.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC04.RM1015A.Heating Mode" .
+
+ns2:bldg34.ZONE.AC04.RM1015A.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC04.RM1015A.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC04.RM1015A.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC04.RM1015A.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC04.RM1302.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC04.RM1302.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC04.RM1302.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC04.RM1302.Heating Mode" .
+
+ns2:bldg34.ZONE.AC04.RM1302.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC04.RM1302.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC04.RM1302.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC04.RM1302.Zone Air Temp Setpoint" .
+
+ns2:bldg34.ZONE.AC04.RM1303.Day_Night_Mode a brick:Mode ;
+    rdfs:label "bldg34.ZONE.AC04.RM1303.Day Night Mode" .
+
+ns2:bldg34.ZONE.AC04.RM1303.Heating_Mode a brick:Heating_Command ;
+    rdfs:label "bldg34.ZONE.AC04.RM1303.Heating Mode" .
+
+ns2:bldg34.ZONE.AC04.RM1303.Zone_Air_Temp a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "bldg34.ZONE.AC04.RM1303.Zone Air Temp" .
+
+ns2:bldg34.ZONE.AC04.RM1303.Zone_Air_Temp_Setpoint a brick:Zone_Air_Temperature_Setpoint ;
+    rdfs:label "bldg34.ZONE.AC04.RM1303.Zone Air Temp Setpoint" .
+
+ns2:VAVRM1015A a brick:VAV ;
+    brick:feeds ns2:RM1015A ;
+    brick:hasPoint ns2:bldg34.ZONE.AC04.RM1015A.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC04.RM1015A.Heating_Mode,
+        ns2:bldg34.ZONE.AC04.RM1015A.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC04.RM1015A.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1167 a brick:VAV ;
+    brick:feeds ns2:RM1167 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1167.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1167.FAN,
+        ns2:bldg34.ZONE.AC02.RM1167.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1167.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1167.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1171 a brick:VAV ;
+    brick:feeds ns2:RM1171 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1171.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1171.FAN,
+        ns2:bldg34.ZONE.AC02.RM1171.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1171.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1171.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1210A a brick:VAV ;
+    brick:feeds ns2:RM1210A ;
+    brick:hasPoint ns2:bldg34.ZONE.AC03.RM1210A.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC03.RM1210A.FAN,
+        ns2:bldg34.ZONE.AC03.RM1210A.Heating_Mode,
+        ns2:bldg34.ZONE.AC03.RM1210A.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC03.RM1210A.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1213 a brick:VAV ;
+    brick:feeds ns2:RM1213 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1213.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1213.FAN,
+        ns2:bldg34.ZONE.AC02.RM1213.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1213.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1213.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1219 a brick:VAV ;
+    brick:feeds ns2:RM1219 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1219.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1219.FAN,
+        ns2:bldg34.ZONE.AC02.RM1219.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1219.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1219.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1222 a brick:VAV ;
+    brick:feeds ns2:RM1222 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1222.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1222.FAN,
+        ns2:bldg34.ZONE.AC02.RM1222.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1222.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1222.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1223 a brick:VAV ;
+    brick:feeds ns2:RM1223 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1223.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1223.FAN,
+        ns2:bldg34.ZONE.AC02.RM1223.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1223.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1223.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1224 a brick:VAV ;
+    brick:feeds ns2:RM1224 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1224.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1224.FAN,
+        ns2:bldg34.ZONE.AC02.RM1224.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1224.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1224.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1225C a brick:VAV ;
+    brick:feeds ns2:RM1225C ;
+    brick:hasPoint ns2:bldg34.ZONE.AC03.RM1225C.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC03.RM1225C.FAN,
+        ns2:bldg34.ZONE.AC03.RM1225C.Heating_Mode,
+        ns2:bldg34.ZONE.AC03.RM1225C.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC03.RM1225C.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1225D a brick:VAV ;
+    brick:feeds ns2:RM1225D ;
+    brick:hasPoint ns2:bldg34.ZONE.AC03.RM1225D.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC03.RM1225D.FAN,
+        ns2:bldg34.ZONE.AC03.RM1225D.Heating_Mode,
+        ns2:bldg34.ZONE.AC03.RM1225D.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC03.RM1225D.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1225H a brick:VAV ;
+    brick:feeds ns2:RM1225H ;
+    brick:hasPoint ns2:bldg34.ZONE.AC03.RM1225H.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC03.RM1225H.FAN,
+        ns2:bldg34.ZONE.AC03.RM1225H.Heating_Mode,
+        ns2:bldg34.ZONE.AC03.RM1225H.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC03.RM1225H.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1228 a brick:VAV ;
+    brick:feeds ns2:RM1228 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1228.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1228.FAN,
+        ns2:bldg34.ZONE.AC02.RM1228.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1228.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1228.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1232 a brick:VAV ;
+    brick:feeds ns2:RM1232 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1232.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1232.FAN,
+        ns2:bldg34.ZONE.AC02.RM1232.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1232.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1232.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1233 a brick:VAV ;
+    brick:feeds ns2:RM1233 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1233.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1233.FAN,
+        ns2:bldg34.ZONE.AC02.RM1233.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1233.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1233.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1233A a brick:VAV ;
+    brick:feeds ns2:RM1233A ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1233A.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1233A.FAN,
+        ns2:bldg34.ZONE.AC02.RM1233A.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1233A.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1233A.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1233B a brick:VAV ;
+    brick:feeds ns2:RM1233B ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1233B.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1233B.FAN,
+        ns2:bldg34.ZONE.AC02.RM1233B.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1233B.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1233B.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1236B a brick:VAV ;
+    brick:feeds ns2:RM1236B ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1236B.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1236B.FAN,
+        ns2:bldg34.ZONE.AC02.RM1236B.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1236B.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1236B.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1236C a brick:VAV ;
+    brick:feeds ns2:RM1236C ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1236C.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1236C.FAN,
+        ns2:bldg34.ZONE.AC02.RM1236C.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1236C.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1236C.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1264 a brick:VAV ;
+    brick:feeds ns2:RM1264 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC03.RM1264.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC03.RM1264.FAN,
+        ns2:bldg34.ZONE.AC03.RM1264.Heating_Mode,
+        ns2:bldg34.ZONE.AC03.RM1264.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC03.RM1264.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1271 a brick:VAV ;
+    brick:feeds ns2:RM1271 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1271.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1271.FAN,
+        ns2:bldg34.ZONE.AC02.RM1271.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1271.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1271.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1279 a brick:VAV ;
+    brick:feeds ns2:RM1279 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1279.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1279.FAN,
+        ns2:bldg34.ZONE.AC02.RM1279.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1279.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1279.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1282 a brick:VAV ;
+    brick:feeds ns2:RM1282 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC02.RM1282.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC02.RM1282.FAN,
+        ns2:bldg34.ZONE.AC02.RM1282.Heating_Mode,
+        ns2:bldg34.ZONE.AC02.RM1282.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC02.RM1282.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1302 a brick:VAV ;
+    brick:feeds ns2:RM1302 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC04.RM1302.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC04.RM1302.Heating_Mode,
+        ns2:bldg34.ZONE.AC04.RM1302.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC04.RM1302.Zone_Air_Temp_Setpoint .
+
+ns2:VAVRM1303 a brick:VAV ;
+    brick:feeds ns2:RM1303 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC04.RM1303.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC04.RM1303.Heating_Mode,
+        ns2:bldg34.ZONE.AC04.RM1303.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC04.RM1303.Zone_Air_Temp_Setpoint .
+
+ns2:RM1015A_room a brick:Room .
+
+ns2:RM1100_room a brick:Room .
+
+ns2:RM1113_room a brick:Room .
+
+ns2:RM1121_room a brick:Room .
+
+ns2:RM1127_room a brick:Room .
+
+ns2:RM1131_room a brick:Room .
+
+ns2:RM1135_room a brick:Room .
+
+ns2:RM1151_room a brick:Room .
+
+ns2:RM1153_room a brick:Room .
+
+ns2:RM1162_room a brick:Room .
+
+ns2:RM1163_room a brick:Room .
+
+ns2:RM1165_room a brick:Room .
+
+ns2:RM1167_room a brick:Room .
+
+ns2:RM1171_room a brick:Room .
+
+ns2:RM1202A_room a brick:Room .
+
+ns2:RM1202B_room a brick:Room .
+
+ns2:RM1202_room a brick:Room .
+
+ns2:RM1210A_room a brick:Room .
+
+ns2:RM1213_room a brick:Room .
+
+ns2:RM1219_room a brick:Room .
+
+ns2:RM1222_room a brick:Room .
+
+ns2:RM1223_room a brick:Room .
+
+ns2:RM1224_room a brick:Room .
+
+ns2:RM1225C_room a brick:Room .
+
+ns2:RM1225D_room a brick:Room .
+
+ns2:RM1225H_room a brick:Room .
+
+ns2:RM1228_room a brick:Room .
+
+ns2:RM1232_room a brick:Room .
+
+ns2:RM1233A_room a brick:Room .
+
+ns2:RM1233B_room a brick:Room .
+
+ns2:RM1233_room a brick:Room .
+
+ns2:RM1236B_room a brick:Room .
+
+ns2:RM1236C_room a brick:Room .
+
+ns2:RM1264_room a brick:Room .
+
+ns2:RM1271_room a brick:Room .
+
+ns2:RM1279_room a brick:Room .
+
+ns2:RM1282_room a brick:Room .
+
+ns2:RM1302_room a brick:Room .
+
+ns2:RM1303_room a brick:Room .
+
+ns2:VAVRM1100 a brick:VAV ;
+    brick:feeds ns2:RM1100 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1100.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1100.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1100.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1100.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1100.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1100.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1113 a brick:VAV ;
+    brick:feeds ns2:RM1113 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1113.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1113.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1113.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1113.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1113.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1113.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1121 a brick:VAV ;
+    brick:feeds ns2:RM1121 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1121.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1121.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1121.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1121.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1121.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1121.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1127 a brick:VAV ;
+    brick:feeds ns2:RM1127 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1127.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1127.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1127.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1127.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1127.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1127.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1131 a brick:VAV ;
+    brick:feeds ns2:RM1131 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1131.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1131.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1131.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1131.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1131.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1131.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1135 a brick:VAV ;
+    brick:feeds ns2:RM1135 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1135.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1135.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1135.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1135.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1135.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1135.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1151 a brick:VAV ;
+    brick:feeds ns2:RM1151 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1151.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1151.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1151.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1151.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1151.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1151.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1153 a brick:VAV ;
+    brick:feeds ns2:RM1153 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1153.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1153.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1153.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1153.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1153.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1153.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1162 a brick:VAV ;
+    brick:feeds ns2:RM1162 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1162.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1162.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1162.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1162.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1162.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1163 a brick:VAV ;
+    brick:feeds ns2:RM1163 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1163.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1163.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1163.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1163.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1163.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1163.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1165 a brick:VAV ;
+    brick:feeds ns2:RM1165 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1165.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1165.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1165.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1165.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1165.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1202 a brick:VAV ;
+    brick:feeds ns2:RM1202 ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1202.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1202.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1202.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1202.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1202.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1202.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1202A a brick:VAV ;
+    brick:feeds ns2:RM1202A ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1202A.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1202A.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1202A.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1202A.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1202A.Zone_Reheat_Valve_Command,
+        ns2:bldg34.ZONE.AC01.RM1202A.Zone_Supply_Air_Flow .
+
+ns2:VAVRM1202B a brick:VAV ;
+    brick:feeds ns2:RM1202B ;
+    brick:hasPoint ns2:bldg34.ZONE.AC01.RM1202B.Day_Night_Mode,
+        ns2:bldg34.ZONE.AC01.RM1202B.Heating_Mode,
+        ns2:bldg34.ZONE.AC01.RM1202B.Zone_Air_Temp,
+        ns2:bldg34.ZONE.AC01.RM1202B.Zone_Air_Temp_Setpoint,
+        ns2:bldg34.ZONE.AC01.RM1202B.Zone_Supply_Air_Flow .
+
+ns2:chiller a brick:Chiller ;
+    brick:hasPoint ns2:bldg34.CHW.Building_Chilled_Water_Delta_Temp,
+        ns2:bldg34.CHW.Building_Chilled_Water_Flow,
+        ns2:bldg34.CHW.Building_Chilled_Water_Return_Temp,
+        ns2:bldg34.CHW.Building_Chilled_Water_Supply_Temp,
+        ns2:bldg34.CHW.Building_Chilled_Water_Supply_Temp_Setpoint,
+        ns2:bldg34.CHW.CHWP2A_FREQ_OUTPUT,
+        ns2:bldg34.CHW.CHWP2A_PCT_OUTPUT,
+        ns2:bldg34.CHW.CHWP2A_POWER,
+        ns2:bldg34.CHW.CHWP2A_SPEED,
+        ns2:bldg34.CHW.CHWP2B_FREQ_OUTPUT,
+        ns2:bldg34.CHW.CHWP2B_PCT_OUTPUT,
+        ns2:bldg34.CHW.CHWP2B_POWER,
+        ns2:bldg34.CHW.CHWP2B_SPEED,
+        ns2:bldg34.CHW.ECONOMIZER,
+        ns2:bldg34.CHW.Enable,
+        ns2:bldg34.CHW.Loop_Chilled_Water_Return_Temp,
+        ns2:bldg34.CHW.Loop_Chilled_Water_Supply_Temp,
+        ns2:bldg34.CHW.Outside_Air_Temp,
+        ns2:bldg34.CHW.WEST_CHWP_FREQ_OUTPUT,
+        ns2:bldg34.CHW.WEST_CHWP_PCT_OUTPUT,
+        ns2:bldg34.CHW.WEST_CHWP_POWER,
+        ns2:bldg34.CHW.WEST_CHWP_SPEED .
+

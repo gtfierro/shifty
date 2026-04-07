@@ -23,6 +23,7 @@ pub use types::ComponentID;
 
 // Internal modules.
 pub mod canonicalization;
+pub(crate) mod component_memo;
 pub mod context;
 pub(crate) mod named_nodes;
 pub(crate) mod parser;
@@ -30,6 +31,7 @@ pub(crate) mod planning;
 pub(crate) mod report;
 pub(crate) mod runtime;
 pub mod sparql;
+pub(crate) mod target_hash;
 pub mod test_utils; // Often pub for integration tests
 pub(crate) mod validate;
 
@@ -1802,14 +1804,39 @@ impl Validator {
         );
         let outcome = crate::inference::run_inference(&self.context, config);
         match &outcome {
-            Ok(outcome) => info!(
-                "Finished inference with shape graph <{}> and data graph <{}>; iterations={} triples_added={} converged={}",
-                self.context.model.shape_graph_iri,
-                self.context.data_graph_iri,
-                outcome.iterations_executed,
-                outcome.triples_added,
-                outcome.converged
-            ),
+            Ok(outcome) => {
+                info!(
+                    "Finished inference with shape graph <{}> and data graph <{}>; iterations={} triples_added={} converged={}",
+                    self.context.model.shape_graph_iri,
+                    self.context.data_graph_iri,
+                    outcome.iterations_executed,
+                    outcome.triples_added,
+                    outcome.converged
+                );
+                if outcome.total_waves_executed > 0 {
+                    info!(
+                        "Wave statistics: {} waves executed, avg {:.1} rules/wave, max parallelism={}, sequential waves={}",
+                        outcome.total_waves_executed,
+                        outcome.avg_rules_per_wave,
+                        outcome.max_wave_parallelism,
+                        outcome.sequential_waves
+                    );
+                }
+                if outcome.total_inference_time_ms > 0 {
+                    info!(
+                        "Performance: total={}ms, SPARQL={}ms ({} rules: {} compiled, {} generic), Triple={}ms ({} rules), Focus={}ms, WaveComp={}ms",
+                        outcome.total_inference_time_ms,
+                        outcome.sparql_execution_time_ms,
+                        outcome.sparql_rules_executed,
+                        outcome.compiled_sparql_rules,
+                        outcome.generic_sparql_rules,
+                        outcome.triple_execution_time_ms,
+                        outcome.triple_rules_executed,
+                        outcome.focus_collection_time_ms,
+                        outcome.wave_computation_time_ms
+                    );
+                }
+            }
             Err(err) => warn!(
                 "Finished inference with shape graph <{}> and data graph <{}>; failed with error: {}",
                 self.context.model.shape_graph_iri, self.context.data_graph_iri, err

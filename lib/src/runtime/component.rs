@@ -1,4 +1,7 @@
 #![allow(dead_code, clippy::large_enum_variant)]
+use crate::component_memo::{
+    ComponentMemoKey, is_memoizable_component, memo_value_to_results, results_to_memo_value,
+};
 use crate::context::{Context, SourceShape, ValidationContext};
 use crate::runtime::validators::{
     AndConstraintComponent, ClassConstraintComponent, ClosedConstraintComponent,
@@ -340,105 +343,311 @@ impl Component {
         events: &mut Vec<TraceEvent>,
         prefetched_values: Option<Vec<Term>>,
     ) -> Result<Vec<ComponentValidationResult>, String> {
+        // Check memoization cache before performing validation
+        if is_memoizable_component(component_id, context) {
+            // Use prefetched_values if available, otherwise fall back to context value_nodes
+            let values_for_key = prefetched_values
+                .as_ref()
+                .or_else(|| c.value_nodes())
+                .cloned();
+
+            let memo_key = ComponentMemoKey::new(
+                component_id,
+                c.focus_node().clone(),
+                &values_for_key,
+                c.value_count(),
+            );
+
+            if let Ok(cache) = context.component_memo_cache.read()
+                && let Some(cached_value) = cache.get(&memo_key)
+            {
+                // Cache hit! Record event and return cached result
+                events.push(TraceEvent::ComponentCacheHit(
+                    component_id,
+                    c.source_shape().clone(),
+                ));
+                return Ok(memo_value_to_results(cached_value, c));
+            }
+        }
+
         trace.push(TraceItem::Component(component_id));
         let source_shape = c.source_shape();
         let _component_scope = context.enter_component_scope(component_id, source_shape.clone());
         let started = Instant::now();
         events.push(TraceEvent::EnterComponent(component_id, started));
+
+        // Clone prefetched_values for passing to validators
+        let prefetched_values_for_validator = prefetched_values.clone();
+
         let result = match self {
-            Component::ClassConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::NodeConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::PropertyConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::QualifiedValueShape(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::DatatypeConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::NodeKindConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MinCount(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MaxCount(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MinLengthConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MaxLengthConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::PatternConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::LanguageInConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::UniqueLangConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::NotConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::AndConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::OrConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::XoneConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::HasValueConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::InConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::SPARQLConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::DisjointConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::EqualsConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::LessThanConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::LessThanOrEqualsConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MinExclusiveConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MinInclusiveConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MaxExclusiveConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::MaxInclusiveConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::ClosedConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
-            Component::CustomConstraint(comp) => {
-                comp.validate(component_id, c, context, trace, events, prefetched_values)
-            }
+            Component::ClassConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::NodeConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::PropertyConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::QualifiedValueShape(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::DatatypeConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::NodeKindConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MinCount(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MaxCount(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MinLengthConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MaxLengthConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::PatternConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::LanguageInConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::UniqueLangConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::NotConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::AndConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::OrConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::XoneConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::HasValueConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::InConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::SPARQLConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::DisjointConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::EqualsConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::LessThanConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::LessThanOrEqualsConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MinExclusiveConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MinInclusiveConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MaxExclusiveConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::MaxInclusiveConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::ClosedConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
+            Component::CustomConstraint(comp) => comp.validate(
+                component_id,
+                c,
+                context,
+                trace,
+                events,
+                prefetched_values_for_validator,
+            ),
         };
         events.push(TraceEvent::ExitComponent(component_id, Instant::now()));
         context.record_component_duration(component_id, source_shape, started.elapsed());
+
+        // Populate memoization cache if component is memoizable
+        if is_memoizable_component(component_id, context)
+            && let Ok(ref results) = result
+        {
+            // Use prefetched_values if available, otherwise fall back to context value_nodes
+            let values_for_key = prefetched_values
+                .as_ref()
+                .or_else(|| c.value_nodes())
+                .cloned();
+
+            let memo_key = ComponentMemoKey::new(
+                component_id,
+                c.focus_node().clone(),
+                &values_for_key,
+                c.value_count(),
+            );
+
+            let memo_value = results_to_memo_value(results);
+
+            if let Ok(mut cache) = context.component_memo_cache.write() {
+                cache.insert(memo_key, memo_value);
+            }
+        }
+
         result
     }
 }

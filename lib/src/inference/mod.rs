@@ -61,6 +61,26 @@ pub struct InferenceOutcome {
     pub triples_added: usize,
     pub converged: bool,
     pub inferred_quads: Vec<Quad>,
+    /// Condition cache statistics
+    pub condition_cache_hits: u64,
+    pub condition_cache_misses: u64,
+    pub condition_cache_size: usize,
+    /// Parallel wave execution statistics
+    pub total_waves_executed: usize,
+    pub avg_rules_per_wave: f64,
+    pub max_wave_parallelism: usize,
+    pub sequential_waves: usize, // Waves with only 1 rule
+    /// Performance profiling statistics
+    pub total_inference_time_ms: u128,
+    pub sparql_rules_executed: usize,
+    pub triple_rules_executed: usize,
+    pub sparql_execution_time_ms: u128,
+    pub triple_execution_time_ms: u128,
+    pub focus_collection_time_ms: u128,
+    pub wave_computation_time_ms: u128,
+    /// SPARQL execution breakdown
+    pub compiled_sparql_rules: usize,
+    pub generic_sparql_rules: usize,
 }
 
 #[derive(Debug)]
@@ -225,6 +245,22 @@ impl<'a> InferenceEngine<'a> {
                 triples_added: 0,
                 converged: true,
                 inferred_quads: Vec::new(),
+                condition_cache_hits: 0,
+                condition_cache_misses: 0,
+                condition_cache_size: 0,
+                total_waves_executed: 0,
+                avg_rules_per_wave: 0.0,
+                max_wave_parallelism: 0,
+                sequential_waves: 0,
+                total_inference_time_ms: 0,
+                sparql_rules_executed: 0,
+                triple_rules_executed: 0,
+                sparql_execution_time_ms: 0,
+                triple_execution_time_ms: 0,
+                focus_collection_time_ms: 0,
+                wave_computation_time_ms: 0,
+                compiled_sparql_rules: 0,
+                generic_sparql_rules: 0,
             });
         }
 
@@ -233,6 +269,23 @@ impl<'a> InferenceEngine<'a> {
         let mut converged = false;
         let mut inferred_quads = Vec::new();
         let mut delta = DeltaIndex::initial();
+
+        // Wave statistics tracking
+        let mut total_waves = 0;
+        let mut total_rules_in_waves = 0;
+        let mut max_wave_size = 0;
+        let mut single_rule_waves = 0;
+
+        // Performance profiling tracking
+        let inference_start = Instant::now();
+        let mut total_sparql_time = std::time::Duration::ZERO;
+        let mut total_triple_time = std::time::Duration::ZERO;
+        let mut total_focus_time = std::time::Duration::ZERO;
+        let mut total_wave_computation_time = std::time::Duration::ZERO;
+        let mut total_sparql_rules = 0;
+        let mut total_triple_rules = 0;
+        let mut total_compiled_sparql = 0;
+        let mut total_generic_sparql = 0;
 
         if self.config.trace {
             info!(
@@ -244,9 +297,26 @@ impl<'a> InferenceEngine<'a> {
 
         for iteration in 1..=self.config.max_iterations {
             iterations_executed = iteration;
-            let (added_this_round, producer_plan_indices) =
+            let (added_this_round, producer_plan_indices, iter_wave_stats) =
                 self.apply_rules_for_delta(&delta, &mut inferred_quads)?;
             total_added += added_this_round;
+
+            // Accumulate wave statistics
+            total_waves += iter_wave_stats.waves_count;
+            total_rules_in_waves += iter_wave_stats.total_rules;
+            max_wave_size = max_wave_size.max(iter_wave_stats.max_wave_size);
+            single_rule_waves += iter_wave_stats.single_rule_waves;
+
+            // Accumulate profiling statistics
+            total_sparql_time += iter_wave_stats.sparql_time;
+            total_triple_time += iter_wave_stats.triple_time;
+            total_focus_time += iter_wave_stats.focus_time;
+            total_wave_computation_time += iter_wave_stats.wave_computation_time;
+            total_sparql_rules += iter_wave_stats.sparql_rules;
+            total_triple_rules += iter_wave_stats.triple_rules;
+            total_compiled_sparql += iter_wave_stats.compiled_sparql;
+            total_generic_sparql += iter_wave_stats.generic_sparql;
+
             if self.config.trace {
                 info!(
                     "Inference iteration {} added {} triple(s)",
@@ -275,18 +345,65 @@ impl<'a> InferenceEngine<'a> {
             }
         }
 
+        // Compute cache statistics
+        let condition_cache_hits = if self.config.trace {
+            self.context
+                .trace_events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e, TraceEvent::InferenceConditionCacheHit(_, _)))
+                .count() as u64
+        } else {
+            0
+        };
+        let condition_cache_size = self
+            .context
+            .inference_condition_cache
+            .read()
+            .map(|cache| cache.len())
+            .unwrap_or(0);
+
         if self.config.trace {
             info!(
                 "Inference finished after {} iteration(s); triples added={}; converged={}",
                 iterations_executed, total_added, converged
             );
+            if self.config.optimize.cache_condition_conformance {
+                info!(
+                    "Condition cache: {} hits, {} entries",
+                    condition_cache_hits, condition_cache_size
+                );
+            }
         }
+
+        let total_inference_time = inference_start.elapsed();
 
         Ok(InferenceOutcome {
             iterations_executed,
             triples_added: total_added,
             converged,
             inferred_quads,
+            condition_cache_hits,
+            condition_cache_misses: 0, // TODO: track total checks to compute misses
+            condition_cache_size,
+            total_waves_executed: total_waves,
+            avg_rules_per_wave: if total_waves > 0 {
+                total_rules_in_waves as f64 / total_waves as f64
+            } else {
+                0.0
+            },
+            max_wave_parallelism: max_wave_size,
+            sequential_waves: single_rule_waves,
+            total_inference_time_ms: total_inference_time.as_millis(),
+            sparql_rules_executed: total_sparql_rules,
+            triple_rules_executed: total_triple_rules,
+            sparql_execution_time_ms: total_sparql_time.as_millis(),
+            triple_execution_time_ms: total_triple_time.as_millis(),
+            focus_collection_time_ms: total_focus_time.as_millis(),
+            wave_computation_time_ms: total_wave_computation_time.as_millis(),
+            compiled_sparql_rules: total_compiled_sparql,
+            generic_sparql_rules: total_generic_sparql,
         })
     }
 
@@ -370,84 +487,249 @@ impl<'a> InferenceEngine<'a> {
         Ok(plans)
     }
 
+    /// Pre-compute focus nodes for all rules in a wave
+    /// Returns: HashMap<plan_index, focus_nodes>
+    fn batch_collect_focus_nodes(
+        &self,
+        wave: &ParallelWave,
+        delta: &DeltaIndex,
+    ) -> Result<HashMap<usize, Vec<Term>>, InferenceError> {
+        let mut focus_map = HashMap::new();
+
+        for &plan_index in &wave.plan_indices {
+            let plan = &self.plans[plan_index];
+            if let Some(focus_nodes) = self.focus_nodes_for_plan(plan, delta)? {
+                focus_map.insert(plan_index, focus_nodes);
+            }
+        }
+
+        Ok(focus_map)
+    }
+
+    /// Execute all rules in a wave in parallel
+    /// Execute all rules in a wave in parallel
+    /// Returns: Vec<WaveExecutionResult>
+    fn execute_wave_parallel(
+        &self,
+        wave: &ParallelWave,
+        focus_map: &HashMap<usize, Vec<Term>>,
+        delta: &DeltaIndex,
+    ) -> Result<Vec<WaveExecutionResult>, InferenceError> {
+        use rayon::prelude::*;
+
+        // Parallel execution of independent rules
+        let results: Result<Vec<_>, InferenceError> = wave
+            .plan_indices
+            .par_iter()
+            .map(|&plan_index| {
+                let plan = &self.plans[plan_index];
+                let is_sparql = matches!(plan.rule, Rule::Sparql(_));
+                let is_compiled_sparql = is_sparql && plan.native_sparql.is_some();
+
+                // Get pre-computed focus nodes
+                let Some(focus_nodes) = focus_map.get(&plan_index) else {
+                    // No focus nodes means rule was skipped (trigger didn't match)
+                    return Ok((
+                        plan_index,
+                        0,
+                        Vec::new(),
+                        std::time::Duration::ZERO,
+                        is_sparql,
+                        is_compiled_sparql,
+                    ));
+                };
+
+                if self.config.trace {
+                    let now = Instant::now();
+                    self.context
+                        .trace_sink
+                        .record(TraceEvent::EnterRule(plan.rule.id(), now));
+                }
+
+                // Thread-local buffers (no sharing needed)
+                let mut thread_collected = Vec::new();
+                let mut thread_seen = HashSet::new();
+
+                // Execute rule based on type
+                let exec_start = Instant::now();
+                let added = match &plan.rule {
+                    Rule::Sparql(sparql_rule) => {
+                        self.context
+                            .ensure_compiled_sparql_index(&plan.compiled_index_requirements)
+                            .map_err(|message| InferenceError::RuleExecution {
+                                rule_id: sparql_rule.id,
+                                message,
+                            })?;
+                        self.apply_sparql_rule(
+                            sparql_rule,
+                            plan.sparql_prefilter.as_ref(),
+                            plan.native_sparql.as_ref(),
+                            delta,
+                            focus_nodes,
+                            &mut thread_seen,
+                            &mut thread_collected,
+                        )?
+                    }
+                    Rule::Triple(triple_rule) => self.apply_triple_rule(
+                        triple_rule,
+                        delta,
+                        focus_nodes,
+                        &mut thread_seen,
+                        &mut thread_collected,
+                    )?,
+                };
+                let exec_time = exec_start.elapsed();
+
+                if self.config.trace {
+                    self.context.trace_sink.record(TraceEvent::ExitRule(
+                        plan.rule.id(),
+                        added,
+                        Instant::now(),
+                    ));
+                }
+
+                Ok((
+                    plan_index,
+                    added,
+                    thread_collected,
+                    exec_time,
+                    is_sparql,
+                    is_compiled_sparql,
+                ))
+            })
+            .collect();
+
+        results
+    }
+
     fn apply_rules_for_delta(
         &self,
         delta: &DeltaIndex,
         collected: &mut Vec<Quad>,
-    ) -> Result<(usize, HashSet<usize>), InferenceError> {
+    ) -> Result<(usize, HashSet<usize>, WaveStats), InferenceError> {
         let mut iteration_added = 0usize;
         let mut producer_plan_indices = HashSet::new();
         let mut seen_new: HashSet<(Term, NamedNode, Term)> = HashSet::new();
+
         let scheduled = self.scheduled_plan_indices(delta);
 
-        for plan_index in scheduled {
-            let plan = &self.plans[plan_index];
-            let Some(focus_nodes) = self.focus_nodes_for_plan(plan, delta)? else {
-                continue;
-            };
+        // Early return if nothing scheduled
+        if scheduled.is_empty() {
+            return Ok((0, HashSet::new(), WaveStats::default()));
+        }
+
+        // Compute parallel waves from scheduled plans
+        let wave_comp_start = Instant::now();
+        let waves = if self.config.optimize.parallel_rule_execution {
+            self.dependency_graph.compute_waves(&scheduled)
+        } else {
+            // Fallback: single wave with all rules (sequential execution)
+            vec![ParallelWave {
+                plan_indices: scheduled,
+            }]
+        };
+        let wave_comp_time = wave_comp_start.elapsed();
+
+        // Track wave statistics
+        let mut wave_stats = WaveStats {
+            waves_count: waves.len(),
+            total_rules: 0,
+            max_wave_size: 0,
+            single_rule_waves: 0,
+            sparql_time: std::time::Duration::ZERO,
+            triple_time: std::time::Duration::ZERO,
+            focus_time: std::time::Duration::ZERO,
+            wave_computation_time: wave_comp_time,
+            sparql_rules: 0,
+            triple_rules: 0,
+            compiled_sparql: 0,
+            generic_sparql: 0,
+        };
+
+        // Execute waves in dependency order
+        for (wave_idx, wave) in waves.iter().enumerate() {
+            wave_stats.total_rules += wave.plan_indices.len();
+            wave_stats.max_wave_size = wave_stats.max_wave_size.max(wave.plan_indices.len());
+            if wave.plan_indices.len() == 1 {
+                wave_stats.single_rule_waves += 1;
+            }
+            let wave_start = Instant::now();
 
             if self.config.trace {
-                debug!(
-                    "Rule {:?} owner {:?} scheduled for {} focus node(s)",
-                    plan.rule.id(),
-                    plan.owner,
-                    focus_nodes.len()
-                );
+                self.context
+                    .trace_sink
+                    .record(TraceEvent::ParallelWaveStarted {
+                        wave_index: wave_idx,
+                        rules_count: wave.plan_indices.len(),
+                        ts: wave_start,
+                    });
             }
 
-            let rule_id = plan.rule.id();
-            let now = Instant::now();
-            self.context
-                .trace_sink
-                .record(TraceEvent::EnterRule(rule_id, now));
+            // Batch collect focus nodes for all rules in wave (sequential)
+            let focus_start = Instant::now();
+            let focus_map = self.batch_collect_focus_nodes(wave, delta)?;
+            let focus_time = focus_start.elapsed();
+            wave_stats.focus_time += focus_time;
 
-            let added = match &plan.rule {
-                Rule::Sparql(sparql_rule) => {
-                    self.context
-                        .ensure_compiled_sparql_index(&plan.compiled_index_requirements)
-                        .map_err(|message| InferenceError::RuleExecution {
-                            rule_id: sparql_rule.id,
-                            message,
-                        })?;
-                    self.apply_sparql_rule(
-                        sparql_rule,
-                        plan.sparql_prefilter.as_ref(),
-                        plan.native_sparql.as_ref(),
-                        delta,
-                        &focus_nodes,
-                        &mut seen_new,
-                        collected,
-                    )?
+            // Parallel execution within wave
+            let wave_results = self.execute_wave_parallel(wave, &focus_map, delta)?;
+
+            // Collect results sequentially (maintains determinism)
+            let mut wave_added = 0;
+            for (plan_index, added, quads, exec_time, is_sparql, is_compiled_sparql) in wave_results
+            {
+                // Track timing
+                if is_sparql {
+                    wave_stats.sparql_time += exec_time;
+                    wave_stats.sparql_rules += 1;
+                    if is_compiled_sparql {
+                        wave_stats.compiled_sparql += 1;
+                    } else {
+                        wave_stats.generic_sparql += 1;
+                    }
+                } else {
+                    wave_stats.triple_time += exec_time;
+                    wave_stats.triple_rules += 1;
                 }
-                Rule::Triple(triple_rule) => self.apply_triple_rule(
-                    triple_rule,
-                    delta,
-                    &focus_nodes,
-                    &mut seen_new,
-                    collected,
-                )?,
-            };
+                if added > 0 {
+                    producer_plan_indices.insert(plan_index);
+                }
 
-            self.context
-                .trace_sink
-                .record(TraceEvent::ExitRule(rule_id, added, Instant::now()));
-
-            iteration_added += added;
-            if added > 0 {
-                producer_plan_indices.insert(plan_index);
+                // Deduplicate against global seen_new and count actually added quads
+                for quad in quads {
+                    let Ok(subject_term) = named_or_blank_to_term(quad.subject.clone()) else {
+                        continue;
+                    };
+                    let key = (subject_term, quad.predicate.clone(), quad.object.clone());
+                    if seen_new.insert(key) {
+                        collected.push(quad);
+                        wave_added += 1;
+                        iteration_added += 1;
+                    }
+                }
             }
 
-            if self.config.trace && added > 0 {
+            if self.config.trace {
+                self.context
+                    .trace_sink
+                    .record(TraceEvent::ParallelWaveCompleted {
+                        wave_index: wave_idx,
+                        rules_count: wave.plan_indices.len(),
+                        triples_added: wave_added,
+                        ts: Instant::now(),
+                    });
+
                 debug!(
-                    "Rule {:?} owner {:?} produced {} triple(s)",
-                    plan.rule.id(),
-                    plan.owner,
-                    added
+                    "Wave {} completed: {} rules executed in parallel, {} triples added ({:?})",
+                    wave_idx,
+                    wave.plan_indices.len(),
+                    wave_added,
+                    wave_start.elapsed()
                 );
             }
         }
 
-        Ok((iteration_added, producer_plan_indices))
+        Ok((iteration_added, producer_plan_indices, wave_stats))
     }
 
     fn scheduled_plan_indices(&self, delta: &DeltaIndex) -> Vec<usize> {
@@ -940,11 +1222,45 @@ impl<'a> InferenceEngine<'a> {
         for condition in conditions {
             match condition {
                 RuleCondition::NodeShape(shape_id) => {
+                    let cache_key = (*shape_id, focus_node.clone());
+
+                    // Try cache read first (if optimization is enabled)
+                    if self.config.optimize.cache_condition_conformance
+                        && let Ok(cache) = self.context.inference_condition_cache.read()
+                        && let Some(&cached_result) = cache.get(&cache_key)
+                    {
+                        if self.config.trace {
+                            debug!(
+                                "[TRACE] Condition cache HIT: shape={} focus={}",
+                                shape_id, focus_node
+                            );
+                            self.context
+                                .trace_sink
+                                .record(TraceEvent::InferenceConditionCacheHit(
+                                    *shape_id,
+                                    focus_node.clone(),
+                                ));
+                        }
+                        if !cached_result {
+                            return Ok(false);
+                        }
+                        continue;
+                    }
+
+                    // Cache miss - compute and store
                     let conforms = node_conforms_to_shape(self.context, focus_node, *shape_id)
                         .map_err(|e| InferenceError::RuleExecution {
                             rule_id,
                             message: e,
                         })?;
+
+                    // Store in cache (if optimization is enabled)
+                    if self.config.optimize.cache_condition_conformance
+                        && let Ok(mut cache) = self.context.inference_condition_cache.write()
+                    {
+                        cache.insert(cache_key, conforms);
+                    }
+
                     if !conforms {
                         return Ok(false);
                     }
@@ -1270,6 +1586,33 @@ impl RuleDependencyKey {
     }
 }
 
+/// Represents a parallel execution wave containing independent rules
+#[derive(Debug, Clone)]
+struct ParallelWave {
+    plan_indices: Vec<usize>,
+}
+
+/// Result type for parallel wave execution
+/// (plan_index, triples_added, quads, exec_time, is_sparql, is_compiled_sparql)
+type WaveExecutionResult = (usize, usize, Vec<Quad>, std::time::Duration, bool, bool);
+
+/// Statistics about wave execution for a single iteration
+#[derive(Debug, Clone, Default)]
+struct WaveStats {
+    waves_count: usize,
+    total_rules: usize,
+    max_wave_size: usize,
+    single_rule_waves: usize,
+    sparql_time: std::time::Duration,
+    triple_time: std::time::Duration,
+    focus_time: std::time::Duration,
+    wave_computation_time: std::time::Duration,
+    sparql_rules: usize,
+    triple_rules: usize,
+    compiled_sparql: usize,
+    generic_sparql: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 struct RuleDependencyGraph {
     downstream: HashMap<usize, Vec<usize>>,
@@ -1361,6 +1704,75 @@ impl RuleDependencyGraph {
             .copied()
             .filter(|plan_index| scheduled.contains(plan_index))
             .collect()
+    }
+
+    /// Compute parallel waves for a given set of scheduled plans
+    /// Returns waves in dependency order: wave[0] has no dependencies,
+    /// wave[n] depends only on rules in waves[0..n]
+    fn compute_waves(&self, scheduled_plans: &[usize]) -> Vec<ParallelWave> {
+        // Build in-degree map (count incoming dependencies)
+        let mut in_degree: HashMap<usize, usize> = HashMap::new();
+        let scheduled_set: HashSet<usize> = scheduled_plans.iter().copied().collect();
+
+        // Initialize in-degree for all scheduled rules
+        for &plan_idx in scheduled_plans {
+            in_degree.entry(plan_idx).or_insert(0);
+        }
+
+        // Count incoming edges for each scheduled rule
+        for &plan_idx in scheduled_plans {
+            if let Some(consumers) = self.downstream.get(&plan_idx) {
+                for &consumer in consumers {
+                    if scheduled_set.contains(&consumer) {
+                        *in_degree.entry(consumer).or_default() += 1;
+                    }
+                }
+            }
+        }
+
+        let mut waves = Vec::new();
+        let mut remaining: HashSet<usize> = scheduled_plans.iter().copied().collect();
+
+        // Extract waves iteratively
+        while !remaining.is_empty() {
+            // Current wave = all rules with in-degree 0 (no dependencies)
+            let current_wave: Vec<usize> = remaining
+                .iter()
+                .filter(|&&idx| in_degree.get(&idx).copied().unwrap_or(0) == 0)
+                .copied()
+                .collect();
+
+            if current_wave.is_empty() {
+                // Cycle detected or disconnected - fallback
+                log::warn!("Dependency cycle detected, executing remaining rules sequentially");
+                waves.push(ParallelWave {
+                    plan_indices: remaining.into_iter().collect(),
+                });
+                break;
+            }
+
+            // Remove current wave from remaining
+            for &idx in &current_wave {
+                remaining.remove(&idx);
+            }
+
+            // Decrease in-degree for consumers of this wave
+            for &idx in &current_wave {
+                if let Some(consumers) = self.downstream.get(&idx) {
+                    for &consumer in consumers {
+                        if let Some(degree) = in_degree.get_mut(&consumer) {
+                            *degree = degree.saturating_sub(1);
+                        }
+                    }
+                }
+            }
+
+            waves.push(ParallelWave {
+                plan_indices: current_wave,
+            });
+        }
+
+        waves
     }
 }
 

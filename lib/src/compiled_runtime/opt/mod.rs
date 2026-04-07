@@ -1,3 +1,5 @@
+pub mod cost_scheduler;
+
 use crate::compiled_runtime::analysis::AnalysisState;
 use crate::compiled_runtime::program::{CompiledProgram, ShapeKind};
 

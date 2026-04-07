@@ -27,6 +27,9 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+/// Type alias for the path batch cache map to reduce type complexity
+type PathBatchCacheMap = RwLock<HashMap<String, Arc<HashMap<Term, Vec<Term>>>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ComponentGraphCallKey {
     component_id: ComponentID,
@@ -247,6 +250,8 @@ pub struct ValidationContext {
     pub(crate) advanced_target_cache: RwLock<HashMap<Term, Arc<[Term]>>>,
     pub(crate) node_target_cache: RwLock<HashMap<ID, Arc<[Term]>>>,
     pub(crate) prop_target_cache: RwLock<HashMap<PropShapeID, Arc<[Term]>>>,
+    /// Global target cache using target expression hashes for deduplication across shapes
+    pub(crate) global_target_cache: RwLock<HashMap<u64, Arc<[Term]>>>,
     pub(crate) backend: Arc<OxigraphBackend>,
     pub(crate) trace_sink: Arc<dyn TraceSink>,
     pub(crate) trace_events: Arc<Mutex<Vec<TraceEvent>>>,
@@ -261,9 +266,19 @@ pub struct ValidationContext {
     shape_timing_stats: Mutex<HashMap<ShapeTimingKey, TimingStats>>,
     class_constraint_index: RwLock<Option<Arc<ClassConstraintIndex>>>,
     class_constraint_memo: RwLock<HashMap<(Term, Term), bool>>,
+    /// Component result memoization cache for deduplicating identical constraint validations
+    pub(crate) component_memo_cache: RwLock<
+        HashMap<crate::component_memo::ComponentMemoKey, crate::component_memo::ComponentMemoValue>,
+    >,
+    /// Path batching cache for deduplicating identical path queries across property shapes
+    pub(crate) path_batch_cache: PathBatchCacheMap,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
     focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
     compiled_sparql_index: RwLock<CompiledSparqlIndex>,
+    /// Condition conformance cache for inference rule conditions
+    /// Key: (condition_shape_id, focus_node)
+    /// Value: conformance result (true/false)
+    pub(crate) inference_condition_cache: RwLock<HashMap<(ID, Term), bool>>,
 }
 
 impl ValidationContext {
@@ -320,6 +335,7 @@ impl ValidationContext {
             advanced_target_cache: RwLock::new(HashMap::new()),
             node_target_cache: RwLock::new(HashMap::new()),
             prop_target_cache: RwLock::new(HashMap::new()),
+            global_target_cache: RwLock::new(HashMap::new()),
             backend,
             trace_sink: Arc::new(memory_sink),
             trace_events,
@@ -332,9 +348,12 @@ impl ValidationContext {
             shape_timing_stats: Mutex::new(HashMap::new()),
             class_constraint_index: RwLock::new(None),
             class_constraint_memo: RwLock::new(HashMap::new()),
+            component_memo_cache: RwLock::new(HashMap::new()),
+            path_batch_cache: RwLock::new(HashMap::new()),
             node_conformance_cache: RwLock::new(HashMap::new()),
             focus_predicate_summary: RwLock::new(None),
             compiled_sparql_index: RwLock::new(CompiledSparqlIndex::default()),
+            inference_condition_cache: RwLock::new(HashMap::new()),
         }
     }
 
