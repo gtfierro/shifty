@@ -1,5 +1,6 @@
 // TEMPORARILY DISABLED: These tests are failing and need investigation
 // See: https://github.com/anthropics/claude-code/issues/XXX
+#![allow(unexpected_cfgs)]
 #![cfg(feature = "disabled-compiled-tests")]
 
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
