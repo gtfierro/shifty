@@ -209,7 +209,6 @@ pub struct ValidatorBuilder {
     refresh_strategy: RefreshStrategy,
     import_depth: i32,
     temporary_env: bool,
-    optimize_store: bool,
     optimize_shapes: bool,
     optimize_shapes_data_dependent: bool,
     shape_ir: Option<ShapeIR>,
@@ -244,7 +243,6 @@ impl ValidatorBuilder {
             refresh_strategy: RefreshStrategy::UseCache,
             import_depth: -1,
             temporary_env: true,
-            optimize_store: true,
             optimize_shapes: true,
             optimize_shapes_data_dependent: true,
             shape_ir: None,
@@ -364,16 +362,10 @@ impl ValidatorBuilder {
     ///
     /// Set to `false` to reuse a local OntoEnv cache if present. Persistent OntoEnv
     /// workspaces are treated as cached sources of named graphs; validation still uses a
-    /// mutable working store so later steps like skolemization, graph unioning, and store
-    /// optimization do not mutate the cached workspace.
+    /// mutable working store so later steps like skolemization and graph unioning do not
+    /// mutate the cached workspace.
     pub fn with_temporary_env(mut self, temporary_env: bool) -> Self {
         self.temporary_env = temporary_env;
-        self
-    }
-
-    /// Optimize the Oxigraph store before validation (default: true).
-    pub fn with_store_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_store = enabled;
         self
     }
 
@@ -412,7 +404,6 @@ impl ValidatorBuilder {
             refresh_strategy,
             import_depth,
             temporary_env,
-            optimize_store,
             optimize_shapes,
             optimize_shapes_data_dependent,
             shape_ir,
@@ -779,27 +770,6 @@ impl ValidatorBuilder {
             (model, Arc::new(shape_ir))
         };
 
-        if optimize_store {
-            info!(
-                "Optimizing store with shape graph <{}> and data graph <{}>",
-                shapes_graph_iri, data_graph_iri
-            );
-            model.store.optimize().map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Error optimizing store: {}",
-                    e
-                )))
-            })?;
-            info!(
-                "Finished store optimization with shape graph <{}> and data graph <{}>",
-                shapes_graph_iri, data_graph_iri
-            );
-        } else {
-            info!(
-                "Skipping store optimization for shape graph <{}> and data graph <{}>",
-                shapes_graph_iri, data_graph_iri
-            );
-        }
         let context = ValidationContext::new(
             Arc::new(model),
             data_graph_iri,
@@ -2952,6 +2922,7 @@ ex:Bob a ex:Thing .
 
         let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix ex: <http://example.com/ns#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
@@ -3492,6 +3463,71 @@ ex:Carol a ex:Thing .
             HashSet::from([alice])
         );
 
+        let stats = validator.context.predicate_index_stats();
+        assert_eq!(stats.indexed_predicates, 0);
+        assert!(stats.fallback_lookups > 0);
+        assert_eq!(stats.index_hits, 0);
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn selective_predicate_index_tracks_property_shape_path_predicates()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_selective_predicate_indexed_path")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:ThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:property [
+        sh:path ex:present ;
+        sh:minCount 0 ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:Alice a ex:Thing ;
+    ex:present ex:Bob, "label" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let alice = Term::NamedNode(NamedNode::new("http://example.com/ns#Alice")?);
+        let present = Term::NamedNode(NamedNode::new("http://example.com/ns#present")?);
+
+        assert_eq!(
+            validator
+                .context
+                .focus_outgoing_predicate_count(&alice, &present)?,
+            2
+        );
+        assert_eq!(
+            validator
+                .context
+                .focus_objects_for_predicate(&alice, &present)?
+                .len(),
+            2
+        );
+
+        let stats = validator.context.predicate_index_stats();
+        assert_eq!(stats.indexed_predicates, 1);
+        assert_eq!(stats.builds, 1);
+        assert!(stats.index_hits > 0);
+
         fs::remove_dir_all(&temp_dir)?;
         Ok(())
     }
@@ -3679,6 +3715,206 @@ ex:ThingShape
                 .iter()
                 .map(|stat| (stat.invocations, stat.rows_returned_total))
                 .collect::<Vec<_>>()
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_closed_world_namespace_query_skips_generic_sparql_execution()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_closed_world_namespace")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:Concept
+    sh:property [ sh:path <http://qudt.org/schema/qudt/directAllowed> ] ;
+    sh:xone (
+        [ sh:property [ sh:path <http://qudt.org/schema/qudt/xoneAllowed> ] ]
+    ) ;
+    sh:or (
+        [ sh:property [ sh:path <http://qudt.org/schema/qudt/orAllowed> ] ]
+    ) .
+
+ex:ConceptShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Concept ;
+    sh:sparql [
+        sh:message "Closed-world violation {?p} = {?o}" ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            SELECT $this ?p ?o
+            WHERE {
+                $this ?p ?o .
+                FILTER(STRSTARTS(STR(?p), \"http://qudt.org/schema/qudt\"))
+                FILTER NOT EXISTS { $this a sh:NodeShape . }
+                FILTER NOT EXISTS {
+                    $this rdf:type / rdfs:subClassOf* ?class .
+                    ?class sh:property/sh:path ?p .
+                }
+                FILTER NOT EXISTS {
+                    $this rdf:type / rdfs:subClassOf* ?class .
+                    ?class sh:xone/rdf:rest*/rdf:first/sh:property/sh:path ?p .
+                }
+                FILTER NOT EXISTS {
+                    $this rdf:type / rdfs:subClassOf* ?class .
+                    ?class sh:or/rdf:rest*/rdf:first/sh:property/sh:path ?p .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+
+ex:DirectOk a ex:Concept ;
+    <http://qudt.org/schema/qudt/directAllowed> "direct" .
+
+ex:XoneOk a ex:Concept ;
+    <http://qudt.org/schema/qudt/xoneAllowed> "xone" .
+
+ex:OrOk a ex:Concept ;
+    <http://qudt.org/schema/qudt/orAllowed> "or" .
+
+ex:Bad a ex:Concept ;
+    <http://qudt.org/schema/qudt/disallowed> "12" .
+
+ex:ShapeNode a ex:Concept, sh:NodeShape ;
+    <http://qudt.org/schema/qudt/disallowed> "ignored" .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh = SHACL::new();
+        let graph = report.to_graph();
+        let result_nodes: Vec<_> = graph
+            .iter()
+            .filter(|triple| triple.predicate == sh.result)
+            .filter_map(|triple| match triple.object {
+                oxigraph::model::TermRef::NamedNode(node) => {
+                    Some(oxigraph::model::NamedOrBlankNodeRef::from(node))
+                }
+                oxigraph::model::TermRef::BlankNode(node) => {
+                    Some(oxigraph::model::NamedOrBlankNodeRef::from(node))
+                }
+                oxigraph::model::TermRef::Literal(_) => None,
+            })
+            .collect();
+        assert_eq!(result_nodes.len(), 1);
+
+        let message_terms: Vec<Term> = graph
+            .objects_for_subject_predicate(result_nodes[0], sh.result_message)
+            .map(|term: oxigraph::model::TermRef<'_>| term.into_owned())
+            .collect();
+        assert!(
+            message_terms.iter().any(|term| {
+                matches!(term, Term::Literal(lit)
+                    if lit.value().contains("disallowed") && lit.value().contains("12"))
+            }),
+            "expected result message to include bound ?p and ?o, got {:?}",
+            message_terms
+        );
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered closed-world namespace query should not execute generic SPARQL"
+        );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowered_closed_world_generalized_class_domain_skips_generic_sparql_execution()
+    -> Result<(), Box<dyn Error>> {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_lowered_closed_world_class_domain")?;
+
+        let shapes_ttl = r#"@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.com/ns#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:SubRelation rdfs:subClassOf ex:Relation .
+
+ex:Concept
+    sh:property [ sh:path ex:allowedRelation ] .
+
+ex:ClosedWorldShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Concept ;
+    sh:sparql [
+        sh:message "Relation {?p} is not permitted for {$this}" ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX ex: <http://example.com/ns#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            SELECT $this ?p ?o
+            WHERE {
+                ?p rdf:type / rdfs:subClassOf* ex:Relation .
+                $this ?p ?o .
+                FILTER NOT EXISTS {
+                    $this rdf:type / rdfs:subClassOf* ?class .
+                    ?class sh:property/sh:path ?p .
+                }
+            }
+        """ ;
+    ] .
+"#;
+
+        let data_ttl = r#"@prefix ex: <http://example.com/ns#> .
+
+ex:allowedRelation a ex:SubRelation .
+ex:disallowedRelation a ex:Relation .
+
+ex:Allowed a ex:Concept ;
+    ex:allowedRelation ex:Value1 .
+
+ex:Bad a ex:Concept ;
+    ex:disallowedRelation ex:Value2 .
+"#;
+
+        let shapes_path = temp_dir.join("shapes.ttl");
+        let data_path = temp_dir.join("data.ttl");
+        fs::write(&shapes_path, shapes_ttl)?;
+        fs::write(&data_path, data_ttl)?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(shapes_path))
+            .with_data_source(Source::File(data_path))
+            .build()?;
+
+        let report = validator.validate();
+        assert!(!report.conforms());
+
+        let sh_result = SHACL::new().result;
+        let result_count = report
+            .to_graph()
+            .iter()
+            .filter(|triple| triple.predicate == sh_result)
+            .count();
+        assert_eq!(result_count, 1);
+        assert!(
+            validator.sparql_query_call_stats().is_empty(),
+            "lowered closed-world class-domain query should not execute generic SPARQL"
         );
 
         fs::remove_dir_all(&temp_dir)?;

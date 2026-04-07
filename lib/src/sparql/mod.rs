@@ -15,7 +15,8 @@ use oxigraph::model::{
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator, Variable};
 use oxigraph::store::Store;
 use spargebra::algebra::{
-    AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
+    AggregateExpression, Expression, Function, GraphPattern, OrderExpression,
+    PropertyPathExpression,
 };
 use spargebra::term::{BlankNode, GroundTerm, NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::{Query as AlgebraQuery, SparqlParser};
@@ -95,6 +96,7 @@ pub struct ThisPredicateRequirement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweredSparqlQueryKind {
+    ClosedWorldClassPredicateWhitelist(ClosedWorldPlan),
     AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan),
     PathValueEqualsConstant(PathValueEqualsConstantPlan),
     RequiredPathSupport(RequiredPathSupportPlan),
@@ -113,6 +115,28 @@ pub enum CompiledTargetSelectQuery {
 pub struct AdjacentPredicateWhitelistPlan {
     pub anchor_path: LoweredPropertyPath,
     pub allowed_predicates: Vec<NamedNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosedWorldPlan {
+    pub predicate_var: String,
+    pub object_var: String,
+    pub predicate_domain: ClosedWorldPredicateDomain,
+    pub skip_focus_if_shape_node: bool,
+    pub allowed_sources: Vec<ClosedWorldAllowedSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClosedWorldPredicateDomain {
+    NamespacePrefix(String),
+    SubclassOfClass(Term),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ClosedWorldAllowedSource {
+    DirectPropertyPath,
+    XonePropertyPath,
+    OrPropertyPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1146,6 +1170,11 @@ fn lowered_sparql_query_kind_in_graph_pattern(
             plan,
         )));
     }
+    if let Some(plan) = lowered_closed_world_query(pattern) {
+        return Some(LoweredSparqlQueryKind::ClosedWorldClassPredicateWhitelist(
+            plan,
+        ));
+    }
     if let Some(plan) = lowered_missing_related_node(pattern) {
         return Some(LoweredSparqlQueryKind::MissingRelatedNode(plan));
     }
@@ -1191,6 +1220,68 @@ fn lowered_sparql_query_kind_in_graph_pattern(
     Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(
         anchor_path,
     ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClosedWorldClause {
+    SkipFocusIfShapeNode,
+    Allowed(ClosedWorldAllowedSource),
+}
+
+fn lowered_closed_world_query(pattern: &GraphPattern) -> Option<ClosedWorldPlan> {
+    let (atoms, raw_filters) = flatten_conjunctive_atoms(unwrap_projection_like_pattern(pattern))?;
+    let (predicate_var, object_var) = match_closed_world_anchor(&atoms)?;
+
+    let mut predicate_domain = None;
+    let has_non_anchor_atoms = atoms
+        .iter()
+        .any(|atom| !match_closed_world_anchor_atom(atom, &predicate_var, &object_var));
+    if let Some(domain) = match_predicate_subclass_domain_in_atoms(&atoms, &predicate_var) {
+        predicate_domain = Some(ClosedWorldPredicateDomain::SubclassOfClass(domain));
+    } else if has_non_anchor_atoms {
+        return None;
+    }
+
+    let mut filters = Vec::new();
+    for expr in raw_filters {
+        split_conjunctive_filters(expr, &mut filters);
+    }
+
+    let mut skip_focus_if_shape_node = false;
+    let mut allowed_sources = Vec::new();
+    for expr in filters {
+        if let Some(prefix) = match_str_starts_prefix_filter(expr, &predicate_var) {
+            if predicate_domain
+                .replace(ClosedWorldPredicateDomain::NamespacePrefix(prefix))
+                .is_some()
+            {
+                return None;
+            }
+            continue;
+        }
+
+        match match_closed_world_not_exists_clause(expr, &predicate_var)? {
+            ClosedWorldClause::SkipFocusIfShapeNode => {
+                skip_focus_if_shape_node = true;
+            }
+            ClosedWorldClause::Allowed(source) => allowed_sources.push(source),
+        }
+    }
+
+    let predicate_domain = predicate_domain?;
+    if allowed_sources.is_empty() {
+        return None;
+    }
+    allowed_sources.sort();
+    allowed_sources.dedup();
+
+    Some(ClosedWorldPlan {
+        predicate_var,
+        object_var,
+        predicate_domain,
+        skip_focus_if_shape_node,
+        allowed_sources,
+    })
 }
 
 fn lowered_required_path_support(
@@ -1446,6 +1537,67 @@ fn blanknode_followup<'a>(
         }
         _ => None,
     })
+}
+
+fn blanknode_followup_recursive<'a>(
+    blank: &BlankNode,
+    atoms: &'a [LoweredAtom<'a>],
+) -> Option<(LoweredPropertyPath, &'a TermPattern)> {
+    let (path, object) = blanknode_followup(blank, atoms)?;
+    if let Some(next_blank) = term_pattern_blank_node(object)
+        && let Some((tail_path, final_object)) = blanknode_followup_recursive(next_blank, atoms)
+    {
+        return Some((combine_lowered_paths(path, tail_path), final_object));
+    }
+    Some((path, object))
+}
+
+fn lowered_atom_path_relation_with_atoms<'a>(
+    atom: &'a LoweredAtom<'a>,
+    atoms: &'a [LoweredAtom<'a>],
+) -> Option<(&'a TermPattern, LoweredPropertyPath, &'a TermPattern)> {
+    match atom {
+        LoweredAtom::Path {
+            subject,
+            path,
+            object,
+        } => {
+            let lowered = lower_property_path(path)?;
+            if let Some(blank) = term_pattern_blank_node(object)
+                && let Some((tail_path, final_object)) = blanknode_followup_recursive(blank, atoms)
+            {
+                return Some((
+                    subject,
+                    combine_lowered_paths(lowered, tail_path),
+                    final_object,
+                ));
+            }
+            Some((subject, lowered, object))
+        }
+        LoweredAtom::Triple(pattern) => {
+            let spargebra::term::NamedNodePattern::NamedNode(predicate) = &pattern.predicate else {
+                return None;
+            };
+            if let Some(blank) = term_pattern_blank_node(&pattern.object)
+                && let Some((follow_path, final_object)) =
+                    blanknode_followup_recursive(blank, atoms)
+            {
+                return Some((
+                    &pattern.subject,
+                    combine_lowered_paths(
+                        LoweredPropertyPath::NamedNode(predicate.clone()),
+                        follow_path,
+                    ),
+                    final_object,
+                ));
+            }
+            Some((
+                &pattern.subject,
+                LoweredPropertyPath::NamedNode(predicate.clone()),
+                &pattern.object,
+            ))
+        }
+    }
 }
 
 fn lowered_related_candidate_from_triple(
@@ -2193,6 +2345,215 @@ fn match_adjacent_whitelist_exists(
         return None;
     }
     named_nodes_from_not_in_filter(expr)
+}
+
+fn match_closed_world_anchor(atoms: &[LoweredAtom<'_>]) -> Option<(String, String)> {
+    let mut anchor = None;
+    for atom in atoms {
+        let LoweredAtom::Triple(triple) = atom else {
+            continue;
+        };
+        if !term_pattern_is_this(&triple.subject) {
+            continue;
+        }
+        let spargebra::term::NamedNodePattern::Variable(predicate_var) = &triple.predicate else {
+            continue;
+        };
+        let object_var = term_pattern_var_name(&triple.object)?;
+        let candidate = (predicate_var.as_str().to_string(), object_var.to_string());
+        if anchor.replace(candidate).is_some() {
+            return None;
+        }
+    }
+    anchor
+}
+
+fn match_closed_world_anchor_atom(
+    atom: &LoweredAtom<'_>,
+    predicate_var: &str,
+    object_var: &str,
+) -> bool {
+    let LoweredAtom::Triple(triple) = atom else {
+        return false;
+    };
+    term_pattern_is_this(&triple.subject)
+        && matches!(
+            &triple.predicate,
+            spargebra::term::NamedNodePattern::Variable(variable)
+                if variable.as_str() == predicate_var
+        )
+        && term_pattern_matches_var(&triple.object, object_var)
+}
+
+fn match_predicate_subclass_domain_in_atoms(
+    atoms: &[LoweredAtom<'_>],
+    predicate_var: &str,
+) -> Option<Term> {
+    atoms.iter().find_map(|atom| {
+        let (subject, path, object) = lowered_atom_path_relation_with_atoms(atom, atoms)?;
+        if !term_pattern_matches_var(subject, predicate_var) {
+            return None;
+        }
+        extract_type_subclass_constraint_from_lowered(&path, object)
+    })
+}
+
+fn match_str_starts_prefix_filter(expr: &Expression, predicate_var: &str) -> Option<String> {
+    let Expression::FunctionCall(Function::StrStarts, args) = expr else {
+        return None;
+    };
+    let [left, right] = args.as_slice() else {
+        return None;
+    };
+    let Expression::FunctionCall(Function::Str, str_args) = left else {
+        return None;
+    };
+    let [Expression::Variable(variable)] = str_args.as_slice() else {
+        return None;
+    };
+    if variable.as_str() != predicate_var {
+        return None;
+    }
+    let Expression::Literal(literal) = right else {
+        return None;
+    };
+    if literal.language().is_some() {
+        return None;
+    }
+    Some(literal.value().to_string())
+}
+
+fn match_closed_world_not_exists_clause(
+    expr: &Expression,
+    predicate_var: &str,
+) -> Option<ClosedWorldClause> {
+    let Expression::Not(inner) = expr else {
+        return None;
+    };
+    let Expression::Exists(pattern) = inner.as_ref() else {
+        return None;
+    };
+    let (atoms, filters) = flatten_conjunctive_atoms(unwrap_projection_like_pattern(pattern))?;
+    if !filters.is_empty() {
+        return None;
+    }
+
+    if atoms_contain_shape_node_membership(&atoms) {
+        return Some(ClosedWorldClause::SkipFocusIfShapeNode);
+    }
+
+    let class_var = match_type_subclass_binding_atom(&atoms)?;
+    let allowed_source = match_closed_world_allowed_path_atom(&atoms, &class_var, predicate_var)?;
+    Some(ClosedWorldClause::Allowed(allowed_source))
+}
+
+fn atoms_contain_shape_node_membership(atoms: &[LoweredAtom<'_>]) -> bool {
+    atoms.iter().any(|atom| {
+        lowered_atom_path_relation_with_atoms(atom, atoms).is_some_and(|(subject, path, object)| {
+            term_pattern_is_this(subject)
+                && matches!(
+                    path,
+                    LoweredPropertyPath::NamedNode(ref predicate)
+                        if predicate.as_str()
+                            == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+                )
+                && matches!(
+                    object,
+                    TermPattern::NamedNode(node)
+                        if node.as_str() == "http://www.w3.org/ns/shacl#NodeShape"
+                )
+        })
+    })
+}
+
+fn match_type_subclass_binding_atom(atoms: &[LoweredAtom<'_>]) -> Option<String> {
+    atoms.iter().find_map(|atom| {
+        let (subject, path, object) = lowered_atom_path_relation_with_atoms(atom, atoms)?;
+        if !term_pattern_is_this(subject) || !is_type_subclass_lowered_path(&path) {
+            return None;
+        }
+        Some(term_pattern_var_name(object)?.to_string())
+    })
+}
+
+fn match_closed_world_allowed_path_atom(
+    atoms: &[LoweredAtom<'_>],
+    class_var: &str,
+    predicate_var: &str,
+) -> Option<ClosedWorldAllowedSource> {
+    atoms.iter().find_map(|atom| {
+        let (subject, path, object) = lowered_atom_path_relation_with_atoms(atom, atoms)?;
+        if !term_pattern_matches_var(subject, class_var)
+            || !term_pattern_matches_var(object, predicate_var)
+        {
+            return None;
+        }
+        match_closed_world_allowed_path(&path)
+    })
+}
+
+fn match_closed_world_allowed_path(path: &LoweredPropertyPath) -> Option<ClosedWorldAllowedSource> {
+    match path {
+        LoweredPropertyPath::Sequence(segments) => {
+            let is_named = |segment: &LoweredPropertyPath, iri: &str| {
+                matches!(
+                    segment,
+                    LoweredPropertyPath::NamedNode(node) if node.as_str() == iri
+                )
+            };
+            let is_zero_or_more_rest = |segment: &LoweredPropertyPath| {
+                matches!(
+                    segment,
+                    LoweredPropertyPath::ZeroOrMore(inner)
+                        if matches!(inner.as_ref(), LoweredPropertyPath::NamedNode(node)
+                            if node.as_str()
+                                == "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest")
+                )
+            };
+
+            if segments.len() == 2
+                && is_named(&segments[0], "http://www.w3.org/ns/shacl#property")
+                && is_named(&segments[1], "http://www.w3.org/ns/shacl#path")
+            {
+                return Some(ClosedWorldAllowedSource::DirectPropertyPath);
+            }
+
+            if segments.len() == 5
+                && is_zero_or_more_rest(&segments[1])
+                && is_named(
+                    &segments[2],
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#first",
+                )
+                && is_named(&segments[3], "http://www.w3.org/ns/shacl#property")
+                && is_named(&segments[4], "http://www.w3.org/ns/shacl#path")
+            {
+                if is_named(&segments[0], "http://www.w3.org/ns/shacl#xone") {
+                    return Some(ClosedWorldAllowedSource::XonePropertyPath);
+                }
+                if is_named(&segments[0], "http://www.w3.org/ns/shacl#or") {
+                    return Some(ClosedWorldAllowedSource::OrPropertyPath);
+                }
+            }
+
+            None
+        }
+        _ => None,
+    }
+}
+
+fn is_type_subclass_lowered_path(path: &LoweredPropertyPath) -> bool {
+    matches!(
+        path,
+        LoweredPropertyPath::Sequence(items)
+            if items.len() == 2
+                && matches!(&items[0], LoweredPropertyPath::NamedNode(predicate)
+                    if predicate.as_str()
+                    == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+                && matches!(&items[1], LoweredPropertyPath::ZeroOrMore(inner)
+                    if matches!(inner.as_ref(), LoweredPropertyPath::NamedNode(predicate)
+                        if predicate.as_str()
+                            == "http://www.w3.org/2000/01/rdf-schema#subClassOf"))
+    )
 }
 
 fn branch_matches_adjacent_union(
@@ -3852,6 +4213,128 @@ SELECT ?this WHERE { ?this a ex:Thing . }",
                 }
             ))
         );
+    }
+
+    #[test]
+    fn lowers_closed_world_namespace_query() {
+        let query = parse_query(
+            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?this ?p ?o WHERE {
+                ?this ?p ?o .
+                FILTER(STRSTARTS(STR(?p), \"http://qudt.org/schema/qudt\"))
+                FILTER NOT EXISTS { ?this a <http://www.w3.org/ns/shacl#NodeShape> . }
+                FILTER NOT EXISTS {
+                    ?this rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* ?class .
+                    ?class <http://www.w3.org/ns/shacl#property>/<http://www.w3.org/ns/shacl#path> ?p .
+                }
+                FILTER NOT EXISTS {
+                    ?this rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* ?class .
+                    ?class <http://www.w3.org/ns/shacl#xone>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>*/<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>/<http://www.w3.org/ns/shacl#property>/<http://www.w3.org/ns/shacl#path> ?p .
+                }
+                FILTER NOT EXISTS {
+                    ?this rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* ?class .
+                    ?class <http://www.w3.org/ns/shacl#or>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>*/<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>/<http://www.w3.org/ns/shacl#property>/<http://www.w3.org/ns/shacl#path> ?p .
+                }
+            }",
+        );
+
+        assert_eq!(
+            lowered_sparql_query_kind(&query),
+            Some(LoweredSparqlQueryKind::ClosedWorldClassPredicateWhitelist(
+                ClosedWorldPlan {
+                    predicate_var: "p".to_string(),
+                    object_var: "o".to_string(),
+                    predicate_domain: ClosedWorldPredicateDomain::NamespacePrefix(
+                        "http://qudt.org/schema/qudt".to_string(),
+                    ),
+                    skip_focus_if_shape_node: true,
+                    allowed_sources: vec![
+                        ClosedWorldAllowedSource::DirectPropertyPath,
+                        ClosedWorldAllowedSource::XonePropertyPath,
+                        ClosedWorldAllowedSource::OrPropertyPath,
+                    ],
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn lowers_closed_world_generalized_subclass_domain_query() {
+        let query = parse_query(
+            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?this ?predicate ?object WHERE {
+                ?predicate rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* <http://example.com/ns#Relation> .
+                ?this ?predicate ?object .
+                FILTER NOT EXISTS {
+                    ?this rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* ?class .
+                    ?class <http://www.w3.org/ns/shacl#property>/<http://www.w3.org/ns/shacl#path> ?predicate .
+                }
+            }",
+        );
+
+        assert_eq!(
+            lowered_sparql_query_kind(&query),
+            Some(LoweredSparqlQueryKind::ClosedWorldClassPredicateWhitelist(
+                ClosedWorldPlan {
+                    predicate_var: "predicate".to_string(),
+                    object_var: "object".to_string(),
+                    predicate_domain: ClosedWorldPredicateDomain::SubclassOfClass(Term::NamedNode(
+                        NamedNode::new_unchecked("http://example.com/ns#Relation"),
+                    )),
+                    skip_focus_if_shape_node: false,
+                    allowed_sources: vec![ClosedWorldAllowedSource::DirectPropertyPath],
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn lowers_closed_world_query_with_reordered_clauses() {
+        let query = parse_query(
+            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?this ?p ?o WHERE {
+                FILTER NOT EXISTS {
+                    ?this rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* ?class .
+                    ?class <http://www.w3.org/ns/shacl#or>/<http://www.w3.org/1999/02/22-rdf-syntax-ns#rest>*/<http://www.w3.org/1999/02/22-rdf-syntax-ns#first>/<http://www.w3.org/ns/shacl#property>/<http://www.w3.org/ns/shacl#path> ?p .
+                }
+                ?this ?p ?o .
+                FILTER(STRSTARTS(STR(?p), \"http://qudt.org/schema/qudt\"))
+                FILTER NOT EXISTS {
+                    ?this rdf:type / <http://www.w3.org/2000/01/rdf-schema#subClassOf>* ?class .
+                    ?class <http://www.w3.org/ns/shacl#property>/<http://www.w3.org/ns/shacl#path> ?p .
+                }
+            }",
+        );
+
+        assert_eq!(
+            lowered_sparql_query_kind(&query),
+            Some(LoweredSparqlQueryKind::ClosedWorldClassPredicateWhitelist(
+                ClosedWorldPlan {
+                    predicate_var: "p".to_string(),
+                    object_var: "o".to_string(),
+                    predicate_domain: ClosedWorldPredicateDomain::NamespacePrefix(
+                        "http://qudt.org/schema/qudt".to_string(),
+                    ),
+                    skip_focus_if_shape_node: false,
+                    allowed_sources: vec![
+                        ClosedWorldAllowedSource::DirectPropertyPath,
+                        ClosedWorldAllowedSource::OrPropertyPath,
+                    ],
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn does_not_lower_closed_world_query_without_allowed_sources() {
+        let query = parse_query(
+            "SELECT ?this ?p ?o WHERE {
+                ?this ?p ?o .
+                FILTER(STRSTARTS(STR(?p), \"http://qudt.org/schema/qudt\"))
+            }",
+        );
+
+        assert_eq!(lowered_sparql_query_kind(&query), None);
     }
 
     #[test]

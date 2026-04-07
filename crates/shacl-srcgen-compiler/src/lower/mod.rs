@@ -116,6 +116,7 @@ fn srcgen_lowered_query_kind(query: &str, prefixes: &str) -> Option<SrcGenLowere
         .algebra(&full_query)
         .ok()?;
     match lowered_sparql_query_kind(&algebra)? {
+        LoweredSparqlQueryKind::ClosedWorldClassPredicateWhitelist(_) => None,
         LoweredSparqlQueryKind::AdjacentPredicateWhitelist(AdjacentPredicateWhitelistPlan {
             anchor_path,
             allowed_predicates,
