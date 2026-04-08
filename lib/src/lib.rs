@@ -192,7 +192,7 @@ fn get_shared_ontoenv() -> Option<SharedEnvHandle> {
 /// The builder owns all validation-time flags (imports, union graphs, AF/rules, etc.) so
 /// callers can create repeatable validators without threading configuration through every call.
 pub struct ValidatorBuilder {
-    shapes_source: Option<Source>,
+    shapes_sources: Vec<Source>,
     data_source: Option<Source>,
     env_config: Option<Config>,
     use_shared_env: bool,
@@ -226,7 +226,7 @@ impl ValidatorBuilder {
     /// Creates a new builder with default configuration.
     pub fn new() -> Self {
         Self {
-            shapes_source: None,
+            shapes_sources: Vec::new(),
             data_source: None,
             env_config: None,
             use_shared_env: false,
@@ -267,7 +267,7 @@ impl ValidatorBuilder {
     /// If omitted, `build()` reuses the configured data source as the shapes source.
     /// This fallback is only available when the data source is not `Source::Empty`.
     pub fn with_shapes_source(mut self, source: Source) -> Self {
-        self.shapes_source = Some(source);
+        self.shapes_sources.push(source);
         self
     }
 
@@ -387,7 +387,7 @@ impl ValidatorBuilder {
     /// Builds a `Validator` from the configured options.
     pub fn build(self) -> Result<Validator, Box<dyn Error>> {
         let Self {
-            mut shapes_source,
+            mut shapes_sources,
             data_source,
             env_config,
             use_shared_env,
@@ -410,14 +410,14 @@ impl ValidatorBuilder {
         } = self;
 
         let data_source = data_source.ok_or_else(|| "data source must be specified".to_string())?;
-        if shape_ir.is_none() && shapes_source.is_none() {
+        if shape_ir.is_none() && shapes_sources.is_empty() {
             if matches!(data_source, Source::Empty) {
                 return Err("shapes source must be specified when data source is empty"
                     .to_string()
                     .into());
             }
             info!("No shapes source provided; using data source as shapes source");
-            shapes_source = Some(data_source.clone());
+            shapes_sources.push(data_source.clone());
         }
 
         let config = match env_config {
@@ -435,34 +435,62 @@ impl ValidatorBuilder {
             shapes_graph_iri,
             shapes_graph_id,
             data_graph_iri,
+            explicit_shape_graphs,
             mut shape_graphs_for_union,
             _merged_closure_ids,
             store,
         ) = {
             let mut env = env_handle.write().unwrap();
             let include_imports_on_add = do_imports && import_depth != 0;
-            let shapes_source_info = if let Some(ir) = shape_ir.as_ref() {
-                LoadedSource {
+            let defer_local_shape_imports =
+                include_imports_on_add && shapes_sources.len() > 1 && shape_ir.is_none();
+            let shapes_source_infos = if let Some(ir) = shape_ir.as_ref() {
+                vec![LoadedSource {
                     graph_iri: ir.shape_graph.clone(),
                     in_env: false,
                     graph_id: None,
-                }
+                }]
             } else {
-                let source = shapes_source
-                    .as_ref()
-                    .expect("shapes source is initialized when SHACL-IR is absent");
-                Self::add_source(
-                    &mut env,
-                    source,
-                    "shapes",
-                    include_imports_on_add,
-                    refresh_strategy,
-                    import_depth,
-                )?
+                let mut infos = Vec::new();
+                for source in &shapes_sources {
+                    let should_include_imports = include_imports_on_add
+                        && !(defer_local_shape_imports && matches!(source, Source::File(_)));
+                    infos.push(Self::add_source(
+                        &mut env,
+                        source,
+                        "shapes",
+                        should_include_imports,
+                        refresh_strategy,
+                        import_depth,
+                    )?);
+                }
+                infos
             };
-            let shapes_graph_iri = shapes_source_info.graph_iri.clone();
-            let shapes_in_env = shapes_source_info.in_env;
-            let shapes_graph_id = shapes_source_info.graph_id.clone();
+            let mut shapes_source_infos = shapes_source_infos;
+            if defer_local_shape_imports {
+                for (source, info) in shapes_sources.iter().zip(shapes_source_infos.iter_mut()) {
+                    if matches!(source, Source::File(_)) {
+                        *info = Self::add_source(
+                            &mut env,
+                            source,
+                            "shapes",
+                            true,
+                            refresh_strategy,
+                            import_depth,
+                        )?;
+                    }
+                }
+            }
+            let primary_shapes_source = shapes_source_infos
+                .first()
+                .expect("shapes source is initialized when SHACL-IR is absent");
+            let shapes_graph_iri = primary_shapes_source.graph_iri.clone();
+            let shapes_graph_id = primary_shapes_source.graph_id.clone();
+            let mut explicit_shape_graphs: Vec<NamedNode> = shapes_source_infos
+                .iter()
+                .map(|info| info.graph_iri.clone())
+                .collect();
+            Self::dedup_graphs(&mut explicit_shape_graphs);
 
             let data_source_info = match &data_source {
                 Source::Empty => LoadedSource {
@@ -484,21 +512,43 @@ impl ValidatorBuilder {
             let data_in_env = data_source_info.in_env;
             let data_graph_id = data_source_info.graph_id.clone();
 
-            let shapes_quads_import_graphs = if do_imports && !shapes_in_env {
-                if let Some(Source::Quads { quads, .. }) = shapes_source.as_ref() {
-                    Self::load_import_graphs_for_quads(
-                        &mut env,
-                        quads,
-                        import_depth,
-                        "shapes",
-                        refresh_strategy,
-                    )?
-                } else {
-                    Vec::new()
+            let mut shape_graphs_for_union: Vec<NamedNode> = Vec::new();
+            let mut merged_shapes_closure_ids: Vec<GraphIdentifier> = Vec::new();
+            let mut seen_shape_closure_uris: HashSet<String> = HashSet::new();
+            if shape_ir.is_none() {
+                for (source, info) in shapes_sources.iter().zip(shapes_source_infos.iter()) {
+                    if !shape_graphs_for_union.iter().any(|g| g == &info.graph_iri) {
+                        shape_graphs_for_union.push(info.graph_iri.clone());
+                    }
+                    if do_imports && info.in_env {
+                        let closure_ids = Self::resolve_closure_ids_for_graph(
+                            &mut env,
+                            info.graph_id.as_ref(),
+                            &info.graph_iri,
+                            import_depth,
+                            "shapes",
+                        )?;
+                        for id in closure_ids {
+                            let uri = id.name().as_str().to_string();
+                            if seen_shape_closure_uris.insert(uri) {
+                                merged_shapes_closure_ids.push(id);
+                            }
+                        }
+                    } else if do_imports && let Source::Quads { quads, .. } = source {
+                        for graph in Self::load_import_graphs_for_quads(
+                            &mut env,
+                            quads,
+                            import_depth,
+                            "shapes",
+                            refresh_strategy,
+                        )? {
+                            if !shape_graphs_for_union.iter().any(|g| g == &graph) {
+                                shape_graphs_for_union.push(graph);
+                            }
+                        }
+                    }
                 }
-            } else {
-                Vec::new()
-            };
+            }
             let data_closure_ids = if do_imports && data_in_env {
                 Some(Self::resolve_closure_ids_for_graph(
                     &mut env,
@@ -522,24 +572,19 @@ impl ValidatorBuilder {
                     refresh_strategy,
                 )?;
             }
-            let data_contains_shapes = data_closure_ids
-                .as_ref()
-                .is_some_and(|ids| Self::closure_contains_graph(ids, &shapes_graph_iri));
-            let shapes_closure_ids = if do_imports && shapes_in_env {
+            let data_contains_shapes = data_closure_ids.as_ref().is_some_and(|ids| {
+                shapes_source_infos
+                    .iter()
+                    .all(|info| Self::closure_contains_graph(ids, &info.graph_iri))
+            });
+            let shapes_closure_ids = if do_imports && !merged_shapes_closure_ids.is_empty() {
                 if data_contains_shapes {
                     info!(
-                        "Data imports closure already contains shapes graph <{}>; skipping separate shapes closure resolution",
-                        shapes_graph_iri
+                        "Data imports closure already contains all requested shapes roots; skipping separate shapes closure resolution"
                     );
                     None
                 } else {
-                    Some(Self::resolve_closure_ids_for_graph(
-                        &mut env,
-                        shapes_graph_id.as_ref(),
-                        &shapes_graph_iri,
-                        import_depth,
-                        "shapes",
-                    )?)
+                    Some(merged_shapes_closure_ids)
                 }
             } else {
                 None
@@ -569,8 +614,6 @@ impl ValidatorBuilder {
                 None
             };
 
-            let mut shape_graphs_for_union: Vec<NamedNode> = vec![shapes_graph_iri.clone()];
-            shape_graphs_for_union.extend(shapes_quads_import_graphs);
             let shape_union_closure_ids = shapes_closure_ids.as_ref().or({
                 if data_contains_shapes {
                     data_closure_ids.as_ref()
@@ -650,7 +693,9 @@ impl ValidatorBuilder {
                         e
                     ))) as Box<dyn Error>
                 })?;
-                Self::copy_named_graph(env.io().store(), &scoped_store, &shapes_graph_iri)?;
+                for graph in &shape_graphs_for_union {
+                    Self::copy_named_graph(env.io().store(), &scoped_store, graph)?;
+                }
                 if !matches!(data_source, Source::Empty) && data_graph_iri != shapes_graph_iri {
                     Self::copy_named_graph(env.io().store(), &scoped_store, &data_graph_iri)?;
                 }
@@ -661,6 +706,7 @@ impl ValidatorBuilder {
                 shapes_graph_iri,
                 shapes_graph_id,
                 data_graph_iri,
+                explicit_shape_graphs,
                 shape_graphs_for_union,
                 merged_closure_ids,
                 store,
@@ -686,20 +732,27 @@ impl ValidatorBuilder {
         Self::dedup_graphs(&mut shape_graphs_for_union);
 
         if shape_ir.is_none() {
-            let _ = shapes_source.as_ref().ok_or_else(|| {
-                Box::new(std::io::Error::other(
+            if shapes_sources.is_empty() {
+                return Err(Box::new(std::io::Error::other(
                     "shapes source must be specified when shape IR is absent",
-                )) as Box<dyn Error>
-            })?;
+                )));
+            }
+            if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
+                Self::union_shapes_into_data_graph(
+                    &store,
+                    &explicit_shape_graphs,
+                    &data_graph_iri,
+                )?;
+            }
+            Self::union_graphs_into_target_graph(
+                &store,
+                &shape_graphs_for_union,
+                &shapes_graph_iri,
+            )?;
         }
 
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
-
-        if use_shapes_graph_union && !matches!(data_source, Source::Empty) {
-            let root_shape_graph = std::slice::from_ref(&shapes_graph_iri);
-            Self::union_shapes_into_data_graph(&store, root_shape_graph, &data_graph_iri)?;
-        }
 
         let data_skolem_base = if skolemize_data {
             Some(Self::skolem_base(&data_graph_iri))
@@ -1314,8 +1367,16 @@ impl ValidatorBuilder {
         shape_graphs: &[NamedNode],
         data_graph_iri: &NamedNode,
     ) -> Result<(), Box<dyn Error>> {
-        for graph in shape_graphs {
-            if graph == data_graph_iri {
+        Self::union_graphs_into_target_graph(store, shape_graphs, data_graph_iri)
+    }
+
+    fn union_graphs_into_target_graph(
+        store: &Store,
+        source_graphs: &[NamedNode],
+        target_graph_iri: &NamedNode,
+    ) -> Result<(), Box<dyn Error>> {
+        for graph in source_graphs {
+            if graph == target_graph_iri {
                 continue;
             }
             let graph_name = GraphName::NamedNode(graph.clone());
@@ -1330,12 +1391,12 @@ impl ValidatorBuilder {
                     quad.subject.clone(),
                     quad.predicate.clone(),
                     quad.object.clone(),
-                    GraphName::NamedNode(data_graph_iri.clone()),
+                    GraphName::NamedNode(target_graph_iri.clone()),
                 );
                 store.insert(&new_quad).map_err(|e| {
                     Box::new(std::io::Error::other(format!(
-                        "Failed to insert quad into union data graph: {}",
-                        e
+                        "Failed to insert quad into union target graph {}: {}",
+                        target_graph_iri, e
                     ))) as Box<dyn Error>
                 })?;
             }
@@ -2576,6 +2637,97 @@ ex:s ex:p ex:u .
             report.conforms(),
             "validation should still see imported class typing from the merged store"
         );
+
+        fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_shape_files_resolve_local_imports_before_remote_fetch() -> Result<(), Box<dyn Error>>
+    {
+        let _guard = validator_lock().lock().unwrap();
+        let temp_dir = unique_temp_dir("shacl_multi_shape_local_imports")?;
+
+        let imported_a_path = temp_dir.join("imported-a.ttl");
+        let imported_b_path = temp_dir.join("imported-b.ttl");
+        let imported_a_iri = "http://example.com/imported-a";
+        let imported_b_iri = "http://example.com/imported-b";
+        fs::write(
+            &imported_a_path,
+            format!(
+                "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{imported_a_iri}> a owl:Ontology .\n\
+ex:ImportedAShape a sh:NodeShape ; sh:targetNode ex:ImportedA .\n"
+            ),
+        )?;
+        fs::write(
+            &imported_b_path,
+            format!(
+                "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<{imported_b_iri}> a owl:Ontology .\n\
+ex:ImportedBShape a sh:NodeShape ; sh:targetNode ex:ImportedB .\n"
+            ),
+        )?;
+
+        let root_a_path = temp_dir.join("root-a.ttl");
+        let root_b_path = temp_dir.join("root-b.ttl");
+        fs::write(
+            &root_a_path,
+            format!(
+                "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<http://example.com/root-a> a owl:Ontology ; owl:imports <{imported_a_iri}> .\n\
+ex:RootAShape a sh:NodeShape ; sh:targetNode ex:RootA .\n"
+            ),
+        )?;
+        fs::write(
+            &root_b_path,
+            format!(
+                "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix ex: <http://example.com/ns#> .\n\
+<http://example.com/root-b> a owl:Ontology ; owl:imports <{imported_b_iri}> .\n\
+ex:RootBShape a sh:NodeShape ; sh:targetNode ex:RootB .\n"
+            ),
+        )?;
+
+        let validator = Validator::builder()
+            .with_shapes_source(Source::File(root_a_path))
+            .with_shapes_source(Source::File(root_b_path))
+            .with_shapes_source(Source::File(imported_a_path))
+            .with_shapes_source(Source::File(imported_b_path))
+            .with_data_source(Source::Empty)
+            .with_env_config(temp_env_config(&temp_dir)?)
+            .with_do_imports(true)
+            .build()?;
+
+        let shape_graph = validator.context.model.shape_graph_iri.clone();
+        let store = &validator.context.model.store;
+        let shape_graph_ref = GraphNameRef::NamedNode(shape_graph.as_ref());
+        for term in [
+            "http://example.com/ns#RootAShape",
+            "http://example.com/ns#RootBShape",
+            "http://example.com/ns#ImportedAShape",
+            "http://example.com/ns#ImportedBShape",
+        ] {
+            assert!(
+                store
+                    .quads_for_pattern(
+                        Some(NamedNode::new(term)?.as_ref().into()),
+                        None,
+                        None,
+                        Some(shape_graph_ref),
+                    )
+                    .next()
+                    .is_some(),
+                "expected {term} in the merged working shape graph"
+            );
+        }
 
         fs::remove_dir_all(&temp_dir)?;
         Ok(())

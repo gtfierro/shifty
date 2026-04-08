@@ -139,12 +139,12 @@ fn init_logging(base: LogLevel, verbose: u8, quiet: u8) {
 #[derive(Parser, Debug)]
 struct ShapesSourceCli {
     /// Path or URL to the shapes file (optional for data-bearing commands; defaults to the data graph when omitted)
-    #[arg(short, long, value_name = "FILE")]
-    shapes_file: Option<PathBuf>,
+    #[arg(short, long, value_name = "FILE", action = ArgAction::Append)]
+    shapes_file: Vec<PathBuf>,
 
     /// URI of the shapes graph (optional for data-bearing commands; defaults to the data graph when omitted)
-    #[arg(long, value_name = "URI")]
-    shapes_graph: Option<String>,
+    #[arg(long, value_name = "URI", action = ArgAction::Append)]
+    shapes_graph: Vec<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -576,14 +576,26 @@ fn get_validator(
         let shape_ir = ir_cache::read_shape_ir(path)
             .map_err(|e| format!("Failed to read SHACL-IR cache: {}", e))?;
         builder = builder.with_shape_ir(shape_ir);
-    } else if let Some(path) = &common.shapes.shapes_file {
+    } else if let Some(path) = common.shapes.shapes_file.first() {
         if let Some(shape_ir) = shape_ir_arg_from_path(path) {
+            if common.shapes.shapes_file.len() > 1 || !common.shapes.shapes_graph.is_empty() {
+                return Err(
+                    "SHACL-IR cache inputs cannot be combined with additional shape sources".into(),
+                );
+            }
             builder = builder.with_shape_ir(shape_ir?);
         } else {
-            builder = builder.with_shapes_source(path_or_url_source(path));
+            for path in &common.shapes.shapes_file {
+                builder = builder.with_shapes_source(path_or_url_source(path));
+            }
+            for graph in &common.shapes.shapes_graph {
+                builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+            }
         }
-    } else if let Some(graph) = &common.shapes.shapes_graph {
-        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else {
+        for graph in &common.shapes.shapes_graph {
+            builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+        }
     }
 
     builder
@@ -595,14 +607,26 @@ fn get_validator_shapes_only(
     args: &GenerateIrArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
-    if let Some(path) = &args.shapes.shapes_file {
+    if let Some(path) = args.shapes.shapes_file.first() {
         if let Some(shape_ir) = shape_ir_arg_from_path(path) {
+            if args.shapes.shapes_file.len() > 1 || !args.shapes.shapes_graph.is_empty() {
+                return Err(
+                    "SHACL-IR cache inputs cannot be combined with additional shape sources".into(),
+                );
+            }
             builder = builder.with_shape_ir(shape_ir?);
         } else {
-            builder = builder.with_shapes_source(path_or_url_source(path));
+            for path in &args.shapes.shapes_file {
+                builder = builder.with_shapes_source(path_or_url_source(path));
+            }
+            for graph in &args.shapes.shapes_graph {
+                builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+            }
         }
-    } else if let Some(graph) = &args.shapes.shapes_graph {
-        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else if !args.shapes.shapes_graph.is_empty() {
+        for graph in &args.shapes.shapes_graph {
+            builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+        }
     } else {
         return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
     }
@@ -630,14 +654,26 @@ fn get_validator_shapes_only_for_compile(
     args: &CompileArgs,
 ) -> Result<Validator, Box<dyn std::error::Error>> {
     let mut builder = ValidatorBuilder::new();
-    if let Some(path) = &args.shapes.shapes_file {
+    if let Some(path) = args.shapes.shapes_file.first() {
         if let Some(shape_ir) = shape_ir_arg_from_path(path) {
+            if args.shapes.shapes_file.len() > 1 || !args.shapes.shapes_graph.is_empty() {
+                return Err(
+                    "SHACL-IR cache inputs cannot be combined with additional shape sources".into(),
+                );
+            }
             builder = builder.with_shape_ir(shape_ir?);
         } else {
-            builder = builder.with_shapes_source(path_or_url_source(path));
+            for path in &args.shapes.shapes_file {
+                builder = builder.with_shapes_source(path_or_url_source(path));
+            }
+            for graph in &args.shapes.shapes_graph {
+                builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+            }
         }
-    } else if let Some(graph) = &args.shapes.shapes_graph {
-        builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+    } else if !args.shapes.shapes_graph.is_empty() {
+        for graph in &args.shapes.shapes_graph {
+            builder = builder.with_shapes_source(Source::Graph(graph.clone()));
+        }
     } else {
         return Err("shapes input must be provided via --shapes-file or --shapes-graph".into());
     }
@@ -2306,6 +2342,28 @@ mod tests {
     fn remote_ir_urls_do_not_get_treated_as_local_shape_ir_files() {
         let path = PathBuf::from("https://example.com/cache.ir");
         assert!(shape_ir_arg_from_path(&path).is_none());
+    }
+
+    #[test]
+    fn validate_accepts_multiple_shapes_files() {
+        let cli = Cli::try_parse_from([
+            "shifty",
+            "validate",
+            "--shapes-file",
+            "shapes-a.ttl",
+            "--shapes-file",
+            "shapes-b.ttl",
+            "--data-file",
+            "data.ttl",
+        ])
+        .expect("validate args should parse");
+        let Commands::Validate(args) = cli.command else {
+            panic!("expected validate command");
+        };
+        assert_eq!(
+            args.common.shapes.shapes_file,
+            vec![PathBuf::from("shapes-a.ttl"), PathBuf::from("shapes-b.ttl")]
+        );
     }
 
     #[cfg(feature = "srcgen-compiler")]
