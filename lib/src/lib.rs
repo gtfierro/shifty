@@ -1241,10 +1241,18 @@ impl ValidatorBuilder {
     ) -> Result<(), Box<dyn Error>> {
         let mut loader = store.bulk_loader().without_atomicity();
         let mut batch = Vec::with_capacity(BULK_LOAD_CHUNK_SIZE);
+        let mut blank_node_quads = Vec::new();
         let mut loaded = 0usize;
 
         for quad in quads {
-            batch.push(quad?);
+            let quad = quad?;
+            if matches!(quad.subject, oxigraph::model::NamedOrBlankNode::BlankNode(_))
+                || matches!(quad.object, Term::BlankNode(_))
+            {
+                blank_node_quads.push(quad);
+                continue;
+            }
+            batch.push(quad);
             if batch.len() >= BULK_LOAD_CHUNK_SIZE {
                 loaded += batch.len();
                 Self::flush_quad_batch(&mut loader, &mut batch, label)?;
@@ -1262,6 +1270,15 @@ impl ValidatorBuilder {
                 label, e
             ))) as Box<dyn Error>
         })?;
+        for quad in blank_node_quads {
+            store.insert(&quad).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to insert blank-node quad for {}: {}",
+                    label, e
+                ))) as Box<dyn Error>
+            })?;
+            loaded += 1;
+        }
         debug!("Bulk loaded {} quads for {}", loaded, label);
         Ok(())
     }
@@ -1536,6 +1553,7 @@ impl ValidatorBuilder {
             if graph == target_graph_iri {
                 continue;
             }
+            let mut blank_node_map: HashMap<BlankNode, BlankNode> = HashMap::new();
             let graph_name = GraphName::NamedNode(graph.clone());
             for quad_res in store.quads_for_pattern(None, None, None, Some(graph_name.as_ref())) {
                 let quad = quad_res.map_err(|e| {
@@ -1544,10 +1562,32 @@ impl ValidatorBuilder {
                         graph, e
                     ))) as Box<dyn Error>
                 })?;
+                let new_subject = match &quad.subject {
+                    oxigraph::model::NamedOrBlankNode::NamedNode(node) => {
+                        oxigraph::model::NamedOrBlankNode::NamedNode(node.clone())
+                    }
+                    oxigraph::model::NamedOrBlankNode::BlankNode(blank) => {
+                        let remapped = blank_node_map
+                            .entry(blank.clone())
+                            .or_insert_with(BlankNode::default)
+                            .clone();
+                        oxigraph::model::NamedOrBlankNode::BlankNode(remapped)
+                    }
+                };
+                let new_object = match &quad.object {
+                    Term::BlankNode(blank) => {
+                        let remapped = blank_node_map
+                            .entry(blank.clone())
+                            .or_insert_with(BlankNode::default)
+                            .clone();
+                        Term::BlankNode(remapped)
+                    }
+                    other => other.clone(),
+                };
                 let new_quad = Quad::new(
-                    quad.subject.clone(),
+                    new_subject,
                     quad.predicate.clone(),
-                    quad.object.clone(),
+                    new_object,
                     GraphName::NamedNode(target_graph_iri.clone()),
                 );
                 store.insert(&new_quad).map_err(|e| {
@@ -2888,6 +2928,128 @@ ex:RootBShape a sh:NodeShape ; sh:targetNode ex:RootB .\n"
         }
 
         fs::remove_dir_all(&temp_dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn union_graphs_remaps_blank_nodes_per_source_graph() -> Result<(), Box<dyn Error>> {
+        let store = Store::new()?;
+        let graph_a = NamedNode::new("urn:test:graph:a")?;
+        let graph_b = NamedNode::new("urn:test:graph:b")?;
+        let target_graph = NamedNode::new("urn:test:graph:target")?;
+        let shared_blank = BlankNode::new("shared")?;
+        let typed_a = NamedNode::new("urn:test:typed:a")?;
+        let typed_b = NamedNode::new("urn:test:typed:b")?;
+
+        store.insert(&Quad::new(
+            oxigraph::model::NamedOrBlankNode::BlankNode(shared_blank.clone()),
+            rdf::TYPE,
+            Term::NamedNode(typed_a),
+            GraphName::NamedNode(graph_a.clone()),
+        ))?;
+        store.insert(&Quad::new(
+            oxigraph::model::NamedOrBlankNode::BlankNode(shared_blank.clone()),
+            NamedNode::new("urn:test:value")?,
+            Term::Literal(Literal::from("a")),
+            GraphName::NamedNode(graph_a.clone()),
+        ))?;
+        store.insert(&Quad::new(
+            oxigraph::model::NamedOrBlankNode::BlankNode(shared_blank.clone()),
+            rdf::TYPE,
+            Term::NamedNode(typed_b),
+            GraphName::NamedNode(graph_b.clone()),
+        ))?;
+        store.insert(&Quad::new(
+            oxigraph::model::NamedOrBlankNode::BlankNode(shared_blank),
+            NamedNode::new("urn:test:value")?,
+            Term::Literal(Literal::from("b")),
+            GraphName::NamedNode(graph_b.clone()),
+        ))?;
+
+        ValidatorBuilder::union_graphs_into_target_graph(&store, &[graph_a, graph_b], &target_graph)?;
+
+        let blank_subjects: HashSet<_> = store
+            .quads_for_pattern(
+                None,
+                Some(rdf::TYPE),
+                None,
+                Some(GraphNameRef::NamedNode(target_graph.as_ref())),
+            )
+            .filter_map(Result::ok)
+            .filter_map(|quad| match quad.subject {
+                oxigraph::model::NamedOrBlankNode::BlankNode(blank) => Some(blank),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            blank_subjects.len(),
+            2,
+            "union should keep blank nodes from different source graphs distinct"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_nquads_bulk_load_breaks_blank_node_identity_across_batches()
+    -> Result<(), Box<dyn Error>> {
+        let store = Store::new()?;
+        let mut loader = store.bulk_loader().without_atomicity();
+        let blank = BlankNode::new("shared")?;
+        let graph = GraphName::NamedNode(NamedNode::new("urn:test:graph")?);
+
+        let mut batch_one = vec![Quad::new(
+            oxigraph::model::NamedOrBlankNode::NamedNode(NamedNode::new("urn:test:shape")?),
+            NamedNode::new("http://www.w3.org/ns/shacl#rule")?,
+            Term::BlankNode(blank.clone()),
+            graph.clone(),
+        )];
+        ValidatorBuilder::flush_quad_batch(&mut loader, &mut batch_one, "test batch one")?;
+
+        let mut batch_two = vec![Quad::new(
+            oxigraph::model::NamedOrBlankNode::BlankNode(blank),
+            rdf::TYPE,
+            Term::NamedNode(NamedNode::new("http://www.w3.org/ns/shacl#TripleRule")?),
+            graph.clone(),
+        )];
+        ValidatorBuilder::flush_quad_batch(&mut loader, &mut batch_two, "test batch two")?;
+        loader.commit()?;
+
+        let graph_ref = GraphNameRef::NamedNode(match &graph {
+            GraphName::NamedNode(node) => node.as_ref(),
+            _ => unreachable!(),
+        });
+        let rule_target = store
+            .quads_for_pattern(
+                Some(NamedNode::new("urn:test:shape")?.as_ref().into()),
+                Some(NamedNode::new("http://www.w3.org/ns/shacl#rule")?.as_ref()),
+                None,
+                Some(graph_ref),
+            )
+            .next()
+            .transpose()?
+            .map(|quad| quad.object)
+            .expect("expected sh:rule triple");
+
+        let typed = store
+            .quads_for_pattern(
+                match rule_target.as_ref() {
+                    oxigraph::model::TermRef::NamedNode(node) => Some(node.into()),
+                    oxigraph::model::TermRef::BlankNode(node) => Some(node.into()),
+                    _ => None,
+                },
+                Some(rdf::TYPE),
+                Some(NamedNode::new("http://www.w3.org/ns/shacl#TripleRule")?.as_ref().into()),
+                Some(graph_ref),
+            )
+            .next()
+            .is_some();
+        assert!(
+            !typed,
+            "separate N-Quads bulk-load batches do not preserve blank node identity"
+        );
+
         Ok(())
     }
 
