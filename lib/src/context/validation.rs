@@ -3,6 +3,7 @@ use super::model::ShapesModel;
 use crate::backend::{Binding, GraphBackend, OxigraphBackend};
 use crate::model::components::ComponentDescriptor;
 use crate::model::components::sparql::CustomConstraintComponentDefinition;
+use crate::named_nodes::{RDF, SHACL};
 use crate::runtime::engine::build_custom_constraint_component;
 use crate::runtime::{
     Component, ConformanceReport, CustomConstraintComponent, build_component_from_descriptor,
@@ -10,7 +11,8 @@ use crate::runtime::{
 use crate::shacl_ir::ShapeIR;
 use crate::skolem::skolem_base;
 use crate::sparql::{
-    CompiledIndexRequirement, SparqlExecutor, SparqlServices, compiled_sparql_index_plan,
+    ClosedWorldAllowedSource, CompiledIndexRequirement, SparqlExecutor, SparqlServices,
+    compiled_sparql_index_plan,
 };
 use crate::trace::{MemoryTraceSink, TraceEvent, TraceSink};
 use crate::types::{ComponentID, ID, Path as PShapePath, PropShapeID, TraceItem};
@@ -24,6 +26,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -83,6 +86,8 @@ type PropertyShapeBatchFailures = HashMap<ComponentID, BatchedSparqlResult>;
 type PropertyShapeBatchCacheValue = Arc<Result<PropertyShapeBatchFailures, String>>;
 type PropertyValueBatchMap = HashMap<Term, Vec<Term>>;
 type PropertyValueBatchCacheValue = Arc<Result<PropertyValueBatchMap, String>>;
+type ClosedWorldAllowedPredicateCacheKey = (Term, ClosedWorldAllowedSource);
+type ClosedWorldAllowedPredicateCacheValue = Arc<HashSet<NamedNode>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct NodeConformanceCacheKey {
@@ -185,18 +190,103 @@ thread_local! {
 #[derive(Debug)]
 struct ClassConstraintIndex {
     term_to_id: HashMap<Term, usize>,
+    id_to_term: Vec<Term>,
+    ancestors_by_subclass: Vec<FixedBitSet>,
     descendants_by_super: Vec<FixedBitSet>,
     subject_type_bits: HashMap<Term, FixedBitSet>,
 }
 
 #[derive(Debug, Default)]
-struct FocusPredicateSummary {
-    incoming_by_focus: HashMap<Term, HashSet<Term>>,
-    outgoing_counts_by_focus: HashMap<Term, HashMap<Term, usize>>,
-    outgoing_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>>,
-    incoming_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>>,
-    subjects_by_predicate: HashMap<Term, HashSet<Term>>,
-    objects_by_predicate: HashMap<Term, HashSet<Term>>,
+struct ValidationAccessProfile {
+    indexed_predicates: HashSet<NamedNode>,
+}
+
+impl ValidationAccessProfile {
+    fn from_shape_ir(shape_ir: &ShapeIR) -> Self {
+        let mut indexed_predicates = HashSet::new();
+
+        for shape in &shape_ir.node_shapes {
+            collect_target_predicates(&shape.targets, &mut indexed_predicates);
+        }
+
+        for shape in &shape_ir.property_shapes {
+            collect_target_predicates(&shape.targets, &mut indexed_predicates);
+            collect_simple_path_predicates(&shape.path, &mut indexed_predicates);
+        }
+
+        for descriptor in shape_ir.components.values() {
+            collect_component_predicates(descriptor, &mut indexed_predicates);
+        }
+
+        Self { indexed_predicates }
+    }
+
+    fn tracks_predicate(&self, predicate: &NamedNode) -> bool {
+        self.indexed_predicates.contains(predicate)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.indexed_predicates.is_empty()
+    }
+}
+
+#[derive(Debug, Default)]
+struct SelectivePredicateIndex {
+    incoming_by_focus: HashMap<Term, HashSet<NamedNode>>,
+    outgoing_counts_by_focus: HashMap<Term, HashMap<NamedNode, usize>>,
+    outgoing_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+    incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>>,
+    subjects_by_predicate: HashMap<NamedNode, HashSet<Term>>,
+    objects_by_predicate: HashMap<NamedNode, HashSet<Term>>,
+}
+
+#[derive(Debug, Default)]
+struct PredicateIndexStats {
+    builds: AtomicU64,
+    indexed_predicates: AtomicU64,
+    build_time_nanos: AtomicU64,
+    index_hits: AtomicU64,
+    fallback_lookups: AtomicU64,
+}
+
+impl PredicateIndexStats {
+    fn record_build(&self, indexed_predicates: usize, duration: Duration) {
+        self.builds.fetch_add(1, AtomicOrdering::Relaxed);
+        self.indexed_predicates
+            .store(indexed_predicates as u64, AtomicOrdering::Relaxed);
+        self.build_time_nanos.store(
+            duration.as_nanos().min(u64::MAX as u128) as u64,
+            AtomicOrdering::Relaxed,
+        );
+    }
+
+    fn record_hit(&self) {
+        self.index_hits.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+
+    fn record_fallback(&self) {
+        self.fallback_lookups.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+
+    fn snapshot(&self) -> PredicateIndexStatsSnapshot {
+        PredicateIndexStatsSnapshot {
+            builds: self.builds.load(AtomicOrdering::Relaxed),
+            indexed_predicates: self.indexed_predicates.load(AtomicOrdering::Relaxed),
+            build_time_nanos: self.build_time_nanos.load(AtomicOrdering::Relaxed),
+            index_hits: self.index_hits.load(AtomicOrdering::Relaxed),
+            fallback_lookups: self.fallback_lookups.load(AtomicOrdering::Relaxed),
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct PredicateIndexStatsSnapshot {
+    pub(crate) builds: u64,
+    pub(crate) indexed_predicates: u64,
+    pub(crate) build_time_nanos: u64,
+    pub(crate) index_hits: u64,
+    pub(crate) fallback_lookups: u64,
 }
 
 #[derive(Debug, Default)]
@@ -229,6 +319,22 @@ impl ClassConstraintIndex {
             .iter()
             .filter(|(_, type_bits)| type_bits.intersection(descendants).next().is_some())
             .map(|(subject, _)| subject.clone())
+            .collect()
+    }
+
+    fn subject_classes_with_superclasses(&self, subject: &Term) -> Vec<Term> {
+        let Some(type_bits) = self.subject_type_bits.get(subject) else {
+            return Vec::new();
+        };
+        let mut all_classes = FixedBitSet::with_capacity(self.id_to_term.len());
+        for class_id in type_bits.ones() {
+            if let Some(ancestors) = self.ancestors_by_subclass.get(class_id) {
+                all_classes.union_with(ancestors);
+            }
+        }
+        all_classes
+            .ones()
+            .filter_map(|id| self.id_to_term.get(id).cloned())
             .collect()
     }
 }
@@ -273,8 +379,12 @@ pub struct ValidationContext {
     /// Path batching cache for deduplicating identical path queries across property shapes
     pub(crate) path_batch_cache: PathBatchCacheMap,
     node_conformance_cache: RwLock<HashMap<NodeConformanceCacheKey, ConformanceReport>>,
-    focus_predicate_summary: RwLock<Option<Arc<FocusPredicateSummary>>>,
+    validation_access_profile: ValidationAccessProfile,
+    selective_predicate_index: RwLock<Option<Arc<SelectivePredicateIndex>>>,
+    predicate_index_stats: PredicateIndexStats,
     compiled_sparql_index: RwLock<CompiledSparqlIndex>,
+    closed_world_allowed_predicates:
+        RwLock<HashMap<ClosedWorldAllowedPredicateCacheKey, ClosedWorldAllowedPredicateCacheValue>>,
     /// Condition conformance cache for inference rule conditions
     /// Key: (condition_shape_id, focus_node)
     /// Value: conformance result (true/false)
@@ -292,6 +402,7 @@ impl ValidationContext {
     ) -> Self {
         let data_graph_skolem_base = skolem_base(&data_graph_iri);
         let shape_graph_skolem_base = skolem_base(&model.shape_graph_iri);
+        let validation_access_profile = ValidationAccessProfile::from_shape_ir(shape_ir.as_ref());
         let backend = Arc::new(OxigraphBackend::new(
             model.store.clone(),
             data_graph_iri.clone(),
@@ -351,8 +462,11 @@ impl ValidationContext {
             component_memo_cache: RwLock::new(HashMap::new()),
             path_batch_cache: RwLock::new(HashMap::new()),
             node_conformance_cache: RwLock::new(HashMap::new()),
-            focus_predicate_summary: RwLock::new(None),
+            validation_access_profile,
+            selective_predicate_index: RwLock::new(None),
+            predicate_index_stats: PredicateIndexStats::default(),
             compiled_sparql_index: RwLock::new(CompiledSparqlIndex::default()),
+            closed_world_allowed_predicates: RwLock::new(HashMap::new()),
             inference_condition_cache: RwLock::new(HashMap::new()),
         }
     }
@@ -413,6 +527,27 @@ impl ValidationContext {
     }
 
     pub(crate) fn validation_objects_for_predicate(
+        &self,
+        subject: NamedOrBlankNodeRef<'_>,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        let predicate_node = predicate.into_owned();
+        if let Some(subject_term) = term_from_subject_ref(subject)
+            && let Some(index) = self.selective_predicate_index_for(predicate_node.clone())?
+        {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .outgoing_values_by_focus
+                .get(&subject_term)
+                .and_then(|by_predicate| by_predicate.get(&predicate_node))
+                .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_objects_for_predicate_fallback(subject, predicate_node.as_ref())
+    }
+
+    fn validation_objects_for_predicate_fallback(
         &self,
         subject: NamedOrBlankNodeRef<'_>,
         predicate: NamedNodeRef<'_>,
@@ -554,7 +689,7 @@ impl ValidationContext {
         self.backend.insert_quads(quads)?;
         if !quads.is_empty() {
             self.node_conformance_cache.write().unwrap().clear();
-            *self.focus_predicate_summary.write().unwrap() = None;
+            *self.selective_predicate_index.write().unwrap() = None;
             *self.compiled_sparql_index.write().unwrap() = CompiledSparqlIndex::default();
             self.class_constraint_memo.write().unwrap().clear();
             *self.class_constraint_index.write().unwrap() = None;
@@ -563,6 +698,10 @@ impl ValidationContext {
             self.prop_target_cache.write().unwrap().clear();
             self.sparql_batch_cache.lock().unwrap().clear();
             self.property_shape_batch_cache.lock().unwrap().clear();
+            self.closed_world_allowed_predicates
+                .write()
+                .unwrap()
+                .clear();
         }
         Ok(())
     }
@@ -572,14 +711,21 @@ impl ValidationContext {
         focus_node: &Term,
         predicate: &Term,
     ) -> Result<bool, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(false);
         };
 
-        Ok(summary
-            .incoming_by_focus
-            .get(focus_node)
-            .is_some_and(|predicates| predicates.contains(predicate)))
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .incoming_by_focus
+                .get(focus_node)
+                .is_some_and(|predicates| predicates.contains(predicate_node)));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_incoming_predicate_exists_fallback(focus_node, predicate_node)
     }
 
     pub(crate) fn ensure_compiled_sparql_index(
@@ -652,15 +798,22 @@ impl ValidationContext {
         focus_node: &Term,
         predicate: &Term,
     ) -> Result<usize, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(0);
         };
 
-        Ok(summary
-            .outgoing_counts_by_focus
-            .get(focus_node)
-            .and_then(|counts| counts.get(predicate).copied())
-            .unwrap_or(0))
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .outgoing_counts_by_focus
+                .get(focus_node)
+                .and_then(|counts| counts.get(predicate_node).copied())
+                .unwrap_or(0));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_outgoing_predicate_count_fallback(focus_node, predicate_node)
     }
 
     pub(crate) fn focus_incoming_predicate_count(
@@ -668,35 +821,58 @@ impl ValidationContext {
         focus_node: &Term,
         predicate: &Term,
     ) -> Result<usize, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(0);
         };
 
-        Ok(summary
-            .incoming_values_by_focus
-            .get(focus_node)
-            .and_then(|counts| counts.get(predicate))
-            .map_or(0, HashSet::len))
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .incoming_values_by_focus
+                .get(focus_node)
+                .and_then(|counts| counts.get(predicate_node))
+                .map_or(0, HashSet::len));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_incoming_predicate_count_fallback(focus_node, predicate_node)
     }
 
     pub(crate) fn target_subjects_of(&self, predicate: &Term) -> Result<Vec<Term>, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(Vec::new());
         };
-        Ok(summary
-            .subjects_by_predicate
-            .get(predicate)
-            .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()))
+
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .subjects_by_predicate
+                .get(predicate_node)
+                .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_subjects_for_predicate_fallback(predicate_node)
     }
 
     pub(crate) fn target_objects_of(&self, predicate: &Term) -> Result<Vec<Term>, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(Vec::new());
         };
-        Ok(summary
-            .objects_by_predicate
-            .get(predicate)
-            .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()))
+
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .objects_by_predicate
+                .get(predicate_node)
+                .map_or_else(Vec::new, |nodes| nodes.iter().cloned().collect()));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_objects_for_target_predicate_fallback(predicate_node)
     }
 
     pub(crate) fn focus_objects_for_predicate(
@@ -704,14 +880,22 @@ impl ValidationContext {
         focus_node: &Term,
         predicate: &Term,
     ) -> Result<Vec<Term>, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(Vec::new());
         };
-        Ok(summary
-            .outgoing_values_by_focus
-            .get(focus_node)
-            .and_then(|by_predicate| by_predicate.get(predicate))
-            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .outgoing_values_by_focus
+                .get(focus_node)
+                .and_then(|by_predicate| by_predicate.get(predicate_node))
+                .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_focus_objects_for_predicate_fallback(focus_node, predicate_node)
     }
 
     pub(crate) fn focus_subjects_for_inverse_predicate(
@@ -719,38 +903,32 @@ impl ValidationContext {
         focus_node: &Term,
         predicate: &Term,
     ) -> Result<Vec<Term>, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
+        let Term::NamedNode(predicate_node) = predicate else {
+            self.predicate_index_stats.record_fallback();
             return Ok(Vec::new());
         };
-        Ok(summary
-            .incoming_values_by_focus
-            .get(focus_node)
-            .and_then(|by_predicate| by_predicate.get(predicate))
-            .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()))
+
+        if let Some(index) = self.selective_predicate_index_for(predicate_node.clone())? {
+            self.predicate_index_stats.record_hit();
+            return Ok(index
+                .incoming_values_by_focus
+                .get(focus_node)
+                .and_then(|by_predicate| by_predicate.get(predicate_node))
+                .map_or_else(Vec::new, |terms| terms.iter().cloned().collect()));
+        }
+
+        self.predicate_index_stats.record_fallback();
+        self.validation_focus_subjects_for_inverse_predicate_fallback(focus_node, predicate_node)
     }
 
     pub(crate) fn focus_outgoing_predicates(&self, focus_node: &Term) -> Result<Vec<Term>, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
-            return Ok(Vec::new());
-        };
-        Ok(summary
-            .outgoing_values_by_focus
-            .get(focus_node)
-            .map_or_else(Vec::new, |by_predicate| {
-                by_predicate.keys().cloned().collect()
-            }))
+        self.predicate_index_stats.record_fallback();
+        self.validation_outgoing_predicates_for_focus_fallback(focus_node)
     }
 
     pub(crate) fn focus_incoming_predicates(&self, focus_node: &Term) -> Result<Vec<Term>, String> {
-        let Some(summary) = self.focus_predicate_summary()? else {
-            return Ok(Vec::new());
-        };
-        Ok(summary
-            .incoming_values_by_focus
-            .get(focus_node)
-            .map_or_else(Vec::new, |by_predicate| {
-                by_predicate.keys().cloned().collect()
-            }))
+        self.predicate_index_stats.record_fallback();
+        self.validation_incoming_predicates_for_focus_fallback(focus_node)
     }
 
     pub(crate) fn prefixes_for_node(&self, node: &Term) -> Result<String, String> {
@@ -826,8 +1004,12 @@ impl ValidationContext {
         self.class_constraint_memo.write().unwrap().clear();
         *self.class_constraint_index.write().unwrap() = None;
         self.node_conformance_cache.write().unwrap().clear();
-        *self.focus_predicate_summary.write().unwrap() = None;
+        *self.selective_predicate_index.write().unwrap() = None;
         *self.compiled_sparql_index.write().unwrap() = CompiledSparqlIndex::default();
+        self.closed_world_allowed_predicates
+            .write()
+            .unwrap()
+            .clear();
     }
 
     pub(crate) fn cached_node_conformance(
@@ -864,25 +1046,34 @@ impl ValidationContext {
         );
     }
 
-    fn focus_predicate_summary(&self) -> Result<Option<Arc<FocusPredicateSummary>>, String> {
-        if let Some(summary) = self.focus_predicate_summary.read().unwrap().clone() {
-            return Ok(Some(summary));
+    fn selective_predicate_index(&self) -> Result<Option<Arc<SelectivePredicateIndex>>, String> {
+        if self.validation_access_profile.is_empty() {
+            return Ok(None);
         }
 
-        let mut incoming_by_focus: HashMap<Term, HashSet<Term>> = HashMap::new();
-        let mut outgoing_counts_by_focus: HashMap<Term, HashMap<Term, usize>> = HashMap::new();
-        let mut outgoing_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>> =
+        if let Some(index) = self.selective_predicate_index.read().unwrap().clone() {
+            return Ok(Some(index));
+        }
+
+        let started = std::time::Instant::now();
+        let mut incoming_by_focus: HashMap<Term, HashSet<NamedNode>> = HashMap::new();
+        let mut outgoing_counts_by_focus: HashMap<Term, HashMap<NamedNode, usize>> = HashMap::new();
+        let mut outgoing_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>> =
             HashMap::new();
-        let mut incoming_values_by_focus: HashMap<Term, HashMap<Term, HashSet<Term>>> =
+        let mut incoming_values_by_focus: HashMap<Term, HashMap<NamedNode, HashSet<Term>>> =
             HashMap::new();
-        let mut subjects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
-        let mut objects_by_predicate: HashMap<Term, HashSet<Term>> = HashMap::new();
+        let mut subjects_by_predicate: HashMap<NamedNode, HashSet<Term>> = HashMap::new();
+        let mut objects_by_predicate: HashMap<NamedNode, HashSet<Term>> = HashMap::new();
         self.for_each_validation_quad_for_pattern(None, None, None, |quad| {
-            let subject = match quad.subject {
-                NamedOrBlankNode::NamedNode(node) => Term::NamedNode(node),
-                NamedOrBlankNode::BlankNode(node) => Term::BlankNode(node),
-            };
-            let predicate = Term::NamedNode(quad.predicate);
+            if !self
+                .validation_access_profile
+                .tracks_predicate(&quad.predicate)
+            {
+                return Ok(());
+            }
+
+            let subject = term_from_subject(&quad.subject).expect("subject term");
+            let predicate = quad.predicate.clone();
             outgoing_counts_by_focus
                 .entry(subject.clone())
                 .or_default()
@@ -916,20 +1107,168 @@ impl ValidationContext {
             Ok(())
         })?;
 
-        let summary = if outgoing_counts_by_focus.is_empty() {
-            None
-        } else {
-            Some(Arc::new(FocusPredicateSummary {
-                incoming_by_focus,
-                outgoing_counts_by_focus,
-                outgoing_values_by_focus,
-                incoming_values_by_focus,
-                subjects_by_predicate,
-                objects_by_predicate,
-            }))
+        let index = Arc::new(SelectivePredicateIndex {
+            incoming_by_focus,
+            outgoing_counts_by_focus,
+            outgoing_values_by_focus,
+            incoming_values_by_focus,
+            subjects_by_predicate,
+            objects_by_predicate,
+        });
+        self.predicate_index_stats.record_build(
+            self.validation_access_profile.indexed_predicates.len(),
+            started.elapsed(),
+        );
+
+        let mut cache = self.selective_predicate_index.write().unwrap();
+        if let Some(existing) = cache.as_ref() {
+            return Ok(Some(Arc::clone(existing)));
+        }
+        *cache = Some(Arc::clone(&index));
+        Ok(Some(index))
+    }
+
+    fn selective_predicate_index_for(
+        &self,
+        predicate: NamedNode,
+    ) -> Result<Option<Arc<SelectivePredicateIndex>>, String> {
+        if !self.validation_access_profile.tracks_predicate(&predicate) {
+            return Ok(None);
+        }
+        self.selective_predicate_index()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn predicate_index_stats(&self) -> PredicateIndexStatsSnapshot {
+        self.predicate_index_stats.snapshot()
+    }
+
+    fn validation_outgoing_predicate_count_fallback(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<usize, String> {
+        let Some(subject) = term_to_subject_ref(focus_node) else {
+            return Ok(0);
         };
-        *self.focus_predicate_summary.write().unwrap() = summary.clone();
-        Ok(summary)
+
+        let mut count = 0usize;
+        self.for_each_validation_quad_for_pattern(
+            Some(subject),
+            Some(predicate.as_ref()),
+            None,
+            |_quad| {
+                count += 1;
+                Ok(())
+            },
+        )?;
+        Ok(count)
+    }
+
+    fn validation_incoming_predicate_exists_fallback(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<bool, String> {
+        Ok(self.validation_incoming_predicate_count_fallback(focus_node, predicate)? > 0)
+    }
+
+    fn validation_incoming_predicate_count_fallback(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<usize, String> {
+        let mut count = 0usize;
+        self.for_each_validation_quad_for_pattern(
+            None,
+            Some(predicate.as_ref()),
+            Some(focus_node),
+            |_quad| {
+                count += 1;
+                Ok(())
+            },
+        )?;
+        Ok(count)
+    }
+
+    fn validation_subjects_for_predicate_fallback(
+        &self,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        let mut subjects = HashSet::new();
+        self.for_each_validation_quad_for_pattern(None, Some(predicate.as_ref()), None, |quad| {
+            subjects.insert(term_from_subject(&quad.subject).expect("subject term"));
+            Ok(())
+        })?;
+        Ok(subjects.into_iter().collect())
+    }
+
+    fn validation_objects_for_target_predicate_fallback(
+        &self,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        let mut objects = HashSet::new();
+        self.for_each_validation_quad_for_pattern(None, Some(predicate.as_ref()), None, |quad| {
+            objects.insert(quad.object);
+            Ok(())
+        })?;
+        Ok(objects.into_iter().collect())
+    }
+
+    fn validation_focus_objects_for_predicate_fallback(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        let Some(subject) = term_to_subject_ref(focus_node) else {
+            return Ok(Vec::new());
+        };
+        self.validation_objects_for_predicate_fallback(subject, predicate.as_ref())
+    }
+
+    fn validation_focus_subjects_for_inverse_predicate_fallback(
+        &self,
+        focus_node: &Term,
+        predicate: &NamedNode,
+    ) -> Result<Vec<Term>, String> {
+        let mut subjects = Vec::new();
+        self.for_each_validation_quad_for_pattern(
+            None,
+            Some(predicate.as_ref()),
+            Some(focus_node),
+            |quad| {
+                subjects.push(term_from_subject(&quad.subject).expect("subject term"));
+                Ok(())
+            },
+        )?;
+        Ok(subjects)
+    }
+
+    fn validation_outgoing_predicates_for_focus_fallback(
+        &self,
+        focus_node: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let Some(subject) = term_to_subject_ref(focus_node) else {
+            return Ok(Vec::new());
+        };
+        let mut predicates = HashSet::new();
+        self.for_each_validation_quad_for_pattern(Some(subject), None, None, |quad| {
+            predicates.insert(Term::NamedNode(quad.predicate));
+            Ok(())
+        })?;
+        Ok(predicates.into_iter().collect())
+    }
+
+    fn validation_incoming_predicates_for_focus_fallback(
+        &self,
+        focus_node: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let mut predicates = HashSet::new();
+        self.for_each_validation_quad_for_pattern(None, None, Some(focus_node), |quad| {
+            predicates.insert(Term::NamedNode(quad.predicate));
+            Ok(())
+        })?;
+        Ok(predicates.into_iter().collect())
     }
 
     pub(crate) fn component_graph_call_stats(&self) -> Vec<ComponentGraphCallStatRecord> {
@@ -1292,6 +1631,39 @@ impl ValidationContext {
         Ok(index.instances_of_class(class))
     }
 
+    pub(crate) fn subject_classes_with_superclasses(
+        &self,
+        subject: &Term,
+    ) -> Result<Vec<Term>, String> {
+        let index = self.ensure_class_constraint_index()?;
+        Ok(index.subject_classes_with_superclasses(subject))
+    }
+
+    pub(crate) fn closed_world_allowed_predicates_for_class(
+        &self,
+        class_term: &Term,
+        source: ClosedWorldAllowedSource,
+    ) -> Result<HashSet<NamedNode>, String> {
+        let key = (class_term.clone(), source);
+        if let Some(cached) = self
+            .closed_world_allowed_predicates
+            .read()
+            .unwrap()
+            .get(&key)
+        {
+            return Ok((**cached).clone());
+        }
+
+        let allowed =
+            Arc::new(self.build_closed_world_allowed_predicates_for_class(class_term, source)?);
+        let mut cache = self.closed_world_allowed_predicates.write().unwrap();
+        if let Some(existing) = cache.get(&key) {
+            return Ok((**existing).clone());
+        }
+        cache.insert(key, Arc::clone(&allowed));
+        Ok((*allowed).clone())
+    }
+
     fn ensure_class_constraint_index(&self) -> Result<Arc<ClassConstraintIndex>, String> {
         if let Some(index) = self.class_constraint_index.read().unwrap().as_ref() {
             return Ok(Arc::clone(index));
@@ -1307,6 +1679,7 @@ impl ValidationContext {
 
     fn build_class_constraint_index(&self) -> Result<ClassConstraintIndex, String> {
         let mut term_to_id: HashMap<Term, usize> = HashMap::new();
+        let mut id_to_term = Vec::new();
         let mut next_id = 0usize;
         let mut parent_edges: Vec<(usize, usize)> = Vec::new();
 
@@ -1316,6 +1689,7 @@ impl ValidationContext {
             } else {
                 let id = next_id;
                 next_id += 1;
+                id_to_term.push(term.clone());
                 term_to_id.insert(term, id);
                 id
             }
@@ -1399,9 +1773,84 @@ impl ValidationContext {
 
         Ok(ClassConstraintIndex {
             term_to_id,
+            id_to_term,
+            ancestors_by_subclass,
             descendants_by_super,
             subject_type_bits,
         })
+    }
+
+    fn build_closed_world_allowed_predicates_for_class(
+        &self,
+        class_term: &Term,
+        source: ClosedWorldAllowedSource,
+    ) -> Result<HashSet<NamedNode>, String> {
+        let shacl = SHACL::new();
+        let property_shapes = match source {
+            ClosedWorldAllowedSource::DirectPropertyPath => {
+                self.objects_for_any_graph(class_term, shacl.property)?
+            }
+            ClosedWorldAllowedSource::XonePropertyPath => {
+                self.collect_closed_world_list_property_shapes(class_term, shacl.xone)?
+            }
+            ClosedWorldAllowedSource::OrPropertyPath => {
+                self.collect_closed_world_list_property_shapes(class_term, shacl.or_)?
+            }
+        };
+
+        let mut allowed = HashSet::new();
+        for property_shape in property_shapes {
+            for path in self.objects_for_any_graph(&property_shape, shacl.path)? {
+                if let Term::NamedNode(predicate) = path {
+                    allowed.insert(predicate);
+                }
+            }
+        }
+
+        Ok(allowed)
+    }
+
+    fn collect_closed_world_list_property_shapes(
+        &self,
+        class_term: &Term,
+        list_predicate: NamedNodeRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        let rdf = RDF::new();
+        let shacl = SHACL::new();
+        let mut property_shapes = HashSet::new();
+        let mut frontier = self.objects_for_any_graph(class_term, list_predicate)?;
+        let mut seen_cells = HashSet::new();
+
+        while let Some(cell) = frontier.pop() {
+            if cell == Term::from(rdf.nil) || !seen_cells.insert(cell.clone()) {
+                continue;
+            }
+
+            for member in self.objects_for_any_graph(&cell, rdf.first)? {
+                for property_shape in self.objects_for_any_graph(&member, shacl.property)? {
+                    property_shapes.insert(property_shape);
+                }
+            }
+
+            frontier.extend(self.objects_for_any_graph(&cell, rdf.rest)?);
+        }
+
+        Ok(property_shapes.into_iter().collect())
+    }
+
+    fn objects_for_any_graph(
+        &self,
+        subject: &Term,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<Vec<Term>, String> {
+        let Some(subject_ref) = term_to_subject_ref(subject) else {
+            return Ok(Vec::new());
+        };
+        Ok(self
+            .quads_for_pattern(Some(subject_ref), Some(predicate), None, None)?
+            .into_iter()
+            .map(|quad| quad.object)
+            .collect())
     }
 
     fn extend_compiled_sparql_index_for_predicate(
@@ -1520,10 +1969,73 @@ fn custom_component_cache_key(
     format!("{}|{}", definition.iri.as_str(), entries.join("|"))
 }
 
+fn collect_target_predicates(
+    targets: &[crate::types::Target],
+    indexed_predicates: &mut HashSet<NamedNode>,
+) {
+    for target in targets {
+        match target {
+            crate::types::Target::SubjectsOf(Term::NamedNode(predicate))
+            | crate::types::Target::ObjectsOf(Term::NamedNode(predicate)) => {
+                indexed_predicates.insert(predicate.clone());
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_simple_path_predicates(path: &PShapePath, indexed_predicates: &mut HashSet<NamedNode>) {
+    match path {
+        PShapePath::Simple(Term::NamedNode(predicate)) => {
+            indexed_predicates.insert(predicate.clone());
+        }
+        PShapePath::Inverse(inner) => collect_simple_path_predicates(inner, indexed_predicates),
+        _ => {}
+    }
+}
+
+fn collect_component_predicates(
+    descriptor: &ComponentDescriptor,
+    indexed_predicates: &mut HashSet<NamedNode>,
+) {
+    match descriptor {
+        ComponentDescriptor::Equals {
+            property: Term::NamedNode(predicate),
+        }
+        | ComponentDescriptor::Disjoint {
+            property: Term::NamedNode(predicate),
+        }
+        | ComponentDescriptor::LessThan {
+            property: Term::NamedNode(predicate),
+        }
+        | ComponentDescriptor::LessThanOrEquals {
+            property: Term::NamedNode(predicate),
+        } => {
+            indexed_predicates.insert(predicate.clone());
+        }
+        _ => {}
+    }
+}
+
 fn term_from_subject(subject: &NamedOrBlankNode) -> Option<Term> {
     match subject {
         NamedOrBlankNode::NamedNode(nn) => Some(Term::NamedNode(nn.clone())),
         NamedOrBlankNode::BlankNode(bn) => Some(Term::BlankNode(bn.clone())),
+    }
+}
+
+fn term_from_subject_ref(subject: NamedOrBlankNodeRef<'_>) -> Option<Term> {
+    match subject {
+        NamedOrBlankNodeRef::NamedNode(nn) => Some(Term::NamedNode(nn.into_owned())),
+        NamedOrBlankNodeRef::BlankNode(bn) => Some(Term::BlankNode(bn.into_owned())),
+    }
+}
+
+fn term_to_subject_ref(term: &Term) -> Option<NamedOrBlankNodeRef<'_>> {
+    match term {
+        Term::NamedNode(node) => Some(NamedOrBlankNodeRef::NamedNode(node.as_ref())),
+        Term::BlankNode(node) => Some(NamedOrBlankNodeRef::BlankNode(node.as_ref())),
+        Term::Literal(_) => None,
     }
 }
 

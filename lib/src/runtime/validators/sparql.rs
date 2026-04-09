@@ -9,12 +9,12 @@ use crate::runtime::{
     ComponentValidationResult, GraphvizOutput, ToSubjectRef, ValidateComponent, ValidationFailure,
 };
 use crate::sparql::{
-    AdjacentPredicateWhitelistPlan, CompatibilitySide, LocalSetCompatibilityMode,
-    LocalSetCompatibilityPlan, LoweredPropertyPath, LoweredSparqlQueryKind, MessageTemplater,
-    MissingRelatedNodePlan, PathValueEqualsConstantPlan, RequiredPathSupportPlan, SparqlExecutor,
-    ThisPredicateDirection, ensure_pre_binding_semantics, evaluate_compiled_path,
-    format_term_with_namespace_aliases, lowered_sparql_query_kind, parse_prefix_lines,
-    required_this_predicates, validate_prebound_variable_usage,
+    AdjacentPredicateWhitelistPlan, ClosedWorldPlan, ClosedWorldPredicateDomain, CompatibilitySide,
+    LocalSetCompatibilityMode, LocalSetCompatibilityPlan, LoweredPropertyPath,
+    LoweredSparqlQueryKind, MessageTemplater, MissingRelatedNodePlan, PathValueEqualsConstantPlan,
+    RequiredPathSupportPlan, SparqlExecutor, ThisPredicateDirection, ensure_pre_binding_semantics,
+    evaluate_compiled_path, format_term_with_namespace_aliases, lowered_sparql_query_kind,
+    parse_prefix_lines, required_this_predicates, validate_prebound_variable_usage,
 };
 use crate::trace::TraceEvent;
 use crate::types::{ComponentID, Path, Severity, TraceItem};
@@ -372,6 +372,115 @@ fn try_run_lowered_adjacent_predicate_whitelist(
         c.clone(),
         failure,
     )]))
+}
+
+fn predicate_matches_closed_world_domain(
+    context: &ValidationContext,
+    predicate: &NamedNode,
+    domain: &ClosedWorldPredicateDomain,
+) -> Result<bool, String> {
+    match domain {
+        ClosedWorldPredicateDomain::NamespacePrefix(prefix) => {
+            Ok(predicate.as_str().starts_with(prefix))
+        }
+        ClosedWorldPredicateDomain::SubclassOfClass(class_term) => context
+            .class_constraint_matches_fast(&Term::NamedNode(predicate.clone()), class_term)
+            .map(|result| result.unwrap_or(false)),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_run_lowered_closed_world_query(
+    component_id: ComponentID,
+    c: &Context,
+    context: &ValidationContext,
+    current_shape_term: Option<&Term>,
+    constraint_node: &Term,
+    plan: &ClosedWorldPlan,
+    path_substitution_value: Option<&String>,
+    message_prefixes: &[(String, String)],
+    messages: &[Term],
+    severity: Option<Severity>,
+) -> Result<Option<Vec<ComponentValidationResult>>, String> {
+    if plan.skip_focus_if_shape_node
+        && context
+            .class_constraint_matches_fast(
+                c.focus_node(),
+                &Term::NamedNode(SHACL::new().node_shape.into_owned()),
+            )?
+            .unwrap_or(false)
+    {
+        return Ok(Some(vec![]));
+    }
+
+    let Ok(subject_ref) = c.focus_node().try_to_subject_ref() else {
+        return Ok(Some(vec![]));
+    };
+
+    let mut candidate_pairs = Vec::new();
+    context.for_each_validation_quad_for_pattern(Some(subject_ref), None, None, |quad| {
+        if predicate_matches_closed_world_domain(context, &quad.predicate, &plan.predicate_domain)?
+        {
+            candidate_pairs.push((quad.predicate, quad.object));
+        }
+        Ok(())
+    })?;
+    if candidate_pairs.is_empty() {
+        return Ok(Some(vec![]));
+    }
+
+    let mut allowed_predicates = HashSet::new();
+    for class_term in context.subject_classes_with_superclasses(c.focus_node())? {
+        for source in &plan.allowed_sources {
+            allowed_predicates
+                .extend(context.closed_world_allowed_predicates_for_class(&class_term, *source)?);
+        }
+    }
+
+    let failed_value_node = if c.source_shape().as_node_id().is_some() {
+        Some(c.focus_node().clone())
+    } else {
+        None
+    };
+    let mut results = Vec::new();
+    for (predicate, object) in candidate_pairs {
+        if allowed_predicates.contains(&predicate) {
+            continue;
+        }
+
+        let mut substitutions_for_messages = gather_default_substitutions(
+            c,
+            current_shape_term,
+            failed_value_node.as_ref(),
+            path_substitution_value,
+            message_prefixes,
+        );
+        substitutions_for_messages.push((
+            plan.predicate_var.clone(),
+            term_to_message_value(&Term::NamedNode(predicate.clone()), message_prefixes),
+        ));
+        substitutions_for_messages.push((
+            plan.object_var.clone(),
+            term_to_message_value(&object, message_prefixes),
+        ));
+        let (message_opt, message_terms) = context
+            .sparql_services()
+            .instantiate_messages(messages, &substitutions_for_messages);
+        let message =
+            message_opt.unwrap_or_else(|| "Node does not conform to SPARQL constraint".to_string());
+        let failure = ValidationFailure::new(
+            component_id,
+            failed_value_node.clone(),
+            message,
+            None,
+            Some(constraint_node.clone()),
+        )
+        .with_severity(severity.clone())
+        .with_message_terms(message_terms);
+        results.push(ComponentValidationResult::Fail(c.clone(), failure));
+    }
+
+    Ok(Some(results))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1485,6 +1594,20 @@ impl ValidateComponent for SPARQLConstraintComponent {
             .find_map(|term| <Severity as crate::types::SeverityExt>::from_term(&term));
 
         let lowered_results = match lowered_query_kind.as_ref() {
+            Some(LoweredSparqlQueryKind::ClosedWorldClassPredicateWhitelist(plan)) => {
+                try_run_lowered_closed_world_query(
+                    component_id,
+                    c,
+                    context,
+                    current_shape_term.as_ref(),
+                    &self.constraint_node,
+                    plan,
+                    path_substitution_value.as_ref(),
+                    &message_prefixes,
+                    &messages,
+                    severity.clone(),
+                )?
+            }
             Some(LoweredSparqlQueryKind::AdjacentPredicateWhitelist(plan)) => {
                 try_run_lowered_adjacent_predicate_whitelist(
                     component_id,
