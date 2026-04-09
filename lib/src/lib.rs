@@ -50,13 +50,14 @@ use ontoenv::config::Config;
 use ontoenv::ontology::{GraphIdentifier, OntologyLocation};
 use ontoenv::options::CacheMode;
 use ontoenv::options::{Overwrite, RefreshStrategy};
-use oxigraph::io::{RdfFormat, RdfParser};
+use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{BlankNode, GraphName, GraphNameRef, NamedNode, Quad, Term};
-use oxigraph::store::Store;
+use oxigraph::store::{BulkLoader, Store};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use tempfile::{Builder as TempDirBuilder, TempDir};
 use url::Url;
 
 /// Represents the source of shapes or data, which can be either a local file or a named graph from an `OntoEnv`.
@@ -221,6 +222,8 @@ struct BuildShapesModelConfig {
     optimize_shapes: bool,
     optimize_shapes_data_dependent: bool,
 }
+
+const BULK_LOAD_CHUNK_SIZE: usize = 50_000;
 
 impl ValidatorBuilder {
     /// Creates a new builder with default configuration.
@@ -439,6 +442,7 @@ impl ValidatorBuilder {
             mut shape_graphs_for_union,
             _merged_closure_ids,
             store,
+            working_store_dir,
         ) = {
             let mut env = env_handle.write().unwrap();
             let include_imports_on_add = do_imports && import_depth != 0;
@@ -636,70 +640,54 @@ impl ValidatorBuilder {
             // OntoEnv is the cached source of named graphs and imports closures.
             // The validator builds or selects a working store from those loaded graphs.
             // Persistent OntoEnv workspaces are not mutated during validation.
+            let (store, working_store_dir) = Self::create_working_store()?;
             let store = if do_imports {
                 if let Some(ids) = &merged_closure_ids {
-                    let can_reuse_env_store = Self::can_reuse_ontoenv_store_for_imports(
+                    let _ = Self::can_reuse_ontoenv_store_for_imports(
                         temporary_env,
                         use_shared_env,
                         shapes_closure_ids.as_ref(),
                         data_closure_ids.as_ref(),
                     );
-                    if can_reuse_env_store {
-                        info!(
-                            "Using OntoEnv store directly for merged imports closure ({} ontologies); skipping union store materialization",
-                            ids.len()
-                        );
-                        env.io().store().clone()
+                    let union_base = if ids
+                        .iter()
+                        .any(|id| id.name().as_str() == shapes_graph_iri.as_str())
+                    {
+                        shapes_graph_iri.as_ref()
                     } else {
-                        let store = Store::new().map_err(|e| {
+                        data_graph_iri.as_ref()
+                    };
+                    let union = env
+                        .get_union_graph(ids, union_base, Some(false), Some(false))
+                        .map_err(|e| {
                             Box::new(std::io::Error::other(format!(
-                                "Error creating in-memory store: {}",
+                                "Failed to load merged union graph for shape/data closures: {}",
                                 e
                             ))) as Box<dyn Error>
                         })?;
-                        let union_base = if ids
-                            .iter()
-                            .any(|id| id.name().as_str() == shapes_graph_iri.as_str())
-                        {
-                            shapes_graph_iri.as_ref()
-                        } else {
-                            data_graph_iri.as_ref()
-                        };
-                        let union = env
-                            .get_union_graph(ids, union_base, Some(false), Some(false))
-                            .map_err(|e| {
-                                Box::new(std::io::Error::other(format!(
-                                    "Failed to load merged union graph for shape/data closures: {}",
-                                    e
-                                ))) as Box<dyn Error>
-                            })?;
-                        for quad in union.dataset.iter() {
-                            store.insert(quad).map_err(|e| {
-                                Box::new(std::io::Error::other(format!(
-                                    "Failed to insert quad into store: {}",
-                                    e
-                                ))) as Box<dyn Error>
-                            })?;
-                        }
-                        store
-                    }
+                    Self::bulk_load_quads(
+                        &store,
+                        union.dataset.iter().map(|quad| quad.into_owned()),
+                        "merged imports closure",
+                    )?;
+                    store
                 } else {
-                    env.io().store().clone()
+                    for graph in &shape_graphs_for_union {
+                        Self::copy_named_graph(env.io().store(), &store, graph)?;
+                    }
+                    if !matches!(data_source, Source::Empty) && data_graph_iri != shapes_graph_iri {
+                        Self::copy_named_graph(env.io().store(), &store, &data_graph_iri)?;
+                    }
+                    store
                 }
             } else {
-                let scoped_store = Store::new().map_err(|e| {
-                    Box::new(std::io::Error::other(format!(
-                        "Error creating in-memory store: {}",
-                        e
-                    ))) as Box<dyn Error>
-                })?;
                 for graph in &shape_graphs_for_union {
-                    Self::copy_named_graph(env.io().store(), &scoped_store, graph)?;
+                    Self::copy_named_graph(env.io().store(), &store, graph)?;
                 }
                 if !matches!(data_source, Source::Empty) && data_graph_iri != shapes_graph_iri {
-                    Self::copy_named_graph(env.io().store(), &scoped_store, &data_graph_iri)?;
+                    Self::copy_named_graph(env.io().store(), &store, &data_graph_iri)?;
                 }
-                scoped_store
+                store
             };
 
             (
@@ -710,20 +698,14 @@ impl ValidatorBuilder {
                 shape_graphs_for_union,
                 merged_closure_ids,
                 store,
+                working_store_dir,
             )
         };
 
         if let Some(ir) = shape_ir.as_ref() {
             shape_graphs_for_union =
                 Self::graph_names_from_quads(&ir.shape_quads, &shapes_graph_iri);
-            for quad in &ir.shape_quads {
-                store.insert(quad).map_err(|e| {
-                    Box::new(std::io::Error::other(format!(
-                        "Failed to inject shape quad into store: {}",
-                        e
-                    ))) as Box<dyn Error>
-                })?;
-            }
+            Self::bulk_load_quads(&store, ir.shape_quads.iter().cloned(), "cached SHACL-IR quads")?;
         }
 
         if shape_graphs_for_union.is_empty() {
@@ -753,6 +735,7 @@ impl ValidatorBuilder {
 
         Self::maybe_skolemize_graph("shape", &store, &shapes_graph_iri, skolemize_shapes)?;
         Self::maybe_skolemize_graph("data", &store, &data_graph_iri, skolemize_data)?;
+        Self::optimize_working_store(&store)?;
 
         let data_skolem_base = if skolemize_data {
             Some(Self::skolem_base(&data_graph_iri))
@@ -831,7 +814,10 @@ impl ValidatorBuilder {
             skip_sparql_blank_targets,
             shape_ir_arc,
         );
-        Ok(Validator { context })
+        Ok(Validator {
+            context,
+            _working_store_dir: working_store_dir,
+        })
     }
 
     fn default_config(temporary: bool) -> Result<Config, Box<dyn Error>> {
@@ -1221,24 +1207,195 @@ impl ValidatorBuilder {
         target: &Store,
         graph_iri: &NamedNode,
     ) -> Result<(), Box<dyn Error>> {
-        for quad_res in source.quads_for_pattern(
-            None,
-            None,
-            None,
-            Some(GraphNameRef::NamedNode(graph_iri.as_ref())),
-        ) {
-            let quad = quad_res.map_err(|e| {
+        let iter = source
+            .quads_for_pattern(
+                None,
+                None,
+                None,
+                Some(GraphNameRef::NamedNode(graph_iri.as_ref())),
+            )
+            .map(|quad_res| {
+                quad_res.map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to read quad from graph {}: {}",
+                        graph_iri, e
+                    ))) as Box<dyn Error>
+                })
+            });
+        Self::bulk_load_quads_result_iter(target, iter, &format!("graph {}", graph_iri))
+    }
+
+    fn bulk_load_quads(
+        store: &Store,
+        quads: impl IntoIterator<Item = Quad>,
+        label: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let iter = quads.into_iter().map(Ok::<Quad, Box<dyn Error>>);
+        Self::bulk_load_quads_result_iter(store, iter, label)
+    }
+
+    fn bulk_load_quads_result_iter(
+        store: &Store,
+        quads: impl IntoIterator<Item = Result<Quad, Box<dyn Error>>>,
+        label: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut loader = store.bulk_loader().without_atomicity();
+        let mut batch = Vec::with_capacity(BULK_LOAD_CHUNK_SIZE);
+        let mut loaded = 0usize;
+
+        for quad in quads {
+            batch.push(quad?);
+            if batch.len() >= BULK_LOAD_CHUNK_SIZE {
+                loaded += batch.len();
+                Self::flush_quad_batch(&mut loader, &mut batch, label)?;
+            }
+        }
+
+        if !batch.is_empty() {
+            loaded += batch.len();
+            Self::flush_quad_batch(&mut loader, &mut batch, label)?;
+        }
+
+        loader.commit().map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to commit bulk load for {}: {}",
+                label, e
+            ))) as Box<dyn Error>
+        })?;
+        debug!("Bulk loaded {} quads for {}", loaded, label);
+        Ok(())
+    }
+
+    fn flush_quad_batch(
+        loader: &mut BulkLoader<'_>,
+        batch: &mut Vec<Quad>,
+        label: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let serializer = RdfSerializer::from_format(RdfFormat::NQuads);
+        let mut writer = serializer.for_writer(Vec::new());
+        for quad in batch.iter() {
+            writer.serialize_quad(quad.as_ref()).map_err(|e| {
                 Box::new(std::io::Error::other(format!(
-                    "Failed to read quad from graph {}: {}",
-                    graph_iri, e
+                    "Failed to serialize bulk-load quad for {}: {}",
+                    label, e
                 ))) as Box<dyn Error>
             })?;
-            target.insert(quad.as_ref()).map_err(|e| {
+        }
+        let data = writer.finish().map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to finish N-Quads serialization for {}: {}",
+                label, e
+            ))) as Box<dyn Error>
+        })?;
+
+        loader
+            .load_from_slice(RdfParser::from_format(RdfFormat::NQuads), &data)
+            .map_err(|e| {
                 Box::new(std::io::Error::other(format!(
-                    "Failed to insert quad from graph {}: {}",
-                    graph_iri, e
+                    "Failed to bulk load N-Quads for {}: {}",
+                    label, e
                 ))) as Box<dyn Error>
             })?;
+        batch.clear();
+        Ok(())
+    }
+
+    fn create_working_store() -> Result<(Store, Option<TempDir>), Box<dyn Error>> {
+        #[cfg(feature = "rocksdb")]
+        {
+            let root = Self::ramdisk_root();
+            let tempdir = if let Some(root) = root {
+                TempDirBuilder::new()
+                    .prefix("shifty-rocksdb-")
+                    .tempdir_in(root)
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to create temporary RocksDB directory on RAM-disk root: {}",
+                            e
+                        ))) as Box<dyn Error>
+                    })?
+            } else {
+                warn!(
+                    "No RAM-disk root detected; falling back to regular temporary storage for RocksDB working store"
+                );
+                TempDirBuilder::new()
+                    .prefix("shifty-rocksdb-")
+                    .tempdir()
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to create temporary RocksDB directory: {}",
+                            e
+                        ))) as Box<dyn Error>
+                    })?
+            };
+            let store = Store::open(tempdir.path()).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to open RocksDB working store at {}: {}",
+                    tempdir.path().display(),
+                    e
+                ))) as Box<dyn Error>
+            })?;
+            info!(
+                "Using RocksDB working store at {}",
+                tempdir.path().display()
+            );
+            Ok((store, Some(tempdir)))
+        }
+        #[cfg(not(feature = "rocksdb"))]
+        {
+            warn!("RocksDB feature disabled; using in-memory Oxigraph store");
+            let store = Store::new().map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Error creating in-memory store: {}",
+                    e
+                ))) as Box<dyn Error>
+            })?;
+            Ok((store, None))
+        }
+    }
+
+    #[cfg(feature = "rocksdb")]
+    fn ramdisk_root() -> Option<PathBuf> {
+        if let Ok(root) = std::env::var("SHIFTY_RAMDISK_DIR") {
+            let path = PathBuf::from(root);
+            if path.exists() {
+                return Some(path);
+            }
+            warn!(
+                "SHIFTY_RAMDISK_DIR={} does not exist; ignoring configured RAM-disk root",
+                path.display()
+            );
+        }
+
+        [
+            Path::new("/Volumes/RAMDisk"),
+            Path::new("/Volumes/RAMDisk/shifty"),
+            Path::new("/dev/shm"),
+            Path::new("/run/shm"),
+        ]
+        .into_iter()
+        .find(|path| path.exists())
+        .map(Path::to_path_buf)
+    }
+
+    fn optimize_working_store(store: &Store) -> Result<(), Box<dyn Error>> {
+        #[cfg(feature = "rocksdb")]
+        {
+            info!("Optimizing RocksDB working store");
+            store.optimize().map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to optimize RocksDB working store: {}",
+                    e
+                ))) as Box<dyn Error>
+            })?;
+        }
+        #[cfg(not(feature = "rocksdb"))]
+        {
+            let _ = store;
         }
         Ok(())
     }
@@ -1505,6 +1662,7 @@ impl Default for ValidatorBuilder {
 /// the same shapes + data sources.
 pub struct Validator {
     context: ValidationContext,
+    _working_store_dir: Option<TempDir>,
 }
 
 impl Validator {

@@ -32,8 +32,10 @@ ontoenv = { git = "https://github.com/gtfierro/ontoenv-rs" }
 serde_json.workspace = true
 serde = { workspace = true }
 fixedbitset = "0.5.7"
+tempfile = { workspace = true }
 
 [features]
+default = ["rocksdb"]
 compiled-tests = []
 rocksdb = ["oxigraph/rocksdb", "ontoenv/rocksdb"]
 

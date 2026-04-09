@@ -3181,6 +3181,7 @@ dependencies = [
  "sha2",
  "shacl-srcgen-compiler",
  "spargebra",
+ "tempfile",
  "url",
  "xxhash-rust",
 ]
