@@ -1,0 +1,19 @@
+[package]
+name = "shifty-shacl-core"
+version.workspace = true
+edition.workspace = true
+description = "Core SHACL parsing, algebra, analysis, and diagnostics primitives"
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+[dependencies]
+oxrdf = { workspace = true }
+oxigraph = { workspace = true, default-features = false }
+ontoenv = { git = "https://github.com/gtfierro/ontoenv-rs" }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
