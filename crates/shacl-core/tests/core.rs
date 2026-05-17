@@ -307,3 +307,68 @@ fn rule_conditions_create_owner_dependencies() {
             && edge.kind == "rule_condition")
     );
 }
+
+#[test]
+fn parse_separates_metadata_from_constraints() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdfs_label = NamedNode::new("http://www.w3.org/2000/01/rdf-schema#label").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_class = NamedNode::new("http://www.w3.org/ns/shacl#targetClass").unwrap();
+    let ex_activate = NamedNode::new("http://example.org/activate").unwrap();
+    let shape = NamedNode::new("urn:shape").unwrap();
+    let target_class = NamedNode::new("urn:Target").unwrap();
+
+    let syntax = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            rdfs_label.clone(),
+            Term::Literal(Literal::from("A shape label")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_class,
+            Term::NamedNode(target_class),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            ex_activate.clone(),
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let shape = syntax.shapes.iter().find(|shape| !shape.targets.is_empty()).unwrap();
+    assert!(shape.extras.iter().any(|extra| extra.predicate == rdfs_label));
+    assert!(shape
+        .constraints
+        .iter()
+        .any(|constraint| constraint.predicate == ex_activate));
+}
+
+#[test]
+fn core_feature_is_always_present() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let shape = NamedNode::new("urn:shape").unwrap();
+
+    let doc = parse_quads(vec![Quad::new(
+        shape,
+        rdf_type,
+        Term::NamedNode(sh_node_shape),
+        oxrdf::GraphName::DefaultGraph,
+    )]);
+    let program = lower_to_program(&doc);
+
+    assert!(program
+        .features
+        .iter()
+        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Core)));
+}
