@@ -1,8 +1,8 @@
+use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
     analyze_program, lower_to_program, parse_quads,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
 };
-use oxrdf::{Literal, NamedNode, Quad, Term};
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -33,10 +33,10 @@ fn lowers_af_targets_into_advanced_target_algebra() {
             shifty_shacl_core::algebra::TargetExpr::Advanced { .. }
         )
     }));
-    assert!(program
-        .features
-        .iter()
-        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::AdvancedTargets)));
+    assert!(program.features.iter().any(|feature| matches!(
+        feature,
+        shifty_shacl_core::algebra::FeatureUse::AdvancedTargets
+    )));
 }
 
 #[test]
@@ -125,8 +125,10 @@ fn analysis_reports_recursive_components() {
     let program = lower_to_program(&doc);
     let analysis = analyze_program(&program);
 
-    assert!(analysis
-        .dependency_components
-        .iter()
-        .any(|component| component.recursive));
+    assert!(
+        analysis
+            .dependency_components
+            .iter()
+            .any(|component| component.recursive)
+    );
 }

@@ -1,5 +1,5 @@
 use shifty_shacl_core::{
-    lower_to_program, load_and_parse_with_ontoenv,
+    load_and_parse_with_ontoenv, lower_to_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions},
 };
 use std::fs;
@@ -58,6 +58,16 @@ ex:RootShape
     .expect("ontoenv load should succeed");
 
     let program = lower_to_program(&syntax);
-    assert!(program.shapes.iter().any(|shape| shape.source.to_string().contains("ImportedShape")));
-    assert!(program.source_inventory.iter().any(|source| !source.is_root));
+    assert!(
+        program
+            .shapes
+            .iter()
+            .any(|shape| shape.source.to_string().contains("ImportedShape"))
+    );
+    assert!(
+        program
+            .source_inventory
+            .iter()
+            .any(|source| !source.is_root)
+    );
 }

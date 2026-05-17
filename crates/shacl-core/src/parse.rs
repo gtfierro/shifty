@@ -1,8 +1,8 @@
 use crate::diagnostics::{Diagnostic, DiagnosticSeverity, SourceRef};
 use crate::source::{ResolvedShapeSet, ShapeSource, SourceLoadOptions, load_with_ontoenv};
 use crate::syntax::{
-    ConstraintSyntax, PredicateObjects, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument,
-    ShapeSyntaxKind, TargetSyntax,
+    ConstraintSyntax, PredicateObjects, RuleSyntax, RuleSyntaxKind, ShapeSyntax,
+    ShapeSyntaxDocument, ShapeSyntaxKind, TargetSyntax,
 };
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -60,11 +60,13 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
 
         let pred = quad.predicate.as_str();
         if pred == RDF_TYPE {
-            if matches_named(&quad.object, SH_NODE_SHAPE) || matches_named(&quad.object, SH_PROPERTY_SHAPE)
+            if matches_named(&quad.object, SH_NODE_SHAPE)
+                || matches_named(&quad.object, SH_PROPERTY_SHAPE)
             {
                 candidate_shapes.insert(subject_term.clone());
             }
-            if matches_named(&quad.object, SH_TRIPLE_RULE) || matches_named(&quad.object, SH_SPARQL_RULE)
+            if matches_named(&quad.object, SH_TRIPLE_RULE)
+                || matches_named(&quad.object, SH_SPARQL_RULE)
             {
                 candidate_rules.insert(subject_term.clone());
             }
@@ -101,7 +103,9 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
 
     let diagnostics = shapes
         .iter()
-        .filter(|shape| matches!(shape.kind, ShapeSyntaxKind::PropertyShape) && shape.path.is_none())
+        .filter(|shape| {
+            matches!(shape.kind, ShapeSyntaxKind::PropertyShape) && shape.path.is_none()
+        })
         .map(|shape| Diagnostic {
             severity: DiagnosticSeverity::Warning,
             message: format!("property shape {} has no sh:path", shape.subject),
@@ -128,7 +132,9 @@ fn build_shape(
     provenance_by_graph: &HashMap<Option<String>, SourceRef>,
 ) -> ShapeSyntax {
     let quads = quads.cloned().unwrap_or_default();
-    let kind = if quads.iter().any(|q| matches_named(&q.object, SH_PROPERTY_SHAPE))
+    let kind = if quads
+        .iter()
+        .any(|q| matches_named(&q.object, SH_PROPERTY_SHAPE))
         || quads.iter().any(|q| q.predicate.as_str() == SH_PATH)
     {
         ShapeSyntaxKind::PropertyShape
@@ -153,7 +159,9 @@ fn build_shape(
             SH_TARGET_SUBJECTS_OF => {
                 targets.extend(objects.into_iter().map(TargetSyntax::SubjectsOf))
             }
-            SH_TARGET_OBJECTS_OF => targets.extend(objects.into_iter().map(TargetSyntax::ObjectsOf)),
+            SH_TARGET_OBJECTS_OF => {
+                targets.extend(objects.into_iter().map(TargetSyntax::ObjectsOf))
+            }
             SH_TARGET => targets.extend(objects.into_iter().map(TargetSyntax::Advanced)),
             SH_PROPERTY => property_shapes.extend(objects),
             SH_PATH => path = objects.into_iter().next(),
@@ -194,9 +202,15 @@ fn build_rule(
     provenance_by_graph: &HashMap<Option<String>, SourceRef>,
 ) -> RuleSyntax {
     let quads = quads.cloned().unwrap_or_default();
-    let kind = if quads.iter().any(|q| matches_named(&q.object, SH_TRIPLE_RULE)) {
+    let kind = if quads
+        .iter()
+        .any(|q| matches_named(&q.object, SH_TRIPLE_RULE))
+    {
         RuleSyntaxKind::Triple
-    } else if quads.iter().any(|q| matches_named(&q.object, SH_SPARQL_RULE)) {
+    } else if quads
+        .iter()
+        .any(|q| matches_named(&q.object, SH_SPARQL_RULE))
+    {
         RuleSyntaxKind::Sparql
     } else {
         RuleSyntaxKind::Generic

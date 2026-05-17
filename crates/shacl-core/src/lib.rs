@@ -11,4 +11,3 @@ pub mod syntax;
 pub use analysis::{AnalysisSummary, analyze_program};
 pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::lower_to_program;
-

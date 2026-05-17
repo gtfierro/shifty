@@ -69,4 +69,3 @@ pub struct ShapeSyntaxDocument {
     pub sources: Vec<SourceRef>,
     pub diagnostics: Vec<Diagnostic>,
 }
-

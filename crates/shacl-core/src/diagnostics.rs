@@ -58,4 +58,3 @@ pub enum TraceEventSchema {
     InferenceIterationStart,
     InferenceIterationEnd,
 }
-

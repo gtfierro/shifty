@@ -3,10 +3,12 @@ use crate::algebra::{
     PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram,
     Target, TargetExpr, TargetId, TriplePatternTerm,
 };
-use crate::diagnostics::{Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode};
+use crate::diagnostics::{
+    Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode,
+};
 use crate::syntax::{
-    ConstraintSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument, ShapeSyntaxKind,
-    TargetSyntax,
+    ConstraintSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument,
+    ShapeSyntaxKind, TargetSyntax,
 };
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -96,7 +98,13 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         let mut target_ids = Vec::new();
         for target_syntax in &shape.targets {
             let target_id = TargetId((lowered_targets.len() + 1) as u64);
-            let expr = lower_target(target_syntax, &quad_index, &shape_index, &mut dependencies, shape_id);
+            let expr = lower_target(
+                target_syntax,
+                &quad_index,
+                &shape_index,
+                &mut dependencies,
+                shape_id,
+            );
             if matches!(expr, TargetExpr::Advanced { .. }) {
                 features.insert(FeatureUse::AdvancedTargets);
                 features.insert(FeatureUse::Sparql);
@@ -280,12 +288,30 @@ fn lower_constraint(
 ) -> ConstraintExpr {
     let predicate = constraint.predicate.as_str();
     match predicate {
-        SH_NODE => shape_ref_expr(&constraint.objects, shape_index, dependencies, owner, "node")
-            .map(|(shape_id, source)| ConstraintExpr::NodeRef { shape: shape_id, source })
-            .unwrap_or_else(|| generic_expr(constraint)),
-        SH_PROPERTY => shape_ref_expr(&constraint.objects, shape_index, dependencies, owner, "property")
-            .map(|(shape_id, source)| ConstraintExpr::PropertyRef { shape: shape_id, source })
-            .unwrap_or_else(|| generic_expr(constraint)),
+        SH_NODE => shape_ref_expr(
+            &constraint.objects,
+            shape_index,
+            dependencies,
+            owner,
+            "node",
+        )
+        .map(|(shape_id, source)| ConstraintExpr::NodeRef {
+            shape: shape_id,
+            source,
+        })
+        .unwrap_or_else(|| generic_expr(constraint)),
+        SH_PROPERTY => shape_ref_expr(
+            &constraint.objects,
+            shape_index,
+            dependencies,
+            owner,
+            "property",
+        )
+        .map(|(shape_id, source)| ConstraintExpr::PropertyRef {
+            shape: shape_id,
+            source,
+        })
+        .unwrap_or_else(|| generic_expr(constraint)),
         SH_QUALIFIED_VALUE_SHAPE => {
             let (shape_id, source) = shape_ref_expr(
                 &constraint.objects,
@@ -294,17 +320,22 @@ fn lower_constraint(
                 owner,
                 "qualified",
             )
-            .unwrap_or((None, constraint.objects.first().cloned().unwrap_or_else(|| shape.subject.clone())));
+            .unwrap_or((
+                None,
+                constraint
+                    .objects
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| shape.subject.clone()),
+            ));
             ConstraintExpr::QualifiedValueShape {
                 shape: shape_id,
                 source,
                 min_count: literal_u64(
-                    first_term(shape_property(shape, SH_QUALIFIED_MIN_COUNT))
-                        .as_ref(),
+                    first_term(shape_property(shape, SH_QUALIFIED_MIN_COUNT)).as_ref(),
                 ),
                 max_count: literal_u64(
-                    first_term(shape_property(shape, SH_QUALIFIED_MAX_COUNT))
-                        .as_ref(),
+                    first_term(shape_property(shape, SH_QUALIFIED_MAX_COUNT)).as_ref(),
                 ),
                 disjoint: first_term(shape_property(shape, SH_QUALIFIED_VALUE_SHAPES_DISJOINT))
                     .as_ref()
@@ -312,7 +343,10 @@ fn lower_constraint(
             }
         }
         SH_NOT => shape_ref_expr(&constraint.objects, shape_index, dependencies, owner, "not")
-            .map(|(shape_id, source)| ConstraintExpr::Not { shape: shape_id, source })
+            .map(|(shape_id, source)| ConstraintExpr::Not {
+                shape: shape_id,
+                source,
+            })
             .unwrap_or_else(|| generic_expr(constraint)),
         SH_AND | SH_OR | SH_XONE => {
             let shapes = constraint
@@ -339,7 +373,9 @@ fn lower_constraint(
         }
         SH_CLASS => single_value_expr(&constraint.objects, ConstraintExpr::Class, constraint),
         SH_DATATYPE => single_value_expr(&constraint.objects, ConstraintExpr::Datatype, constraint),
-        SH_NODE_KIND => single_value_expr(&constraint.objects, ConstraintExpr::NodeKind, constraint),
+        SH_NODE_KIND => {
+            single_value_expr(&constraint.objects, ConstraintExpr::NodeKind, constraint)
+        }
         SH_MIN_COUNT | SH_MAX_COUNT => ConstraintExpr::Cardinality {
             predicate: constraint.predicate.clone(),
             min: if predicate == SH_MIN_COUNT {
@@ -409,7 +445,11 @@ fn lower_constraint(
                 .unwrap_or_else(|| generic_expr(constraint))
         }
         _ => {
-            if !constraint.predicate.as_str().starts_with("http://www.w3.org/ns/shacl#") {
+            if !constraint
+                .predicate
+                .as_str()
+                .starts_with("http://www.w3.org/ns/shacl#")
+            {
                 features.insert(FeatureUse::CustomComponents);
             }
             diagnostics.push(Diagnostic {
@@ -465,9 +505,7 @@ fn lower_rule(
 fn lower_triple_pattern_term(term: &Term, quads: &QuadIndex) -> TriplePatternTerm {
     if matches!(term, Term::NamedNode(node) if node.as_str() == "http://www.w3.org/ns/shacl#this") {
         TriplePatternTerm::This
-    } else if matches!(term, Term::BlankNode(_))
-        && quads.has_predicate(term, SH_PATH)
-    {
+    } else if matches!(term, Term::BlankNode(_)) && quads.has_predicate(term, SH_PATH) {
         TriplePatternTerm::Path(lower_property_path(term, quads))
     } else {
         TriplePatternTerm::Constant(term.clone())
@@ -478,7 +516,8 @@ fn lower_property_path(term: &Term, quads: &QuadIndex) -> PropertyPath {
     match term {
         Term::NamedNode(node) => PropertyPath::Predicate(node.clone()),
         Term::BlankNode(_) => {
-            if let Some(inner) = first_term(quads.objects_for_subject_predicate(term, SH_INVERSE_PATH))
+            if let Some(inner) =
+                first_term(quads.objects_for_subject_predicate(term, SH_INVERSE_PATH))
             {
                 return PropertyPath::Inverse(Box::new(lower_property_path(&inner, quads)));
             }
@@ -606,7 +645,10 @@ fn build_inspection_graph(
         nodes.push(InspectionNode {
             id: format!("source:{}", source.graph_iri),
             kind: "source".to_string(),
-            label: source.locator.clone().unwrap_or_else(|| source.graph_iri.clone()),
+            label: source
+                .locator
+                .clone()
+                .unwrap_or_else(|| source.graph_iri.clone()),
             annotations: HashMap::from([("is_root".to_string(), source.is_root.to_string())]),
         });
     }
@@ -733,7 +775,8 @@ fn is_true_literal(term: &Term) -> bool {
 }
 
 fn shape_property(shape: &ShapeSyntax, predicate: &str) -> Vec<Term> {
-    shape.constraints
+    shape
+        .constraints
         .iter()
         .find(|constraint| constraint.predicate.as_str() == predicate)
         .map(|constraint| constraint.objects.clone())
@@ -789,7 +832,9 @@ impl QuadIndex {
                 .or_insert_with(Vec::new)
                 .push(quad.object.clone());
         }
-        Self { by_subject_predicate }
+        Self {
+            by_subject_predicate,
+        }
     }
 
     fn objects_for_subject_predicate(&self, subject: &Term, predicate: &str) -> Vec<Term> {

@@ -65,13 +65,17 @@ pub fn analyze_program(program: &ShapeProgram) -> AnalysisSummary {
 
     let mut feature_counts = HashMap::new();
     for feature in &program.features {
-        *feature_counts.entry(feature_name(feature).to_string()).or_insert(0) += 1;
+        *feature_counts
+            .entry(feature_name(feature).to_string())
+            .or_insert(0) += 1;
     }
 
     let reachable_shapes = program
         .shapes
         .iter()
-        .filter(|shape| !shape.deactivated && (!shape.targets.is_empty() || shape.constraints.is_empty()))
+        .filter(|shape| {
+            !shape.deactivated && (!shape.targets.is_empty() || shape.constraints.is_empty())
+        })
         .map(|shape| shape.id)
         .collect();
 
@@ -85,7 +89,11 @@ pub fn analyze_program(program: &ShapeProgram) -> AnalysisSummary {
             .filter(|shape| !shape.constraints.is_empty())
             .count(),
         inference_rule_count: program.rules.len(),
-        deactivated_shape_count: program.shapes.iter().filter(|shape| shape.deactivated).count(),
+        deactivated_shape_count: program
+            .shapes
+            .iter()
+            .filter(|shape| shape.deactivated)
+            .count(),
         import_source_count: program
             .source_inventory
             .iter()
@@ -139,4 +147,3 @@ fn feature_name(feature: &FeatureUse) -> &'static str {
         FeatureUse::CustomComponents => "custom_components",
     }
 }
-
