@@ -84,6 +84,7 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
     let mut lowered_rules = Vec::new();
     let mut dependencies = Vec::new();
     let mut features = HashSet::new();
+    features.insert(FeatureUse::Core);
     let mut diagnostics = document.diagnostics.clone();
     let mut rule_map: HashMap<String, RuleSyntax> = document
         .rules
@@ -176,11 +177,13 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
                 features.insert(FeatureUse::Rules);
                 let rule_id = RuleId((lowered_rules.len() + 1) as u64);
                 let expr = lower_rule(
+                    shape_id,
                     &rule_syntax,
                     &quad_index,
                     &shape_index,
                     &mut dependencies,
                     &mut features,
+                    &mut diagnostics,
                 );
                 lowered_rules.push(Rule {
                     id: rule_id,
@@ -328,6 +331,16 @@ fn lower_constraint(
                     .cloned()
                     .unwrap_or_else(|| shape.subject.clone()),
             ));
+            if shape_id.is_none() {
+                diagnostics.push(Diagnostic {
+                    severity: DiagnosticSeverity::Warning,
+                    message: format!(
+                        "qualified value shape {} on {} did not resolve to a discovered shape",
+                        source, shape.subject
+                    ),
+                    source: shape.provenance.first().cloned(),
+                });
+            }
             ConstraintExpr::QualifiedValueShape {
                 shape: shape_id,
                 source,
@@ -349,19 +362,24 @@ fn lower_constraint(
             })
             .unwrap_or_else(|| generic_expr(constraint)),
         SH_AND | SH_OR | SH_XONE => {
-            let shapes = constraint
+            let shape_terms: Vec<Term> = constraint
                 .objects
                 .iter()
                 .flat_map(|term| quad_list_terms(quads, term))
-                .filter_map(|term| shape_index.get(&term.to_string()).copied())
-                .collect::<Vec<_>>();
-            for dep in &shapes {
-                dependencies.push(DependencyEdge {
-                    from: owner,
-                    to: *dep,
-                    kind: "logical".to_string(),
-                });
-            }
+                .collect();
+            let shapes = resolve_shape_refs(
+                &shape_terms,
+                shape_index,
+                dependencies,
+                owner,
+                "logical",
+                diagnostics,
+                shape.provenance.first().cloned(),
+                &format!(
+                    "logical constraint {} on {}",
+                    constraint.predicate, shape.subject
+                ),
+            );
             ConstraintExpr::Logical {
                 kind: match predicate {
                     SH_AND => LogicalKind::And,
@@ -466,13 +484,22 @@ fn lower_constraint(
 }
 
 fn lower_rule(
+    owner: ShapeId,
     rule: &RuleSyntax,
     quads: &QuadIndex,
     shape_index: &HashMap<String, ShapeId>,
     dependencies: &mut Vec<DependencyEdge>,
     features: &mut HashSet<FeatureUse>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> RuleExpr {
-    let conditions = rule_shape_conditions(rule, shape_index, dependencies);
+    let conditions = rule_shape_conditions(
+        owner,
+        rule,
+        shape_index,
+        dependencies,
+        diagnostics,
+        rule.provenance.first().cloned(),
+    );
     let order = rule.order.map(|value| value.to_string());
     match rule.kind {
         RuleSyntaxKind::Triple => RuleExpr::Triple {
@@ -716,22 +743,23 @@ where
 }
 
 fn rule_shape_conditions(
+    owner: ShapeId,
     rule: &RuleSyntax,
     shape_index: &HashMap<String, ShapeId>,
     dependencies: &mut Vec<DependencyEdge>,
+    diagnostics: &mut Vec<Diagnostic>,
+    source: Option<crate::diagnostics::SourceRef>,
 ) -> Vec<ShapeId> {
-    let mut conditions = Vec::new();
-    for condition in rule_property(rule, SH_CONDITION) {
-        if let Some(id) = shape_index.get(&condition.to_string()).copied() {
-            dependencies.push(DependencyEdge {
-                from: id,
-                to: id,
-                kind: "rule_condition".to_string(),
-            });
-            conditions.push(id);
-        }
-    }
-    conditions
+    resolve_shape_refs(
+        &rule_property(rule, SH_CONDITION),
+        shape_index,
+        dependencies,
+        owner,
+        "rule_condition",
+        diagnostics,
+        source,
+        &format!("rule condition(s) on {}", rule.subject),
+    )
 }
 
 fn feature_order(feature: &FeatureUse) -> u8 {
@@ -789,6 +817,36 @@ fn rule_property(rule: &RuleSyntax, predicate: &str) -> Vec<Term> {
         .find(|property| property.predicate.as_str() == predicate)
         .map(|property| property.objects.clone())
         .unwrap_or_default()
+}
+
+fn resolve_shape_refs(
+    terms: &[Term],
+    shape_index: &HashMap<String, ShapeId>,
+    dependencies: &mut Vec<DependencyEdge>,
+    owner: ShapeId,
+    edge_kind: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    source: Option<crate::diagnostics::SourceRef>,
+    context: &str,
+) -> Vec<ShapeId> {
+    let mut resolved = Vec::new();
+    for term in terms {
+        if let Some(id) = shape_index.get(&term.to_string()).copied() {
+            dependencies.push(DependencyEdge {
+                from: owner,
+                to: id,
+                kind: edge_kind.to_string(),
+            });
+            resolved.push(id);
+        } else {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                message: format!("unresolved shape reference {} in {}", term, context),
+                source: source.clone(),
+            });
+        }
+    }
+    resolved
 }
 
 fn quad_list_terms(quads: &QuadIndex, head: &Term) -> Vec<Term> {

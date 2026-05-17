@@ -132,3 +132,178 @@ fn analysis_reports_recursive_components() {
             .any(|component| component.recursive)
     );
 }
+
+#[test]
+fn lowers_property_paths_and_qualified_shapes() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdf_first = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap();
+    let rdf_rest = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap();
+    let rdf_nil = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_alt = NamedNode::new("http://www.w3.org/ns/shacl#alternativePath").unwrap();
+    let sh_qvs = NamedNode::new("http://www.w3.org/ns/shacl#qualifiedValueShape").unwrap();
+    let sh_qmin = NamedNode::new("http://www.w3.org/ns/shacl#qualifiedMinCount").unwrap();
+    let sh_qdisjoint =
+        NamedNode::new("http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint").unwrap();
+    let prop = NamedNode::new("urn:prop").unwrap();
+    let thumb = NamedNode::new("urn:thumb").unwrap();
+    let p1 = NamedNode::new("urn:p1").unwrap();
+    let p2 = NamedNode::new("urn:p2").unwrap();
+    let alt = oxrdf::BlankNode::new("a1").unwrap();
+    let list1 = oxrdf::BlankNode::new("l1").unwrap();
+    let list2 = oxrdf::BlankNode::new("l2").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            prop.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            thumb.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            prop.clone(),
+            sh_path,
+            Term::BlankNode(alt.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            alt.clone(),
+            sh_alt,
+            Term::BlankNode(list1.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list1.clone(),
+            rdf_first.clone(),
+            Term::NamedNode(p1),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list1,
+            rdf_rest.clone(),
+            Term::BlankNode(list2.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list2.clone(),
+            rdf_first,
+            Term::NamedNode(p2),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list2,
+            rdf_rest,
+            Term::NamedNode(rdf_nil),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            prop.clone(),
+            sh_qvs,
+            Term::NamedNode(thumb),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            prop.clone(),
+            sh_qmin,
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            prop.clone(),
+            sh_qdisjoint,
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let prop_shape = program
+        .shapes
+        .iter()
+        .find(|shape| shape.source == Term::NamedNode(prop.clone()))
+        .unwrap();
+
+    assert!(matches!(
+        prop_shape.path,
+        Some(shifty_shacl_core::algebra::PropertyPath::Alternative(ref inner)) if inner.len() == 2
+    ));
+    assert!(program.constraints.iter().any(|constraint| {
+        matches!(
+            constraint.expr,
+            shifty_shacl_core::algebra::ConstraintExpr::QualifiedValueShape {
+                shape: Some(_),
+                min_count: Some(1),
+                disjoint: Some(true),
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
+fn rule_conditions_create_owner_dependencies() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_sparql_rule = NamedNode::new("http://www.w3.org/ns/shacl#SPARQLRule").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let owner = NamedNode::new("urn:owner").unwrap();
+    let cond = NamedNode::new("urn:cond").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            owner.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            cond.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            rdf_type,
+            Term::NamedNode(sh_sparql_rule),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_condition,
+            Term::NamedNode(cond.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::from("CONSTRUCT { } WHERE { }")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let owner_id = program.shape_index[&Term::NamedNode(owner).to_string()];
+    let cond_id = program.shape_index[&Term::NamedNode(cond).to_string()];
+    assert!(
+        program.dependencies.iter().any(|edge| edge.from == owner_id
+            && edge.to == cond_id
+            && edge.kind == "rule_condition")
+    );
+}

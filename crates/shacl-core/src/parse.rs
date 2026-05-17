@@ -24,6 +24,8 @@ const SH_RULE: &str = "http://www.w3.org/ns/shacl#rule";
 const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
 const SH_DEACTIVATED: &str = "http://www.w3.org/ns/shacl#deactivated";
 const SH_ORDER: &str = "http://www.w3.org/ns/shacl#order";
+const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
+const RDFS_COMMENT: &str = "http://www.w3.org/2000/01/rdf-schema#comment";
 
 pub fn load_and_parse_with_ontoenv(
     sources: &[ShapeSource],
@@ -148,7 +150,7 @@ fn build_shape(
     let mut severity = None;
     let mut deactivated = false;
     let mut constraints = Vec::new();
-    let extras = Vec::new();
+    let mut extras = Vec::new();
     let mut rule_nodes = Vec::new();
 
     let grouped = group_predicates(&quads);
@@ -172,10 +174,12 @@ fn build_shape(
             SH_RULE => rule_nodes.extend(objects),
             RDF_TYPE => {}
             _ => {
-                if is_constraint_predicate(predicate.as_str()) {
+                if is_constraint_predicate(predicate.as_str())
+                    || is_custom_constraint_predicate(predicate.as_str())
+                {
                     constraints.push(ConstraintSyntax { predicate, objects });
                 } else {
-                    constraints.push(ConstraintSyntax { predicate, objects });
+                    extras.push(PredicateObjects { predicate, objects });
                 }
             }
         }
@@ -308,6 +312,11 @@ fn is_constraint_predicate(predicate: &str) -> bool {
                 | SH_DEACTIVATED
                 | SH_ORDER
         )
+}
+
+fn is_custom_constraint_predicate(predicate: &str) -> bool {
+    !predicate.starts_with("http://www.w3.org/ns/shacl#")
+        && !matches!(predicate, RDF_TYPE | RDFS_LABEL | RDFS_COMMENT)
 }
 
 fn subject_to_term(subject: &NamedOrBlankNode) -> Term {
