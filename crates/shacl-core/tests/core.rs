@@ -1,11 +1,12 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
     BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
-    NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots, StaticCostHint,
-    analyze_program, analyze_static, analyze_static_with_roots, canonicalize_program,
-    context_requirements, derive_backend_logical_plans, derive_backend_views,
-    derive_inference_logical_plan, derive_inference_view, derive_validation_logical_plan,
-    derive_validation_view, fingerprint_program, lower_to_program, normalize_program, parse_quads,
+    InMemoryValidationBackend, NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason,
+    SliceRoots, StaticCostHint, ValidationBackend, analyze_program, analyze_static,
+    analyze_static_with_roots, canonicalize_program, context_requirements,
+    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
+    derive_inference_view, derive_validation_logical_plan, derive_validation_view,
+    fingerprint_program, lower_to_program, normalize_program, parse_quads,
     prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
     slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
@@ -1307,6 +1308,180 @@ fn backend_logical_plans_can_be_derived_together() {
     let plans = derive_backend_logical_plans(&program, BackendViewOptions::default());
     assert!(!plans.validation.nodes.is_empty());
     assert!(!plans.inference.nodes.is_empty());
+}
+
+#[test]
+fn validation_backend_resolves_targets_and_local_constraints() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_min_count = NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap();
+    let sh_datatype = NamedNode::new("http://www.w3.org/ns/shacl#datatype").unwrap();
+    let xsd_string = NamedNode::new("http://www.w3.org/2001/XMLSchema#string").unwrap();
+    let shape = NamedNode::new("urn:person-shape").unwrap();
+    let property_shape = NamedNode::new("urn:name-shape").unwrap();
+    let alice = NamedNode::new("urn:alice").unwrap();
+    let name = NamedNode::new("urn:name").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(alice.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::NamedNode(name.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_min_count,
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_datatype,
+            Term::NamedNode(xsd_string),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data").unwrap(),
+            quads: vec![Quad::new(
+                alice,
+                name,
+                Term::Literal(Literal::new_simple_literal("Alice")),
+                oxrdf::GraphName::DefaultGraph,
+            )],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(result.conforms);
+    assert_eq!(result.focus_nodes_evaluated, 1);
+    assert!(!result.trace.is_empty());
+}
+
+#[test]
+fn validation_backend_reports_property_path_violations() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_min_count = NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap();
+    let sh_has_value = NamedNode::new("http://www.w3.org/ns/shacl#hasValue").unwrap();
+    let shape = NamedNode::new("urn:task-shape").unwrap();
+    let property_shape = NamedNode::new("urn:status-shape").unwrap();
+    let task = NamedNode::new("urn:task").unwrap();
+    let status = NamedNode::new("urn:status").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(task.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::NamedNode(status.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_min_count,
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_has_value,
+            Term::Literal(Literal::new_simple_literal("complete")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data2").unwrap(),
+            quads: vec![Quad::new(
+                task,
+                status,
+                Term::Literal(Literal::new_simple_literal("pending")),
+                oxrdf::GraphName::DefaultGraph,
+            )],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(!result.conforms);
+    assert!(!result.violations.is_empty());
 }
 
 #[test]

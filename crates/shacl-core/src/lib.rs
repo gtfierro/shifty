@@ -4,6 +4,7 @@ pub mod algebra;
 pub mod analysis;
 pub mod backend_views;
 pub mod diagnostics;
+pub mod execute;
 pub mod parse;
 pub mod passes;
 pub mod plan;
@@ -19,6 +20,10 @@ pub use backend_views::{
     ClassifiedDependency, DependencyClass, InferenceView, InferenceWorkInventory, SharedWorkUnit,
     SharedWorkUnitKind, ValidationView, ValidationWorkInventory, derive_backend_views,
     derive_inference_view, derive_validation_view,
+};
+pub use execute::{
+    InMemoryValidationBackend, ValidationBackend, ValidationHeatmap, ValidationResult,
+    ValidationTraceEvent, ValidationViolation,
 };
 pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::{
