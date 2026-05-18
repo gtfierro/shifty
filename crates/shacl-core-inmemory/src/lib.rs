@@ -1126,64 +1126,109 @@ fn eval_constraint(
             disjoint,
             ..
         } => {
-            if disjoint == &Some(true) {
-                record_unsupported(
-                    shape_id,
-                    Some(constraint_id),
-                    Some(focus),
-                    constraint_kind_name(expr),
-                    "qualifiedValueShapesDisjoint is not yet executable".to_string(),
-                    state,
-                );
-                ExecutionStatus::Completed
-            } else {
-                let mut matching = 0u64;
-                for value in local_values {
-                    match probe_shape_conforms(*target, value, state)? {
-                        ProbeOutcome::Conformant => matching += 1,
-                        ProbeOutcome::NonConformant => {}
-                        ProbeOutcome::Unsupported(reason) => {
-                            record_unsupported(
-                                shape_id,
-                                Some(constraint_id),
-                                Some(focus),
-                                constraint_kind_name(expr),
-                                reason,
-                                state,
-                            );
-                            return Ok(ExecutionStatus::Completed);
-                        }
-                        ProbeOutcome::DeferredRecursion => {
-                            record_unsupported(
-                                shape_id,
-                                Some(constraint_id),
-                                Some(focus),
-                                constraint_kind_name(expr),
-                                format!(
-                                    "deferred recursive validation while probing qualified shape {}",
-                                    target.0
-                                ),
-                                state,
-                            );
-                            return Ok(ExecutionStatus::DeferredRecursion);
-                        }
+            let sibling_shapes = if disjoint == &Some(true) {
+                match collect_disjoint_sibling_qualified_shapes(shape_id, constraint_id, state) {
+                    Ok(shapes) => shapes,
+                    Err(reason) => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            reason,
+                            state,
+                        );
+                        return Ok(ExecutionStatus::Completed);
                     }
                 }
-                if min_count.is_some_and(|min| matching < min)
-                    || max_count.is_some_and(|max| matching > max)
-                {
-                    record_violation(
-                        shape_id,
-                        constraint_id,
-                        focus,
-                        None,
-                        None,
-                        format!("qualified value shape count violation: count={matching}"),
-                        state,
-                    );
+            } else {
+                Vec::new()
+            };
+            let mut matching = 0u64;
+            for value in local_values {
+                match probe_shape_conforms(*target, value, state)? {
+                    ProbeOutcome::Conformant => {
+                        let mut excluded = false;
+                        for sibling in &sibling_shapes {
+                            match probe_shape_conforms(*sibling, value, state)? {
+                                ProbeOutcome::Conformant => {
+                                    excluded = true;
+                                    break;
+                                }
+                                ProbeOutcome::NonConformant => {}
+                                ProbeOutcome::Unsupported(reason) => {
+                                    record_unsupported(
+                                        shape_id,
+                                        Some(constraint_id),
+                                        Some(focus),
+                                        constraint_kind_name(expr),
+                                        reason,
+                                        state,
+                                    );
+                                    return Ok(ExecutionStatus::Completed);
+                                }
+                                ProbeOutcome::DeferredRecursion => {
+                                    record_unsupported(
+                                        shape_id,
+                                        Some(constraint_id),
+                                        Some(focus),
+                                        constraint_kind_name(expr),
+                                        format!(
+                                            "deferred recursive validation while probing sibling qualified shape {}",
+                                            sibling.0
+                                        ),
+                                        state,
+                                    );
+                                    return Ok(ExecutionStatus::DeferredRecursion);
+                                }
+                            }
+                        }
+                        if !excluded {
+                            matching += 1;
+                        }
+                    }
+                    ProbeOutcome::NonConformant => {}
+                    ProbeOutcome::Unsupported(reason) => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            reason,
+                            state,
+                        );
+                        return Ok(ExecutionStatus::Completed);
+                    }
+                    ProbeOutcome::DeferredRecursion => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            format!(
+                                "deferred recursive validation while probing qualified shape {}",
+                                target.0
+                            ),
+                            state,
+                        );
+                        return Ok(ExecutionStatus::DeferredRecursion);
+                    }
                 }
-                ExecutionStatus::Completed
             }
+            if min_count.is_some_and(|min| matching < min)
+                || max_count.is_some_and(|max| matching > max)
+            {
+                record_violation(
+                    shape_id,
+                    constraint_id,
+                    focus,
+                    None,
+                    None,
+                    format!("qualified value shape count violation: count={matching}"),
+                    state,
+                );
+            }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::Not {
             shape: Some(target),
@@ -2688,24 +2733,26 @@ fn check_numeric_range(
     params: &[Term],
     value: &Term,
 ) -> Result<Option<String>, String> {
-    let Some(bound) = params.first().and_then(term_number) else {
-        return Err("numeric range is missing a numeric literal bound".to_string());
+    let Some(bound) = params.first() else {
+        return Err("numeric range is missing a literal bound".to_string());
     };
-    let Some(actual) = term_number(value) else {
-        return Ok(Some("value is not a numeric literal".to_string()));
+    let Some(ordering) = compare_orderable_terms(value, bound) else {
+        return Ok(Some(format!(
+            "value {} is not comparable with bound {}",
+            value, bound
+        )));
     };
-    let violation =
-        match predicate {
-            "http://www.w3.org/ns/shacl#minExclusive" => (actual <= bound)
-                .then(|| format!("numeric value {actual} is not greater than {bound}")),
-            "http://www.w3.org/ns/shacl#minInclusive" => (actual < bound)
-                .then(|| format!("numeric value {actual} is less than minimum {bound}")),
-            "http://www.w3.org/ns/shacl#maxExclusive" => (actual >= bound)
-                .then(|| format!("numeric value {actual} is not less than {bound}")),
-            "http://www.w3.org/ns/shacl#maxInclusive" => (actual > bound)
-                .then(|| format!("numeric value {actual} is greater than maximum {bound}")),
-            _ => None,
-        };
+    let violation = match predicate {
+        "http://www.w3.org/ns/shacl#minExclusive" => (ordering != Ordering::Greater)
+            .then(|| format!("value {} is not greater than {}", value, bound)),
+        "http://www.w3.org/ns/shacl#minInclusive" => (ordering == Ordering::Less)
+            .then(|| format!("value {} is less than minimum {}", value, bound)),
+        "http://www.w3.org/ns/shacl#maxExclusive" => (ordering != Ordering::Less)
+            .then(|| format!("value {} is not less than {}", value, bound)),
+        "http://www.w3.org/ns/shacl#maxInclusive" => (ordering == Ordering::Greater)
+            .then(|| format!("value {} is greater than maximum {}", value, bound)),
+        _ => None,
+    };
     Ok(violation)
 }
 
@@ -2767,10 +2814,12 @@ fn eval_property_comparison(
             let mut messages = Vec::new();
             for left in local_values {
                 for right in &comparison_values {
-                    let Some(ordering) = compare_terms(left, right) else {
-                        return Err(
-                            "lessThan comparison needs comparable literal or IRI terms".to_string()
-                        );
+                    let Some(ordering) = compare_orderable_terms(left, right) else {
+                        messages.push((
+                            Some(left.clone()),
+                            format!("value {} is not comparable to {}", left, right),
+                        ));
+                        continue;
                     };
                     let ok = if predicate.ends_with("lessThan") {
                         ordering == Ordering::Less
@@ -2844,6 +2893,62 @@ fn eval_closed_shape(
         }
     }
     Ok(violations)
+}
+
+fn collect_disjoint_sibling_qualified_shapes(
+    shape_id: ShapeId,
+    constraint_id: ConstraintId,
+    state: &ExecutionState<'_>,
+) -> Result<Vec<ShapeId>, String> {
+    let property_shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+        .ok_or_else(|| format!("unknown property shape {}", shape_id.0))?;
+    let Some(path) = property_shape.path.as_ref() else {
+        return Err("qualifiedValueShapesDisjoint requires a property path".to_string());
+    };
+
+    let mut siblings = BTreeSet::new();
+    for parent in state
+        .program
+        .shapes
+        .iter()
+        .filter(|shape| shape.property_shapes.contains(&shape_id))
+    {
+        for sibling_shape_id in &parent.property_shapes {
+            let sibling_shape = state
+                .program
+                .shapes
+                .iter()
+                .find(|shape| shape.id == *sibling_shape_id)
+                .ok_or_else(|| format!("unknown sibling property shape {}", sibling_shape_id.0))?;
+            if sibling_shape.path.as_ref() != Some(path) {
+                continue;
+            }
+            for sibling_constraint_id in &sibling_shape.constraints {
+                if *sibling_constraint_id == constraint_id {
+                    continue;
+                }
+                let sibling_constraint = state
+                    .program
+                    .constraints
+                    .iter()
+                    .find(|constraint| constraint.id == *sibling_constraint_id)
+                    .ok_or_else(|| format!("unknown sibling constraint {}", sibling_constraint_id.0))?;
+                if let ConstraintExpr::QualifiedValueShape {
+                    shape: Some(sibling_target),
+                    disjoint: Some(true),
+                    ..
+                } = sibling_constraint.expr
+                {
+                    siblings.insert(sibling_target);
+                }
+            }
+        }
+    }
+    Ok(siblings.into_iter().collect())
 }
 
 fn build_query_store(data: &ResolvedShapeSet) -> Result<Store, String> {
@@ -3176,18 +3281,68 @@ fn term_string(term: &Term) -> Option<String> {
     }
 }
 
-fn compare_terms(left: &Term, right: &Term) -> Option<Ordering> {
+fn compare_orderable_terms(left: &Term, right: &Term) -> Option<Ordering> {
     match (left, right) {
         (Term::Literal(_), Term::Literal(_)) => {
             if let (Some(lhs), Some(rhs)) = (term_number(left), term_number(right)) {
                 lhs.partial_cmp(&rhs)
-            } else {
+            } else if let (Some(lhs), Some(rhs)) = (term_datetime(left), term_datetime(right)) {
+                lhs.partial_cmp(&rhs)
+            } else if let (Some(lhs), Some(rhs)) = (term_date(left), term_date(right)) {
+                lhs.partial_cmp(&rhs)
+            } else if let (Some(lhs), Some(rhs)) = (term_time(left), term_time(right)) {
+                lhs.partial_cmp(&rhs)
+            } else if terms_are_string_like(left, right) {
                 term_string(left)?.partial_cmp(&term_string(right)?)
+            } else {
+                None
             }
         }
         (Term::NamedNode(lhs), Term::NamedNode(rhs)) => lhs.as_str().partial_cmp(rhs.as_str()),
         _ => None,
     }
+}
+
+fn term_datetime(term: &Term) -> Option<DateTime> {
+    let Term::Literal(literal) = term else {
+        return None;
+    };
+    (literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#dateTime")
+        .then(|| DateTime::from_str(literal.value()).ok())
+        .flatten()
+}
+
+fn term_date(term: &Term) -> Option<Date> {
+    let Term::Literal(literal) = term else {
+        return None;
+    };
+    (literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#date")
+        .then(|| Date::from_str(literal.value()).ok())
+        .flatten()
+}
+
+fn term_time(term: &Term) -> Option<Time> {
+    let Term::Literal(literal) = term else {
+        return None;
+    };
+    (literal.datatype().as_str() == "http://www.w3.org/2001/XMLSchema#time")
+        .then(|| Time::from_str(literal.value()).ok())
+        .flatten()
+}
+
+fn terms_are_string_like(left: &Term, right: &Term) -> bool {
+    matches!((left, right),
+        (Term::Literal(lhs), Term::Literal(rhs))
+            if is_string_like_literal(lhs) && is_string_like_literal(rhs))
+}
+
+fn is_string_like_literal(literal: &oxrdf::Literal) -> bool {
+    literal.language().is_some()
+        || matches!(
+            literal.datatype().as_str(),
+            "http://www.w3.org/2001/XMLSchema#string"
+                | "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
+        )
 }
 
 fn subject_to_term(subject: &NamedOrBlankNode) -> Term {
