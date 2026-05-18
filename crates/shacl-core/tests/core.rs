@@ -1,9 +1,10 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    ContextFootprint, NormalizeOptions, SliceReason, SliceRoots, StaticCostHint, analyze_program,
-    analyze_static, analyze_static_with_roots, canonicalize_program, context_requirements,
-    fingerprint_program, lower_to_program, normalize_program, parse_quads,
-    prune_deactivated_program, render_shape_program_dot, shared_work_candidates, slice_program,
+    ContextFootprint, NormalizeOptions, RewriteOptions, SliceReason, SliceRoots, StaticCostHint,
+    analyze_program, analyze_static, analyze_static_with_roots, canonicalize_program,
+    context_requirements, fingerprint_program, lower_to_program, normalize_program, parse_quads,
+    prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
+    slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
@@ -694,6 +695,178 @@ fn static_analyze_uses_explicit_root_set() {
     );
     assert_eq!(summary.slice.roots.len(), 1);
     assert_eq!(summary.slice.retained_shape_ids.len(), 2);
+}
+
+#[test]
+fn rewrite_program_slices_and_prunes_dead_structure() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let helper = NamedNode::new("urn:helper").unwrap();
+    let orphan = NamedNode::new("urn:orphan").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            root.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            helper.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            orphan.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root,
+            sh_node,
+            Term::NamedNode(helper),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let rewritten = rewrite_program(
+        &program,
+        RewriteOptions {
+            roots: Some(SliceRoots::ExplicitSelectors(vec![
+                "<urn:root>".to_string(),
+            ])),
+            prune_unreachable: true,
+            ..RewriteOptions::default()
+        },
+    );
+    assert_eq!(rewritten.program.shapes.len(), 2);
+    assert!(
+        rewritten
+            .summary
+            .passes
+            .iter()
+            .any(|pass| pass.pass == "slice_to_roots")
+    );
+    assert_eq!(rewritten.summary.shapes_removed, 1);
+}
+
+#[test]
+fn rewrite_program_reorders_constraints_by_static_cost() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_sparql = NamedNode::new("http://www.w3.org/ns/shacl#sparql").unwrap();
+    let sh_select = NamedNode::new("http://www.w3.org/ns/shacl#select").unwrap();
+    let sh_min_count = NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap();
+    let shape = NamedNode::new("urn:shape").unwrap();
+    let property = NamedNode::new("urn:p").unwrap();
+    let sparql = NamedNode::new("urn:sparql").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_path,
+            Term::NamedNode(property),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_sparql,
+            Term::NamedNode(sparql.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            sparql,
+            sh_select,
+            Term::Literal(Literal::from("SELECT $this WHERE { }")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            sh_min_count,
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let rewritten = rewrite_program(&program, RewriteOptions::default());
+    let owner = rewritten.program.shapes[0].id;
+    let ordered = rewritten
+        .program
+        .constraints
+        .iter()
+        .filter(|constraint| constraint.owner == owner)
+        .map(|constraint| &constraint.expr)
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        ordered[0],
+        shifty_shacl_core::algebra::ConstraintExpr::Cardinality { .. }
+    ));
+    assert!(matches!(
+        ordered[1],
+        shifty_shacl_core::algebra::ConstraintExpr::Sparql(_)
+    ));
+}
+
+#[test]
+fn rewrite_program_reports_recursive_regions() {
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let a = NamedNode::new("urn:a").unwrap();
+    let b = NamedNode::new("urn:b").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            a.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            b.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            a,
+            sh_node.clone(),
+            Term::NamedNode(b.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            b,
+            sh_node,
+            Term::NamedNode(NamedNode::new("urn:a").unwrap()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let rewritten = rewrite_program(&program, RewriteOptions::default());
+    assert_eq!(rewritten.summary.recursive_regions.len(), 1);
+    assert_eq!(rewritten.summary.recursive_regions[0].shapes.len(), 2);
 }
 
 #[test]
