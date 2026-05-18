@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    AnalysisSummary, analyze_program, load_and_parse_with_ontoenv, lower_to_program,
-    parse_resolved, render_shape_program_dot,
+    AnalysisSummary, NormalizeOptions, analyze_program, load_and_parse_with_ontoenv,
+    lower_to_program, normalize_program, parse_resolved, render_shape_program_dot,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -78,6 +78,10 @@ struct GraphvizArgs {
     #[command(flatten)]
     shared: SharedArgs,
 
+    /// Drop deactivated shapes and rules before rendering
+    #[arg(long)]
+    prune_deactivated: bool,
+
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -87,6 +91,10 @@ struct GraphvizArgs {
 struct AnalyzeArgs {
     #[command(flatten)]
     shared: SharedArgs,
+
+    /// Drop deactivated shapes and rules before analysis
+    #[arg(long)]
+    prune_deactivated: bool,
 
     /// Output format
     #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
@@ -123,7 +131,12 @@ fn run_dump(args: DumpArgs) -> Result<(), Box<dyn std::error::Error>> {
 fn run_graphviz(args: GraphvizArgs) -> Result<(), Box<dyn std::error::Error>> {
     let syntax =
         load_and_parse_with_ontoenv(&shape_sources(&args.shared), &load_options(&args.shared))?;
-    let program = lower_to_program(&syntax);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
     let dot = render_shape_program_dot(&program);
     write_text(&dot, args.output.as_deref())?;
     Ok(())
@@ -132,7 +145,12 @@ fn run_graphviz(args: GraphvizArgs) -> Result<(), Box<dyn std::error::Error>> {
 fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
     let resolved = load_shapes(&args.shared)?;
     let syntax = parse_resolved(&resolved);
-    let program = lower_to_program(&syntax);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
     let analysis = analyze_program(&program);
     match args.format {
         AnalyzeFormat::Json => {
@@ -226,10 +244,26 @@ fn render_analysis_text(
         analysis.deactivated_shape_count
     ));
     out.push_str(&format!(
+        "  roots: {}\n",
+        analysis.root_shapes.len()
+    ));
+    out.push_str(&format!(
         "  reachable: {}\n",
         analysis.reachable_shapes.len()
     ));
+    out.push_str(&format!(
+        "  unreachable: {}\n",
+        analysis.unreachable_shapes.len()
+    ));
     out.push_str(&format!("  rules: {}\n", analysis.inference_rule_count));
+    out.push_str(&format!(
+        "  reachable_rules: {}\n",
+        analysis.reachable_rules.len()
+    ));
+    out.push_str(&format!(
+        "  deactivated_rules: {}\n",
+        analysis.deactivated_rule_count
+    ));
     out.push_str(&format!("  targets: {}\n", program.targets.len()));
     out.push_str(&format!("  constraints: {}\n", program.constraints.len()));
     out.push_str(&format!(
@@ -249,6 +283,27 @@ fn render_analysis_text(
         out.push_str(&format!("  {}: {}\n", name, count));
     }
 
+    out.push_str("\nTargets\n");
+    let mut target_kinds: Vec<_> = analysis.target_kind_counts.iter().collect();
+    target_kinds.sort_by_key(|(name, _)| *name);
+    for (name, count) in target_kinds {
+        out.push_str(&format!("  {}: {}\n", name, count));
+    }
+
+    out.push_str("\nConstraints\n");
+    let mut constraint_kinds: Vec<_> = analysis.constraint_kind_counts.iter().collect();
+    constraint_kinds.sort_by_key(|(name, _)| *name);
+    for (name, count) in constraint_kinds {
+        out.push_str(&format!("  {}: {}\n", name, count));
+    }
+
+    out.push_str("\nDependencies\n");
+    let mut dependency_kinds: Vec<_> = analysis.dependency_kind_counts.iter().collect();
+    dependency_kinds.sort_by_key(|(name, _)| *name);
+    for (name, count) in dependency_kinds {
+        out.push_str(&format!("  {}: {}\n", name, count));
+    }
+
     out.push_str("\nDependency Components\n");
     for (index, component) in analysis.dependency_components.iter().enumerate() {
         out.push_str(&format!(
@@ -260,16 +315,28 @@ fn render_analysis_text(
         let labels = component
             .shapes
             .iter()
-            .filter_map(|shape_id| {
-                program
-                    .shapes
-                    .iter()
-                    .find(|shape| shape.id == *shape_id)
-                    .map(|shape| shape.source.to_string())
-            })
+            .filter_map(|shape_id| analysis.shape_labels.get(shape_id).cloned())
             .collect::<Vec<_>>();
         if !labels.is_empty() {
             out.push_str(&format!("     {}\n", labels.join(", ")));
+        }
+    }
+
+    if !analysis.unreachable_shapes.is_empty() {
+        out.push_str("\nUnreachable Shapes\n");
+        for shape_id in &analysis.unreachable_shapes {
+            if let Some(label) = analysis.shape_labels.get(shape_id) {
+                out.push_str(&format!("  {}\n", label));
+            }
+        }
+    }
+
+    if !analysis.diagnostics_by_severity.is_empty() {
+        out.push_str("\nDiagnostic Summary\n");
+        let mut diagnostics: Vec<_> = analysis.diagnostics_by_severity.iter().collect();
+        diagnostics.sort_by_key(|(severity, _)| *severity);
+        for (severity, count) in diagnostics {
+            out.push_str(&format!("  {}: {}\n", severity, count));
         }
     }
 

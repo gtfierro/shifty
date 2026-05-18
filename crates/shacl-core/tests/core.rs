@@ -164,6 +164,62 @@ fn analysis_reports_recursive_components() {
             .iter()
             .any(|component| component.recursive)
     );
+    assert_eq!(analysis.root_shapes.len(), 0);
+}
+
+#[test]
+fn analysis_reports_reachability_and_inventories() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let child = NamedNode::new("urn:child").unwrap();
+    let orphan = NamedNode::new("urn:orphan").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            root.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            child.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            orphan.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root,
+            sh_node,
+            Term::NamedNode(child.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let analysis = analyze_program(&program);
+    assert_eq!(analysis.root_shapes.len(), 1);
+    assert_eq!(analysis.reachable_shapes.len(), 2);
+    assert_eq!(analysis.unreachable_shapes.len(), 1);
+    assert_eq!(analysis.target_kind_counts["node"], 1);
+    assert_eq!(analysis.dependency_kind_counts["node"], 1);
+    let orphan_id = program.shape_index[&Term::NamedNode(orphan).to_string()];
+    assert!(analysis.unreachable_shapes.contains(&orphan_id));
 }
 
 #[test]
