@@ -1,4 +1,8 @@
-use crate::algebra::{ConstraintExpr, PropertyPath, RuleExpr, ShapeKind, ShapeProgram, TargetExpr};
+use crate::algebra::{
+    ConstraintExpr, PropertyPath, RuleExpr, ShapeKind, ShapeProgram, TargetExpr,
+    TriplePatternTerm,
+};
+use oxrdf::{NamedNode, Term};
 
 pub fn render_shape_program_dot(program: &ShapeProgram) -> String {
     let mut out = String::from("digraph shacl_core {\n");
@@ -136,8 +140,12 @@ fn target_label(expr: &TargetExpr) -> String {
             target_shape,
             filter_shape,
         } => format!(
-            "advanced {}\nselect={:?}\nask={:?}\ntargetShape={:?}\nfilterShape={:?}",
-            node, select, ask, target_shape, filter_shape
+            "advanced {}\nselect={}\nask={}\ntargetShape={}\nfilterShape={}",
+            node,
+            format_optional_text(select.as_deref()),
+            format_optional_text(ask.as_deref()),
+            format_optional_term(target_shape.as_ref()),
+            format_optional_term(filter_shape.as_ref())
         ),
     }
 }
@@ -151,12 +159,19 @@ fn rule_label(expr: &RuleExpr) -> String {
             conditions,
             ..
         } => format!(
-            "triple\nsubject={:?}\npredicate={:?}\nobject={:?}\nconditions={:?}",
-            subject, predicate, object, conditions
+            "triple\nsubject={}\npredicate={}\nobject={}\nconditions={:?}",
+            format_optional_triple_pattern(subject.as_ref()),
+            format_optional_named_node(predicate.as_ref()),
+            format_optional_triple_pattern(object.as_ref()),
+            conditions
         ),
         RuleExpr::Sparql {
             query, conditions, ..
-        } => format!("sparql\nquery={:?}\nconditions={:?}", query, conditions),
+        } => format!(
+            "sparql\nquery={}\nconditions={:?}",
+            format_optional_text(query.as_deref()),
+            conditions
+        ),
         RuleExpr::Generic {
             node, conditions, ..
         } => format!("generic {} {:?}", node, conditions),
@@ -185,4 +200,29 @@ fn escape_label(input: &str) -> String {
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+}
+
+fn format_optional_text(value: Option<&str>) -> String {
+    value.unwrap_or("<none>").to_string()
+}
+
+fn format_optional_term(value: Option<&Term>) -> String {
+    value
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "<none>".to_string())
+}
+
+fn format_optional_named_node(value: Option<&NamedNode>) -> String {
+    value
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "<none>".to_string())
+}
+
+fn format_optional_triple_pattern(value: Option<&TriplePatternTerm>) -> String {
+    match value {
+        Some(TriplePatternTerm::This) => "sh:this".to_string(),
+        Some(TriplePatternTerm::Constant(term)) => term.to_string(),
+        Some(TriplePatternTerm::Path(path)) => format!("path({})", path_label(path)),
+        None => "<none>".to_string(),
+    }
 }
