@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    AnalysisSummary, NormalizeOptions, RewriteOptions, RewriteSummary, SliceReason, SliceRoots,
-    StaticAnalysisSummary, StaticCostHint, analyze_program, analyze_static_with_roots,
-    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
-    render_shape_program_dot, rewrite_program,
+    AnalysisSummary, BackendViewOptions, BackendViews, InferenceView, NormalizeOptions,
+    RewriteOptions, RewriteSummary, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
+    ValidationView, analyze_program, analyze_static_with_roots, derive_backend_views,
+    derive_inference_view, derive_validation_view, load_and_parse_with_ontoenv, lower_to_program,
+    normalize_program, parse_resolved, render_shape_program_dot, rewrite_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -26,6 +27,8 @@ enum Command {
     StaticAnalyze(StaticAnalyzeArgs),
     /// Rewrite the lowered shape program using static-analysis-guided passes
     Rewrite(RewriteArgs),
+    /// Derive backend-facing validation and inference views
+    BackendView(BackendViewArgs),
     /// Emit Graphviz DOT for the shape/component graph
     Graphviz(GraphvizArgs),
 }
@@ -179,6 +182,39 @@ struct RewriteArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum BackendViewKind {
+    Both,
+    Validation,
+    Inference,
+}
+
+#[derive(Parser, Debug)]
+struct BackendViewArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Drop deactivated shapes and rules before deriving views
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
+    /// Which backend-facing view to render
+    #[arg(long, value_enum, default_value_t = BackendViewKind::Both)]
+    kind: BackendViewKind,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -186,6 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Analyze(args) => run_analyze(args)?,
         Command::StaticAnalyze(args) => run_static_analyze(args)?,
         Command::Rewrite(args) => run_rewrite(args)?,
+        Command::BackendView(args) => run_backend_view(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
     Ok(())
@@ -327,6 +364,62 @@ fn run_rewrite(args: RewriteArgs) -> Result<(), Box<dyn std::error::Error>> {
         AnalyzeFormat::Text => {
             let text = render_rewrite_text(&rewritten.summary, &rewritten.program);
             write_text(&text, args.output.as_deref())?;
+        }
+    }
+    Ok(())
+}
+
+fn run_backend_view(args: BackendViewArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let roots = if args.root_shapes.is_empty() {
+        Some(SliceRoots::TargetShapes)
+    } else {
+        Some(SliceRoots::ExplicitSelectors(args.root_shapes.clone()))
+    };
+    let options = BackendViewOptions {
+        rewrite: RewriteOptions {
+            roots,
+            prune_unreachable: true,
+            ..RewriteOptions::default()
+        },
+    };
+    match args.kind {
+        BackendViewKind::Both => {
+            let views = derive_backend_views(&program, options);
+            match args.format {
+                AnalyzeFormat::Json => write_json(&views, args.output.as_deref())?,
+                AnalyzeFormat::Text => {
+                    let text = render_backend_views_text(&views);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
+        }
+        BackendViewKind::Validation => {
+            let view = derive_validation_view(&program, options);
+            match args.format {
+                AnalyzeFormat::Json => write_json(&view, args.output.as_deref())?,
+                AnalyzeFormat::Text => {
+                    let text = render_validation_view_text(&view);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
+        }
+        BackendViewKind::Inference => {
+            let view = derive_inference_view(&program, options);
+            match args.format {
+                AnalyzeFormat::Json => write_json(&view, args.output.as_deref())?,
+                AnalyzeFormat::Text => {
+                    let text = render_inference_view_text(&view);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
         }
     }
     Ok(())
@@ -1113,4 +1206,92 @@ fn render_rewrite_text(
     }
 
     out
+}
+
+fn render_backend_views_text(views: &BackendViews) -> String {
+    let mut out = String::new();
+    out.push_str(&render_validation_view_text(&views.validation));
+    out.push('\n');
+    out.push_str(&render_inference_view_text(&views.inference));
+    out
+}
+
+fn render_validation_view_text(view: &ValidationView) -> String {
+    let mut out = String::new();
+    out.push_str("Validation View\n");
+    out.push_str(&format!("  shapes: {}\n", view.program.shapes.len()));
+    out.push_str(&format!(
+        "  constraints: {}\n",
+        view.program.constraints.len()
+    ));
+    out.push_str(&format!("  targets: {}\n", view.program.targets.len()));
+    out.push_str(&format!("  rules: {}\n", view.program.rules.len()));
+    out.push_str(&format!("  entry_shapes: {}\n", view.entry_shapes.len()));
+    out.push_str(&format!("  helper_shapes: {}\n", view.helper_shapes.len()));
+    out.push_str(&format!(
+        "  recursive_regions: {}\n",
+        view.recursive_regions.len()
+    ));
+    out.push_str("\n  Buckets\n");
+    for (bucket, count) in &view.partition.histogram {
+        out.push_str(&format!("    {}: {}\n", bucket, count));
+    }
+    out
+}
+
+fn render_inference_view_text(view: &InferenceView) -> String {
+    let mut out = String::new();
+    out.push_str("Inference View\n");
+    out.push_str(&format!("  shapes: {}\n", view.program.shapes.len()));
+    out.push_str(&format!(
+        "  constraints: {}\n",
+        view.program.constraints.len()
+    ));
+    out.push_str(&format!("  targets: {}\n", view.program.targets.len()));
+    out.push_str(&format!("  rules: {}\n", view.program.rules.len()));
+    out.push_str(&format!(
+        "  rule_owner_shapes: {}\n",
+        view.rule_owner_shapes.len()
+    ));
+    out.push_str(&format!(
+        "  condition_shapes: {}\n",
+        view.condition_shapes.len()
+    ));
+    out.push_str(&format!(
+        "  target_seed_shapes: {}\n",
+        view.target_seed_shapes.len()
+    ));
+    out.push_str(&format!(
+        "  recursive_regions: {}\n",
+        view.recursive_regions.len()
+    ));
+    out.push_str("\n  Shape Buckets\n");
+    for (bucket, count) in &view.partition.histogram {
+        out.push_str(&format!("    {}: {}\n", bucket, count));
+    }
+    out.push_str("\n  Rule Buckets\n");
+    let mut histogram = std::collections::BTreeMap::<String, usize>::new();
+    for bucket in view.rule_buckets.values() {
+        *histogram
+            .entry(render_backend_bucket(bucket).to_string())
+            .or_insert(0) += 1;
+    }
+    if histogram.is_empty() {
+        out.push_str("    none\n");
+    } else {
+        for (bucket, count) in histogram {
+            out.push_str(&format!("    {}: {}\n", bucket, count));
+        }
+    }
+    out
+}
+
+fn render_backend_bucket(bucket: &shifty_shacl_core::BackendBucket) -> &'static str {
+    match bucket {
+        shifty_shacl_core::BackendBucket::LocalOnly => "local_only",
+        shifty_shacl_core::BackendBucket::BoundedTraversal => "bounded_traversal",
+        shifty_shacl_core::BackendBucket::ShapeReference => "shape_reference",
+        shifty_shacl_core::BackendBucket::GlobalSparql => "global_sparql",
+        shifty_shacl_core::BackendBucket::Recursive => "recursive",
+    }
 }

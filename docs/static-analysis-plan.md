@@ -86,6 +86,21 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for ordering rewrites
 - [x] Add fixture-backed tests for recursive-region annotation
 
+## Phase 4 Checklist
+
+- [x] Add explicit backend-facing validation views
+- [x] Add explicit backend-facing inference views
+- [x] Keep validation and inference views derived from the same rewritten program
+- [x] Partition shapes into backend-facing buckets
+- [x] Partition inference rules into backend-facing buckets
+- [x] Surface entry/helper shape inventories for validation
+- [x] Surface rule-owner, condition-shape, and target-seed inventories for inference
+- [x] Preserve rewrite summaries alongside backend views
+- [x] Add a CLI inspection command for backend views
+- [x] Add JSON output for backend views
+- [x] Add fixture-backed tests for validation views
+- [x] Add fixture-backed tests for inference views
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
