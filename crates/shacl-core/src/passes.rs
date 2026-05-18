@@ -2,7 +2,8 @@ use crate::algebra::{
     AdvancedTarget, ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr,
     ConstraintId, DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PrefixDeclaration,
     PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram,
-    SparqlConstraint, SparqlValidator, Target, TargetExpr, TargetId, TriplePatternTerm,
+    SparqlConstraint, SparqlValidator, Target, TargetExpr, TargetId, Template, TemplateBinding,
+    TemplatePart, TemplateSlotKind, TriplePatternTerm,
 };
 use crate::diagnostics::{
     Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode,
@@ -137,7 +138,13 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
     }
     if lowered_components
         .iter()
-        .any(|component| component.label_template.is_some())
+        .any(|component| {
+            component
+                .label_template_expr
+                .as_ref()
+                .is_some_and(template_has_slots)
+                || component.message_templates.iter().any(template_has_slots)
+        })
     {
         features.insert(FeatureUse::Templates);
     }
@@ -692,14 +699,18 @@ fn lower_constraint(
                 .starts_with("http://www.w3.org/ns/shacl#")
             {
                 features.insert(FeatureUse::CustomComponents);
+                let component = resolve_custom_component_for_parameter(
+                    &constraint.predicate,
+                    components,
+                    component_index,
+                );
                 return ConstraintExpr::CustomComponent {
                     predicate: constraint.predicate.clone(),
-                    component: resolve_custom_component_for_parameter(
-                        &constraint.predicate,
-                        components,
-                        component_index,
-                    ),
+                    component,
                     values: constraint.objects.clone(),
+                    bindings: lower_component_bindings(shape, components, component),
+                    message_templates: lower_component_message_templates(components, component),
+                    label_template: lower_component_label_template(components, component),
                 };
             }
             diagnostics.push(Diagnostic {
@@ -732,6 +743,7 @@ fn lower_constraint_components(
                     node: parameter.node.clone(),
                     path: parameter.path.clone(),
                     datatype: parameter.datatype.clone(),
+                    var_name: parameter.var_name.clone(),
                     name: parameter.name.clone(),
                     description: parameter.description.clone(),
                     optional: parameter.optional,
@@ -752,14 +764,120 @@ fn lower_constraint_components(
                 })
                 .collect(),
             messages: component.messages.clone(),
+            message_templates: component
+                .messages
+                .iter()
+                .filter_map(as_literal_value)
+                .map(parse_template)
+                .collect(),
             prefixes: component.prefixes.clone(),
             declarations: lower_prefix_declarations(&component.declarations),
             label: component.label.clone(),
             label_template: component.label_template.clone(),
+            label_template_expr: component
+                .label_template
+                .as_deref()
+                .map(|raw| parse_template(raw.to_string())),
             comment: component.comment.clone(),
             provenance: component.provenance.clone(),
         })
         .collect()
+}
+
+fn lower_component_bindings(
+    shape: &ShapeSyntax,
+    components: &[crate::syntax::ConstraintComponentSyntax],
+    component_id: Option<ComponentDefId>,
+) -> Vec<TemplateBinding> {
+    let Some(component_id) = component_id else {
+        return Vec::new();
+    };
+    let Some(component) = components
+        .iter()
+        .enumerate()
+        .find(|(index, _)| ComponentDefId((index + 1) as u64) == component_id)
+        .map(|(_, component)| component)
+    else {
+        return Vec::new();
+    };
+
+    component
+        .parameters
+        .iter()
+        .filter_map(|parameter| {
+            let name = parameter
+                .var_name
+                .clone()
+                .or_else(|| parameter.name.clone())?;
+            let values = parameter_value_bindings(shape, parameter);
+            if values.is_empty() {
+                return None;
+            }
+            Some(TemplateBinding {
+                parameter: parameter.node.clone(),
+                name,
+                from_default: match parameter.path.as_ref() {
+                    Some(path) => parameter_value_from_shape(shape, path).is_none(),
+                    None => true,
+                },
+                values,
+            })
+        })
+        .collect()
+}
+
+fn parameter_value_bindings(
+    shape: &ShapeSyntax,
+    parameter: &crate::syntax::ParameterSyntax,
+) -> Vec<Term> {
+    if let Some(path) = parameter.path.as_ref()
+        && let Some(values) = parameter_value_from_shape(shape, path)
+    {
+        return values;
+    }
+    parameter.default_values.clone()
+}
+
+fn parameter_value_from_shape(shape: &ShapeSyntax, path: &Term) -> Option<Vec<Term>> {
+    let Term::NamedNode(path) = path else {
+        return None;
+    };
+    shape.constraints.iter().find_map(|constraint| {
+        (constraint.predicate == *path).then(|| constraint.objects.clone())
+    })
+}
+
+fn lower_component_message_templates(
+    components: &[crate::syntax::ConstraintComponentSyntax],
+    component_id: Option<ComponentDefId>,
+) -> Vec<Template> {
+    resolve_component_syntax(components, component_id)
+        .into_iter()
+        .flat_map(|component| component.messages.iter())
+        .filter_map(as_literal_value)
+        .map(parse_template)
+        .collect()
+}
+
+fn lower_component_label_template(
+    components: &[crate::syntax::ConstraintComponentSyntax],
+    component_id: Option<ComponentDefId>,
+) -> Option<Template> {
+    resolve_component_syntax(components, component_id)
+        .and_then(|component| component.label_template.as_deref())
+        .map(|raw| parse_template(raw.to_string()))
+}
+
+fn resolve_component_syntax<'a>(
+    components: &'a [crate::syntax::ConstraintComponentSyntax],
+    component_id: Option<ComponentDefId>,
+) -> Option<&'a crate::syntax::ConstraintComponentSyntax> {
+    let component_id = component_id?;
+    components
+        .iter()
+        .enumerate()
+        .find(|(index, _)| ComponentDefId((index + 1) as u64) == component_id)
+        .map(|(_, component)| component)
 }
 
 fn lower_sparql_constraint(
@@ -1351,6 +1469,47 @@ fn compact_shacl_local_name(iri: &str) -> &str {
     iri.rsplit('#').next().unwrap_or(iri)
 }
 
+fn parse_template(raw: String) -> Template {
+    let mut parts = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(start_rel) = raw[cursor..].find('{') {
+        let start = cursor + start_rel;
+        if start > cursor {
+            parts.push(TemplatePart::Text(raw[cursor..start].to_string()));
+        }
+        let Some(end_rel) = raw[start + 1..].find('}') else {
+            parts.push(TemplatePart::Text(raw[start..].to_string()));
+            cursor = raw.len();
+            break;
+        };
+        let end = start + 1 + end_rel;
+        let token = &raw[start + 1..end];
+        let parsed = token
+            .strip_prefix('?')
+            .map(|name| (TemplateSlotKind::Variable, name))
+            .or_else(|| token.strip_prefix('$').map(|name| (TemplateSlotKind::Parameter, name)));
+        match parsed {
+            Some((kind, name)) if !name.is_empty() => parts.push(TemplatePart::Slot {
+                kind,
+                name: name.to_string(),
+            }),
+            _ => parts.push(TemplatePart::Text(raw[start..=end].to_string())),
+        }
+        cursor = end + 1;
+    }
+    if cursor < raw.len() {
+        parts.push(TemplatePart::Text(raw[cursor..].to_string()));
+    }
+    Template { raw, parts }
+}
+
+fn template_has_slots(template: &Template) -> bool {
+    template
+        .parts
+        .iter()
+        .any(|part| matches!(part, TemplatePart::Slot { .. }))
+}
+
 fn feature_order(feature: &FeatureUse) -> u8 {
     match feature {
         FeatureUse::Core => 0,
@@ -1383,6 +1542,13 @@ fn literal_u64(term: Option<&Term>) -> Option<u64> {
 fn as_named_node(term: Term) -> Option<NamedNode> {
     match term {
         Term::NamedNode(node) => Some(node),
+        _ => None,
+    }
+}
+
+fn as_literal_value(term: &Term) -> Option<String> {
+    match term {
+        Term::Literal(lit) => Some(lit.value().to_string()),
         _ => None,
     }
 }

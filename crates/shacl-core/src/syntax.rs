@@ -55,6 +55,7 @@ pub struct ParameterSyntax {
     pub node: Term,
     pub path: Option<Term>,
     pub datatype: Option<Term>,
+    pub var_name: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub optional: bool,

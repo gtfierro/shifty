@@ -737,10 +737,12 @@ fn parses_constraint_component_definitions() {
     .expect("fixture should load");
 
     let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    assert_eq!(syntax.shapes.len(), 2);
     assert_eq!(syntax.constraint_components.len(), 1);
     let component = &syntax.constraint_components[0];
     assert!(component.subject.to_string().contains("LengthComponent"));
     assert_eq!(component.parameters.len(), 2);
+    assert_eq!(component.parameters[1].var_name.as_deref(), Some("minLength"));
     assert_eq!(component.validators.len(), 1);
     assert!(component.validators[0].select.is_some());
     assert_eq!(component.declarations.len(), 0);
@@ -764,14 +766,32 @@ fn lowers_custom_component_attachments() {
     let program = lower_to_program(&syntax);
 
     assert_eq!(program.constraint_components.len(), 1);
+    let component = &program.constraint_components[0];
+    assert_eq!(component.parameters[1].var_name.as_deref(), Some("minLength"));
+    assert_eq!(component.message_templates.len(), 1);
+    assert!(component.message_templates[0].parts.iter().any(|part| matches!(
+        part,
+        shifty_shacl_core::algebra::TemplatePart::Slot {
+            kind: shifty_shacl_core::algebra::TemplateSlotKind::Variable,
+            name,
+        } if name == "minLength"
+    )));
     assert!(program.constraints.iter().any(|constraint| {
         matches!(
             &constraint.expr,
             shifty_shacl_core::algebra::ConstraintExpr::CustomComponent {
                 predicate,
                 component: Some(_),
+                bindings,
+                message_templates,
                 ..
             } if predicate.as_str() == "http://example.org/activate"
+                && bindings.iter().any(|binding| {
+                    binding.name == "minLength"
+                        && binding.from_default
+                        && binding.values.iter().any(|value| value.to_string().contains('5'))
+                })
+                && message_templates.iter().any(|template| template.raw.contains("minLength"))
         )
     }));
 }
@@ -845,6 +865,20 @@ fn lowers_label_templates_on_constraint_components() {
         .find(|component| component.subject.to_string().contains("LanguageConstraintComponentUsingSELECT"))
         .expect("component should lower");
     assert!(component.label_template.is_some());
+    assert!(component.label_template_expr.is_some());
+    assert!(component
+        .label_template_expr
+        .as_ref()
+        .unwrap()
+        .parts
+        .iter()
+        .any(|part| matches!(
+            part,
+            shifty_shacl_core::algebra::TemplatePart::Slot {
+                kind: shifty_shacl_core::algebra::TemplateSlotKind::Parameter,
+                name,
+            } if name == "lang"
+        )));
     assert_eq!(component.validators[0].prefixes.len(), 1);
     assert!(program
         .features

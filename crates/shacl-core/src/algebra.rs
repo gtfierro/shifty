@@ -136,6 +136,9 @@ pub enum ConstraintExpr {
         predicate: NamedNode,
         component: Option<ComponentDefId>,
         values: Vec<Term>,
+        bindings: Vec<TemplateBinding>,
+        message_templates: Vec<Template>,
+        label_template: Option<Template>,
     },
     GenericPredicate {
         predicate: NamedNode,
@@ -184,10 +187,40 @@ pub enum FeatureUse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TemplateSlotKind {
+    Parameter,
+    Variable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TemplatePart {
+    Text(String),
+    Slot {
+        kind: TemplateSlotKind,
+        name: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Template {
+    pub raw: String,
+    pub parts: Vec<TemplatePart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemplateBinding {
+    pub parameter: Term,
+    pub name: String,
+    pub values: Vec<Term>,
+    pub from_default: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParameterDefinition {
     pub node: Term,
     pub path: Option<Term>,
     pub datatype: Option<Term>,
+    pub var_name: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub optional: bool,
@@ -224,10 +257,12 @@ pub struct ConstraintComponent {
     pub parameters: Vec<ParameterDefinition>,
     pub validators: Vec<SparqlValidator>,
     pub messages: Vec<Term>,
+    pub message_templates: Vec<Template>,
     pub prefixes: Vec<Term>,
     pub declarations: Vec<PrefixDeclaration>,
     pub label: Option<String>,
     pub label_template: Option<String>,
+    pub label_template_expr: Option<Template>,
     pub comment: Option<String>,
     pub provenance: Vec<SourceRef>,
 }

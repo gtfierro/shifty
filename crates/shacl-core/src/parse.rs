@@ -46,6 +46,7 @@ const SH_PARAMETER: &str = "http://www.w3.org/ns/shacl#parameter";
 const SH_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
 const SH_PREFIXES: &str = "http://www.w3.org/ns/shacl#prefixes";
 const SH_DECLARE: &str = "http://www.w3.org/ns/shacl#declare";
+const SH_VAR_NAME: &str = "http://www.w3.org/ns/shacl#varName";
 const SH_NAME: &str = "http://www.w3.org/ns/shacl#name";
 const SH_DESCRIPTION: &str = "http://www.w3.org/ns/shacl#description";
 const SH_OPTIONAL: &str = "http://www.w3.org/ns/shacl#optional";
@@ -86,6 +87,7 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
     let mut candidate_shapes = HashSet::new();
     let mut candidate_rules = HashSet::new();
     let mut candidate_components = HashSet::new();
+    let mut parameter_nodes = HashSet::new();
 
     for quad in &quads {
         let subject_term = subject_to_term(&quad.subject);
@@ -110,6 +112,9 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
                 candidate_components.insert(subject_term.clone());
             }
         }
+        if pred == SH_PARAMETER {
+            parameter_nodes.insert(quad.object.clone());
+        }
         if matches!(
             pred,
             SH_TARGET
@@ -130,6 +135,18 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
     }
 
     discover_inline_shapes_and_rules(&by_subject, &mut candidate_shapes, &mut candidate_rules);
+    candidate_shapes.retain(|subject| {
+        !parameter_nodes.contains(subject)
+            || by_subject
+                .get(subject)
+                .into_iter()
+                .flatten()
+                .any(|quad| {
+                    quad.predicate.as_str() == RDF_TYPE
+                        && (matches_named(&quad.object, SH_NODE_SHAPE)
+                            || matches_named(&quad.object, SH_PROPERTY_SHAPE))
+                })
+    });
 
     let mut shapes: Vec<ShapeSyntax> = candidate_shapes
         .into_iter()
@@ -246,6 +263,7 @@ fn build_parameter(parameter: &Term, by_subject: &HashMap<Term, Vec<Quad>>) -> P
     let grouped = group_predicates(&quads);
     let mut path = None;
     let mut datatype = None;
+    let mut var_name = None;
     let mut name = None;
     let mut description = None;
     let mut optional = false;
@@ -255,6 +273,7 @@ fn build_parameter(parameter: &Term, by_subject: &HashMap<Term, Vec<Quad>>) -> P
         match predicate.as_str() {
             SH_PATH => path = objects.first().cloned(),
             SH_DATATYPE => datatype = objects.first().cloned(),
+            SH_VAR_NAME => var_name = first_literal_owned(&objects),
             SH_NAME => name = first_literal_owned(&objects),
             SH_DESCRIPTION => description = first_literal_owned(&objects),
             SH_OPTIONAL => optional = objects.iter().any(is_true_literal),
@@ -267,6 +286,7 @@ fn build_parameter(parameter: &Term, by_subject: &HashMap<Term, Vec<Quad>>) -> P
         node: parameter.clone(),
         path,
         datatype,
+        var_name,
         name,
         description,
         optional,

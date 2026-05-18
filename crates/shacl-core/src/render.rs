@@ -128,7 +128,18 @@ fn constraint_label(expr: &ConstraintExpr) -> String {
             predicate,
             component,
             values,
-        } => format!("custom {} component={:?} {:?}", predicate, component, values),
+            bindings,
+            message_templates,
+            label_template,
+        } => format!(
+            "custom {}\ncomponent={:?}\nvalues={}\nbindings={}\nmessages={}\nlabelTemplate={}",
+            predicate,
+            component,
+            format_terms(values),
+            format_template_bindings(bindings),
+            format_templates(message_templates),
+            format_optional_template(label_template.as_ref()),
+        ),
         ConstraintExpr::GenericPredicate { predicate, values } => {
             format!("{} {:?}", predicate, values)
         }
@@ -256,6 +267,42 @@ fn format_prefix_declarations(
                 "{}={}",
                 declaration.prefix.as_deref().unwrap_or("<none>"),
                 format_optional_term(declaration.namespace.as_ref())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_templates(templates: &[crate::algebra::Template]) -> String {
+    if templates.is_empty() {
+        "<none>".to_string()
+    } else {
+        templates
+            .iter()
+            .map(|template| template.raw.clone())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+}
+
+fn format_optional_template(template: Option<&crate::algebra::Template>) -> String {
+    template
+        .map(|template| template.raw.clone())
+        .unwrap_or_else(|| "<none>".to_string())
+}
+
+fn format_template_bindings(bindings: &[crate::algebra::TemplateBinding]) -> String {
+    if bindings.is_empty() {
+        return "<none>".to_string();
+    }
+    bindings
+        .iter()
+        .map(|binding| {
+            format!(
+                "{}={}{}",
+                binding.name,
+                format_terms(&binding.values),
+                if binding.from_default { " [default]" } else { "" }
             )
         })
         .collect::<Vec<_>>()
