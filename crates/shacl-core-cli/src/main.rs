@@ -2315,6 +2315,18 @@ fn render_physical_plan_text(
             op.constraint.0, op.kind, op.compiled_kind, op.precompiled_regex
         ));
     }
+    out.push('\n');
+    out.push_str("  Compiled Rules\n");
+    for rule in &plan.rule_plans {
+        out.push_str(&format!(
+            "    rule={} owner={} kind={} mode={} uses_conditions={}",
+            rule.rule_id.0, rule.owner_shape.0, rule.kind, rule.mode, rule.uses_conditions
+        ));
+        if !rule.dependency_predicates.is_empty() {
+            out.push_str(&format!(" deps=[{}]", rule.dependency_predicates.join(", ")));
+        }
+        out.push('\n');
+    }
     out
 }
 
