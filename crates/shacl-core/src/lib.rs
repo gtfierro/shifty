@@ -14,8 +14,10 @@ pub mod syntax;
 
 pub use analysis::{AnalysisSummary, analyze_program};
 pub use backend_views::{
-    BackendBucket, BackendShapePartition, BackendViewOptions, BackendViews, InferenceView,
-    ValidationView, derive_backend_views, derive_inference_view, derive_validation_view,
+    BackendBucket, BackendClosureMode, BackendShapePartition, BackendViewOptions, BackendViews,
+    ClassifiedDependency, DependencyClass, InferenceView, InferenceWorkInventory, SharedWorkUnit,
+    SharedWorkUnitKind, ValidationView, ValidationWorkInventory, derive_backend_views,
+    derive_inference_view, derive_validation_view,
 };
 pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::{

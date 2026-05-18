@@ -1,11 +1,12 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    BackendBucket, BackendViewOptions, ContextFootprint, NormalizeOptions, RewriteOptions,
-    SliceReason, SliceRoots, StaticCostHint, analyze_program, analyze_static,
-    analyze_static_with_roots, canonicalize_program, context_requirements, derive_backend_views,
-    derive_inference_view, derive_validation_view, fingerprint_program, lower_to_program,
-    normalize_program, parse_quads, prune_deactivated_program, render_shape_program_dot,
-    rewrite_program, shared_work_candidates, slice_program,
+    BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
+    NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots, StaticCostHint,
+    analyze_program, analyze_static, analyze_static_with_roots, canonicalize_program,
+    context_requirements, derive_backend_views, derive_inference_view, derive_validation_view,
+    fingerprint_program, lower_to_program, normalize_program, parse_quads,
+    prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
+    slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
@@ -946,6 +947,7 @@ fn inference_view_keeps_rule_owners_and_condition_shapes() {
                 prune_unreachable: true,
                 ..RewriteOptions::default()
             },
+            closure_mode: BackendClosureMode::InferenceClosure,
         },
     );
     assert_eq!(view.program.rules.len(), 1);
@@ -974,6 +976,233 @@ fn backend_views_can_be_derived_together() {
     let views = derive_backend_views(&program, BackendViewOptions::default());
     assert!(!views.validation.program.shapes.is_empty());
     assert!(!views.inference.program.shapes.is_empty());
+}
+
+#[test]
+fn backend_views_materialize_shared_work_units() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let mut syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let second_property = NamedNode::new("urn:duplicate-property").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let activate = NamedNode::new("http://example.org/activate").unwrap();
+    let name = NamedNode::new("http://example.org/name").unwrap();
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+
+    syntax.quads.push(Quad::new(
+        NamedNode::new("http://example.org/NameShape").unwrap(),
+        sh_property,
+        Term::NamedNode(second_property.clone()),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    syntax.quads.push(Quad::new(
+        second_property.clone(),
+        rdf_type,
+        Term::NamedNode(sh_property_shape),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    syntax.quads.push(Quad::new(
+        second_property.clone(),
+        sh_path,
+        Term::NamedNode(name),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    syntax.quads.push(Quad::new(
+        second_property,
+        activate,
+        Term::Literal(Literal::from(true)),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+
+    let program = lower_to_program(&shifty_shacl_core::parse_quads(syntax.quads));
+    let views = derive_backend_views(&program, BackendViewOptions::default());
+    assert!(
+        views
+            .validation
+            .shared_work_units
+            .iter()
+            .any(|unit| { matches!(unit.kind, SharedWorkUnitKind::CustomComponentConstraint) })
+    );
+}
+
+#[test]
+fn backend_views_distinguish_validation_and_inference_closures() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let owner = NamedNode::new("urn:owner").unwrap();
+    let condition = NamedNode::new("urn:condition").unwrap();
+    let unrelated = NamedNode::new("urn:unrelated").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            owner.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            condition.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            unrelated.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_condition,
+            Term::NamedNode(condition.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::from(
+                "CONSTRUCT { $this <urn:p> <urn:o> } WHERE { }",
+            )),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&doc);
+    let validation = derive_validation_view(
+        &program,
+        BackendViewOptions {
+            rewrite: RewriteOptions::default(),
+            closure_mode: BackendClosureMode::ValidationClosure,
+        },
+    );
+    let inference = derive_inference_view(
+        &program,
+        BackendViewOptions {
+            rewrite: RewriteOptions::default(),
+            closure_mode: BackendClosureMode::InferenceClosure,
+        },
+    );
+    let condition_id = program.shape_index[&Term::NamedNode(condition).to_string()];
+    assert!(
+        !validation
+            .program
+            .shapes
+            .iter()
+            .any(|shape| shape.id == condition_id)
+    );
+    assert!(
+        inference
+            .program
+            .shapes
+            .iter()
+            .any(|shape| shape.id == condition_id)
+    );
+}
+
+#[test]
+fn backend_views_classify_dependencies() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let owner = NamedNode::new("urn:owner").unwrap();
+    let helper = NamedNode::new("urn:helper").unwrap();
+    let condition = NamedNode::new("urn:condition").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            owner.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            helper.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            condition.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_node,
+            Term::NamedNode(helper),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_condition,
+            Term::NamedNode(condition),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::from(
+                "CONSTRUCT { $this <urn:p> <urn:o> } WHERE { }",
+            )),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&doc);
+    let inference = derive_inference_view(
+        &program,
+        BackendViewOptions {
+            rewrite: RewriteOptions::default(),
+            closure_mode: BackendClosureMode::MixedClosure,
+        },
+    );
+    assert!(
+        inference
+            .dependencies
+            .iter()
+            .any(|edge| edge.kind == "node" && edge.class == DependencyClass::ValidationOnly)
+    );
+    assert!(inference.dependencies.iter().any(|edge| {
+        edge.kind == "rule_condition" && edge.class == DependencyClass::InferenceOnly
+    }));
 }
 
 #[test]
