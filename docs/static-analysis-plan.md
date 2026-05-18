@@ -225,6 +225,16 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for SPARQL-rule execution
 - [ ] Add a Brick smoke test assertion that AF rules no longer remain unsupported
 
+## Phase 14 Checklist
+
+- [x] Replace the narrow manifest smoke test file with a recursive W3C manifest harness
+- [x] Crawl `mf:include` trees and `mf:entries` lists rather than hard-coding individual cases
+- [x] Support self-contained and split data/shapes graph manifest actions
+- [x] Add a backend-facing manifest test abstraction so each evaluation backend can share the same suite runner
+- [x] Add in-memory backend coverage over the `core`, `sparql`, and `advanced` root manifests
+- [x] Add explicit backend skip reasons for manifest regions whose semantics are not modeled yet
+- [x] Keep report-count assertions on manifest-backed validation runs
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
