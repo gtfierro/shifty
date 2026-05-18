@@ -197,6 +197,17 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for SPARQL constraint validation
 - [x] Add fixture-backed tests for custom-component SPARQL validation
 
+## Phase 12 Checklist
+
+- [ ] Add a SHACL validation-report builder in `shacl-core`
+- [ ] Preserve enough validation result metadata for `sh:sourceShape`, `sh:sourceConstraint`, `sh:sourceConstraintComponent`, `sh:resultPath`, and `sh:value`
+- [ ] Serialize validation reports to RDF output formats for CLI use
+- [ ] Add validation CLI report output modes
+- [ ] Add fixture-backed tests for report construction over core and SPARQL validation cases
+- [ ] Add a narrow W3C manifest harness for self-contained SHACL validation tests
+- [ ] Assert expected `sh:conforms` on initial manifest-backed tests
+- [ ] Assert expected validation-result counts on initial manifest-backed tests
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
