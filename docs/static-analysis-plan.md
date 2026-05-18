@@ -9,6 +9,7 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - identify recursive regions and dependency structure
 - detect structurally duplicate constraints, targets, and rules
 - surface the results in a dedicated inspection CLI command
+- drive conservative semantics-preserving rewrites over normalized shape programs
 
 ## Decisions
 
@@ -63,6 +64,28 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for refined context classification
 - [x] Add fixture-backed tests for shared-work candidate reporting
 
+## Phase 3 Checklist
+
+- [x] Add an explicit rewrite-pass API over `ShapeProgram`
+- [x] Define `RewriteOptions` and `RewriteSummary`
+- [x] Add a reusable root-slice rewrite pass
+- [x] Add dead-structure elimination after slicing
+- [x] Prune unreferenced components after slicing
+- [x] Prune unreferenced rules after slicing when their owner shapes are dropped
+- [x] Preserve provenance and diagnostics through rewrite passes
+- [x] Rebuild indexes and inspection graphs after rewrites
+- [x] Add analysis-informed deterministic constraint ordering
+- [x] Add analysis-informed deterministic rule ordering
+- [x] Prioritize local/cheap constraints ahead of global/SPARQL constraints
+- [x] Prioritize local/cheap rules ahead of global/SPARQL rules
+- [x] Add explicit recursive-region annotations or groups in rewritten programs
+- [x] Surface rewrite summaries in CLI inspection output
+- [x] Add JSON output for rewrite summaries
+- [x] Add fixture-backed tests for slice-driven rewriting
+- [x] Add fixture-backed tests for dead-structure elimination
+- [x] Add fixture-backed tests for ordering rewrites
+- [x] Add fixture-backed tests for recursive-region annotation
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
@@ -78,6 +101,17 @@ Planned additions:
 - shared-work candidate report derived from fingerprints
 - static cost-hint report for shapes and rules
 
+Rewrite-phase additions:
+
+- `rewrite_program(program: &ShapeProgram, options: RewriteOptions) -> RewrittenProgram`
+- explicit rewrite passes for:
+  - root slicing
+  - dead-structure elimination
+  - unreferenced-component pruning
+  - analysis-informed ordering
+  - recursive-region annotation
+- rewrite summaries that explain which passes ran and what they changed
+
 ## CLI Output
 
 - text summary
@@ -92,6 +126,12 @@ Planned additions:
 - refined context histogram
 - shared-work candidate summary
 - static cost-hint summary
+
+Rewrite-phase additions:
+
+- rewrite summary output in text mode
+- rewrite summary output in JSON mode
+- optional inspection command support for rewritten-program output
 
 ## Tests
 
@@ -111,8 +151,18 @@ Planned additions:
 - refined context buckets for single-hop vs traversal-heavy shapes
 - shared-work candidate summaries for duplicate SPARQL and component uses
 
+Rewrite-phase additions:
+
+- root-slice rewrites preserve the expected reachable subgraph
+- dead-structure elimination removes dropped owners and dangling references
+- rewritten programs rebuild indexes consistently
+- ordering rewrites are deterministic and analysis-informed
+- recursive-region annotations match SCC analysis
+
 ## Deferred Work
 
 - semantic subsumption and implication analysis
+- duplicate-shape merging or semantic factoring
 - proof-oriented equivalence instead of candidate duplicate groups
 - backend-specific planning heuristics beyond backend-agnostic cost hints
+- backend-specific execution rewrites or physical planning

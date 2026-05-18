@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    AnalysisSummary, NormalizeOptions, SliceReason, SliceRoots, StaticAnalysisSummary,
-    StaticCostHint, analyze_program, analyze_static_with_roots, load_and_parse_with_ontoenv,
-    lower_to_program, normalize_program, parse_resolved, render_shape_program_dot,
+    AnalysisSummary, NormalizeOptions, RewriteOptions, RewriteSummary, SliceReason, SliceRoots,
+    StaticAnalysisSummary, StaticCostHint, analyze_program, analyze_static_with_roots,
+    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
+    render_shape_program_dot, rewrite_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -23,6 +24,8 @@ enum Command {
     Analyze(AnalyzeArgs),
     /// Run deeper static analysis over the lowered shape program
     StaticAnalyze(StaticAnalyzeArgs),
+    /// Rewrite the lowered shape program using static-analysis-guided passes
+    Rewrite(RewriteArgs),
     /// Emit Graphviz DOT for the shape/component graph
     Graphviz(GraphvizArgs),
 }
@@ -134,12 +137,55 @@ struct StaticAnalyzeArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(Parser, Debug)]
+struct RewriteArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Drop deactivated shapes and rules before rewriting
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
+    /// Remove unreachable structure after root slicing
+    #[arg(long, default_value_t = true)]
+    prune_unreachable: bool,
+
+    /// Remove unreferenced constraint components after rewriting
+    #[arg(long, default_value_t = true)]
+    prune_unreferenced_components: bool,
+
+    /// Reorder constraints using static cost hints
+    #[arg(long, default_value_t = true)]
+    reorder_constraints: bool,
+
+    /// Reorder rules using static cost hints
+    #[arg(long, default_value_t = true)]
+    reorder_rules: bool,
+
+    /// Compute recursive-region annotations in the rewrite summary
+    #[arg(long, default_value_t = true)]
+    annotate_recursive_regions: bool,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
         Command::Dump(args) => run_dump(args)?,
         Command::Analyze(args) => run_analyze(args)?,
         Command::StaticAnalyze(args) => run_static_analyze(args)?,
+        Command::Rewrite(args) => run_rewrite(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
     Ok(())
@@ -237,6 +283,49 @@ fn run_static_analyze(args: StaticAnalyzeArgs) -> Result<(), Box<dyn std::error:
         }
         AnalyzeFormat::Text => {
             let text = render_static_analysis_text(&summary, &slice, &program, &syntax);
+            write_text(&text, args.output.as_deref())?;
+        }
+    }
+    Ok(())
+}
+
+fn run_rewrite(args: RewriteArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let roots = if args.root_shapes.is_empty() {
+        None
+    } else {
+        Some(SliceRoots::ExplicitSelectors(args.root_shapes.clone()))
+    };
+    let rewritten = rewrite_program(
+        &program,
+        RewriteOptions {
+            roots,
+            prune_unreachable: args.prune_unreachable,
+            prune_unreferenced_components: args.prune_unreferenced_components,
+            reorder_constraints: args.reorder_constraints,
+            reorder_rules: args.reorder_rules,
+            annotate_recursive_regions: args.annotate_recursive_regions,
+        },
+    );
+    match args.format {
+        AnalyzeFormat::Json => write_json(
+            &serde_json::json!({
+                "rewrite_summary": rewritten.summary,
+                "rewritten_program": rewritten.program,
+                "program_diagnostics": program.diagnostics,
+                "syntax_diagnostics": syntax.diagnostics,
+            }),
+            args.output.as_deref(),
+        )?,
+        AnalyzeFormat::Text => {
+            let text = render_rewrite_text(&rewritten.summary, &rewritten.program);
             write_text(&text, args.output.as_deref())?;
         }
     }
@@ -967,4 +1056,61 @@ fn render_cost_hint(hint: &StaticCostHint) -> &'static str {
         StaticCostHint::BoundedTraversal => "bounded_traversal",
         StaticCostHint::ShapeReferenceTraversal => "shape_reference_traversal",
     }
+}
+
+fn render_rewrite_text(
+    summary: &RewriteSummary,
+    program: &shifty_shacl_core::algebra::ShapeProgram,
+) -> String {
+    let mut out = String::new();
+    out.push_str("Rewrite Summary\n");
+    out.push_str(&format!("  shapes: {}\n", program.shapes.len()));
+    out.push_str(&format!("  constraints: {}\n", program.constraints.len()));
+    out.push_str(&format!("  targets: {}\n", program.targets.len()));
+    out.push_str(&format!("  rules: {}\n", program.rules.len()));
+    out.push_str(&format!(
+        "  components: {}\n",
+        program.constraint_components.len()
+    ));
+    out.push_str(&format!("  shapes removed: {}\n", summary.shapes_removed));
+    out.push_str(&format!(
+        "  constraints removed: {}\n",
+        summary.constraints_removed
+    ));
+    out.push_str(&format!("  targets removed: {}\n", summary.targets_removed));
+    out.push_str(&format!("  rules removed: {}\n", summary.rules_removed));
+    out.push_str(&format!(
+        "  components removed: {}\n",
+        summary.components_removed
+    ));
+
+    out.push_str("\nPasses\n");
+    for pass in &summary.passes {
+        out.push_str(&format!("  {} changed={}\n", pass.pass, pass.changed));
+        for detail in &pass.details {
+            out.push_str(&format!("    {}\n", detail));
+        }
+    }
+
+    out.push_str("\nRecursive Regions\n");
+    if summary.recursive_regions.is_empty() {
+        out.push_str("  none\n");
+    } else {
+        for region in &summary.recursive_regions {
+            let labels = region
+                .shapes
+                .iter()
+                .filter_map(|shape_id| {
+                    program
+                        .shapes
+                        .iter()
+                        .find(|shape| shape.id == *shape_id)
+                        .map(|shape| shape.normalized_key.clone())
+                })
+                .collect::<Vec<_>>();
+            out.push_str(&format!("  {}: {}\n", region.id, labels.join(", ")));
+        }
+    }
+
+    out
 }
