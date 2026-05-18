@@ -1748,7 +1748,27 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
         result.focus_nodes_evaluated
     ));
     out.push_str(&format!("  violations: {}\n", result.violations.len()));
+    out.push_str(&format!("  unsupported: {}\n", result.unsupported.len()));
     out.push_str(&format!("  trace_events: {}\n", result.trace.len()));
+    out.push_str("\nCoverage\n");
+    out.push_str(&format!(
+        "  executed_constraints: {}\n",
+        result.coverage.executed_constraints
+    ));
+    out.push_str(&format!(
+        "  unsupported_constraints: {}\n",
+        result.coverage.unsupported_constraints
+    ));
+    out.push_str(&format!(
+        "  deferred_recursions: {}\n",
+        result.coverage.deferred_recursions
+    ));
+    if !result.coverage.unsupported_by_kind.is_empty() {
+        out.push_str("  unsupported_by_kind:\n");
+        for (kind, count) in &result.coverage.unsupported_by_kind {
+            out.push_str(&format!("    {}: {}\n", kind, count));
+        }
+    }
     out.push_str("\nHeatmap\n");
     out.push_str(&format!(
         "  shapes_evaluated: {}\n",
@@ -1770,10 +1790,42 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
                     .unwrap_or_else(|| "-".to_string()),
                 violation.focus_node
             ));
+            out.push_str(&format!("    severity={:?}\n", violation.severity));
             if let Some(value_node) = &violation.value_node {
                 out.push_str(&format!("    value={}\n", value_node));
             }
+            if let Some(source) = &violation.source {
+                out.push_str(&format!(
+                    "    source={} locator={}\n",
+                    source.graph_iri,
+                    source.locator.as_deref().unwrap_or("-")
+                ));
+            }
             out.push_str(&format!("    {}\n", violation.message));
+        }
+    }
+    if !result.unsupported.is_empty() {
+        out.push_str("\nUnsupported\n");
+        for unsupported in &result.unsupported {
+            out.push_str(&format!(
+                "  shape={} constraint={} kind={} focus={}\n",
+                unsupported.shape.0,
+                unsupported
+                    .constraint
+                    .map(|constraint| constraint.0.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                unsupported.kind,
+                unsupported.focus_node.as_deref().unwrap_or("-")
+            ));
+            out.push_str(&format!("    severity={:?}\n", unsupported.severity));
+            if let Some(source) = &unsupported.source {
+                out.push_str(&format!(
+                    "    source={} locator={}\n",
+                    source.graph_iri,
+                    source.locator.as_deref().unwrap_or("-")
+                ));
+            }
+            out.push_str(&format!("    {}\n", unsupported.reason));
         }
     }
     if !result.trace.is_empty() {
