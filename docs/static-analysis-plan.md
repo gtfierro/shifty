@@ -177,6 +177,14 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for transitive path traversal
 - [x] Keep unsupported-path reporting explicit for still-unhandled path forms
 
+## Phase 10 Checklist
+
+- [ ] Execute regex semantics for `sh:pattern`
+- [ ] Execute inverse paths for all currently represented executable path forms
+- [ ] Preserve deterministic inverse-path traversal output
+- [ ] Add fixture-backed tests for regex pattern execution
+- [ ] Add fixture-backed tests for nested inverse/transitive path execution
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
