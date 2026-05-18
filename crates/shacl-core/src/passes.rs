@@ -65,6 +65,9 @@ const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_RULE_SUBJECT: &str = "http://www.w3.org/ns/shacl#subject";
 const SH_RULE_PREDICATE: &str = "http://www.w3.org/ns/shacl#predicate";
 const SH_RULE_OBJECT: &str = "http://www.w3.org/ns/shacl#object";
+const SH_DECLARE: &str = "http://www.w3.org/ns/shacl#declare";
+const SH_PREFIX: &str = "http://www.w3.org/ns/shacl#prefix";
+const SH_NAMESPACE: &str = "http://www.w3.org/ns/shacl#namespace";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NormalizeOptions {
@@ -209,7 +212,7 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
             lowered_constraints.push(Constraint {
                 id: constraint_id,
                 owner: shape_id,
-                expr: ConstraintExpr::Sparql(lower_sparql_constraint(sparql)),
+                expr: ConstraintExpr::Sparql(lower_sparql_constraint(sparql, &quad_index)),
                 provenance: sparql.provenance.clone(),
             });
             constraint_ids.push(constraint_id);
@@ -505,8 +508,7 @@ fn lower_target(
                     prefix: declaration.prefix.clone(),
                     namespace: declaration.namespace.clone(),
                 })
-                .collect();
-            let _ = quads;
+                .collect::<Vec<_>>();
             TargetExpr::Advanced(AdvancedTarget {
                 node: target.node.clone(),
                 select: target.select.clone(),
@@ -516,7 +518,10 @@ fn lower_target(
                 filter_shape: target.filter_shape.clone(),
                 filter_shape_id,
                 prefixes: target.prefixes.clone(),
-                declarations,
+                declarations: merge_prefix_declarations(
+                    declarations,
+                    resolve_prefix_reference_declarations(&target.prefixes, quads),
+                ),
                 provenance: target.provenance.clone(),
             })
         }
@@ -737,6 +742,7 @@ fn lower_constraint_components(
     document: &ShapeSyntaxDocument,
     component_index: &HashMap<String, ComponentDefId>,
 ) -> Vec<ConstraintComponent> {
+    let quad_index = QuadIndex::new(&document.quads);
     document
         .constraint_components
         .iter()
@@ -767,7 +773,10 @@ fn lower_constraint_components(
                     ask: validator.ask.clone(),
                     messages: validator.messages.clone(),
                     prefixes: validator.prefixes.clone(),
-                    declarations: lower_prefix_declarations(&validator.declarations),
+                    declarations: merge_prefix_declarations(
+                        lower_prefix_declarations(&validator.declarations),
+                        resolve_prefix_reference_declarations(&validator.prefixes, &quad_index),
+                    ),
                 })
                 .collect(),
             messages: component.messages.clone(),
@@ -778,7 +787,10 @@ fn lower_constraint_components(
                 .map(parse_template)
                 .collect(),
             prefixes: component.prefixes.clone(),
-            declarations: lower_prefix_declarations(&component.declarations),
+            declarations: merge_prefix_declarations(
+                lower_prefix_declarations(&component.declarations),
+                resolve_prefix_reference_declarations(&component.prefixes, &quad_index),
+            ),
             label: component.label.clone(),
             label_template: component.label_template.clone(),
             label_template_expr: component
@@ -888,7 +900,10 @@ fn resolve_component_syntax<'a>(
         .map(|(_, component)| component)
 }
 
-fn lower_sparql_constraint(constraint: &crate::syntax::SparqlConstraintSyntax) -> SparqlConstraint {
+fn lower_sparql_constraint(
+    constraint: &crate::syntax::SparqlConstraintSyntax,
+    quads: &QuadIndex,
+) -> SparqlConstraint {
     SparqlConstraint {
         node: constraint.node.clone(),
         kind: constraint.kind.clone(),
@@ -896,7 +911,10 @@ fn lower_sparql_constraint(constraint: &crate::syntax::SparqlConstraintSyntax) -
         ask: constraint.ask.clone(),
         messages: constraint.messages.clone(),
         prefixes: constraint.prefixes.clone(),
-        declarations: lower_prefix_declarations(&constraint.declarations),
+        declarations: merge_prefix_declarations(
+            lower_prefix_declarations(&constraint.declarations),
+            resolve_prefix_reference_declarations(&constraint.prefixes, quads),
+        ),
         provenance: constraint.provenance.clone(),
     }
 }
@@ -912,6 +930,53 @@ fn lower_prefix_declarations(
             namespace: declaration.namespace.clone(),
         })
         .collect()
+}
+
+fn resolve_prefix_reference_declarations(
+    prefix_refs: &[Term],
+    quads: &QuadIndex,
+) -> Vec<PrefixDeclaration> {
+    prefix_refs
+        .iter()
+        .flat_map(|prefix_ref| {
+            quads
+                .objects_for_subject_predicate(prefix_ref, SH_DECLARE)
+                .into_iter()
+                .map(|declaration| PrefixDeclaration {
+                    prefix: first_literal_from_quads(
+                        &quads.objects_for_subject_predicate(&declaration, SH_PREFIX),
+                    ),
+                    namespace: quads
+                        .objects_for_subject_predicate(&declaration, SH_NAMESPACE)
+                        .into_iter()
+                        .next(),
+                    node: declaration,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn merge_prefix_declarations(
+    explicit: Vec<PrefixDeclaration>,
+    referenced: Vec<PrefixDeclaration>,
+) -> Vec<PrefixDeclaration> {
+    let mut merged = explicit;
+    for declaration in referenced {
+        let duplicate = merged.iter().any(|existing| {
+            existing.prefix == declaration.prefix
+                && existing.namespace == declaration.namespace
+                && existing.node == declaration.node
+        });
+        if !duplicate {
+            merged.push(declaration);
+        }
+    }
+    merged
+}
+
+fn first_literal_from_quads(values: &[Term]) -> Option<String> {
+    values.iter().find_map(as_literal_value)
 }
 
 fn resolve_custom_component_for_parameter(
