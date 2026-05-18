@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    AnalysisSummary, NormalizeOptions, SliceRoots, StaticAnalysisSummary, analyze_program,
-    analyze_static, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
-    parse_resolved, render_shape_program_dot, slice_program,
+    AnalysisSummary, NormalizeOptions, SliceReason, SliceRoots, StaticAnalysisSummary,
+    StaticCostHint, analyze_program, analyze_static_with_roots, load_and_parse_with_ontoenv,
+    lower_to_program, normalize_program, parse_resolved, render_shape_program_dot,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -121,6 +121,10 @@ struct StaticAnalyzeArgs {
     #[arg(long, default_value_t = true)]
     slice_from_targets: bool,
 
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
     /// Output format
     #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
     format: AnalyzeFormat,
@@ -207,12 +211,17 @@ fn run_static_analyze(args: StaticAnalyzeArgs) -> Result<(), Box<dyn std::error:
             prune_deactivated: args.prune_deactivated,
         },
     );
-    let summary = analyze_static(&program);
-    let slice = if args.slice_from_targets {
-        slice_program(&program, SliceRoots::TargetShapes)
+    let roots = if args.root_shapes.is_empty() {
+        if args.slice_from_targets {
+            SliceRoots::TargetShapes
+        } else {
+            SliceRoots::ExplicitShapes(Vec::new())
+        }
     } else {
-        summary.slice.clone()
+        SliceRoots::ExplicitSelectors(args.root_shapes.clone())
     };
+    let summary = analyze_static_with_roots(&program, roots);
+    let slice = summary.slice.clone();
     match args.format {
         AnalyzeFormat::Json => {
             write_json(
@@ -307,10 +316,7 @@ fn render_analysis_text(
         "  deactivated: {}\n",
         analysis.deactivated_shape_count
     ));
-    out.push_str(&format!(
-        "  roots: {}\n",
-        analysis.root_shapes.len()
-    ));
+    out.push_str(&format!("  roots: {}\n", analysis.root_shapes.len()));
     out.push_str(&format!(
         "  reachable: {}\n",
         analysis.reachable_shapes.len()
@@ -412,7 +418,11 @@ fn render_analysis_text(
                             "{}={}{}",
                             binding.name,
                             binding.values.join(", "),
-                            if binding.from_default { " [default]" } else { "" }
+                            if binding.from_default {
+                                " [default]"
+                            } else {
+                                ""
+                            }
                         ))
                         .collect::<Vec<_>>()
                         .join("; ")
@@ -421,9 +431,7 @@ fn render_analysis_text(
             for message in &instance.messages {
                 out.push_str(&format!(
                     "    message: {}\n",
-                    message.rendered
-                        .as_deref()
-                        .unwrap_or(message.raw.as_str())
+                    message.rendered.as_deref().unwrap_or(message.raw.as_str())
                 ));
             }
             if let Some(label) = &instance.label_template {
@@ -467,6 +475,18 @@ fn render_static_analysis_text(
     let mut out = String::new();
     out.push_str("Static Analysis\n");
     out.push_str(&format!("  roots: {}\n", slice.roots.len()));
+    if !slice.requested_root_selectors.is_empty() {
+        out.push_str(&format!(
+            "  requested selectors: {}\n",
+            slice.requested_root_selectors.join(", ")
+        ));
+    }
+    if !slice.unresolved_root_selectors.is_empty() {
+        out.push_str(&format!(
+            "  unresolved selectors: {}\n",
+            slice.unresolved_root_selectors.join(", ")
+        ));
+    }
     out.push_str(&format!(
         "  retained shapes: {}\n",
         slice.retained_shape_ids.len()
@@ -511,11 +531,71 @@ fn render_static_analysis_text(
         ));
     }
 
+    out.push_str("\nSlice Reasons\n");
+    let dropped_shape_examples = slice
+        .dropped_shape_reasons
+        .iter()
+        .take(5)
+        .filter_map(|(shape_id, reason)| {
+            summary.baseline.shape_labels.get(shape_id).map(|label| {
+                format!(
+                    "{label}: {}",
+                    render_slice_reason(reason, &summary.baseline)
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if dropped_shape_examples.is_empty() {
+        out.push_str("  no dropped shapes\n");
+    } else {
+        for example in dropped_shape_examples {
+            out.push_str(&format!("  {example}\n"));
+        }
+    }
+
     out.push_str("\nContext Footprint\n");
     let mut histogram: Vec<_> = summary.context.histogram.iter().collect();
     histogram.sort_by_key(|(name, _)| *name);
     for (name, count) in histogram {
         out.push_str(&format!("  {}: {}\n", name, count));
+    }
+    let interesting_context = summary
+        .context
+        .shape_footprints
+        .iter()
+        .filter(|(_, footprint)| {
+            matches!(
+                footprint,
+                shifty_shacl_core::ContextFootprint::BoundedTraversal
+                    | shifty_shacl_core::ContextFootprint::ShapeReferenceTraversal
+                    | shifty_shacl_core::ContextFootprint::GlobalSparql
+            )
+        })
+        .take(5)
+        .collect::<Vec<_>>();
+    if !interesting_context.is_empty() {
+        out.push_str("  examples:\n");
+        for (shape_id, footprint) in interesting_context {
+            let label = summary
+                .baseline
+                .shape_labels
+                .get(shape_id)
+                .cloned()
+                .unwrap_or_else(|| format!("shape:{}", shape_id.0));
+            let reasons = summary
+                .context
+                .shape_reasons
+                .get(shape_id)
+                .cloned()
+                .unwrap_or_default()
+                .join("; ");
+            out.push_str(&format!(
+                "    {} => {} ({})\n",
+                label,
+                render_context_footprint(footprint),
+                reasons
+            ));
+        }
     }
 
     out.push_str("\nRecursive Components\n");
@@ -531,7 +611,11 @@ fn render_static_analysis_text(
             .filter_map(|shape_id| summary.baseline.shape_labels.get(shape_id))
             .cloned()
             .collect::<Vec<_>>();
-        out.push_str(&format!("  size={} {}\n", component.shapes.len(), labels.join(", ")));
+        out.push_str(&format!(
+            "  size={} {}\n",
+            component.shapes.len(),
+            labels.join(", ")
+        ));
     }
     if !summary
         .baseline
@@ -548,10 +632,7 @@ fn render_static_analysis_text(
         .shape_footprints
         .iter()
         .filter(|(_, footprint)| {
-            matches!(
-                footprint,
-                shifty_shacl_core::ContextFootprint::GlobalSparql
-            )
+            matches!(footprint, shifty_shacl_core::ContextFootprint::GlobalSparql)
         })
         .filter_map(|(shape_id, _)| summary.baseline.shape_labels.get(shape_id))
         .cloned()
@@ -579,6 +660,83 @@ fn render_static_analysis_text(
         summary.fingerprints.duplicate_rules.len()
     ));
 
+    out.push_str("\nShared Work Candidates\n");
+    out.push_str(&format!(
+        "  custom component constraints: {}\n",
+        summary
+            .shared_work
+            .duplicate_custom_component_constraints
+            .len()
+    ));
+    out.push_str(&format!(
+        "  sparql constraints: {}\n",
+        summary.shared_work.duplicate_sparql_constraints.len()
+    ));
+    out.push_str(&format!(
+        "  sparql rules: {}\n",
+        summary.shared_work.duplicate_sparql_rules.len()
+    ));
+    if let Some(group) = summary
+        .shared_work
+        .duplicate_custom_component_constraints
+        .first()
+    {
+        let labels = group
+            .owner_shapes
+            .iter()
+            .filter_map(|shape_id| summary.baseline.shape_labels.get(shape_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        out.push_str(&format!(
+            "  example custom-component owners: {}\n",
+            labels.join(", ")
+        ));
+    }
+
+    out.push_str("\nStatic Cost Hints\n");
+    let mut hint_histogram: Vec<_> = summary.cost_hints.histogram.iter().collect();
+    hint_histogram.sort_by_key(|(name, _)| *name);
+    for (name, count) in hint_histogram {
+        out.push_str(&format!("  {}: {}\n", name, count));
+    }
+    let interesting_hints = summary
+        .cost_hints
+        .shape_hints
+        .iter()
+        .filter(|(_, hints)| {
+            hints.iter().any(|hint| {
+                matches!(
+                    hint,
+                    StaticCostHint::HasSparql
+                        | StaticCostHint::Recursive
+                        | StaticCostHint::DuplicateConstraintWork
+                        | StaticCostHint::DuplicateRuleWork
+                )
+            })
+        })
+        .take(5)
+        .collect::<Vec<_>>();
+    if !interesting_hints.is_empty() {
+        out.push_str("  examples:\n");
+        for (shape_id, hints) in interesting_hints {
+            let label = summary
+                .baseline
+                .shape_labels
+                .get(shape_id)
+                .cloned()
+                .unwrap_or_else(|| format!("shape:{}", shape_id.0));
+            out.push_str(&format!(
+                "    {} => {}\n",
+                label,
+                hints
+                    .iter()
+                    .map(render_cost_hint)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+
     if !template_inspection.is_empty() {
         out.push_str("\nTemplates\n");
         for instance in &template_inspection {
@@ -596,7 +754,11 @@ fn render_static_analysis_text(
                             "{}={}{}",
                             binding.name,
                             binding.values.join(", "),
-                            if binding.from_default { " [default]" } else { "" }
+                            if binding.from_default {
+                                " [default]"
+                            } else {
+                                ""
+                            }
                         ))
                         .collect::<Vec<_>>()
                         .join("; ")
@@ -669,7 +831,11 @@ fn collect_template_inspection(
                     .iter()
                     .map(|binding| TemplateBindingView {
                         name: binding.name.clone(),
-                        values: binding.values.iter().map(|value| value.to_string()).collect(),
+                        values: binding
+                            .values
+                            .iter()
+                            .map(|value| value.to_string())
+                            .collect(),
                         from_default: binding.from_default,
                     })
                     .collect(),
@@ -716,4 +882,89 @@ fn render_template(
         }
     }
     saw_slot.then_some(out)
+}
+
+fn render_slice_reason(reason: &SliceReason, analysis: &AnalysisSummary) -> String {
+    match reason {
+        SliceReason::Root { roots } => {
+            format!("root ({})", render_root_labels(roots, analysis))
+        }
+        SliceReason::ReachableFromRoots { roots } => {
+            format!("reachable from {}", render_root_labels(roots, analysis))
+        }
+        SliceReason::OwnedByRetainedShape { owner, roots } => format!(
+            "owned by {} from {}",
+            analysis
+                .shape_labels
+                .get(owner)
+                .cloned()
+                .unwrap_or_else(|| format!("shape:{}", owner.0)),
+            render_root_labels(roots, analysis)
+        ),
+        SliceReason::ReferencedByRetainedConstraints { constraints } => format!(
+            "referenced by retained constraints {}",
+            constraints
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        SliceReason::UnreachableFromRoots => "unreachable from selected roots".to_string(),
+        SliceReason::OwnerShapeDropped { owner } => format!(
+            "owner {} dropped",
+            analysis
+                .shape_labels
+                .get(owner)
+                .cloned()
+                .unwrap_or_else(|| format!("shape:{}", owner.0))
+        ),
+        SliceReason::UnreferencedAfterSlicing => "unreferenced after slicing".to_string(),
+    }
+}
+
+fn render_root_labels(
+    roots: &[shifty_shacl_core::algebra::ShapeId],
+    analysis: &AnalysisSummary,
+) -> String {
+    roots
+        .iter()
+        .map(|root| {
+            analysis
+                .shape_labels
+                .get(root)
+                .cloned()
+                .unwrap_or_else(|| format!("shape:{}", root.0))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn render_context_footprint(footprint: &shifty_shacl_core::ContextFootprint) -> &'static str {
+    match footprint {
+        shifty_shacl_core::ContextFootprint::TargetOnly => "target_only",
+        shifty_shacl_core::ContextFootprint::NodeLocal => "node_local",
+        shifty_shacl_core::ContextFootprint::SingleHopPath => "single_hop_path",
+        shifty_shacl_core::ContextFootprint::BoundedTraversal => "bounded_traversal",
+        shifty_shacl_core::ContextFootprint::ShapeReferenceTraversal => "shape_reference_traversal",
+        shifty_shacl_core::ContextFootprint::RecursiveNeighborhood => "recursive_neighborhood",
+        shifty_shacl_core::ContextFootprint::GlobalSparql => "global_sparql",
+    }
+}
+
+fn render_cost_hint(hint: &StaticCostHint) -> &'static str {
+    match hint {
+        StaticCostHint::EntryShape => "entry_shape",
+        StaticCostHint::HelperShape => "helper_shape",
+        StaticCostHint::HasSparql => "has_sparql",
+        StaticCostHint::Recursive => "recursive",
+        StaticCostHint::ClosedShape => "closed_shape",
+        StaticCostHint::QualifiedValueShape => "qualified_value_shape",
+        StaticCostHint::HasRules => "has_rules",
+        StaticCostHint::DuplicateConstraintWork => "duplicate_constraint_work",
+        StaticCostHint::DuplicateTargetWork => "duplicate_target_work",
+        StaticCostHint::DuplicateRuleWork => "duplicate_rule_work",
+        StaticCostHint::SingleHopPath => "single_hop_path",
+        StaticCostHint::BoundedTraversal => "bounded_traversal",
+        StaticCostHint::ShapeReferenceTraversal => "shape_reference_traversal",
+    }
 }

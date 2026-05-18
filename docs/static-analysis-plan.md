@@ -42,6 +42,27 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add `--prune-deactivated`
 - [x] Add fixture-backed regression tests
 
+## Phase 2 Checklist
+
+- [x] Add explicit root-shape slicing in the library API
+- [x] Add CLI root selection by shape IRI / normalized key
+- [x] Record dropped-item reasons in `ProgramSlice`
+- [x] Record retained-item inclusion reasons for slice explainability
+- [x] Preserve per-root reachability summaries for explicit root sets
+- [x] Refine context classes beyond `PathLocal`
+- [x] Distinguish single-hop path access from bounded traversal
+- [x] Distinguish shape-reference traversal from simple property access
+- [x] Add shared-work candidate analysis on duplicate fingerprints
+- [x] Report duplicate instantiated custom-component uses explicitly
+- [x] Report duplicate SPARQL constraints and rules explicitly
+- [x] Add backend-agnostic static cost hints per shape and rule
+- [x] Surface slice reasons and cost hints in `static-analyze`
+- [x] Add JSON fields for shared-work candidates and cost hints
+- [x] Add fixture-backed tests for explicit-root slicing
+- [x] Add fixture-backed tests for dropped-item reasons
+- [x] Add fixture-backed tests for refined context classification
+- [x] Add fixture-backed tests for shared-work candidate reporting
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
@@ -49,12 +70,28 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - `context_requirements(program: &ShapeProgram) -> ContextFootprintReport`
 - `fingerprint_program(program: &ShapeProgram) -> FingerprintReport`
 
+Planned additions:
+
+- `slice_program` support for explicit root shape sets
+- dropped/retained reason types on `ProgramSlice`
+- refined context categories and explanation payloads
+- shared-work candidate report derived from fingerprints
+- static cost-hint report for shapes and rules
+
 ## CLI Output
 
 - text summary
 - JSON
 - target-root slice by default
 - optional deactivation pruning before static analysis
+
+Planned additions:
+
+- explicit `--root-shape` selection
+- slice inclusion/exclusion reasons
+- refined context histogram
+- shared-work candidate summary
+- static cost-hint summary
 
 ## Tests
 
@@ -66,9 +103,16 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - identical instantiated custom-component constraints land in duplicate groups
 - changed bindings produce different fingerprints
 
+Planned additions:
+
+- explicit-root slicing by shape IRI
+- explicit-root slicing by normalized key for anonymous shapes
+- dropped-item reasons for unreachable and pruned items
+- refined context buckets for single-hop vs traversal-heavy shapes
+- shared-work candidate summaries for duplicate SPARQL and component uses
+
 ## Deferred Work
 
 - semantic subsumption and implication analysis
-- backend-specific cost hints
-- explicit user-selected root-shape slicing in the CLI
 - proof-oriented equivalence instead of candidate duplicate groups
+- backend-specific planning heuristics beyond backend-agnostic cost hints
