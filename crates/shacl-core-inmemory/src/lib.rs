@@ -10,7 +10,7 @@ use shifty_shacl_core::algebra::{
     TemplatePart, TemplateSlotKind, TriplePatternTerm,
 };
 use shifty_shacl_core::diagnostics::{SourceRef, TraceEventSchema};
-use shifty_shacl_core::plan::{ValidationPlan, ValidationPlanNode};
+use shifty_shacl_core::plan::{ValidationPlan, ValidationPlanAnnotations, ValidationPlanNode};
 use shifty_shacl_core::source::ResolvedShapeSet;
 use shifty_shacl_core::{
     ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
@@ -80,7 +80,12 @@ impl InMemoryValidationBackend {
             elapsed_ms: elapsed_ms(stage_started.elapsed()),
         });
 
-        let mut state = ExecutionState::new(&plan.view.program, index, store);
+        let mut state = ExecutionState::new(
+            &plan.view.program,
+            build_plan_execution_hints(plan),
+            index,
+            store,
+        );
 
         let stage_started = Instant::now();
         execute_rules_to_fixed_point(&plan.executable_rules, &mut state)?;
@@ -116,6 +121,7 @@ impl InMemoryValidationBackend {
 
 struct ExecutionState<'a> {
     program: &'a ShapeProgram,
+    plan_hints: PlanExecutionHints,
     index: DataIndex,
     store: Store,
     violations: Vec<ValidationViolation>,
@@ -127,10 +133,22 @@ struct ExecutionState<'a> {
     focus_nodes_evaluated: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+struct PlanExecutionHints {
+    empty_target_shapes: HashSet<ShapeId>,
+    constraint_order_by_shape: HashMap<ShapeId, Vec<ConstraintId>>,
+}
+
 impl<'a> ExecutionState<'a> {
-    fn new(program: &'a ShapeProgram, index: DataIndex, store: Store) -> Self {
+    fn new(
+        program: &'a ShapeProgram,
+        plan_hints: PlanExecutionHints,
+        index: DataIndex,
+        store: Store,
+    ) -> Self {
         Self {
             program,
+            plan_hints,
             index,
             store,
             violations: Vec::new(),
@@ -271,6 +289,25 @@ fn execute_validation_plan(
 ) -> Result<(), String> {
     for node in &plan.nodes {
         if let ValidationPlanNode::TargetScan { shape, .. } = node {
+            if state.plan_hints.empty_target_shapes.contains(shape) {
+                state.trace.push(ValidationTraceEvent {
+                    event: TraceEventSchema::TargetResolutionStart,
+                    shape: Some(*shape),
+                    constraint: None,
+                    focus_node: None,
+                    message:
+                        "skipping target resolution due to empty data-aware target estimate"
+                            .to_string(),
+                });
+                state.trace.push(ValidationTraceEvent {
+                    event: TraceEventSchema::TargetResolutionEnd,
+                    shape: Some(*shape),
+                    constraint: None,
+                    focus_node: None,
+                    message: "skipped empty target resolution".to_string(),
+                });
+                continue;
+            }
             if state
                 .program
                 .shapes
@@ -316,6 +353,52 @@ fn execute_validation_plan(
 
 fn elapsed_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
+}
+
+fn build_plan_execution_hints(plan: &ValidationPlan) -> PlanExecutionHints {
+    let mut hints = PlanExecutionHints::default();
+    hints.empty_target_shapes.extend(
+        plan.annotations
+            .target_scans
+            .values()
+            .filter(|annotation| annotation.empty_scan == Some(true))
+            .map(|annotation| annotation.shape),
+    );
+    for node in &plan.nodes {
+        if let ValidationPlanNode::ConstraintBatch {
+            shape,
+            constraints,
+            ..
+        } = node
+        {
+            hints
+                .constraint_order_by_shape
+                .insert(*shape, constraints.clone());
+        }
+    }
+    append_annotation_constraints(&mut hints, &plan.annotations);
+    hints
+}
+
+fn append_annotation_constraints(
+    hints: &mut PlanExecutionHints,
+    annotations: &ValidationPlanAnnotations,
+) {
+    for (shape, annotation) in &annotations.constraint_batches {
+        let entry = hints
+            .constraint_order_by_shape
+            .entry(ShapeId(*shape))
+            .or_default();
+        for constraint_id in annotation
+            .dead_constraint_candidates
+            .iter()
+            .chain(annotation.vacuous_constraint_candidates.iter())
+        {
+            if !entry.contains(constraint_id) {
+                entry.push(*constraint_id);
+            }
+        }
+    }
 }
 
 fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, String> {
@@ -396,6 +479,20 @@ fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, St
         ),
     });
     Ok(inferred)
+}
+
+fn ordered_constraint_ids(shape: &Shape, state: &ExecutionState<'_>) -> Vec<ConstraintId> {
+    if let Some(planned) = state.plan_hints.constraint_order_by_shape.get(&shape.id) {
+        let mut ordered = planned.clone();
+        for constraint_id in &shape.constraints {
+            if !ordered.contains(constraint_id) {
+                ordered.push(*constraint_id);
+            }
+        }
+        ordered
+    } else {
+        shape.constraints.clone()
+    }
 }
 
 fn rule_conditions_hold(
@@ -699,12 +796,12 @@ fn eval_node_shape(
         .find(|shape| shape.id == shape_id)
         .ok_or_else(|| format!("unknown shape {}", shape_id.0))?;
     let mut status = ExecutionStatus::Completed;
-    for constraint_id in &shape.constraints {
+    for constraint_id in ordered_constraint_ids(shape, state) {
         let constraint = state
             .program
             .constraints
             .iter()
-            .find(|constraint| constraint.id == *constraint_id)
+            .find(|constraint| constraint.id == constraint_id)
             .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
         if eval_constraint(
             shape_id,
@@ -786,12 +883,12 @@ fn eval_property_shape(
         .entry(shape.normalized_key.clone())
         .or_insert(0) += 1;
     let mut status = ExecutionStatus::Completed;
-    for constraint_id in &shape.constraints {
+    for constraint_id in ordered_constraint_ids(shape, state) {
         let constraint = state
             .program
             .constraints
             .iter()
-            .find(|constraint| constraint.id == *constraint_id)
+            .find(|constraint| constraint.id == constraint_id)
             .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
         if eval_constraint(
             shape_id,
