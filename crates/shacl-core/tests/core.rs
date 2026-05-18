@@ -3131,6 +3131,100 @@ fn validation_backend_reports_generic_rules_as_unsupported() {
 }
 
 #[test]
+fn validation_backend_uses_shape_graph_hierarchy_for_class_constraints() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdfs_class = NamedNode::new("http://www.w3.org/2000/01/rdf-schema#Class").unwrap();
+    let rdfs_subclass_of =
+        NamedNode::new("http://www.w3.org/2000/01/rdf-schema#subClassOf").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_class = NamedNode::new("http://www.w3.org/ns/shacl#class").unwrap();
+    let shape = NamedNode::new("urn:shape").unwrap();
+    let super_class = NamedNode::new("urn:Super").unwrap();
+    let sub_class = NamedNode::new("urn:Sub").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+
+    let shapes = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:shapes").unwrap(),
+            quads: vec![
+                Quad::new(
+                    shape.clone(),
+                    rdf_type.clone(),
+                    Term::NamedNode(sh_node_shape),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    shape.clone(),
+                    sh_target_node,
+                    Term::NamedNode(focus.clone()),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    shape,
+                    sh_class,
+                    Term::NamedNode(super_class.clone()),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    super_class.clone(),
+                    rdf_type.clone(),
+                    Term::NamedNode(rdfs_class.clone()),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    sub_class.clone(),
+                    rdf_type,
+                    Term::NamedNode(rdfs_class),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    sub_class.clone(),
+                    rdfs_subclass_of,
+                    Term::NamedNode(super_class),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+            ],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("shapes load");
+    let syntax = shifty_shacl_core::parse_resolved(&shapes);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data").unwrap(),
+            quads: vec![Quad::new(
+                focus,
+                NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+                Term::NamedNode(sub_class),
+                oxrdf::GraphName::DefaultGraph,
+            )],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend
+        .execute(&plan, &shapes.merged_with(&data))
+        .expect("validation executes");
+    assert!(result.conforms);
+}
+
+#[test]
 fn lowers_property_paths_and_qualified_shapes() {
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let rdf_first = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap();

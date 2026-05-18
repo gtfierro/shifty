@@ -627,9 +627,10 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>(),
         &load_options(&args.shared),
     )?;
+    let execution_data = resolved.merged_with(&data);
     let backend = InMemoryValidationBackend;
     let result = backend
-        .execute(&plan, &data)
+        .execute(&plan, &execution_data)
         .map_err(|message| io::Error::other(message))?;
     match args.format {
         ValidateFormat::Json => write_json(&result, args.output.as_deref())?,

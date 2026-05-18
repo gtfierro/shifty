@@ -6,7 +6,7 @@ use ontoenv::options::{CacheMode, Overwrite, RefreshStrategy};
 use oxigraph::model::GraphNameRef;
 use oxrdf::{GraphName, NamedNode, Quad};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +73,55 @@ impl ResolvedShapeSet {
             .chain(self.imported_graphs.iter())
             .collect()
     }
+
+    pub fn merged_with(&self, other: &ResolvedShapeSet) -> ResolvedShapeSet {
+        let mut root_graphs = dedup_loaded_graphs(
+            self.root_graphs
+                .iter()
+                .chain(other.root_graphs.iter())
+                .cloned()
+                .collect(),
+        );
+        let root_ids = root_graphs
+            .iter()
+            .map(|graph| graph.graph_iri.as_str().to_string())
+            .collect::<HashSet<_>>();
+        let imported_graphs = dedup_loaded_graphs(
+            self.imported_graphs
+                .iter()
+                .chain(other.imported_graphs.iter())
+                .filter(|graph| !root_ids.contains(graph.graph_iri.as_str()))
+                .cloned()
+                .collect(),
+        );
+        root_graphs.sort_by(|left, right| left.graph_iri.as_str().cmp(right.graph_iri.as_str()));
+        let mut quads = Vec::new();
+        let mut seen = HashSet::new();
+        for quad in self.quads.iter().chain(other.quads.iter()) {
+            let key = format!(
+                "{} {} {} {}",
+                quad.subject, quad.predicate, quad.object, quad.graph_name
+            );
+            if seen.insert(key) {
+                quads.push(quad.clone());
+            }
+        }
+        ResolvedShapeSet {
+            root_graphs,
+            imported_graphs,
+            quads,
+        }
+    }
+}
+
+fn dedup_loaded_graphs(graphs: Vec<LoadedGraph>) -> Vec<LoadedGraph> {
+    let mut by_iri = HashMap::new();
+    for graph in graphs {
+        by_iri
+            .entry(graph.graph_iri.as_str().to_string())
+            .or_insert(graph);
+    }
+    by_iri.into_values().collect()
 }
 
 pub fn load_with_ontoenv(
