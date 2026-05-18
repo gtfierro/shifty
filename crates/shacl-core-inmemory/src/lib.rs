@@ -9,7 +9,7 @@ use shifty_shacl_core::algebra::{
     AdvancedTarget, ComponentDefId, Constraint, ConstraintExpr, ConstraintId, LogicalKind,
     PrefixDeclaration, PropertyPath, Rule, RuleExpr, Severity, Shape, ShapeId, ShapeKind,
     ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template, TemplateBinding,
-    TemplatePart, TemplateSlotKind, TriplePatternTerm, TargetId,
+    TemplatePart, TemplateSlotKind, TriplePatternTerm, TargetId, RuleId,
 };
 use shifty_shacl_core::diagnostics::{SourceRef, TraceEventSchema};
 use shifty_shacl_core::plan::ValidationPlan;
@@ -28,7 +28,7 @@ pub use physical::{
     compile_validation_plan, CompiledConstraintBatch, CompiledTargetScan,
     CompiledValidationProgram, InspectablePhysicalPlan,
 };
-use physical::{target_expr_cacheable, CompiledConstraintOp, CompiledPattern};
+use physical::{target_expr_cacheable, CompiledConstraintOp, CompiledPattern, RuleExecutionMode};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -150,6 +150,7 @@ struct ExecutionState<'a> {
     path_cache: HashMap<(String, String), Vec<Term>>,
     target_cache: HashMap<TargetId, Vec<Term>>,
     inferred_quads: Vec<Quad>,
+    iteration_dirty_predicates: BTreeSet<String>,
 }
 
 impl<'a> ExecutionState<'a> {
@@ -176,6 +177,7 @@ impl<'a> ExecutionState<'a> {
             path_cache: HashMap::new(),
             target_cache: HashMap::new(),
             inferred_quads: Vec::new(),
+            iteration_dirty_predicates: BTreeSet::new(),
         }
     }
 }
@@ -270,8 +272,10 @@ fn execute_rules_to_fixed_point(
         return Ok(());
     }
     let max_iterations = 32;
+    let mut dirty_predicates: Option<BTreeSet<String>> = None;
     for iteration in 0..max_iterations {
         state.coverage.inference_iterations += 1;
+        state.iteration_dirty_predicates.clear();
         state.trace.push(ValidationTraceEvent {
             event: TraceEventSchema::InferenceIterationStart,
             shape: None,
@@ -281,6 +285,9 @@ fn execute_rules_to_fixed_point(
         });
         let mut new_triples = 0usize;
         for rule in rules {
+            if !should_run_rule(rule.id, dirty_predicates.as_ref(), state) {
+                continue;
+            }
             new_triples += execute_rule(rule, state)?;
         }
         state.trace.push(ValidationTraceEvent {
@@ -297,8 +304,30 @@ fn execute_rules_to_fixed_point(
         if new_triples == 0 {
             return Ok(());
         }
+        dirty_predicates = Some(state.iteration_dirty_predicates.clone());
     }
     Ok(())
+}
+
+fn should_run_rule(
+    rule_id: RuleId,
+    dirty_predicates: Option<&BTreeSet<String>>,
+    state: &ExecutionState<'_>,
+) -> bool {
+    let Some(plan) = state.compiled.rule_plans.get(&rule_id) else {
+        return true;
+    };
+    match &plan.mode {
+        RuleExecutionMode::Global => true,
+        RuleExecutionMode::PredicateDriven(predicates) => {
+            let Some(dirty_predicates) = dirty_predicates else {
+                return true;
+            };
+            predicates
+                .iter()
+                .any(|predicate| dirty_predicates.contains(predicate))
+        }
+    }
 }
 
 fn execute_validation_plan(
@@ -679,6 +708,9 @@ fn insert_inferred_quad(quad: Quad, state: &mut ExecutionState<'_>) -> Result<us
         store.insert(&quad).map_err(|error| error.to_string())?;
     }
     state.index.insert_quad(&quad);
+    state
+        .iteration_dirty_predicates
+        .insert(quad.predicate.as_str().to_string());
     state.inferred_quads.push(quad);
     state.path_cache.clear();
     state.target_cache.clear();

@@ -2,8 +2,9 @@ use oxrdf::{NamedNode, Term};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use shifty_shacl_core::algebra::{
-    ConstraintExpr, ConstraintId, LogicalKind, RuleExpr, ShapeId, SparqlConstraint, TargetExpr,
-    TargetId, Template, TemplateBinding,
+    ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, RuleExpr, RuleId, ShapeId,
+    ShapeProgram, SparqlConstraint, TargetExpr, TargetId, Template, TemplateBinding,
+    TriplePatternTerm,
 };
 use shifty_shacl_core::backend_views::BackendBucket;
 use shifty_shacl_core::plan::{ValidationPlan, ValidationPlanNode};
@@ -20,6 +21,7 @@ pub struct CompiledValidationProgram {
     pub target_scans: Vec<CompiledTargetScan>,
     pub constraint_batches: Vec<CompiledConstraintBatch>,
     pub constraint_ops: HashMap<ConstraintId, CompiledConstraintOp>,
+    pub rule_plans: HashMap<RuleId, CompiledRulePlan>,
     pub has_sparql_work: bool,
     pub has_advanced_targets: bool,
     pub has_sparql_rules: bool,
@@ -40,6 +42,21 @@ pub struct CompiledConstraintBatch {
     pub constraints: Vec<ConstraintId>,
     pub dead_constraints: Vec<ConstraintId>,
     pub vacuous_constraints: Vec<ConstraintId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledRulePlan {
+    pub rule_id: RuleId,
+    pub owner_shape: ShapeId,
+    pub mode: RuleExecutionMode,
+    pub uses_conditions: bool,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum RuleExecutionMode {
+    PredicateDriven(Vec<String>),
+    Global,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +139,7 @@ pub struct InspectablePhysicalPlan {
     pub target_scans: Vec<CompiledTargetScan>,
     pub constraint_batches: Vec<CompiledConstraintBatch>,
     pub constraint_ops: Vec<InspectableConstraintOp>,
+    pub rule_plans: Vec<InspectableRulePlan>,
     pub has_sparql_work: bool,
     pub has_advanced_targets: bool,
     pub has_sparql_rules: bool,
@@ -133,6 +151,16 @@ pub struct InspectableConstraintOp {
     pub kind: String,
     pub compiled_kind: String,
     pub precompiled_regex: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InspectableRulePlan {
+    pub rule_id: RuleId,
+    pub owner_shape: ShapeId,
+    pub kind: String,
+    pub mode: String,
+    pub dependency_predicates: Vec<String>,
+    pub uses_conditions: bool,
 }
 
 pub fn compile_validation_plan(plan: &ValidationPlan) -> CompiledValidationProgram {
@@ -236,6 +264,11 @@ pub fn compile_validation_plan(plan: &ValidationPlan) -> CompiledValidationProgr
         .iter()
         .map(|constraint| (constraint.id, compile_constraint_op(&constraint.expr)))
         .collect::<HashMap<_, _>>();
+    let rule_plans = plan
+        .executable_rules
+        .iter()
+        .map(|rule| (rule.id, compile_rule_plan(program, rule)))
+        .collect::<HashMap<_, _>>();
     let has_advanced_targets = program
         .targets
         .iter()
@@ -261,6 +294,7 @@ pub fn compile_validation_plan(plan: &ValidationPlan) -> CompiledValidationProgr
         target_scans,
         constraint_batches,
         constraint_ops,
+        rule_plans,
         has_sparql_work: has_sparql_constraints || has_advanced_targets || has_sparql_rules,
         has_advanced_targets,
         has_sparql_rules,
@@ -286,16 +320,218 @@ impl CompiledValidationProgram {
             })
             .collect::<Vec<_>>();
         constraint_ops.sort_by_key(|entry| entry.constraint.0);
+        let mut rule_plans = self
+            .rule_plans
+            .values()
+            .map(|rule| InspectableRulePlan {
+                rule_id: rule.rule_id,
+                owner_shape: rule.owner_shape,
+                kind: rule.kind.clone(),
+                mode: rule_mode_name(&rule.mode).to_string(),
+                dependency_predicates: match &rule.mode {
+                    RuleExecutionMode::PredicateDriven(predicates) => predicates.clone(),
+                    RuleExecutionMode::Global => Vec::new(),
+                },
+                uses_conditions: rule.uses_conditions,
+            })
+            .collect::<Vec<_>>();
+        rule_plans.sort_by_key(|entry| entry.rule_id.0);
         InspectablePhysicalPlan {
             shape_count: self.shape_positions.len(),
             constraint_count: self.constraint_positions.len(),
             target_scans: self.target_scans.clone(),
             constraint_batches: self.constraint_batches.clone(),
             constraint_ops,
+            rule_plans,
             has_sparql_work: self.has_sparql_work,
             has_advanced_targets: self.has_advanced_targets,
             has_sparql_rules: self.has_sparql_rules,
         }
+    }
+}
+
+fn compile_rule_plan(program: &ShapeProgram, rule: &shifty_shacl_core::algebra::Rule) -> CompiledRulePlan {
+    let uses_conditions = match &rule.expr {
+        RuleExpr::Triple { conditions, .. }
+        | RuleExpr::Sparql { conditions, .. }
+        | RuleExpr::Generic { conditions, .. } => !conditions.is_empty(),
+    };
+    let kind = match &rule.expr {
+        RuleExpr::Triple { .. } => "triple",
+        RuleExpr::Sparql { .. } => "sparql",
+        RuleExpr::Generic { .. } => "generic",
+    }
+    .to_string();
+    let mode = rule_execution_mode(program, rule);
+    CompiledRulePlan {
+        rule_id: rule.id,
+        owner_shape: rule.owner,
+        mode,
+        uses_conditions,
+        kind,
+    }
+}
+
+fn rule_execution_mode(
+    program: &ShapeProgram,
+    rule: &shifty_shacl_core::algebra::Rule,
+) -> RuleExecutionMode {
+    match &rule.expr {
+        RuleExpr::Sparql { .. } | RuleExpr::Generic { .. } => RuleExecutionMode::Global,
+        RuleExpr::Triple {
+            subject,
+            object,
+            conditions,
+            ..
+        } => {
+            let mut deps = Vec::new();
+            let mut global = false;
+            collect_owner_target_dependencies(program, rule.owner, &mut deps, &mut global);
+            collect_term_dependencies(subject.as_ref(), &mut deps, &mut global);
+            collect_term_dependencies(object.as_ref(), &mut deps, &mut global);
+            for condition in conditions {
+                collect_shape_dependencies(program, *condition, &mut deps, &mut global, &mut Vec::new());
+            }
+            deps.sort();
+            deps.dedup();
+            if global {
+                RuleExecutionMode::Global
+            } else if deps.is_empty() {
+                RuleExecutionMode::Global
+            } else {
+                RuleExecutionMode::PredicateDriven(deps)
+            }
+        }
+    }
+}
+
+fn collect_owner_target_dependencies(
+    program: &ShapeProgram,
+    owner: ShapeId,
+    deps: &mut Vec<String>,
+    global: &mut bool,
+) {
+    let Some(shape) = program.shapes.iter().find(|shape| shape.id == owner) else {
+        return;
+    };
+    for target_id in &shape.targets {
+        let Some(target) = program.targets.iter().find(|target| target.id == *target_id) else {
+            continue;
+        };
+        match &target.expr {
+            TargetExpr::Node(_) => {}
+            TargetExpr::Class(_) => {
+                deps.push("http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_string());
+                deps.push("http://www.w3.org/2000/01/rdf-schema#subClassOf".to_string());
+            }
+            TargetExpr::SubjectsOf(term) | TargetExpr::ObjectsOf(term) => {
+                if let Term::NamedNode(node) = term {
+                    deps.push(node.as_str().to_string());
+                } else {
+                    *global = true;
+                }
+            }
+            TargetExpr::Advanced(_) => *global = true,
+        }
+    }
+}
+
+fn collect_term_dependencies(
+    term: Option<&TriplePatternTerm>,
+    deps: &mut Vec<String>,
+    global: &mut bool,
+) {
+    match term {
+        Some(TriplePatternTerm::Path(path)) => collect_path_dependencies(path, deps, global),
+        Some(TriplePatternTerm::This | TriplePatternTerm::Constant(_)) | None => {}
+    }
+}
+
+fn collect_path_dependencies(path: &PropertyPath, deps: &mut Vec<String>, global: &mut bool) {
+    match path {
+        PropertyPath::Predicate(predicate) => deps.push(predicate.as_str().to_string()),
+        PropertyPath::Inverse(inner)
+        | PropertyPath::ZeroOrMore(inner)
+        | PropertyPath::OneOrMore(inner)
+        | PropertyPath::ZeroOrOne(inner) => collect_path_dependencies(inner, deps, global),
+        PropertyPath::Sequence(parts) | PropertyPath::Alternative(parts) => {
+            for part in parts {
+                collect_path_dependencies(part, deps, global);
+            }
+        }
+        PropertyPath::Unsupported(_) => *global = true,
+    }
+}
+
+fn collect_shape_dependencies(
+    program: &ShapeProgram,
+    shape_id: ShapeId,
+    deps: &mut Vec<String>,
+    global: &mut bool,
+    active: &mut Vec<ShapeId>,
+) {
+    if active.contains(&shape_id) {
+        return;
+    }
+    active.push(shape_id);
+    let Some(shape) = program.shapes.iter().find(|shape| shape.id == shape_id) else {
+        active.pop();
+        return;
+    };
+    if let Some(path) = &shape.path {
+        collect_path_dependencies(path, deps, global);
+    }
+    for property_shape_id in &shape.property_shapes {
+        collect_shape_dependencies(program, *property_shape_id, deps, global, active);
+    }
+    for constraint_id in &shape.constraints {
+        let Some(constraint) = program.constraints.iter().find(|constraint| constraint.id == *constraint_id) else {
+            continue;
+        };
+        match &constraint.expr {
+            ConstraintExpr::PropertyComparison { values, .. } => {
+                for value in values {
+                    if let Term::NamedNode(node) = value {
+                        deps.push(node.as_str().to_string());
+                    }
+                }
+            }
+            ConstraintExpr::NodeRef { shape: Some(inner), .. }
+            | ConstraintExpr::PropertyRef { shape: Some(inner), .. }
+            | ConstraintExpr::QualifiedValueShape { shape: Some(inner), .. }
+            | ConstraintExpr::Not { shape: Some(inner), .. } => {
+                collect_shape_dependencies(program, *inner, deps, global, active);
+            }
+            ConstraintExpr::Logical { shapes, .. } => {
+                for inner in shapes {
+                    collect_shape_dependencies(program, *inner, deps, global, active);
+                }
+            }
+            ConstraintExpr::Sparql(_)
+            | ConstraintExpr::CustomComponent { .. }
+            | ConstraintExpr::Closed { .. }
+            | ConstraintExpr::GenericPredicate { .. } => *global = true,
+            ConstraintExpr::NodeRef { shape: None, .. }
+            | ConstraintExpr::PropertyRef { shape: None, .. }
+            | ConstraintExpr::QualifiedValueShape { shape: None, .. }
+            | ConstraintExpr::Not { shape: None, .. }
+            | ConstraintExpr::Class(_)
+            | ConstraintExpr::Datatype(_)
+            | ConstraintExpr::NodeKind(_)
+            | ConstraintExpr::Cardinality { .. }
+            | ConstraintExpr::NumericRange { .. }
+            | ConstraintExpr::StringConstraint { .. }
+            | ConstraintExpr::HasValue(_)
+            | ConstraintExpr::In(_) => {}
+        }
+    }
+    active.pop();
+}
+
+fn rule_mode_name(mode: &RuleExecutionMode) -> &'static str {
+    match mode {
+        RuleExecutionMode::PredicateDriven(_) => "predicate_driven",
+        RuleExecutionMode::Global => "global",
     }
 }
 
