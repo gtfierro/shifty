@@ -9,6 +9,7 @@ pub mod parse;
 pub mod passes;
 pub mod plan;
 pub mod render;
+pub mod report;
 pub mod rewrite;
 pub mod source;
 pub mod static_analysis;
@@ -37,6 +38,7 @@ pub use plan::{
     derive_validation_logical_plan_from_view,
 };
 pub use render::render_shape_program_dot;
+pub use report::{ValidationReportGraph, build_validation_report};
 pub use rewrite::{
     RecursiveRegion, RewriteOptions, RewritePassRecord, RewriteSummary, RewrittenProgram,
     rewrite_program,

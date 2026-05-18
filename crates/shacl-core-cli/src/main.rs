@@ -1,14 +1,16 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use oxigraph::io::RdfFormat;
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
     InMemoryValidationBackend, InferencePlan, InferenceView, NormalizeOptions, RewriteOptions,
     RewriteSummary, SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary,
     StaticCostHint, ValidationBackend, ValidationPlan, ValidationResult, ValidationView,
-    analyze_program, analyze_static_with_roots, derive_backend_logical_plans, derive_backend_views,
-    derive_inference_logical_plan, derive_inference_view, derive_validation_logical_plan,
-    derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
-    parse_resolved, render_shape_program_dot, rewrite_program,
+    analyze_program, analyze_static_with_roots, build_validation_report,
+    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
+    derive_inference_view, derive_validation_logical_plan, derive_validation_view,
+    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
+    render_shape_program_dot, rewrite_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -50,6 +52,14 @@ enum DumpStage {
 enum AnalyzeFormat {
     Text,
     Json,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum ValidateFormat {
+    Text,
+    Json,
+    Turtle,
+    NTriples,
 }
 
 #[derive(Parser, Debug)]
@@ -293,8 +303,8 @@ struct ValidateArgs {
     closure: BackendClosureArg,
 
     /// Output format
-    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
-    format: AnalyzeFormat,
+    #[arg(long, value_enum, default_value_t = ValidateFormat::Text)]
+    format: ValidateFormat,
 
     /// Write output to a file instead of stdout
     #[arg(short, long)]
@@ -622,10 +632,21 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
         .execute(&plan, &data)
         .map_err(|message| io::Error::other(message))?;
     match args.format {
-        AnalyzeFormat::Json => write_json(&result, args.output.as_deref())?,
-        AnalyzeFormat::Text => {
+        ValidateFormat::Json => write_json(&result, args.output.as_deref())?,
+        ValidateFormat::Text => {
             let text = render_validation_result_text(&result);
             write_text(&text, args.output.as_deref())?;
+        }
+        ValidateFormat::Turtle | ValidateFormat::NTriples => {
+            let report = build_validation_report(&result, &plan.view.program);
+            let rdf = report
+                .serialize(match args.format {
+                    ValidateFormat::Turtle => RdfFormat::Turtle,
+                    ValidateFormat::NTriples => RdfFormat::NTriples,
+                    ValidateFormat::Text | ValidateFormat::Json => unreachable!(),
+                })
+                .map_err(io::Error::other)?;
+            write_text(&rdf, args.output.as_deref())?;
         }
     }
     Ok(())

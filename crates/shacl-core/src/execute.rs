@@ -1,14 +1,14 @@
 use crate::algebra::{
     ComponentDefId, ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, Severity, ShapeId,
-    ShapeKind, ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template,
-    TemplatePart, TemplateSlotKind,
+    ShapeKind, ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template, TemplatePart,
+    TemplateSlotKind,
 };
 use crate::diagnostics::{SourceRef, TraceEventSchema};
 use crate::plan::{ValidationPlan, ValidationPlanNode};
 use crate::source::ResolvedShapeSet;
-use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator, Variable};
 use oxigraph::store::Store;
+use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -37,17 +37,24 @@ pub struct InMemoryValidationBackend;
 pub struct ValidationViolation {
     pub shape: ShapeId,
     pub constraint: Option<ConstraintId>,
+    pub focus: Term,
     pub focus_node: String,
+    pub value: Option<Term>,
     pub value_node: Option<String>,
+    pub result_path: Option<Term>,
     pub message: String,
     pub severity: Severity,
     pub source: Option<SourceRef>,
+    pub source_shape: Option<Term>,
+    pub source_constraint: Option<Term>,
+    pub source_constraint_component: Option<Term>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationUnsupported {
     pub shape: ShapeId,
     pub constraint: Option<ConstraintId>,
+    pub focus: Option<Term>,
     pub focus_node: Option<String>,
     pub reason: String,
     pub kind: String,
@@ -202,6 +209,12 @@ enum ProbeOutcome {
 }
 
 #[derive(Debug, Clone)]
+struct SelectViolation {
+    value: Option<Term>,
+    path: Option<Term>,
+}
+
+#[derive(Debug, Clone)]
 struct DataIndex {
     outgoing: HashMap<String, Vec<(NamedNode, Term)>>,
     types: HashMap<String, BTreeSet<String>>,
@@ -225,10 +238,7 @@ impl DataIndex {
                     .insert(quad.object.to_string());
             }
         }
-        Self {
-            outgoing,
-            types,
-        }
+        Self { outgoing, types }
     }
 }
 
@@ -312,8 +322,14 @@ fn eval_node_shape(
             .iter()
             .find(|constraint| constraint.id == *constraint_id)
             .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
-        if eval_constraint(shape_id, constraint.id, &constraint.expr, focus, None, state)?
-            == ExecutionStatus::DeferredRecursion
+        if eval_constraint(
+            shape_id,
+            constraint.id,
+            &constraint.expr,
+            focus,
+            None,
+            state,
+        )? == ExecutionStatus::DeferredRecursion
         {
             status = ExecutionStatus::DeferredRecursion;
         }
@@ -332,7 +348,10 @@ fn eval_node_shape(
                     None,
                     Some(focus),
                     "property_path",
-                    format!("property path {} is not executable in the in-memory backend", path_label(path)),
+                    format!(
+                        "property path {} is not executable in the in-memory backend",
+                        path_label(path)
+                    ),
                     state,
                 );
                 continue;
@@ -437,6 +456,7 @@ fn eval_constraint(
                     constraint_id,
                     focus,
                     None,
+                    None,
                     format!("cardinality violation: count={count}"),
                     state,
                 );
@@ -449,6 +469,7 @@ fn eval_constraint(
                     shape_id,
                     constraint_id,
                     focus,
+                    None,
                     None,
                     format!("missing required value {}", expected),
                     state,
@@ -464,6 +485,7 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         format!("value {} not in allowed set", value),
                         state,
                     );
@@ -479,6 +501,7 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         format!("value {} does not match datatype {}", value, expected),
                         state,
                     );
@@ -494,6 +517,7 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         format!("value {} does not match node kind {}", value, expected),
                         state,
                     );
@@ -509,6 +533,7 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         format!("value {} does not have class {}", value, expected),
                         state,
                     );
@@ -528,6 +553,7 @@ fn eval_constraint(
                             constraint_id,
                             focus,
                             value.as_ref(),
+                            None,
                             message,
                             state,
                         );
@@ -542,6 +568,7 @@ fn eval_constraint(
                                 constraint_id,
                                 focus,
                                 Some(value),
+                                None,
                                 message,
                                 state,
                             );
@@ -566,7 +593,15 @@ fn eval_constraint(
             for value in local_values {
                 match check_numeric_range(predicate.as_str(), values, value) {
                     Ok(Some(message)) => {
-                        record_violation(shape_id, constraint_id, focus, Some(value), message, state);
+                        record_violation(
+                            shape_id,
+                            constraint_id,
+                            focus,
+                            Some(value),
+                            None,
+                            message,
+                            state,
+                        );
                     }
                     Ok(None) => {}
                     Err(reason) => {
@@ -599,6 +634,7 @@ fn eval_constraint(
                             constraint_id,
                             focus,
                             value.as_ref(),
+                            None,
                             message,
                             state,
                         );
@@ -621,7 +657,15 @@ fn eval_constraint(
             match eval_closed_shape(shape_id, focus, ignored_properties, state) {
                 Ok(messages) => {
                     for message in messages {
-                        record_violation(shape_id, constraint_id, focus, None, message, state);
+                        record_violation(
+                            shape_id,
+                            constraint_id,
+                            focus,
+                            None,
+                            None,
+                            message,
+                            state,
+                        );
                     }
                 }
                 Err(reason) => {
@@ -650,7 +694,10 @@ fn eval_constraint(
                         Some(constraint_id),
                         Some(focus),
                         constraint_kind_name(expr),
-                        format!("deferred recursive validation while evaluating shape {}", target.0),
+                        format!(
+                            "deferred recursive validation while evaluating shape {}",
+                            target.0
+                        ),
                         state,
                     );
                 }
@@ -751,6 +798,7 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         None,
+                        None,
                         format!("qualified value shape count violation: count={matching}"),
                         state,
                     );
@@ -759,7 +807,8 @@ fn eval_constraint(
             }
         }
         ConstraintExpr::Not {
-            shape: Some(target), ..
+            shape: Some(target),
+            ..
         } => {
             for value in local_values {
                 match probe_shape_conforms(*target, value, state)? {
@@ -768,6 +817,7 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         format!("value {} conforms to forbidden shape {}", value, target.0),
                         state,
                     ),
@@ -788,7 +838,10 @@ fn eval_constraint(
                             Some(constraint_id),
                             Some(focus),
                             constraint_kind_name(expr),
-                            format!("deferred recursive validation while probing not-shape {}", target.0),
+                            format!(
+                                "deferred recursive validation while probing not-shape {}",
+                                target.0
+                            ),
                             state,
                         );
                         return Ok(ExecutionStatus::DeferredRecursion);
@@ -840,7 +893,11 @@ fn eval_constraint(
                         constraint_id,
                         focus,
                         Some(value),
-                        format!("logical constraint {:?} failed with {} matching shapes", kind, conformant),
+                        None,
+                        format!(
+                            "logical constraint {:?} failed with {} matching shapes",
+                            kind, conformant
+                        ),
                         state,
                     );
                 }
@@ -848,14 +905,7 @@ fn eval_constraint(
             ExecutionStatus::Completed
         }
         ConstraintExpr::Sparql(sparql) => {
-            execute_sparql_constraint(
-                shape_id,
-                constraint_id,
-                sparql,
-                focus,
-                local_values,
-                state,
-            )?;
+            execute_sparql_constraint(shape_id, constraint_id, sparql, focus, local_values, state)?;
             ExecutionStatus::Completed
         }
         ConstraintExpr::CustomComponent {
@@ -1009,7 +1059,12 @@ fn resolve_shape_targets(
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for target in state.program.targets.iter().filter(|target| target.owner == shape_id) {
+    for target in state
+        .program
+        .targets
+        .iter()
+        .filter(|target| target.owner == shape_id)
+    {
         out.extend(resolve_target(shape_id, &target.expr, state)?);
     }
     active.remove(&shape_id);
@@ -1053,7 +1108,11 @@ fn execute_target_ask_query(
         QueryResults::Boolean(result) => Ok(result),
         QueryResults::Solutions(mut solutions) => {
             while let Some(solution) = solutions.next() {
-                if solution.map_err(|error| error.to_string())?.get("this").is_some() {
+                if solution
+                    .map_err(|error| error.to_string())?
+                    .get("this")
+                    .is_some()
+                {
                     return Ok(true);
                 }
             }
@@ -1103,6 +1162,7 @@ fn execute_sparql_constraint(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         first_message_literal(&sparql.messages)
                             .unwrap_or_else(|| "SPARQL ASK constraint failed".to_string()),
                         state,
@@ -1110,14 +1170,20 @@ fn execute_sparql_constraint(
                 }
             }
         } else {
-            let bindings =
-                query_bindings(full_query.as_str(), focus, Some(&owner_shape.source), None, &[]);
+            let bindings = query_bindings(
+                full_query.as_str(),
+                focus,
+                Some(&owner_shape.source),
+                None,
+                &[],
+            );
             let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
             if !conforms {
                 record_violation(
                     shape_id,
                     constraint_id,
                     focus,
+                    None,
                     None,
                     first_message_literal(&sparql.messages)
                         .unwrap_or_else(|| "SPARQL ASK constraint failed".to_string()),
@@ -1128,15 +1194,29 @@ fn execute_sparql_constraint(
         return Ok(());
     }
 
-    let bindings = query_bindings(full_query.as_str(), focus, Some(&owner_shape.source), None, &[]);
+    let bindings = query_bindings(
+        full_query.as_str(),
+        focus,
+        Some(&owner_shape.source),
+        None,
+        &[],
+    );
     let violations = execute_select_violations(state, &full_query, &bindings)?;
     if violations.is_empty() {
         return Ok(());
     }
     let message = first_message_literal(&sparql.messages)
         .unwrap_or_else(|| "SPARQL constraint failed".to_string());
-    for value in violations {
-        record_violation(shape_id, constraint_id, focus, value.as_ref(), message.clone(), state);
+    for violation in violations {
+        record_violation(
+            shape_id,
+            constraint_id,
+            focus,
+            violation.value.as_ref(),
+            violation.path.as_ref(),
+            message.clone(),
+            state,
+        );
     }
     Ok(())
 }
@@ -1220,7 +1300,9 @@ fn execute_custom_component_validator(
         .select
         .as_deref()
         .or(validator.ask.as_deref())
-        .ok_or_else(|| "custom component validator does not provide sh:select or sh:ask".to_string())?;
+        .ok_or_else(|| {
+            "custom component validator does not provide sh:select or sh:ask".to_string()
+        })?;
     let query = substitute_path_placeholder(query, owner_shape.path.as_ref())?;
     let full_query = with_prefixes(&validator.declarations, &query);
     reject_unsupported_query_variables(&full_query)?;
@@ -1233,14 +1315,13 @@ fn execute_custom_component_validator(
     if validator.ask.is_some() {
         if local_values.len() > 1 && query_mentions_var(&full_query, "value") {
             for value in local_values {
-                let bindings =
-                    query_bindings(
-                        full_query.as_str(),
-                        focus,
-                        Some(&owner_shape.source),
-                        Some(value),
-                        &extra_bindings,
-                    );
+                let bindings = query_bindings(
+                    full_query.as_str(),
+                    focus,
+                    Some(&owner_shape.source),
+                    Some(value),
+                    &extra_bindings,
+                );
                 let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
                 if !conforms {
                     record_violation(
@@ -1248,6 +1329,7 @@ fn execute_custom_component_validator(
                         constraint_id,
                         focus,
                         Some(value),
+                        None,
                         fallback_message.clone(),
                         state,
                     );
@@ -1267,6 +1349,7 @@ fn execute_custom_component_validator(
                     shape_id,
                     constraint_id,
                     focus,
+                    None,
                     None,
                     fallback_message,
                     state,
@@ -1292,7 +1375,8 @@ fn execute_custom_component_validator(
             shape_id,
             constraint_id,
             focus,
-            value.as_ref(),
+            value.value.as_ref(),
+            value.path.as_ref(),
             fallback_message.clone(),
             state,
         );
@@ -1354,7 +1438,12 @@ fn probe_shape_conforms_inner(
     state: &ExecutionState<'_>,
     active: &mut HashSet<(ShapeId, String)>,
 ) -> Result<ProbeOutcome, String> {
-    let Some(shape) = state.program.shapes.iter().find(|shape| shape.id == shape_id) else {
+    let Some(shape) = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+    else {
         return Err(format!("unknown shape {}", shape_id.0));
     };
     let key = (shape_id, focus.to_string());
@@ -1385,22 +1474,22 @@ fn probe_shape_conforms_inner(
             let property_shape = state
                 .program
                 .shapes
-            .iter()
-            .find(|shape| shape.id == *property_shape_id)
-            .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
-        if let Some(path) = property_shape.path.as_ref() {
-            if !path_is_executable(path) {
-                return Ok(ProbeOutcome::Unsupported(format!(
-                    "property path {} is not executable in the in-memory backend",
-                    path_label(path)
-                )));
+                .iter()
+                .find(|shape| shape.id == *property_shape_id)
+                .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+            if let Some(path) = property_shape.path.as_ref() {
+                if !path_is_executable(path) {
+                    return Ok(ProbeOutcome::Unsupported(format!(
+                        "property path {} is not executable in the in-memory backend",
+                        path_label(path)
+                    )));
+                }
             }
-        }
-        let values = property_shape
-            .path
-            .as_ref()
-            .map(|path| eval_path(&state.index, focus, path))
-            .unwrap_or_default();
+            let values = property_shape
+                .path
+                .as_ref()
+                .map(|path| eval_path(&state.index, focus, path))
+                .unwrap_or_default();
             match probe_property_shape(*property_shape_id, focus, &values, state, active)? {
                 ProbeOutcome::Conformant => {}
                 ProbeOutcome::NonConformant => {
@@ -1484,19 +1573,21 @@ fn probe_constraint(
     match expr {
         ConstraintExpr::Cardinality { min, max, .. } => {
             let count = local_values.len() as u64;
-            Ok(if min.is_some_and(|min| count < min) || max.is_some_and(|max| count > max) {
-                ProbeOutcome::NonConformant
-            } else {
+            Ok(
+                if min.is_some_and(|min| count < min) || max.is_some_and(|max| count > max) {
+                    ProbeOutcome::NonConformant
+                } else {
+                    ProbeOutcome::Conformant
+                },
+            )
+        }
+        ConstraintExpr::HasValue(expected) => {
+            Ok(if local_values.iter().any(|value| value == expected) {
                 ProbeOutcome::Conformant
+            } else {
+                ProbeOutcome::NonConformant
             })
         }
-        ConstraintExpr::HasValue(expected) => Ok(
-            if local_values.iter().any(|value| value == expected) {
-                ProbeOutcome::Conformant
-            } else {
-                ProbeOutcome::NonConformant
-            },
-        ),
         ConstraintExpr::In(allowed) => Ok(
             if local_values.iter().all(|value| allowed.contains(value)) {
                 ProbeOutcome::Conformant
@@ -1539,12 +1630,13 @@ fn probe_constraint(
             values: params,
         } => {
             if predicate.as_str() == "http://www.w3.org/ns/shacl#uniqueLang" {
-                return Ok(if !unique_lang_enabled(params) || check_unique_lang(local_values).is_empty()
-                {
-                    ProbeOutcome::Conformant
-                } else {
-                    ProbeOutcome::NonConformant
-                });
+                return Ok(
+                    if !unique_lang_enabled(params) || check_unique_lang(local_values).is_empty() {
+                        ProbeOutcome::Conformant
+                    } else {
+                        ProbeOutcome::NonConformant
+                    },
+                );
             }
             for value in local_values {
                 match check_string_constraint(predicate.as_str(), params, value) {
@@ -1643,7 +1735,8 @@ fn probe_constraint(
             )
         }
         ConstraintExpr::Not {
-            shape: Some(target), ..
+            shape: Some(target),
+            ..
         } => {
             for value in local_values {
                 match probe_shape_conforms_inner(*target, value, state, active)? {
@@ -1694,6 +1787,7 @@ fn record_violation(
     constraint_id: ConstraintId,
     focus: &Term,
     value: Option<&Term>,
+    result_path: Option<&Term>,
     message: String,
     state: &mut ExecutionState<'_>,
 ) {
@@ -1714,15 +1808,21 @@ fn record_violation(
         .constraint_violations
         .entry(constraint_id.0.to_string())
         .or_insert(0) += 1;
-    let (severity, source) = violation_metadata(state.program, shape_id, Some(constraint_id));
+    let metadata = violation_metadata(state.program, shape_id, Some(constraint_id));
     state.violations.push(ValidationViolation {
         shape: shape_id,
         constraint: Some(constraint_id),
+        focus: focus.clone(),
         focus_node: focus.to_string(),
+        value: value.cloned(),
         value_node: value.map(ToString::to_string),
+        result_path: result_path.cloned(),
         message,
-        severity,
-        source,
+        severity: metadata.severity,
+        source: metadata.source,
+        source_shape: metadata.source_shape,
+        source_constraint: metadata.source_constraint,
+        source_constraint_component: metadata.source_constraint_component,
     });
 }
 
@@ -1740,27 +1840,43 @@ fn record_unsupported(
         .unsupported_by_kind
         .entry(kind.to_string())
         .or_insert(0) += 1;
-    let (severity, source) = violation_metadata(state.program, shape_id, constraint_id);
+    let metadata = violation_metadata(state.program, shape_id, constraint_id);
     state.unsupported.push(ValidationUnsupported {
         shape: shape_id,
         constraint: constraint_id,
+        focus: focus.cloned(),
         focus_node: focus.map(ToString::to_string),
         reason,
         kind: kind.to_string(),
-        severity,
-        source,
+        severity: metadata.severity,
+        source: metadata.source,
     });
+}
+
+#[derive(Debug, Clone)]
+struct ViolationMetadata {
+    severity: Severity,
+    source: Option<SourceRef>,
+    source_shape: Option<Term>,
+    source_constraint: Option<Term>,
+    source_constraint_component: Option<Term>,
 }
 
 fn violation_metadata(
     program: &ShapeProgram,
     shape_id: ShapeId,
     constraint_id: Option<ConstraintId>,
-) -> (Severity, Option<SourceRef>) {
+) -> ViolationMetadata {
     let shape = program.shapes.iter().find(|shape| shape.id == shape_id);
     let severity = shape
         .map(|shape| shape.severity.clone())
         .unwrap_or(Severity::Violation);
+    let constraint = constraint_id.and_then(|id| {
+        program
+            .constraints
+            .iter()
+            .find(|constraint| constraint.id == id)
+    });
     let source = constraint_id
         .and_then(|id| {
             program
@@ -1770,7 +1886,144 @@ fn violation_metadata(
                 .and_then(|constraint| constraint.provenance.first().cloned())
         })
         .or_else(|| shape.and_then(|shape| shape.provenance.first().cloned()));
-    (severity, source)
+    ViolationMetadata {
+        severity,
+        source,
+        source_shape: shape.map(|shape| shape.source.clone()),
+        source_constraint: constraint.and_then(source_constraint_term),
+        source_constraint_component: constraint
+            .and_then(|constraint| source_constraint_component_term(program, &constraint.expr)),
+    }
+}
+
+fn source_constraint_term(constraint: &crate::algebra::Constraint) -> Option<Term> {
+    match &constraint.expr {
+        ConstraintExpr::Sparql(sparql) => Some(sparql.node.clone()),
+        ConstraintExpr::CustomComponent { component: _, .. } => None,
+        ConstraintExpr::NodeRef { source, .. }
+        | ConstraintExpr::PropertyRef { source, .. }
+        | ConstraintExpr::QualifiedValueShape { source, .. }
+        | ConstraintExpr::Not { source, .. } => Some(source.clone()),
+        _ => None,
+    }
+}
+
+fn source_constraint_component_term(program: &ShapeProgram, expr: &ConstraintExpr) -> Option<Term> {
+    let iri = match expr {
+        ConstraintExpr::NodeRef { .. } => {
+            Some("http://www.w3.org/ns/shacl#NodeConstraintComponent")
+        }
+        ConstraintExpr::PropertyRef { .. } => {
+            Some("http://www.w3.org/ns/shacl#PropertyConstraintComponent")
+        }
+        ConstraintExpr::QualifiedValueShape {
+            min_count,
+            max_count,
+            ..
+        } => {
+            if min_count.is_some() {
+                Some("http://www.w3.org/ns/shacl#QualifiedMinCountConstraintComponent")
+            } else if max_count.is_some() {
+                Some("http://www.w3.org/ns/shacl#QualifiedMaxCountConstraintComponent")
+            } else {
+                None
+            }
+        }
+        ConstraintExpr::Logical { kind, .. } => Some(match kind {
+            LogicalKind::And => "http://www.w3.org/ns/shacl#AndConstraintComponent",
+            LogicalKind::Or => "http://www.w3.org/ns/shacl#OrConstraintComponent",
+            LogicalKind::Xone => "http://www.w3.org/ns/shacl#XoneConstraintComponent",
+        }),
+        ConstraintExpr::Not { .. } => Some("http://www.w3.org/ns/shacl#NotConstraintComponent"),
+        ConstraintExpr::Class(_) => Some("http://www.w3.org/ns/shacl#ClassConstraintComponent"),
+        ConstraintExpr::Datatype(_) => {
+            Some("http://www.w3.org/ns/shacl#DatatypeConstraintComponent")
+        }
+        ConstraintExpr::NodeKind(_) => {
+            Some("http://www.w3.org/ns/shacl#NodeKindConstraintComponent")
+        }
+        ConstraintExpr::Cardinality { predicate, .. } => match predicate.as_str() {
+            "http://www.w3.org/ns/shacl#minCount" => {
+                Some("http://www.w3.org/ns/shacl#MinCountConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#maxCount" => {
+                Some("http://www.w3.org/ns/shacl#MaxCountConstraintComponent")
+            }
+            _ => None,
+        },
+        ConstraintExpr::NumericRange { predicate, .. } => match predicate.as_str() {
+            "http://www.w3.org/ns/shacl#minExclusive" => {
+                Some("http://www.w3.org/ns/shacl#MinExclusiveConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#minInclusive" => {
+                Some("http://www.w3.org/ns/shacl#MinInclusiveConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#maxExclusive" => {
+                Some("http://www.w3.org/ns/shacl#MaxExclusiveConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#maxInclusive" => {
+                Some("http://www.w3.org/ns/shacl#MaxInclusiveConstraintComponent")
+            }
+            _ => None,
+        },
+        ConstraintExpr::StringConstraint { predicate, .. } => match predicate.as_str() {
+            "http://www.w3.org/ns/shacl#minLength" => {
+                Some("http://www.w3.org/ns/shacl#MinLengthConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#maxLength" => {
+                Some("http://www.w3.org/ns/shacl#MaxLengthConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#pattern" => {
+                Some("http://www.w3.org/ns/shacl#PatternConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#languageIn" => {
+                Some("http://www.w3.org/ns/shacl#LanguageInConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#uniqueLang" => {
+                Some("http://www.w3.org/ns/shacl#UniqueLangConstraintComponent")
+            }
+            _ => None,
+        },
+        ConstraintExpr::PropertyComparison { predicate, .. } => match predicate.as_str() {
+            "http://www.w3.org/ns/shacl#equals" => {
+                Some("http://www.w3.org/ns/shacl#EqualsConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#disjoint" => {
+                Some("http://www.w3.org/ns/shacl#DisjointConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#lessThan" => {
+                Some("http://www.w3.org/ns/shacl#LessThanConstraintComponent")
+            }
+            "http://www.w3.org/ns/shacl#lessThanOrEquals" => {
+                Some("http://www.w3.org/ns/shacl#LessThanOrEqualsConstraintComponent")
+            }
+            _ => None,
+        },
+        ConstraintExpr::Closed { .. } => {
+            Some("http://www.w3.org/ns/shacl#ClosedConstraintComponent")
+        }
+        ConstraintExpr::HasValue(_) => {
+            Some("http://www.w3.org/ns/shacl#HasValueConstraintComponent")
+        }
+        ConstraintExpr::In(_) => Some("http://www.w3.org/ns/shacl#InConstraintComponent"),
+        ConstraintExpr::Sparql(_) => Some("http://www.w3.org/ns/shacl#SPARQLConstraintComponent"),
+        ConstraintExpr::CustomComponent {
+            component,
+            predicate,
+            ..
+        } => {
+            if let Some(component_id) = component {
+                return program
+                    .constraint_components
+                    .iter()
+                    .find(|candidate| candidate.id == *component_id)
+                    .map(|component| component.subject.clone());
+            }
+            return Some(Term::NamedNode(predicate.clone()));
+        }
+        ConstraintExpr::GenericPredicate { .. } => None,
+    };
+    iri.and_then(|iri| NamedNode::new(iri).ok().map(Term::NamedNode))
 }
 
 fn constraint_kind_name(expr: &ConstraintExpr) -> &'static str {
@@ -1869,10 +2122,7 @@ fn check_string_constraint(
                 .then(|| format!("literal does not match pattern {needle}")))
         }
         "http://www.w3.org/ns/shacl#languageIn" => {
-            let ranges = params
-                .iter()
-                .filter_map(term_string)
-                .collect::<Vec<_>>();
+            let ranges = params.iter().filter_map(term_string).collect::<Vec<_>>();
             if ranges.is_empty() {
                 return Err("languageIn requires at least one language range".to_string());
             }
@@ -1906,17 +2156,18 @@ fn check_numeric_range(
     let Some(actual) = term_number(value) else {
         return Ok(Some("value is not a numeric literal".to_string()));
     };
-    let violation = match predicate {
-        "http://www.w3.org/ns/shacl#minExclusive" => (actual <= bound)
-            .then(|| format!("numeric value {actual} is not greater than {bound}")),
-        "http://www.w3.org/ns/shacl#minInclusive" => (actual < bound)
-            .then(|| format!("numeric value {actual} is less than minimum {bound}")),
-        "http://www.w3.org/ns/shacl#maxExclusive" => (actual >= bound)
-            .then(|| format!("numeric value {actual} is not less than {bound}")),
-        "http://www.w3.org/ns/shacl#maxInclusive" => (actual > bound)
-            .then(|| format!("numeric value {actual} is greater than maximum {bound}")),
-        _ => None,
-    };
+    let violation =
+        match predicate {
+            "http://www.w3.org/ns/shacl#minExclusive" => (actual <= bound)
+                .then(|| format!("numeric value {actual} is not greater than {bound}")),
+            "http://www.w3.org/ns/shacl#minInclusive" => (actual < bound)
+                .then(|| format!("numeric value {actual} is less than minimum {bound}")),
+            "http://www.w3.org/ns/shacl#maxExclusive" => (actual >= bound)
+                .then(|| format!("numeric value {actual} is not less than {bound}")),
+            "http://www.w3.org/ns/shacl#maxInclusive" => (actual > bound)
+                .then(|| format!("numeric value {actual} is greater than maximum {bound}")),
+            _ => None,
+        };
     Ok(violation)
 }
 
@@ -1952,18 +2203,21 @@ fn eval_property_comparison(
                 .map(|value| {
                     (
                         None,
-                        format!("property values are not disjoint from comparison property at {value}"),
+                        format!(
+                            "property values are not disjoint from comparison property at {value}"
+                        ),
                     )
                 })
                 .collect())
         }
-        "http://www.w3.org/ns/shacl#lessThan"
-        | "http://www.w3.org/ns/shacl#lessThanOrEquals" => {
+        "http://www.w3.org/ns/shacl#lessThan" | "http://www.w3.org/ns/shacl#lessThanOrEquals" => {
             let mut messages = Vec::new();
             for left in local_values {
                 for right in &comparison_values {
                     let Some(ordering) = compare_terms(left, right) else {
-                        return Err("lessThan comparison needs comparable literal or IRI terms".to_string());
+                        return Err(
+                            "lessThan comparison needs comparable literal or IRI terms".to_string()
+                        );
                     };
                     let ok = if predicate.ends_with("lessThan") {
                         ordering == Ordering::Less
@@ -1973,7 +2227,10 @@ fn eval_property_comparison(
                     if !ok {
                         messages.push((
                             Some(left.clone()),
-                            format!("value {} does not satisfy comparison against {}", left, right),
+                            format!(
+                                "value {} does not satisfy comparison against {}",
+                                left, right
+                            ),
                         ));
                     }
                 }
@@ -2011,7 +2268,7 @@ fn eval_closed_shape(
             Some(_) => {
                 return Err(
                     "closed shapes currently require direct predicate property paths".to_string(),
-                )
+                );
             }
             None => {}
         }
@@ -2026,7 +2283,10 @@ fn eval_closed_shape(
     if let Some(edges) = state.index.outgoing.get(&focus.to_string()) {
         for (predicate, _) in edges {
             if !allowed.contains(predicate.as_str()) {
-                violations.push(format!("predicate <{}> is not allowed by closed shape", predicate));
+                violations.push(format!(
+                    "predicate <{}> is not allowed by closed shape",
+                    predicate
+                ));
             }
         }
     }
@@ -2064,7 +2324,10 @@ fn execute_prepared_query<'a>(
                 let Some(var_name) = extract_non_projected_variable(&message) else {
                     return Err(message);
                 };
-                let Some(index) = remaining.iter().position(|(variable, _)| variable.as_str() == var_name) else {
+                let Some(index) = remaining
+                    .iter()
+                    .position(|(variable, _)| variable.as_str() == var_name)
+                else {
                     return Err(message);
                 };
                 let (_, term) = remaining.remove(index);
@@ -2097,25 +2360,32 @@ fn execute_select_violations(
     state: &ExecutionState<'_>,
     query: &str,
     bindings: &[(Variable, Term)],
-) -> Result<Vec<Option<Term>>, String> {
+) -> Result<Vec<SelectViolation>, String> {
     match execute_prepared_query(state, query, bindings)? {
         QueryResults::Solutions(solutions) => {
             let mut out = Vec::new();
             for solution in solutions {
                 let solution = solution.map_err(|error| error.to_string())?;
-                out.push(solution.get("value").cloned());
+                out.push(SelectViolation {
+                    value: solution.get("value").cloned(),
+                    path: solution.get("path").cloned(),
+                });
             }
             Ok(out)
         }
-        QueryResults::Boolean(result) => Ok(if result { Vec::new() } else { vec![None] }),
+        QueryResults::Boolean(result) => Ok(if result {
+            Vec::new()
+        } else {
+            vec![SelectViolation {
+                value: None,
+                path: None,
+            }]
+        }),
         QueryResults::Graph(_) => Err("SPARQL query returned a graph result".to_string()),
     }
 }
 
-fn extract_solution_terms(
-    results: QueryResults<'_>,
-    variable: &str,
-) -> Result<Vec<Term>, String> {
+fn extract_solution_terms(results: QueryResults<'_>, variable: &str) -> Result<Vec<Term>, String> {
     match results {
         QueryResults::Solutions(solutions) => {
             let mut out = Vec::new();
@@ -2158,10 +2428,7 @@ fn with_prefixes(declarations: &[crate::algebra::PrefixDeclaration], query: &str
     }
 }
 
-fn substitute_path_placeholder(
-    query: &str,
-    path: Option<&PropertyPath>,
-) -> Result<String, String> {
+fn substitute_path_placeholder(query: &str, path: Option<&PropertyPath>) -> Result<String, String> {
     if !query.contains("$PATH") {
         return Ok(query.to_string());
     }
@@ -2184,7 +2451,10 @@ fn query_bindings(
     }
     if query_mentions_var(query, "currentShape") {
         if let Some(current_shape) = current_shape {
-            bindings.push((Variable::new_unchecked("currentShape"), current_shape.clone()));
+            bindings.push((
+                Variable::new_unchecked("currentShape"),
+                current_shape.clone(),
+            ));
         }
     }
     if let Some(value) = value
@@ -2228,7 +2498,9 @@ fn template_binding_values(bindings: &[crate::algebra::TemplateBinding]) -> BTre
 }
 
 fn render_templates(templates: &[Template], bindings: &BTreeMap<String, Term>) -> Option<String> {
-    templates.first().map(|template| render_template(template, bindings))
+    templates
+        .first()
+        .map(|template| render_template(template, bindings))
 }
 
 fn render_template(template: &Template, bindings: &BTreeMap<String, Term>) -> String {
@@ -2284,15 +2556,10 @@ fn format_term_for_sparql(term: &Term) -> String {
         Term::NamedNode(node) => format!("<{}>", node.as_str()),
         Term::BlankNode(node) => format!("_:{}", node.as_str()),
         Term::Literal(literal) => {
-            let value = literal
-                .value()
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"");
+            let value = literal.value().replace('\\', "\\\\").replace('"', "\\\"");
             if let Some(language) = literal.language() {
                 format!("\"{}\"@{}", value, language)
-            } else if literal.datatype().as_str()
-                != "http://www.w3.org/2001/XMLSchema#string"
-            {
+            } else if literal.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string" {
                 format!("\"{}\"^^<{}>", value, literal.datatype().as_str())
             } else {
                 format!("\"{}\"", value)
@@ -2303,7 +2570,9 @@ fn format_term_for_sparql(term: &Term) -> String {
 
 fn reject_unsupported_query_variables(query: &str) -> Result<(), String> {
     if query_mentions_var(query, "shapesGraph") {
-        return Err("SPARQL execution with ?shapesGraph/$shapesGraph is not yet supported".to_string());
+        return Err(
+            "SPARQL execution with ?shapesGraph/$shapesGraph is not yet supported".to_string(),
+        );
     }
     Ok(())
 }
@@ -2432,7 +2701,10 @@ fn path_label(path: &PropertyPath) -> String {
         PropertyPath::Inverse(inner) => format!("^{}", path_label(inner)),
         PropertyPath::Sequence(parts) => parts.iter().map(path_label).collect::<Vec<_>>().join("/"),
         PropertyPath::Alternative(parts) => {
-            format!("({})", parts.iter().map(path_label).collect::<Vec<_>>().join("|"))
+            format!(
+                "({})",
+                parts.iter().map(path_label).collect::<Vec<_>>().join("|")
+            )
         }
         PropertyPath::ZeroOrMore(inner) => format!("({})*", path_label(inner)),
         PropertyPath::OneOrMore(inner) => format!("({})+", path_label(inner)),
@@ -2496,10 +2768,7 @@ fn language_range_matches(range: &str, language: &str) -> bool {
 }
 
 fn unique_lang_enabled(params: &[Term]) -> bool {
-    params
-        .first()
-        .and_then(term_bool)
-        .unwrap_or(true)
+    params.first().and_then(term_bool).unwrap_or(true)
 }
 
 fn check_unique_lang(values: &[Term]) -> Vec<(Option<Term>, String)> {

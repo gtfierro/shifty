@@ -199,14 +199,14 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 
 ## Phase 12 Checklist
 
-- [ ] Add a SHACL validation-report builder in `shacl-core`
-- [ ] Preserve enough validation result metadata for `sh:sourceShape`, `sh:sourceConstraint`, `sh:sourceConstraintComponent`, `sh:resultPath`, and `sh:value`
-- [ ] Serialize validation reports to RDF output formats for CLI use
-- [ ] Add validation CLI report output modes
-- [ ] Add fixture-backed tests for report construction over core and SPARQL validation cases
-- [ ] Add a narrow W3C manifest harness for self-contained SHACL validation tests
-- [ ] Assert expected `sh:conforms` on initial manifest-backed tests
-- [ ] Assert expected validation-result counts on initial manifest-backed tests
+- [x] Add a SHACL validation-report builder in `shacl-core`
+- [x] Preserve enough validation result metadata for `sh:sourceShape`, `sh:sourceConstraint`, `sh:sourceConstraintComponent`, `sh:resultPath`, and `sh:value`
+- [x] Serialize validation reports to RDF output formats for CLI use
+- [x] Add validation CLI report output modes
+- [x] Add fixture-backed tests for report construction over core and SPARQL validation cases
+- [x] Add a narrow W3C manifest harness for self-contained SHACL validation tests
+- [x] Assert expected `sh:conforms` on initial manifest-backed tests
+- [x] Assert expected validation-result counts on initial manifest-backed tests
 
 ## Data Types / APIs
 

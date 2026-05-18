@@ -3,7 +3,7 @@ use shifty_shacl_core::{
     BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
     InMemoryValidationBackend, NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason,
     SliceRoots, StaticCostHint, ValidationBackend, analyze_program, analyze_static,
-    analyze_static_with_roots, canonicalize_program, context_requirements,
+    analyze_static_with_roots, build_validation_report, canonicalize_program, context_requirements,
     derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
     derive_inference_view, derive_validation_logical_plan, derive_validation_view,
     fingerprint_program, lower_to_program, normalize_program, parse_quads,
@@ -16,6 +16,12 @@ use shifty_shacl_core::{
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../lib/tests/fixtures")
+        .join(name)
+}
+
+fn suite_path(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../lib/tests/test-suite")
         .join(name)
 }
 
@@ -2040,25 +2046,19 @@ fn validation_backend_executes_language_constraints() {
                 Quad::new(
                     focus.clone(),
                     label.clone(),
-                    Term::Literal(
-                        Literal::new_language_tagged_literal("Bonjour", "fr").unwrap(),
-                    ),
+                    Term::Literal(Literal::new_language_tagged_literal("Bonjour", "fr").unwrap()),
                     oxrdf::GraphName::DefaultGraph,
                 ),
                 Quad::new(
                     focus.clone(),
                     label.clone(),
-                    Term::Literal(
-                        Literal::new_language_tagged_literal("Salut", "fr").unwrap(),
-                    ),
+                    Term::Literal(Literal::new_language_tagged_literal("Salut", "fr").unwrap()),
                     oxrdf::GraphName::DefaultGraph,
                 ),
                 Quad::new(
                     focus,
                     label,
-                    Term::Literal(
-                        Literal::new_language_tagged_literal("Hallo", "de").unwrap(),
-                    ),
+                    Term::Literal(Literal::new_language_tagged_literal("Hallo", "de").unwrap()),
                     oxrdf::GraphName::DefaultGraph,
                 ),
             ],
@@ -2599,10 +2599,50 @@ fn validation_backend_executes_sparql_constraints() {
     let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
 
     let backend = InMemoryValidationBackend;
-    let result = backend.execute(&plan, &resolved).expect("validation executes");
+    let result = backend
+        .execute(&plan, &resolved)
+        .expect("validation executes");
     assert!(!result.conforms);
     assert_eq!(result.violations.len(), 3);
     assert!(result.unsupported.is_empty());
+}
+
+#[test]
+fn validation_report_captures_core_constraint_component_metadata() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(suite_path("core/node/hasValue-001.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+
+    let backend = InMemoryValidationBackend;
+    let result = backend
+        .execute(&plan, &resolved)
+        .expect("validation executes");
+    let report = build_validation_report(&result, &plan.view.program);
+
+    assert!(!result.conforms);
+    assert_eq!(result.violations.len(), 1);
+    assert_eq!(
+        report
+            .quads
+            .iter()
+            .filter(|quad| quad.predicate.as_str() == "http://www.w3.org/ns/shacl#result")
+            .count(),
+        1
+    );
+    assert!(report.quads.iter().any(|quad| {
+        quad.predicate.as_str() == "http://www.w3.org/ns/shacl#sourceConstraintComponent"
+            && quad.object.to_string() == "<http://www.w3.org/ns/shacl#HasValueConstraintComponent>"
+    }));
 }
 
 #[test]
@@ -2654,12 +2694,49 @@ fn validation_backend_executes_custom_component_sparql_validators() {
     let backend = InMemoryValidationBackend;
     let result = backend.execute(&plan, &data).expect("validation executes");
     assert!(!result.conforms);
-    assert!(
-        result
-            .violations
-            .iter()
-            .any(|violation| violation.message.contains("Value shorter than 5 characters."))
-    );
+    assert!(result.violations.iter().any(|violation| {
+        violation
+            .message
+            .contains("Value shorter than 5 characters.")
+    }));
+}
+
+#[test]
+fn validation_report_captures_sparql_source_constraint_and_path() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(suite_path("sparql/node/sparql-001.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+
+    let backend = InMemoryValidationBackend;
+    let result = backend
+        .execute(&plan, &resolved)
+        .expect("validation executes");
+    let report = build_validation_report(&result, &plan.view.program);
+
+    assert_eq!(result.violations.len(), 3);
+    assert!(report.quads.iter().any(|quad| {
+        quad.predicate.as_str() == "http://www.w3.org/ns/shacl#sourceConstraint"
+            && quad.object.to_string()
+                == "<http://datashapes.org/sh/tests/sparql/node/sparql-001.test#TestShape-sparql>"
+    }));
+    assert!(report.quads.iter().any(|quad| {
+        quad.predicate.as_str() == "http://www.w3.org/ns/shacl#resultPath"
+            && quad.object.to_string() == "<http://www.w3.org/2000/01/rdf-schema#label>"
+    }));
+    let turtle = report
+        .serialize(oxigraph::io::RdfFormat::Turtle)
+        .expect("report should serialize");
+    assert!(turtle.contains("sh:ValidationReport"));
 }
 
 #[test]

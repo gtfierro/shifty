@@ -3202,6 +3202,7 @@ name = "shifty-shacl-core-cli"
 version = "0.0.13"
 dependencies = [
  "clap",
+ "oxigraph",
  "serde",
  "serde_json",
  "shifty-shacl-core",

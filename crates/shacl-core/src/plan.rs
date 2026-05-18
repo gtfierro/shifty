@@ -88,7 +88,12 @@ pub fn derive_validation_logical_plan(
     options: BackendViewOptions,
 ) -> ValidationPlan {
     let view = derive_validation_view(program, options);
-    let retained_shapes = view.program.shapes.iter().map(|shape| shape.id).collect::<std::collections::BTreeSet<_>>();
+    let retained_shapes = view
+        .program
+        .shapes
+        .iter()
+        .map(|shape| shape.id)
+        .collect::<std::collections::BTreeSet<_>>();
     let deferred_rules = program
         .rules
         .iter()
