@@ -1,6 +1,6 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    analyze_program, lower_to_program, parse_quads,
+    analyze_program, lower_to_program, parse_quads, render_shape_program_dot,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
 };
 
@@ -528,4 +528,34 @@ fn discovers_inline_shapes_from_logical_lists_and_rule_conditions() {
             .iter()
             .any(|shape| shape.subject == Term::BlankNode(inline_cond.clone()))
     );
+}
+
+#[test]
+fn renders_graphviz_for_shape_program() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let shape = NamedNode::new("urn:shape").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&doc);
+    let dot = render_shape_program_dot(&program);
+
+    assert!(dot.contains("digraph shacl_core"));
+    assert!(dot.contains("shape_1"));
+    assert!(dot.contains("target_1"));
 }
