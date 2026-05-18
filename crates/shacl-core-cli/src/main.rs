@@ -2,11 +2,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
-    InferenceView, NormalizeOptions, RewriteOptions, RewriteSummary, SharedWorkUnitKind,
-    SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint, ValidationView,
-    analyze_program, analyze_static_with_roots, derive_backend_views, derive_inference_view,
-    derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
-    parse_resolved, render_shape_program_dot, rewrite_program,
+    InferencePlan, InferenceView, NormalizeOptions, RewriteOptions, RewriteSummary,
+    SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
+    ValidationPlan, ValidationView, analyze_program, analyze_static_with_roots,
+    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
+    derive_inference_view, derive_validation_logical_plan, derive_validation_view,
+    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
+    render_shape_program_dot, rewrite_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -30,6 +32,8 @@ enum Command {
     Rewrite(RewriteArgs),
     /// Derive backend-facing validation and inference views
     BackendView(BackendViewArgs),
+    /// Derive backend-agnostic logical plans
+    Plan(PlanArgs),
     /// Emit Graphviz DOT for the shape/component graph
     Graphviz(GraphvizArgs),
 }
@@ -228,6 +232,43 @@ struct BackendViewArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum PlanKind {
+    Both,
+    Validation,
+    Inference,
+}
+
+#[derive(Parser, Debug)]
+struct PlanArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Drop deactivated shapes and rules before deriving plans
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
+    /// Which logical plan to render
+    #[arg(long, value_enum, default_value_t = PlanKind::Both)]
+    kind: PlanKind,
+
+    /// Closure mode used to derive backend-facing views before planning
+    #[arg(long, value_enum, default_value_t = BackendClosureArg::TargetRoots)]
+    closure: BackendClosureArg,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -236,6 +277,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::StaticAnalyze(args) => run_static_analyze(args)?,
         Command::Rewrite(args) => run_rewrite(args)?,
         Command::BackendView(args) => run_backend_view(args)?,
+        Command::Plan(args) => run_plan(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
     Ok(())
@@ -436,6 +478,68 @@ fn run_backend_view(args: BackendViewArgs) -> Result<(), Box<dyn std::error::Err
                 AnalyzeFormat::Json => write_json(&view, args.output.as_deref())?,
                 AnalyzeFormat::Text => {
                     let text = render_inference_view_text(&view);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_plan(args: PlanArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let roots = if args.root_shapes.is_empty() {
+        Some(SliceRoots::TargetShapes)
+    } else {
+        Some(SliceRoots::ExplicitSelectors(args.root_shapes.clone()))
+    };
+    let options = BackendViewOptions {
+        rewrite: RewriteOptions {
+            roots,
+            prune_unreachable: true,
+            ..RewriteOptions::default()
+        },
+        closure_mode: match args.closure {
+            BackendClosureArg::TargetRoots => BackendClosureMode::TargetRoots,
+            BackendClosureArg::ValidationClosure => BackendClosureMode::ValidationClosure,
+            BackendClosureArg::InferenceClosure => BackendClosureMode::InferenceClosure,
+            BackendClosureArg::MixedClosure => BackendClosureMode::MixedClosure,
+        },
+    };
+    match args.kind {
+        PlanKind::Both => {
+            let plans = derive_backend_logical_plans(&program, options);
+            match args.format {
+                AnalyzeFormat::Json => write_json(&plans, args.output.as_deref())?,
+                AnalyzeFormat::Text => {
+                    let text = render_backend_plans_text(&plans);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
+        }
+        PlanKind::Validation => {
+            let plan = derive_validation_logical_plan(&program, options);
+            match args.format {
+                AnalyzeFormat::Json => write_json(&plan, args.output.as_deref())?,
+                AnalyzeFormat::Text => {
+                    let text = render_validation_plan_text(&plan);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
+        }
+        PlanKind::Inference => {
+            let plan = derive_inference_logical_plan(&program, options);
+            match args.format {
+                AnalyzeFormat::Json => write_json(&plan, args.output.as_deref())?,
+                AnalyzeFormat::Text => {
+                    let text = render_inference_plan_text(&plan);
                     write_text(&text, args.output.as_deref())?;
                 }
             }
@@ -1440,4 +1544,114 @@ fn dependency_class_histogram(
             .or_insert(0) += 1;
     }
     histogram.into_iter().collect()
+}
+
+fn render_backend_plans_text(plans: &shifty_shacl_core::BackendPlans) -> String {
+    let mut out = String::new();
+    out.push_str(&render_validation_plan_text(&plans.validation));
+    out.push('\n');
+    out.push_str(&render_inference_plan_text(&plans.inference));
+    out
+}
+
+fn render_validation_plan_text(plan: &ValidationPlan) -> String {
+    let mut out = String::new();
+    out.push_str("Validation Plan\n");
+    out.push_str(&format!(
+        "  closure_mode: {}\n",
+        render_backend_closure_mode(&plan.view.closure_mode)
+    ));
+    out.push_str(&format!("  nodes: {}\n", plan.nodes.len()));
+    for (kind, count) in &plan.summary.node_counts {
+        out.push_str(&format!("  {}: {}\n", kind, count));
+    }
+    if !plan.nodes.is_empty() {
+        out.push_str("\n  Steps\n");
+        for node in &plan.nodes {
+            match node {
+                shifty_shacl_core::ValidationPlanNode::TargetScan { shape, targets } => {
+                    out.push_str(&format!(
+                        "    target_scan shape={} targets={}\n",
+                        shape.0,
+                        targets.len()
+                    ));
+                }
+                shifty_shacl_core::ValidationPlanNode::ConstraintBatch {
+                    shape,
+                    bucket,
+                    constraints,
+                } => {
+                    out.push_str(&format!(
+                        "    constraint_batch shape={} bucket={} constraints={}\n",
+                        shape.0,
+                        render_backend_bucket(bucket),
+                        constraints.len()
+                    ));
+                }
+                shifty_shacl_core::ValidationPlanNode::SharedWorkUnit { unit_id } => {
+                    out.push_str(&format!("    shared_work_unit {}\n", unit_id));
+                }
+                shifty_shacl_core::ValidationPlanNode::RecursiveRegion { region_id, shapes } => {
+                    out.push_str(&format!(
+                        "    recursive_region {} shapes={}\n",
+                        region_id,
+                        shapes.len()
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn render_inference_plan_text(plan: &InferencePlan) -> String {
+    let mut out = String::new();
+    out.push_str("Inference Plan\n");
+    out.push_str(&format!(
+        "  closure_mode: {}\n",
+        render_backend_closure_mode(&plan.view.closure_mode)
+    ));
+    out.push_str(&format!("  nodes: {}\n", plan.nodes.len()));
+    for (kind, count) in &plan.summary.node_counts {
+        out.push_str(&format!("  {}: {}\n", kind, count));
+    }
+    if !plan.nodes.is_empty() {
+        out.push_str("\n  Steps\n");
+        for node in &plan.nodes {
+            match node {
+                shifty_shacl_core::InferencePlanNode::SeedScan { shape, targets } => {
+                    out.push_str(&format!(
+                        "    seed_scan shape={} targets={}\n",
+                        shape.0,
+                        targets.len()
+                    ));
+                }
+                shifty_shacl_core::InferencePlanNode::RuleBatch {
+                    shape,
+                    bucket,
+                    rules,
+                    condition_shapes,
+                } => {
+                    out.push_str(&format!(
+                        "    rule_batch shape={} bucket={} rules={} condition_shapes={}\n",
+                        shape.0,
+                        render_backend_bucket(bucket),
+                        rules.len(),
+                        condition_shapes.len()
+                    ));
+                }
+                shifty_shacl_core::InferencePlanNode::SharedWorkUnit { unit_id } => {
+                    out.push_str(&format!("    shared_work_unit {}\n", unit_id));
+                }
+                shifty_shacl_core::InferencePlanNode::RecursiveRegion { region_id, shapes } => {
+                    out.push_str(&format!(
+                        "    recursive_region {} shapes={}\n",
+                        region_id,
+                        shapes.len()
+                    ));
+                }
+            }
+        }
+    }
+    out
 }

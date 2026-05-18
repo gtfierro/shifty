@@ -120,6 +120,21 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for validation vs inference closure differences
 - [x] Add fixture-backed tests for dependency classification
 
+## Phase 6 Checklist
+
+- [x] Add a backend-agnostic logical planning module
+- [x] Define explicit validation logical plan types
+- [x] Define explicit inference logical plan types
+- [x] Derive validation plans from `ValidationView`
+- [x] Derive inference plans from `InferenceView`
+- [x] Represent shared work units directly in logical plans
+- [x] Represent recursive regions directly in logical plans
+- [x] Add CLI inspection for logical plans
+- [x] Add text output for logical plans
+- [x] Add JSON output for logical plans
+- [x] Add fixture-backed tests for validation planning
+- [x] Add fixture-backed tests for inference planning
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
