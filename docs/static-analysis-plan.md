@@ -168,14 +168,14 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 
 ## Phase 9 Checklist
 
-- [ ] Execute `sh:languageIn`
-- [ ] Execute `sh:uniqueLang`
-- [ ] Execute zero-or-more property paths
-- [ ] Execute one-or-more property paths
-- [ ] Preserve deterministic path traversal output under repetition
-- [ ] Add fixture-backed tests for language-tag constraints
-- [ ] Add fixture-backed tests for transitive path traversal
-- [ ] Keep unsupported-path reporting explicit for still-unhandled path forms
+- [x] Execute `sh:languageIn`
+- [x] Execute `sh:uniqueLang`
+- [x] Execute zero-or-more property paths
+- [x] Execute one-or-more property paths
+- [x] Preserve deterministic path traversal output under repetition
+- [x] Add fixture-backed tests for language-tag constraints
+- [x] Add fixture-backed tests for transitive path traversal
+- [x] Keep unsupported-path reporting explicit for still-unhandled path forms
 
 ## Data Types / APIs
 

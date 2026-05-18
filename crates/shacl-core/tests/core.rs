@@ -1944,6 +1944,381 @@ fn validation_backend_reports_closed_shapes_and_unsupported_constraints_with_met
 }
 
 #[test]
+fn validation_backend_executes_language_constraints() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_language_in = NamedNode::new("http://www.w3.org/ns/shacl#languageIn").unwrap();
+    let sh_unique_lang = NamedNode::new("http://www.w3.org/ns/shacl#uniqueLang").unwrap();
+    let rdf_first = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap();
+    let rdf_rest = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap();
+    let rdf_nil = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil").unwrap();
+    let shape = NamedNode::new("urn:lang-shape").unwrap();
+    let property_shape = NamedNode::new("urn:label-property").unwrap();
+    let focus = NamedNode::new("urn:labelled").unwrap();
+    let label = NamedNode::new("urn:label").unwrap();
+    let list = oxrdf::BlankNode::new("lang-list-1").unwrap();
+    let tail = oxrdf::BlankNode::new("lang-list-2").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::NamedNode(label.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_language_in,
+            Term::BlankNode(list.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list.clone(),
+            rdf_first,
+            Term::Literal(Literal::new_simple_literal("en")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list,
+            rdf_rest,
+            Term::BlankNode(tail.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            tail.clone(),
+            NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap(),
+            Term::Literal(Literal::new_simple_literal("fr")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            tail,
+            NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap(),
+            Term::NamedNode(rdf_nil),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_unique_lang,
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-lang").unwrap(),
+            quads: vec![
+                Quad::new(
+                    focus.clone(),
+                    label.clone(),
+                    Term::Literal(Literal::new_language_tagged_literal("Hello", "en").unwrap()),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    focus.clone(),
+                    label.clone(),
+                    Term::Literal(
+                        Literal::new_language_tagged_literal("Bonjour", "fr").unwrap(),
+                    ),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    focus.clone(),
+                    label.clone(),
+                    Term::Literal(
+                        Literal::new_language_tagged_literal("Salut", "fr").unwrap(),
+                    ),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    focus,
+                    label,
+                    Term::Literal(
+                        Literal::new_language_tagged_literal("Hallo", "de").unwrap(),
+                    ),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+            ],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(!result.conforms);
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|violation| violation.message.contains("language tag de"))
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|violation| violation.message.contains("duplicate language tag fr"))
+    );
+}
+
+#[test]
+fn validation_backend_executes_transitive_property_paths() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_zero_or_more = NamedNode::new("http://www.w3.org/ns/shacl#zeroOrMorePath").unwrap();
+    let sh_one_or_more = NamedNode::new("http://www.w3.org/ns/shacl#oneOrMorePath").unwrap();
+    let sh_has_value = NamedNode::new("http://www.w3.org/ns/shacl#hasValue").unwrap();
+    let sh_min_count = NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap();
+    let shape = NamedNode::new("urn:path-shape").unwrap();
+    let zero_shape = NamedNode::new("urn:zero-shape").unwrap();
+    let one_shape = NamedNode::new("urn:one-shape").unwrap();
+    let focus = NamedNode::new("urn:start").unwrap();
+    let link = NamedNode::new("urn:link").unwrap();
+    let node2 = NamedNode::new("urn:node2").unwrap();
+    let node3 = NamedNode::new("urn:node3").unwrap();
+    let zero_path = oxrdf::BlankNode::new("zero-path").unwrap();
+    let one_path = oxrdf::BlankNode::new("one-path").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property.clone(),
+            Term::NamedNode(zero_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(one_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            zero_shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            zero_shape.clone(),
+            sh_path.clone(),
+            Term::BlankNode(zero_path.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            zero_path,
+            sh_zero_or_more,
+            Term::NamedNode(link.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            zero_shape,
+            sh_has_value.clone(),
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            one_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            one_shape.clone(),
+            sh_path,
+            Term::BlankNode(one_path.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            one_path,
+            sh_one_or_more,
+            Term::NamedNode(link.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            one_shape.clone(),
+            sh_min_count,
+            Term::Literal(Literal::from(2)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            one_shape,
+            sh_has_value,
+            Term::NamedNode(node3.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-path").unwrap(),
+            quads: vec![
+                Quad::new(
+                    focus.clone(),
+                    link.clone(),
+                    Term::NamedNode(node2.clone()),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    node2,
+                    link,
+                    Term::NamedNode(node3),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+            ],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(result.conforms);
+    assert!(result.unsupported.is_empty());
+}
+
+#[test]
+fn validation_backend_reports_unsupported_path_forms_explicitly() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_min_count = NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap();
+    let unsupported_predicate = NamedNode::new("urn:unsupportedPathKind").unwrap();
+    let shape = NamedNode::new("urn:unsupported-path-shape").unwrap();
+    let property_shape = NamedNode::new("urn:unsupported-property-shape").unwrap();
+    let focus = NamedNode::new("urn:unsupported-focus").unwrap();
+    let unsupported_path = oxrdf::BlankNode::new("unsupported-path").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::BlankNode(unsupported_path.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            unsupported_path,
+            unsupported_predicate,
+            Term::NamedNode(NamedNode::new("urn:any").unwrap()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_min_count,
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-unsupported-path").unwrap(),
+            quads: vec![],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert_eq!(result.unsupported.len(), 1);
+    assert_eq!(result.unsupported[0].kind, "property_path");
+    assert!(
+        result.unsupported[0]
+            .reason
+            .contains("not executable in the in-memory backend")
+    );
+}
+
+#[test]
 fn lowers_property_paths_and_qualified_shapes() {
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let rdf_first = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap();

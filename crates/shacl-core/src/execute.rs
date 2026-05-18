@@ -313,6 +313,19 @@ fn eval_node_shape(
             .iter()
             .find(|shape| shape.id == *property_shape_id)
             .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+        if let Some(path) = property_shape.path.as_ref() {
+            if !path_is_executable(path) {
+                record_unsupported(
+                    *property_shape_id,
+                    None,
+                    Some(focus),
+                    "property_path",
+                    format!("property path {} is not executable in the in-memory backend", path_label(path)),
+                    state,
+                );
+                continue;
+            }
+        }
         let values = property_shape
             .path
             .as_ref()
@@ -495,21 +508,43 @@ fn eval_constraint(
             predicate,
             values: params,
         } => {
-            for value in local_values {
-                match check_string_constraint(predicate.as_str(), params, value) {
-                    Ok(Some(message)) => {
-                        record_violation(shape_id, constraint_id, focus, Some(value), message, state);
-                    }
-                    Ok(None) => {}
-                    Err(reason) => {
-                        record_unsupported(
+            if predicate.as_str() == "http://www.w3.org/ns/shacl#uniqueLang" {
+                if unique_lang_enabled(params) {
+                    for (value, message) in check_unique_lang(local_values) {
+                        record_violation(
                             shape_id,
-                            Some(constraint_id),
-                            Some(focus),
-                            constraint_kind_name(expr),
-                            reason,
+                            constraint_id,
+                            focus,
+                            value.as_ref(),
+                            message,
                             state,
                         );
+                    }
+                }
+            } else {
+                for value in local_values {
+                    match check_string_constraint(predicate.as_str(), params, value) {
+                        Ok(Some(message)) => {
+                            record_violation(
+                                shape_id,
+                                constraint_id,
+                                focus,
+                                Some(value),
+                                message,
+                                state,
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(reason) => {
+                            record_unsupported(
+                                shape_id,
+                                Some(constraint_id),
+                                Some(focus),
+                                constraint_kind_name(expr),
+                                reason,
+                                state,
+                            );
+                        }
                     }
                 }
             }
@@ -920,9 +955,9 @@ fn eval_path(index: &DataIndex, focus: &Term, path: &PropertyPath) -> Vec<Term> 
             out.extend(eval_path(index, focus, inner));
             dedup_terms(out)
         }
-        PropertyPath::ZeroOrMore(_) | PropertyPath::OneOrMore(_) | PropertyPath::Unsupported(_) => {
-            Vec::new()
-        }
+        PropertyPath::ZeroOrMore(inner) => eval_transitive_path(index, focus, inner, true),
+        PropertyPath::OneOrMore(inner) => eval_transitive_path(index, focus, inner, false),
+        PropertyPath::Unsupported(_) => Vec::new(),
     }
 }
 
@@ -972,14 +1007,22 @@ fn probe_shape_conforms_inner(
             let property_shape = state
                 .program
                 .shapes
-                .iter()
-                .find(|shape| shape.id == *property_shape_id)
-                .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
-            let values = property_shape
-                .path
-                .as_ref()
-                .map(|path| eval_path(&state.index, focus, path))
-                .unwrap_or_default();
+            .iter()
+            .find(|shape| shape.id == *property_shape_id)
+            .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+        if let Some(path) = property_shape.path.as_ref() {
+            if !path_is_executable(path) {
+                return Ok(ProbeOutcome::Unsupported(format!(
+                    "property path {} is not executable in the in-memory backend",
+                    path_label(path)
+                )));
+            }
+        }
+        let values = property_shape
+            .path
+            .as_ref()
+            .map(|path| eval_path(&state.index, focus, path))
+            .unwrap_or_default();
             match probe_property_shape(*property_shape_id, focus, &values, state, active)? {
                 ProbeOutcome::Conformant => {}
                 ProbeOutcome::NonConformant => {
@@ -1117,6 +1160,14 @@ fn probe_constraint(
             predicate,
             values: params,
         } => {
+            if predicate.as_str() == "http://www.w3.org/ns/shacl#uniqueLang" {
+                return Ok(if !unique_lang_enabled(params) || check_unique_lang(local_values).is_empty()
+                {
+                    ProbeOutcome::Conformant
+                } else {
+                    ProbeOutcome::NonConformant
+                });
+            }
             for value in local_values {
                 match check_string_constraint(predicate.as_str(), params, value) {
                     Ok(Some(_)) => return Ok(ProbeOutcome::NonConformant),
@@ -1437,12 +1488,29 @@ fn check_string_constraint(
             Ok((!literal.value().contains(&needle))
                 .then(|| format!("literal does not contain pattern {needle}")))
         }
-        "http://www.w3.org/ns/shacl#languageIn" => Err(
-            "languageIn is not yet executable in the in-memory backend".to_string(),
-        ),
-        "http://www.w3.org/ns/shacl#uniqueLang" => Err(
-            "uniqueLang is not yet executable in the in-memory backend".to_string(),
-        ),
+        "http://www.w3.org/ns/shacl#languageIn" => {
+            let ranges = params
+                .iter()
+                .filter_map(term_string)
+                .collect::<Vec<_>>();
+            if ranges.is_empty() {
+                return Err("languageIn requires at least one language range".to_string());
+            }
+            let Some(language) = literal.language() else {
+                return Ok(Some("literal is missing a language tag".to_string()));
+            };
+            let language_lower = language.to_ascii_lowercase();
+            Ok((!ranges
+                .iter()
+                .any(|range| language_range_matches(range, &language_lower)))
+            .then(|| format!("literal language tag {language} not allowed by languageIn")))
+        }
+        "http://www.w3.org/ns/shacl#uniqueLang" => {
+            if literal.language().is_none() {
+                return Ok(None);
+            }
+            Ok(None)
+        }
         _ => Ok(None),
     }
 }
@@ -1651,6 +1719,109 @@ fn dedup_terms(values: Vec<Term>) -> Vec<Term> {
 fn named_target_predicate(term: &Term) -> Option<NamedNode> {
     match term {
         Term::NamedNode(node) => Some(node.clone()),
+        _ => None,
+    }
+}
+
+fn path_is_executable(path: &PropertyPath) -> bool {
+    match path {
+        PropertyPath::Predicate(_) => true,
+        PropertyPath::Inverse(inner)
+        | PropertyPath::ZeroOrMore(inner)
+        | PropertyPath::OneOrMore(inner)
+        | PropertyPath::ZeroOrOne(inner) => path_is_executable(inner),
+        PropertyPath::Sequence(parts) | PropertyPath::Alternative(parts) => {
+            parts.iter().all(path_is_executable)
+        }
+        PropertyPath::Unsupported(_) => false,
+    }
+}
+
+fn path_label(path: &PropertyPath) -> String {
+    match path {
+        PropertyPath::Predicate(predicate) => format!("<{}>", predicate),
+        PropertyPath::Inverse(inner) => format!("^{}", path_label(inner)),
+        PropertyPath::Sequence(parts) => parts.iter().map(path_label).collect::<Vec<_>>().join("/"),
+        PropertyPath::Alternative(parts) => {
+            format!("({})", parts.iter().map(path_label).collect::<Vec<_>>().join("|"))
+        }
+        PropertyPath::ZeroOrMore(inner) => format!("({})*", path_label(inner)),
+        PropertyPath::OneOrMore(inner) => format!("({})+", path_label(inner)),
+        PropertyPath::ZeroOrOne(inner) => format!("({})?", path_label(inner)),
+        PropertyPath::Unsupported(term) => format!("unsupported {}", term),
+    }
+}
+
+fn eval_transitive_path(
+    index: &DataIndex,
+    focus: &Term,
+    inner: &PropertyPath,
+    include_focus: bool,
+) -> Vec<Term> {
+    let mut out = Vec::new();
+    let mut queue = vec![focus.clone()];
+    let mut seen = BTreeSet::new();
+    if include_focus && seen.insert(focus.to_string()) {
+        out.push(focus.clone());
+    }
+    while let Some(current) = queue.pop() {
+        for next in eval_path(index, &current, inner) {
+            let key = next.to_string();
+            if seen.insert(key) {
+                out.push(next.clone());
+                queue.push(next);
+            }
+        }
+    }
+    out
+}
+
+fn language_range_matches(range: &str, language: &str) -> bool {
+    let range = range.to_ascii_lowercase();
+    if range == "*" {
+        return true;
+    }
+    language == range
+        || language
+            .strip_prefix(&range)
+            .is_some_and(|suffix| suffix.starts_with('-'))
+}
+
+fn unique_lang_enabled(params: &[Term]) -> bool {
+    params
+        .first()
+        .and_then(term_bool)
+        .unwrap_or(true)
+}
+
+fn check_unique_lang(values: &[Term]) -> Vec<(Option<Term>, String)> {
+    let mut seen = BTreeSet::new();
+    let mut violations = Vec::new();
+    for value in values {
+        let Term::Literal(literal) = value else {
+            continue;
+        };
+        let Some(language) = literal.language() else {
+            continue;
+        };
+        let language = language.to_ascii_lowercase();
+        if !seen.insert(language.clone()) {
+            violations.push((
+                Some(value.clone()),
+                format!("duplicate language tag {language} violates uniqueLang"),
+            ));
+        }
+    }
+    violations
+}
+
+fn term_bool(term: &Term) -> Option<bool> {
+    match term {
+        Term::Literal(lit) => match lit.value() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        },
         _ => None,
     }
 }
