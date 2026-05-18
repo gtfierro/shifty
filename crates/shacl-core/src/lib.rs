@@ -3,6 +3,7 @@
 pub mod algebra;
 pub mod analysis;
 pub mod backend_views;
+pub mod data_graph;
 pub mod diagnostics;
 pub mod execute;
 pub mod parse;
@@ -22,6 +23,10 @@ pub use backend_views::{
     SharedWorkUnitKind, ValidationView, ValidationWorkInventory, derive_backend_views,
     derive_inference_view, derive_validation_view,
 };
+pub use data_graph::{
+    ClassDataStats, DataGraphSummary, FanoutClass, PredicateDataStats, SelectivityClass,
+    ShapeDataSummary, TargetEstimate, summarize_data_graph,
+};
 pub use execute::{
     ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
     ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
@@ -32,10 +37,12 @@ pub use passes::{
     prune_deactivated_program,
 };
 pub use plan::{
-    BackendPlans, InferencePlan, InferencePlanNode, LogicalPlanSummary, ValidationPlan,
-    ValidationPlanNode, derive_backend_logical_plans, derive_inference_logical_plan,
-    derive_inference_logical_plan_from_view, derive_validation_logical_plan,
-    derive_validation_logical_plan_from_view,
+    BackendPlans, ConstraintBatchAnnotation as ValidationConstraintBatchAnnotation, InferencePlan,
+    InferencePlanNode, LogicalPlanSummary, TargetScanAnnotation as ValidationTargetScanAnnotation,
+    ValidationPlan, ValidationPlanAnnotations, ValidationPlanNode, derive_backend_logical_plans,
+    derive_inference_logical_plan, derive_inference_logical_plan_from_view,
+    derive_validation_logical_plan, derive_validation_logical_plan_from_view,
+    derive_validation_logical_plan_with_data,
 };
 pub use render::render_shape_program_dot;
 pub use report::{ValidationReportGraph, build_validation_report};

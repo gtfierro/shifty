@@ -5,7 +5,8 @@ use shifty_shacl_core::{
     StaticCostHint, ValidationBackend, analyze_program, analyze_static, analyze_static_with_roots,
     build_validation_report, canonicalize_program, context_requirements,
     derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
-    derive_inference_view, derive_validation_logical_plan, derive_validation_view,
+    derive_inference_view, derive_validation_logical_plan, derive_validation_logical_plan_with_data,
+    derive_validation_view,
     fingerprint_program, lower_to_program, normalize_program, parse_quads,
     prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
     slice_program,
@@ -165,7 +166,7 @@ fn non_sh_predicates_without_component_definitions_lower_as_generic_predicates()
     let doc = parse_quads(vec![
         Quad::new(
             shape.clone(),
-            rdf_type,
+            rdf_type.clone(),
             Term::NamedNode(sh_node_shape),
             oxrdf::GraphName::DefaultGraph,
         ),
@@ -1319,6 +1320,244 @@ fn validation_logical_plan_contains_target_scans_and_constraint_batches() {
     let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
     assert!(plan.summary.node_counts.contains_key("target_scan"));
     assert!(plan.summary.node_counts.contains_key("constraint_batch"));
+}
+
+#[test]
+fn data_aware_plan_marks_empty_target_scans() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdfs_class = NamedNode::new("http://www.w3.org/2000/01/rdf-schema#Class").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_class = NamedNode::new("http://www.w3.org/ns/shacl#targetClass").unwrap();
+    let sh_class = NamedNode::new("http://www.w3.org/ns/shacl#class").unwrap();
+    let shape = NamedNode::new("urn:empty-shape").unwrap();
+    let missing = NamedNode::new("urn:Missing").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_class,
+            Term::NamedNode(missing.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            sh_class,
+            Term::NamedNode(missing.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            missing,
+            rdf_type.clone(),
+            Term::NamedNode(rdfs_class),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&doc);
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-empty").unwrap(),
+            quads: vec![],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let plan = derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let summary = plan.data_summary.expect("data summary present");
+    let shape_id = summary
+        .shape_summaries
+        .iter()
+        .find(|shape| shape.label == "<urn:empty-shape>")
+        .expect("shape summary exists")
+        .shape;
+    assert_eq!(
+        plan.annotations
+            .target_scans
+            .values()
+            .find(|annotation| annotation.shape == shape_id)
+            .and_then(|annotation| annotation.empty_scan),
+        Some(true)
+    );
+}
+
+#[test]
+fn data_aware_plan_orders_target_scans_by_selectivity() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdfs_class = NamedNode::new("http://www.w3.org/2000/01/rdf-schema#Class").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_class = NamedNode::new("http://www.w3.org/ns/shacl#targetClass").unwrap();
+    let broad_shape = NamedNode::new("urn:broad-shape").unwrap();
+    let narrow_shape = NamedNode::new("urn:narrow-shape").unwrap();
+    let broad_class = NamedNode::new("urn:Broad").unwrap();
+    let narrow_class = NamedNode::new("urn:Narrow").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            broad_shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            narrow_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            broad_shape,
+            sh_target_class.clone(),
+            Term::NamedNode(broad_class.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            narrow_shape,
+            sh_target_class,
+            Term::NamedNode(narrow_class.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            broad_class,
+            NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+            Term::NamedNode(rdfs_class.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            narrow_class,
+            NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+            Term::NamedNode(rdfs_class),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let mut data_quads = Vec::new();
+    for index in 0..5 {
+        let subject = NamedNode::new(format!("urn:broad-{index}")).unwrap();
+        data_quads.push(Quad::new(
+            subject,
+            NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+            Term::NamedNode(NamedNode::new("urn:Broad").unwrap()),
+            oxrdf::GraphName::DefaultGraph,
+        ));
+    }
+    data_quads.push(Quad::new(
+        NamedNode::new("urn:narrow-0").unwrap(),
+        NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+        Term::NamedNode(NamedNode::new("urn:Narrow").unwrap()),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-selectivity").unwrap(),
+            quads: data_quads,
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let plan = derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let shape_labels = plan
+        .view
+        .program
+        .shapes
+        .iter()
+        .map(|shape| (shape.id.0, shape.normalized_key.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let target_scan_shapes = plan
+        .nodes
+        .iter()
+        .filter_map(|node| match node {
+            shifty_shacl_core::ValidationPlanNode::TargetScan { shape, .. } => {
+                shape_labels.get(&shape.0).cloned()
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        target_scan_shapes,
+        vec![
+            "<urn:narrow-shape>".to_string(),
+            "<urn:broad-shape>".to_string()
+        ]
+    );
+}
+
+#[test]
+fn data_aware_plan_preserves_validation_conformance() {
+    let shapes = fixture_path("af_default_shapes.ttl");
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(shapes)],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-conformance").unwrap(),
+            quads: vec![],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+    let plain = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data_aware =
+        derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let backend = InMemoryValidationBackend;
+    let plain_result = backend.execute(&plain, &data).expect("plain executes");
+    let data_result = backend.execute(&data_aware, &data).expect("data-aware executes");
+    assert_eq!(plain_result.conforms, data_result.conforms);
+    let plain_keys = plain_result
+        .violations
+        .iter()
+        .map(|violation| {
+            (
+                violation.shape.0,
+                violation.constraint.map(|id| id.0),
+                violation.focus.to_string(),
+                violation.value.as_ref().map(ToString::to_string),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let data_keys = data_result
+        .violations
+        .iter()
+        .map(|violation| {
+            (
+                violation.shape.0,
+                violation.constraint.map(|id| id.0),
+                violation.focus.to_string(),
+                violation.value.as_ref().map(ToString::to_string),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(plain_keys, data_keys);
 }
 
 #[test]

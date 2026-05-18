@@ -11,6 +11,13 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - surface the results in a dedicated inspection CLI command
 - drive conservative semantics-preserving rewrites over normalized shape programs
 
+For the next planning phase, extend that analysis with advisory data-graph knowledge so logical plans can:
+
+- estimate target and path selectivity from the current dataset
+- recognize empty or trivially small evaluation frontiers
+- prioritize cheap and selective scans before broad fanout work
+- expose expected work sizes to backends without baking in backend-specific execution
+
 ## Decisions
 
 - [x] Put the checklist plan in `docs/`
@@ -237,6 +244,29 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for triple-rule execution
 - [x] Add fixture-backed tests for SPARQL-rule execution
 - [ ] Add a Brick smoke test assertion that AF rules no longer remain unsupported
+
+## Phase 18 Checklist
+
+- [x] Add a data-graph analysis module for backend-agnostic planning inputs
+- [x] Define `DataGraphSummary` for dataset-wide planning signals
+- [x] Define `ShapeDataSummary` for shape-local planning signals
+- [x] Collect target cardinality estimates for target-bearing shapes
+- [x] Collect predicate cardinality and distinct subject/object counts
+- [x] Collect observed node-kind and datatype distributions per predicate
+- [x] Collect simple class-membership counts and subclass-expanded counts
+- [x] Classify property paths by observed selectivity and fanout
+- [x] Mark empty / unsatisfiable target scans from the current data graph
+- [x] Detect obviously dead constraints against the current data graph
+- [x] Detect obviously vacuous constraints against the current data graph
+- [x] Surface data-aware selectivity hints into validation logical plans
+- [x] Surface data-aware batching / scan ordering hints into validation logical plans
+- [x] Add plan annotations for target-scan cost, expected focus count, and expected path fanout
+- [x] Keep all data-aware annotations advisory, not semantics-changing
+- [x] Add a CLI inspection command for data-graph summaries and plan annotations
+- [x] Add JSON output for data-graph summaries and annotations
+- [x] Add fixture-backed tests for empty-target detection
+- [x] Add fixture-backed tests for selectivity-aware ordering hints
+- [x] Add fixture-backed tests proving data-aware planning does not change conformance
 
 ## Phase 14 Checklist
 

@@ -3,8 +3,10 @@ use crate::backend_views::{
     BackendBucket, BackendViewOptions, InferenceView, SharedWorkUnit, ValidationView,
     derive_inference_view, derive_validation_view,
 };
+use crate::data_graph::{DataGraphSummary, FanoutClass, summarize_data_graph};
+use crate::source::ResolvedShapeSet;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValidationPlanNode {
@@ -53,11 +55,35 @@ pub struct LogicalPlanSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetScanAnnotation {
+    pub shape: ShapeId,
+    pub estimated_focus_nodes: Option<usize>,
+    pub empty_scan: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstraintBatchAnnotation {
+    pub shape: ShapeId,
+    pub estimated_focus_nodes: Option<usize>,
+    pub fanout_hints: BTreeMap<String, FanoutClass>,
+    pub dead_constraint_candidates: Vec<ConstraintId>,
+    pub vacuous_constraint_candidates: Vec<ConstraintId>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ValidationPlanAnnotations {
+    pub target_scans: BTreeMap<u64, TargetScanAnnotation>,
+    pub constraint_batches: BTreeMap<u64, ConstraintBatchAnnotation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationPlan {
     pub view: ValidationView,
     pub executable_rules: Vec<Rule>,
     pub nodes: Vec<ValidationPlanNode>,
     pub summary: LogicalPlanSummary,
+    pub data_summary: Option<DataGraphSummary>,
+    pub annotations: ValidationPlanAnnotations,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,7 +126,29 @@ pub fn derive_validation_logical_plan(
         .filter(|rule| retained_shapes.contains(&rule.owner) && !rule.deactivated)
         .cloned()
         .collect::<Vec<_>>();
-    derive_validation_logical_plan_from_view_with_rules(view, executable_rules)
+    derive_validation_logical_plan_from_view_with_rules(view, executable_rules, None)
+}
+
+pub fn derive_validation_logical_plan_with_data(
+    program: &crate::algebra::ShapeProgram,
+    options: BackendViewOptions,
+    data: &ResolvedShapeSet,
+) -> ValidationPlan {
+    let view = derive_validation_view(program, options);
+    let retained_shapes = view
+        .program
+        .shapes
+        .iter()
+        .map(|shape| shape.id)
+        .collect::<BTreeSet<_>>();
+    let executable_rules = program
+        .rules
+        .iter()
+        .filter(|rule| retained_shapes.contains(&rule.owner) && !rule.deactivated)
+        .cloned()
+        .collect::<Vec<_>>();
+    let summary = summarize_data_graph(&view.program, data);
+    derive_validation_logical_plan_from_view_with_rules(view, executable_rules, Some(summary))
 }
 
 pub fn derive_inference_logical_plan(
@@ -112,21 +160,36 @@ pub fn derive_inference_logical_plan(
 }
 
 pub fn derive_validation_logical_plan_from_view(view: ValidationView) -> ValidationPlan {
-    derive_validation_logical_plan_from_view_with_rules(view, Vec::new())
+    derive_validation_logical_plan_from_view_with_rules(view, Vec::new(), None)
 }
 
 fn derive_validation_logical_plan_from_view_with_rules(
     view: ValidationView,
     executable_rules: Vec<Rule>,
+    data_summary: Option<DataGraphSummary>,
 ) -> ValidationPlan {
     let mut nodes = Vec::new();
-    for shape in &view.program.shapes {
-        if !shape.targets.is_empty() {
-            nodes.push(ValidationPlanNode::TargetScan {
-                shape: shape.id,
-                targets: shape.targets.clone(),
-            });
-        }
+    let mut target_shapes = view
+        .program
+        .shapes
+        .iter()
+        .filter(|shape| !shape.targets.is_empty())
+        .collect::<Vec<_>>();
+    if let Some(summary) = data_summary.as_ref() {
+        target_shapes.sort_by_key(|shape| {
+            summary
+                .shape_summaries
+                .iter()
+                .find(|candidate| candidate.shape == shape.id)
+                .and_then(|candidate| candidate.estimated_focus_nodes)
+                .unwrap_or(usize::MAX)
+        });
+    }
+    for shape in target_shapes {
+        nodes.push(ValidationPlanNode::TargetScan {
+            shape: shape.id,
+            targets: shape.targets.clone(),
+        });
     }
     for shape in &view.program.shapes {
         let constraints = view
@@ -159,11 +222,17 @@ fn derive_validation_logical_plan_from_view_with_rules(
         });
     }
     let summary = validation_plan_summary(&nodes);
+    let annotations = data_summary
+        .as_ref()
+        .map(build_validation_plan_annotations)
+        .unwrap_or_default();
     ValidationPlan {
         view,
         executable_rules,
         nodes,
         summary,
+        data_summary,
+        annotations,
     }
 }
 
@@ -261,6 +330,41 @@ fn validation_plan_summary(nodes: &[ValidationPlanNode]) -> LogicalPlanSummary {
             .or_insert(0) += 1;
     }
     LogicalPlanSummary { node_counts }
+}
+
+fn build_validation_plan_annotations(summary: &DataGraphSummary) -> ValidationPlanAnnotations {
+    let mut annotations = ValidationPlanAnnotations::default();
+    for shape in &summary.shape_summaries {
+        annotations.target_scans.insert(
+            shape.shape.0,
+            TargetScanAnnotation {
+                shape: shape.shape,
+                estimated_focus_nodes: shape.estimated_focus_nodes,
+                empty_scan: shape.empty_target_scan,
+            },
+        );
+        annotations.constraint_batches.insert(
+            shape.shape.0,
+            ConstraintBatchAnnotation {
+                shape: shape.shape,
+                estimated_focus_nodes: shape.estimated_focus_nodes,
+                fanout_hints: shape.fanout_hints.clone(),
+                dead_constraint_candidates: shape
+                    .dead_constraint_candidates
+                    .iter()
+                    .copied()
+                    .map(ConstraintId)
+                    .collect(),
+                vacuous_constraint_candidates: shape
+                    .vacuous_constraint_candidates
+                    .iter()
+                    .copied()
+                    .map(ConstraintId)
+                    .collect(),
+            },
+        );
+    }
+    annotations
 }
 
 fn inference_plan_summary(nodes: &[InferencePlanNode]) -> LogicalPlanSummary {
