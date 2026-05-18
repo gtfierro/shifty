@@ -16,7 +16,7 @@ pub fn render_shape_program_dot(program: &ShapeProgram) -> String {
         };
         let label = escape_label(&format!(
             "{kind}\n{}{}",
-            shape.source,
+            shape.normalized_key,
             shape
                 .path
                 .as_ref()
@@ -133,19 +133,15 @@ fn target_label(expr: &TargetExpr) -> String {
         TargetExpr::Node(term) => format!("targetNode {}", term),
         TargetExpr::SubjectsOf(term) => format!("targetSubjectsOf {}", term),
         TargetExpr::ObjectsOf(term) => format!("targetObjectsOf {}", term),
-        TargetExpr::Advanced {
-            node,
-            select,
-            ask,
-            target_shape,
-            filter_shape,
-        } => format!(
-            "advanced {}\nselect={}\nask={}\ntargetShape={}\nfilterShape={}",
-            node,
-            format_optional_text(select.as_deref()),
-            format_optional_text(ask.as_deref()),
-            format_optional_term(target_shape.as_ref()),
-            format_optional_term(filter_shape.as_ref())
+        TargetExpr::Advanced(target) => format!(
+            "advanced {}\nselect={}\nask={}\ntargetShape={}\nfilterShape={}\nprefixes={}\ndeclare={}",
+            target.node,
+            format_optional_text(target.select.as_deref()),
+            format_optional_text(target.ask.as_deref()),
+            format_optional_term(target.target_shape.as_ref()),
+            format_optional_term(target.filter_shape.as_ref()),
+            format_terms(&target.prefixes),
+            format_prefix_declarations(&target.declarations),
         ),
     }
 }
@@ -225,4 +221,35 @@ fn format_optional_triple_pattern(value: Option<&TriplePatternTerm>) -> String {
         Some(TriplePatternTerm::Path(path)) => format!("path({})", path_label(path)),
         None => "<none>".to_string(),
     }
+}
+
+fn format_terms(values: &[Term]) -> String {
+    if values.is_empty() {
+        "<none>".to_string()
+    } else {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn format_prefix_declarations(
+    declarations: &[crate::algebra::PrefixDeclaration],
+) -> String {
+    if declarations.is_empty() {
+        return "<none>".to_string();
+    }
+    declarations
+        .iter()
+        .map(|declaration| {
+            format!(
+                "{}={}",
+                declaration.prefix.as_deref().unwrap_or("<none>"),
+                format_optional_term(declaration.namespace.as_ref())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

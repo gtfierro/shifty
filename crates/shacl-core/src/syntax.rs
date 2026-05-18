@@ -9,12 +9,33 @@ pub enum ShapeSyntaxKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrefixDeclarationSyntax {
+    pub node: Term,
+    pub prefix: Option<String>,
+    pub namespace: Option<Term>,
+    pub extras: Vec<PredicateObjects>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdvancedTargetSyntax {
+    pub node: Term,
+    pub select: Option<String>,
+    pub ask: Option<String>,
+    pub target_shape: Option<Term>,
+    pub filter_shape: Option<Term>,
+    pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclarationSyntax>,
+    pub extras: Vec<PredicateObjects>,
+    pub provenance: Vec<SourceRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetSyntax {
     Class(Term),
     Node(Term),
     SubjectsOf(Term),
     ObjectsOf(Term),
-    Advanced(Term),
+    Advanced(AdvancedTargetSyntax),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

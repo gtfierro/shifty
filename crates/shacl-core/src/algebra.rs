@@ -33,18 +33,33 @@ pub enum Severity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrefixDeclaration {
+    pub node: Term,
+    pub prefix: Option<String>,
+    pub namespace: Option<Term>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdvancedTarget {
+    pub node: Term,
+    pub select: Option<String>,
+    pub ask: Option<String>,
+    pub target_shape: Option<Term>,
+    pub target_shape_id: Option<ShapeId>,
+    pub filter_shape: Option<Term>,
+    pub filter_shape_id: Option<ShapeId>,
+    pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclaration>,
+    pub provenance: Vec<SourceRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetExpr {
     Class(Term),
     Node(Term),
     SubjectsOf(Term),
     ObjectsOf(Term),
-    Advanced {
-        node: Term,
-        select: Option<String>,
-        ask: Option<String>,
-        target_shape: Option<Term>,
-        filter_shape: Option<Term>,
-    },
+    Advanced(AdvancedTarget),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,6 +223,7 @@ pub struct ConstraintComponent {
 pub struct Shape {
     pub id: ShapeId,
     pub source: Term,
+    pub normalized_key: String,
     pub kind: ShapeKind,
     pub targets: Vec<TargetId>,
     pub constraints: Vec<ConstraintId>,
@@ -262,5 +278,6 @@ pub struct ShapeProgram {
     pub diagnostics: Vec<Diagnostic>,
     pub inspection: InspectionGraph,
     pub shape_index: HashMap<String, ShapeId>,
+    pub normalized_shape_index: HashMap<String, ShapeId>,
     pub component_index: HashMap<String, ComponentDefId>,
 }

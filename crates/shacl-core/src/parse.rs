@@ -1,9 +1,9 @@
 use crate::diagnostics::{Diagnostic, DiagnosticSeverity, SourceRef};
 use crate::source::{ResolvedShapeSet, ShapeSource, SourceLoadOptions, load_with_ontoenv};
 use crate::syntax::{
-    ConstraintComponentSyntax, ConstraintSyntax, ParameterSyntax, PredicateObjects, RuleSyntax,
-    RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument, ShapeSyntaxKind, SparqlValidatorSyntax,
-    TargetSyntax,
+    AdvancedTargetSyntax, ConstraintComponentSyntax, ConstraintSyntax, ParameterSyntax,
+    PredicateObjects, PrefixDeclarationSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax,
+    ShapeSyntaxDocument, ShapeSyntaxKind, SparqlValidatorSyntax, TargetSyntax,
 };
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -36,6 +36,8 @@ const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
 const SH_DEACTIVATED: &str = "http://www.w3.org/ns/shacl#deactivated";
 const SH_ORDER: &str = "http://www.w3.org/ns/shacl#order";
+const SH_TARGET_SHAPE: &str = "http://www.w3.org/ns/shacl#targetShape";
+const SH_FILTER_SHAPE: &str = "http://www.w3.org/ns/shacl#filterShape";
 const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
 const RDFS_COMMENT: &str = "http://www.w3.org/2000/01/rdf-schema#comment";
 const SH_PARAMETER: &str = "http://www.w3.org/ns/shacl#parameter";
@@ -52,6 +54,8 @@ const SH_PROPERTY_VALIDATOR: &str = "http://www.w3.org/ns/shacl#propertyValidato
 const SH_VALIDATOR: &str = "http://www.w3.org/ns/shacl#validator";
 const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
 const SH_ASK: &str = "http://www.w3.org/ns/shacl#ask";
+const SH_PREFIX: &str = "http://www.w3.org/ns/shacl#prefix";
+const SH_NAMESPACE: &str = "http://www.w3.org/ns/shacl#namespace";
 
 pub fn load_and_parse_with_ontoenv(
     sources: &[ShapeSource],
@@ -125,7 +129,14 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
 
     let mut shapes: Vec<ShapeSyntax> = candidate_shapes
         .into_iter()
-        .map(|subject| build_shape(&subject, by_subject.get(&subject), &provenance_by_graph))
+        .map(|subject| {
+            build_shape(
+                &subject,
+                by_subject.get(&subject),
+                &by_subject,
+                &provenance_by_graph,
+            )
+        })
         .collect();
     shapes.sort_by_key(|shape| shape.subject.to_string());
 
@@ -283,9 +294,82 @@ fn build_validator(
     }
 }
 
+fn build_advanced_target(
+    target: &Term,
+    by_subject: &HashMap<Term, Vec<Quad>>,
+    provenance_by_graph: &HashMap<Option<String>, SourceRef>,
+) -> AdvancedTargetSyntax {
+    let quads = by_subject.get(target).cloned().unwrap_or_default();
+    let grouped = group_predicates(&quads);
+    let mut select = None;
+    let mut ask = None;
+    let mut target_shape = None;
+    let mut filter_shape = None;
+    let mut prefixes = Vec::new();
+    let mut declarations = Vec::new();
+    let mut extras = Vec::new();
+
+    for (predicate, objects) in grouped {
+        match predicate.as_str() {
+            RDF_TYPE => {}
+            SH_SELECT => select = first_literal_owned(&objects),
+            SH_ASK => ask = first_literal_owned(&objects),
+            SH_TARGET_SHAPE => target_shape = objects.first().cloned(),
+            SH_FILTER_SHAPE => filter_shape = objects.first().cloned(),
+            SH_PREFIXES => prefixes.extend(objects),
+            SH_DECLARE => {
+                for object in objects {
+                    declarations.push(build_prefix_declaration(&object, by_subject));
+                }
+            }
+            _ => extras.push(PredicateObjects { predicate, objects }),
+        }
+    }
+
+    AdvancedTargetSyntax {
+        node: target.clone(),
+        select,
+        ask,
+        target_shape,
+        filter_shape,
+        prefixes,
+        declarations,
+        extras,
+        provenance: provenance_for_quads(&quads, provenance_by_graph),
+    }
+}
+
+fn build_prefix_declaration(
+    declaration: &Term,
+    by_subject: &HashMap<Term, Vec<Quad>>,
+) -> PrefixDeclarationSyntax {
+    let quads = by_subject.get(declaration).cloned().unwrap_or_default();
+    let grouped = group_predicates(&quads);
+    let mut prefix = None;
+    let mut namespace = None;
+    let mut extras = Vec::new();
+
+    for (predicate, objects) in grouped {
+        match predicate.as_str() {
+            RDF_TYPE => {}
+            SH_PREFIX => prefix = first_literal_owned(&objects),
+            SH_NAMESPACE => namespace = objects.first().cloned(),
+            _ => extras.push(PredicateObjects { predicate, objects }),
+        }
+    }
+
+    PrefixDeclarationSyntax {
+        node: declaration.clone(),
+        prefix,
+        namespace,
+        extras,
+    }
+}
+
 fn build_shape(
     subject: &Term,
     quads: Option<&Vec<Quad>>,
+    by_subject: &HashMap<Term, Vec<Quad>>,
     provenance_by_graph: &HashMap<Option<String>, SourceRef>,
 ) -> ShapeSyntax {
     let quads = quads.cloned().unwrap_or_default();
@@ -319,7 +403,15 @@ fn build_shape(
             SH_TARGET_OBJECTS_OF => {
                 targets.extend(objects.into_iter().map(TargetSyntax::ObjectsOf))
             }
-            SH_TARGET => targets.extend(objects.into_iter().map(TargetSyntax::Advanced)),
+            SH_TARGET => {
+                for object in objects {
+                    targets.push(TargetSyntax::Advanced(build_advanced_target(
+                        &object,
+                        by_subject,
+                        provenance_by_graph,
+                    )));
+                }
+            }
             SH_PROPERTY => property_shapes.extend(objects),
             SH_PATH => path = objects.into_iter().next(),
             SH_SEVERITY => severity = objects.into_iter().next(),
@@ -421,6 +513,9 @@ fn discover_inline_shapes_and_rules(
         };
         for quad in quads {
             match quad.predicate.as_str() {
+                SH_TARGET => {
+                    discover_advanced_target_shapes(by_subject, candidate_shapes, &mut pending_shapes, &quad.object);
+                }
                 SH_PROPERTY | SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
                     push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
                 }
@@ -462,6 +557,9 @@ fn discover_inline_shapes_and_rules(
         };
         for quad in quads {
             match quad.predicate.as_str() {
+                SH_TARGET => {
+                    discover_advanced_target_shapes(by_subject, candidate_shapes, &mut pending_shapes, &quad.object);
+                }
                 SH_PROPERTY | SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
                     push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
                 }
@@ -472,6 +570,22 @@ fn discover_inline_shapes_and_rules(
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+fn discover_advanced_target_shapes(
+    by_subject: &HashMap<Term, Vec<Quad>>,
+    candidate_shapes: &mut HashSet<Term>,
+    pending_shapes: &mut Vec<Term>,
+    target: &Term,
+) {
+    let Some(quads) = by_subject.get(target) else {
+        return;
+    };
+    for quad in quads {
+        if matches!(quad.predicate.as_str(), SH_TARGET_SHAPE | SH_FILTER_SHAPE) {
+            push_candidate_shape(candidate_shapes, pending_shapes, &quad.object);
         }
     }
 }

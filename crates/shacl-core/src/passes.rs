@@ -1,8 +1,8 @@
 use crate::algebra::{
-    ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr, ConstraintId,
-    DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PropertyPath, Rule, RuleExpr,
-    RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram, SparqlValidator, Target,
-    TargetExpr, TargetId, TriplePatternTerm,
+    AdvancedTarget, ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr,
+    ConstraintId, DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PrefixDeclaration,
+    PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram,
+    SparqlValidator, Target, TargetExpr, TargetId, TriplePatternTerm,
 };
 use crate::diagnostics::{
     Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode,
@@ -60,10 +60,6 @@ const SH_EQUALS: &str = "http://www.w3.org/ns/shacl#equals";
 const SH_DISJOINT: &str = "http://www.w3.org/ns/shacl#disjoint";
 const SH_LESS_THAN: &str = "http://www.w3.org/ns/shacl#lessThan";
 const SH_LESS_THAN_OR_EQUALS: &str = "http://www.w3.org/ns/shacl#lessThanOrEquals";
-const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
-const SH_ASK: &str = "http://www.w3.org/ns/shacl#ask";
-const SH_TARGET_SHAPE: &str = "http://www.w3.org/ns/shacl#targetShape";
-const SH_FILTER_SHAPE: &str = "http://www.w3.org/ns/shacl#filterShape";
 const SH_CONSTRUCT: &str = "http://www.w3.org/ns/shacl#construct";
 const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_RULE_SUBJECT: &str = "http://www.w3.org/ns/shacl#subject";
@@ -71,12 +67,32 @@ const SH_RULE_PREDICATE: &str = "http://www.w3.org/ns/shacl#predicate";
 const SH_RULE_OBJECT: &str = "http://www.w3.org/ns/shacl#object";
 
 pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
+    let quad_index = QuadIndex::new(&document.quads);
     let mut shapes = document.shapes.clone();
-    shapes.sort_by_key(|shape| shape.subject.to_string());
+    let normalized_keys = normalize_shape_keys(document, &quad_index);
+    shapes.sort_by_key(|shape| {
+        normalized_keys
+            .get(&shape.subject.to_string())
+            .cloned()
+            .unwrap_or_else(|| shape.subject.to_string())
+    });
     let shape_index: HashMap<String, ShapeId> = shapes
         .iter()
         .enumerate()
         .map(|(idx, shape)| (shape.subject.to_string(), ShapeId((idx + 1) as u64)))
+        .collect();
+    let normalized_shape_index: HashMap<String, ShapeId> = shapes
+        .iter()
+        .enumerate()
+        .map(|(idx, shape)| {
+            (
+                normalized_keys
+                    .get(&shape.subject.to_string())
+                    .cloned()
+                    .unwrap_or_else(|| shape.subject.to_string()),
+                ShapeId((idx + 1) as u64),
+            )
+        })
         .collect();
     let component_index: HashMap<String, ComponentDefId> = document
         .constraint_components
@@ -105,7 +121,6 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         .cloned()
         .map(|rule| (rule.subject.to_string(), rule))
         .collect();
-    let quad_index = QuadIndex::new(&document.quads);
 
     for shape in &shapes {
         let shape_id = shape_index[&shape.subject.to_string()];
@@ -118,9 +133,12 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
                 &shape_index,
                 &mut dependencies,
                 shape_id,
+                &mut diagnostics,
             );
-            if matches!(expr, TargetExpr::Advanced { .. }) {
+            if matches!(expr, TargetExpr::Advanced(_)) {
                 features.insert(FeatureUse::AdvancedTargets);
+            }
+            if target_uses_sparql(&expr) {
                 features.insert(FeatureUse::Sparql);
             }
             lowered_targets.push(Target {
@@ -213,6 +231,10 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         lowered_shapes.push(Shape {
             id: shape_id,
             source: shape.subject.clone(),
+            normalized_key: normalized_keys
+                .get(&shape.subject.to_string())
+                .cloned()
+                .unwrap_or_else(|| shape.subject.to_string()),
             kind,
             targets: target_ids,
             constraints: constraint_ids,
@@ -249,6 +271,7 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         diagnostics,
         inspection,
         shape_index,
+        normalized_shape_index,
         component_index,
     }
 }
@@ -259,39 +282,58 @@ fn lower_target(
     shape_index: &HashMap<String, ShapeId>,
     dependencies: &mut Vec<DependencyEdge>,
     owner: ShapeId,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> TargetExpr {
     match target {
         TargetSyntax::Class(term) => TargetExpr::Class(term.clone()),
         TargetSyntax::Node(term) => TargetExpr::Node(term.clone()),
         TargetSyntax::SubjectsOf(term) => TargetExpr::SubjectsOf(term.clone()),
         TargetSyntax::ObjectsOf(term) => TargetExpr::ObjectsOf(term.clone()),
-        TargetSyntax::Advanced(term) => {
-            let select = first_literal(quads.objects_for_subject_predicate(term, SH_SELECT));
-            let ask = first_literal(quads.objects_for_subject_predicate(term, SH_ASK));
-            let target_shape = quads
-                .objects_for_subject_predicate(term, SH_TARGET_SHAPE)
-                .first()
-                .cloned();
-            let filter_shape = quads
-                .objects_for_subject_predicate(term, SH_FILTER_SHAPE)
-                .first()
-                .cloned();
-            for dep in [&target_shape, &filter_shape].into_iter().flatten() {
-                if let Some(id) = shape_index.get(&dep.to_string()) {
-                    dependencies.push(DependencyEdge {
-                        from: owner,
-                        to: *id,
-                        kind: "target".to_string(),
-                    });
-                }
-            }
-            TargetExpr::Advanced {
-                node: term.clone(),
-                select,
-                ask,
-                target_shape,
-                filter_shape,
-            }
+        TargetSyntax::Advanced(target) => {
+            let target_shape_id = target.target_shape.as_ref().and_then(|term| {
+                resolve_target_shape_dependency(
+                    owner,
+                    term,
+                    shape_index,
+                    dependencies,
+                    diagnostics,
+                    &target.provenance,
+                    "targetShape",
+                )
+            });
+            let filter_shape_id = target.filter_shape.as_ref().and_then(|term| {
+                resolve_target_shape_dependency(
+                    owner,
+                    term,
+                    shape_index,
+                    dependencies,
+                    diagnostics,
+                    &target.provenance,
+                    "filterShape",
+                )
+            });
+            let declarations = target
+                .declarations
+                .iter()
+                .map(|declaration| PrefixDeclaration {
+                    node: declaration.node.clone(),
+                    prefix: declaration.prefix.clone(),
+                    namespace: declaration.namespace.clone(),
+                })
+                .collect();
+            let _ = quads;
+            TargetExpr::Advanced(AdvancedTarget {
+                node: target.node.clone(),
+                select: target.select.clone(),
+                ask: target.ask.clone(),
+                target_shape: target.target_shape.clone(),
+                target_shape_id,
+                filter_shape: target.filter_shape.clone(),
+                filter_shape_id,
+                prefixes: target.prefixes.clone(),
+                declarations,
+                provenance: target.provenance.clone(),
+            })
         }
     }
 }
@@ -688,10 +730,11 @@ fn build_inspection_graph(
         nodes.push(InspectionNode {
             id: format!("shape:{}", shape.id.0),
             kind: "shape".to_string(),
-            label: shape.source.to_string(),
+            label: shape.normalized_key.clone(),
             annotations: HashMap::from([
                 ("shape_kind".to_string(), format!("{:?}", shape.kind)),
                 ("deactivated".to_string(), shape.deactivated.to_string()),
+                ("source".to_string(), shape.source.to_string()),
             ]),
         });
     }
@@ -846,6 +889,164 @@ fn rule_shape_conditions(
         source,
         &format!("rule condition(s) on {}", rule.subject),
     )
+}
+
+fn target_uses_sparql(target: &TargetExpr) -> bool {
+    matches!(
+        target,
+        TargetExpr::Advanced(AdvancedTarget {
+            select: Some(_),
+            ..
+        }) | TargetExpr::Advanced(AdvancedTarget { ask: Some(_), .. })
+    )
+}
+
+fn resolve_target_shape_dependency(
+    owner: ShapeId,
+    term: &Term,
+    shape_index: &HashMap<String, ShapeId>,
+    dependencies: &mut Vec<DependencyEdge>,
+    diagnostics: &mut Vec<Diagnostic>,
+    provenance: &[crate::diagnostics::SourceRef],
+    edge_kind: &str,
+) -> Option<ShapeId> {
+    let resolved = shape_index.get(&term.to_string()).copied();
+    if let Some(shape) = resolved {
+        dependencies.push(DependencyEdge {
+            from: owner,
+            to: shape,
+            kind: "target".to_string(),
+        });
+        return Some(shape);
+    }
+    diagnostics.push(Diagnostic {
+        severity: DiagnosticSeverity::Warning,
+        message: format!("unresolved {edge_kind} reference {}", term),
+        source: provenance.first().cloned(),
+    });
+    None
+}
+
+fn normalize_shape_keys(document: &ShapeSyntaxDocument, quads: &QuadIndex) -> HashMap<String, String> {
+    let rule_index: HashMap<String, &RuleSyntax> = document
+        .rules
+        .iter()
+        .map(|rule| (rule.subject.to_string(), rule))
+        .collect();
+    let shapes_by_subject: HashMap<String, &ShapeSyntax> = document
+        .shapes
+        .iter()
+        .map(|shape| (shape.subject.to_string(), shape))
+        .collect();
+    let mut keys: HashMap<String, String> = document
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.subject {
+            Term::NamedNode(_) => Some((shape.subject.to_string(), shape.subject.to_string())),
+            _ => None,
+        })
+        .collect();
+
+    loop {
+        let mut changed = false;
+        for shape in &document.shapes {
+            let Some(owner_key) = keys.get(&shape.subject.to_string()).cloned() else {
+                continue;
+            };
+            for (role, term) in shape_reference_slots(shape, &rule_index, quads) {
+                if !matches!(term, Term::BlankNode(_)) || !shapes_by_subject.contains_key(&term.to_string()) {
+                    continue;
+                }
+                let candidate = format!("{owner_key}/{role}");
+                match keys.get(&term.to_string()) {
+                    Some(existing) if existing <= &candidate => {}
+                    _ => {
+                        keys.insert(term.to_string(), candidate);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    let mut fallback_terms: Vec<_> = document
+        .shapes
+        .iter()
+        .filter(|shape| !keys.contains_key(&shape.subject.to_string()))
+        .map(|shape| shape.subject.to_string())
+        .collect();
+    fallback_terms.sort();
+    for (index, term) in fallback_terms.into_iter().enumerate() {
+        keys.insert(term, format!("inline:shape[{}]", index));
+    }
+    keys
+}
+
+fn shape_reference_slots(
+    shape: &ShapeSyntax,
+    rule_index: &HashMap<String, &RuleSyntax>,
+    quads: &QuadIndex,
+) -> Vec<(String, Term)> {
+    let mut refs = Vec::new();
+    for (index, term) in shape.property_shapes.iter().enumerate() {
+        refs.push((format!("property[{index}]"), term.clone()));
+    }
+    for constraint in &shape.constraints {
+        match constraint.predicate.as_str() {
+            SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
+                for (index, term) in constraint.objects.iter().enumerate() {
+                    refs.push((
+                        format!("{}[{index}]", compact_shacl_local_name(constraint.predicate.as_str())),
+                        term.clone(),
+                    ));
+                }
+            }
+            SH_AND | SH_OR | SH_XONE => {
+                for (group_index, term) in constraint.objects.iter().enumerate() {
+                    let members = quad_list_terms(quads, term);
+                    for (member_index, member) in members.iter().enumerate() {
+                        refs.push((
+                            format!(
+                                "{}[{group_index}][{member_index}]",
+                                compact_shacl_local_name(constraint.predicate.as_str())
+                            ),
+                            member.clone(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for (index, target) in shape.targets.iter().enumerate() {
+        if let TargetSyntax::Advanced(target) = target {
+            if let Some(term) = target.target_shape.as_ref() {
+                refs.push((format!("target[{index}]/targetShape"), term.clone()));
+            }
+            if let Some(term) = target.filter_shape.as_ref() {
+                refs.push((format!("target[{index}]/filterShape"), term.clone()));
+            }
+        }
+    }
+    for (rule_index_in_shape, rule_term) in shape.rule_nodes.iter().enumerate() {
+        if let Some(rule) = rule_index.get(&rule_term.to_string()) {
+            let conditions = rule_property(rule, SH_CONDITION);
+            for (condition_index, condition) in conditions.iter().enumerate() {
+                refs.push((
+                    format!("rule[{rule_index_in_shape}]/condition[{condition_index}]"),
+                    condition.clone(),
+                ));
+            }
+        }
+    }
+    refs
+}
+
+fn compact_shacl_local_name(iri: &str) -> &str {
+    iri.rsplit('#').next().unwrap_or(iri)
 }
 
 fn feature_order(feature: &FeatureUse) -> u8 {

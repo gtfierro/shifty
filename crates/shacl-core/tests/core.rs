@@ -30,13 +30,45 @@ fn lowers_af_targets_into_advanced_target_algebra() {
     assert!(program.targets.iter().any(|target| {
         matches!(
             target.expr,
-            shifty_shacl_core::algebra::TargetExpr::Advanced { .. }
+            shifty_shacl_core::algebra::TargetExpr::Advanced(_)
         )
     }));
     assert!(program.features.iter().any(|feature| matches!(
         feature,
         shifty_shacl_core::algebra::FeatureUse::AdvancedTargets
     )));
+
+    let parsed_target = syntax
+        .shapes
+        .iter()
+        .find(|shape| shape.subject.to_string() == "<http://example.org/FilteredShape>")
+        .and_then(|shape| shape.targets.first())
+        .expect("filtered shape should have an advanced target");
+    let shifty_shacl_core::syntax::TargetSyntax::Advanced(parsed_target) = parsed_target else {
+        panic!("expected advanced target syntax");
+    };
+    assert_eq!(parsed_target.declarations.len(), 1);
+    assert_eq!(
+        parsed_target.declarations[0].prefix.as_deref(),
+        Some("ex")
+    );
+
+    let lowered_target = program
+        .targets
+        .iter()
+        .find(|target| target.owner == program.shape_index["<http://example.org/FilteredShape>"])
+        .expect("filtered shape should lower a target");
+    let shifty_shacl_core::algebra::TargetExpr::Advanced(lowered_target) = &lowered_target.expr
+    else {
+        panic!("expected advanced target algebra");
+    };
+    assert_eq!(lowered_target.declarations.len(), 1);
+    assert_eq!(
+        lowered_target.declarations[0].prefix.as_deref(),
+        Some("ex")
+    );
+    assert!(lowered_target.target_shape_id.is_some());
+    assert!(lowered_target.filter_shape_id.is_some());
 }
 
 #[test]
@@ -528,6 +560,80 @@ fn discovers_inline_shapes_from_logical_lists_and_rule_conditions() {
             .iter()
             .any(|shape| shape.subject == Term::BlankNode(inline_cond.clone()))
     );
+}
+
+#[test]
+fn discovers_and_normalizes_inline_target_shapes() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target = NamedNode::new("http://www.w3.org/ns/shacl#target").unwrap();
+    let sh_target_shape = NamedNode::new("http://www.w3.org/ns/shacl#targetShape").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_has_value = NamedNode::new("http://www.w3.org/ns/shacl#hasValue").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let target = oxrdf::BlankNode::new("target").unwrap();
+    let inline_shape = oxrdf::BlankNode::new("inline-target-shape").unwrap();
+    let inline_property = oxrdf::BlankNode::new("inline-target-property").unwrap();
+    let path = NamedNode::new("urn:status").unwrap();
+
+    let syntax = parse_quads(vec![
+        Quad::new(
+            root.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root,
+            sh_target,
+            Term::BlankNode(target.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            target.clone(),
+            sh_target_shape,
+            Term::BlankNode(inline_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_shape.clone(),
+            sh_property,
+            Term::BlankNode(inline_property.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_property.clone(),
+            sh_path,
+            Term::NamedNode(path),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_property,
+            sh_has_value,
+            Term::Literal(Literal::from("ready")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&syntax);
+
+    assert!(program
+        .shapes
+        .iter()
+        .any(|shape| shape.source == Term::BlankNode(inline_shape.clone())));
+    assert_eq!(
+        program.shape_index[&Term::BlankNode(inline_shape.clone()).to_string()],
+        program.normalized_shape_index["<urn:root>/target[0]/targetShape"]
+    );
+    assert!(program
+        .normalized_shape_index
+        .contains_key("<urn:root>/target[0]/targetShape/property[0]"));
 }
 
 #[test]
