@@ -1,16 +1,16 @@
 use crate::algebra::{
-    AdvancedTarget, ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr,
-    ConstraintId, DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PrefixDeclaration,
-    PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram,
-    SparqlConstraint, SparqlValidator, Target, TargetExpr, TargetId, Template, TemplateBinding,
-    TemplatePart, TemplateSlotKind, TriplePatternTerm,
+    AdvancedTarget, ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr, ConstraintId,
+    DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PrefixDeclaration, PropertyPath,
+    Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram, SparqlConstraint,
+    SparqlValidator, Target, TargetExpr, TargetId, Template, TemplateBinding, TemplatePart,
+    TemplateSlotKind, TriplePatternTerm,
 };
 use crate::diagnostics::{
     Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode,
 };
 use crate::syntax::{
-    ConstraintSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument, ShapeSyntaxKind,
-    TargetSyntax,
+    ConstraintSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument,
+    ShapeSyntaxKind, TargetSyntax,
 };
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -136,16 +136,13 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
     }) {
         features.insert(FeatureUse::Sparql);
     }
-    if lowered_components
-        .iter()
-        .any(|component| {
-            component
-                .label_template_expr
-                .as_ref()
-                .is_some_and(template_has_slots)
-                || component.message_templates.iter().any(template_has_slots)
-        })
-    {
+    if lowered_components.iter().any(|component| {
+        component
+            .label_template_expr
+            .as_ref()
+            .is_some_and(template_has_slots)
+            || component.message_templates.iter().any(template_has_slots)
+    }) {
         features.insert(FeatureUse::Templates);
     }
     let mut diagnostics = document.diagnostics.clone();
@@ -333,7 +330,9 @@ pub fn normalize_program(program: &ShapeProgram, options: NormalizeOptions) -> S
 pub fn canonicalize_program(program: &ShapeProgram) -> ShapeProgram {
     let mut normalized = program.clone();
     normalized.shapes.sort_by_key(|shape| shape.id);
-    normalized.constraints.sort_by_key(|constraint| constraint.id);
+    normalized
+        .constraints
+        .sort_by_key(|constraint| constraint.id);
     normalized.targets.sort_by_key(|target| target.id);
     normalized.rules.sort_by_key(|rule| rule.id);
     normalized
@@ -347,9 +346,13 @@ pub fn canonicalize_program(program: &ShapeProgram) -> ShapeProgram {
     });
     normalized.features.sort_by_key(feature_order);
     normalized.features.dedup();
-    normalized
-        .source_inventory
-        .sort_by_key(|source| (source.is_root, source.graph_iri.clone(), source.locator.clone()));
+    normalized.source_inventory.sort_by_key(|source| {
+        (
+            source.is_root,
+            source.graph_iri.clone(),
+            source.locator.clone(),
+        )
+    });
     normalized
         .source_inventory
         .dedup_by(|left, right| left.graph_iri == right.graph_iri && left.locator == right.locator);
@@ -412,8 +415,12 @@ pub fn prune_deactivated_program(program: &ShapeProgram) -> ShapeProgram {
         .filter(|shape| kept_shape_ids.contains(&shape.id))
         .cloned()
         .map(|mut shape| {
-            shape.property_shapes.retain(|id| kept_shape_ids.contains(id));
-            shape.constraints.retain(|id| kept_constraint_ids.contains(id));
+            shape
+                .property_shapes
+                .retain(|id| kept_shape_ids.contains(id));
+            shape
+                .constraints
+                .retain(|id| kept_constraint_ids.contains(id));
             shape.targets.retain(|id| kept_target_ids.contains(id));
             shape
         })
@@ -842,9 +849,10 @@ fn parameter_value_from_shape(shape: &ShapeSyntax, path: &Term) -> Option<Vec<Te
     let Term::NamedNode(path) = path else {
         return None;
     };
-    shape.constraints.iter().find_map(|constraint| {
-        (constraint.predicate == *path).then(|| constraint.objects.clone())
-    })
+    shape
+        .constraints
+        .iter()
+        .find_map(|constraint| (constraint.predicate == *path).then(|| constraint.objects.clone()))
 }
 
 fn lower_component_message_templates(
@@ -880,9 +888,7 @@ fn resolve_component_syntax<'a>(
         .map(|(_, component)| component)
 }
 
-fn lower_sparql_constraint(
-    constraint: &crate::syntax::SparqlConstraintSyntax,
-) -> SparqlConstraint {
+fn lower_sparql_constraint(constraint: &crate::syntax::SparqlConstraintSyntax) -> SparqlConstraint {
     SparqlConstraint {
         node: constraint.node.clone(),
         kind: constraint.kind.clone(),
@@ -1347,7 +1353,10 @@ fn resolve_target_shape_dependency(
     None
 }
 
-fn normalize_shape_keys(document: &ShapeSyntaxDocument, quads: &QuadIndex) -> HashMap<String, String> {
+fn normalize_shape_keys(
+    document: &ShapeSyntaxDocument,
+    quads: &QuadIndex,
+) -> HashMap<String, String> {
     let rule_index: HashMap<String, &RuleSyntax> = document
         .rules
         .iter()
@@ -1374,7 +1383,9 @@ fn normalize_shape_keys(document: &ShapeSyntaxDocument, quads: &QuadIndex) -> Ha
                 continue;
             };
             for (role, term) in shape_reference_slots(shape, &rule_index, quads) {
-                if !matches!(term, Term::BlankNode(_)) || !shapes_by_subject.contains_key(&term.to_string()) {
+                if !matches!(term, Term::BlankNode(_))
+                    || !shapes_by_subject.contains_key(&term.to_string())
+                {
                     continue;
                 }
                 let candidate = format!("{owner_key}/{role}");
@@ -1419,7 +1430,10 @@ fn shape_reference_slots(
             SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
                 for (index, term) in constraint.objects.iter().enumerate() {
                     refs.push((
-                        format!("{}[{index}]", compact_shacl_local_name(constraint.predicate.as_str())),
+                        format!(
+                            "{}[{index}]",
+                            compact_shacl_local_name(constraint.predicate.as_str())
+                        ),
                         term.clone(),
                     ));
                 }
@@ -1487,7 +1501,11 @@ fn parse_template(raw: String) -> Template {
         let parsed = token
             .strip_prefix('?')
             .map(|name| (TemplateSlotKind::Variable, name))
-            .or_else(|| token.strip_prefix('$').map(|name| (TemplateSlotKind::Parameter, name)));
+            .or_else(|| {
+                token
+                    .strip_prefix('$')
+                    .map(|name| (TemplateSlotKind::Parameter, name))
+            });
         match parsed {
             Some((kind, name)) if !name.is_empty() => parts.push(TemplatePart::Slot {
                 kind,

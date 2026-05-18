@@ -1,6 +1,5 @@
 use crate::algebra::{
-    ConstraintExpr, PropertyPath, RuleExpr, ShapeKind, ShapeProgram, TargetExpr,
-    TriplePatternTerm,
+    ConstraintExpr, PropertyPath, RuleExpr, ShapeKind, ShapeProgram, TargetExpr, TriplePatternTerm,
 };
 use oxrdf::{NamedNode, Term};
 
@@ -254,9 +253,7 @@ fn format_terms(values: &[Term]) -> String {
     }
 }
 
-fn format_prefix_declarations(
-    declarations: &[crate::algebra::PrefixDeclaration],
-) -> String {
+fn format_prefix_declarations(declarations: &[crate::algebra::PrefixDeclaration]) -> String {
     if declarations.is_empty() {
         return "<none>".to_string();
     }
@@ -302,7 +299,11 @@ fn format_template_bindings(bindings: &[crate::algebra::TemplateBinding]) -> Str
                 "{}={}{}",
                 binding.name,
                 format_terms(&binding.values),
-                if binding.from_default { " [default]" } else { "" }
+                if binding.from_default {
+                    " [default]"
+                } else {
+                    ""
+                }
             )
         })
         .collect::<Vec<_>>()

@@ -137,15 +137,11 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
     discover_inline_shapes_and_rules(&by_subject, &mut candidate_shapes, &mut candidate_rules);
     candidate_shapes.retain(|subject| {
         !parameter_nodes.contains(subject)
-            || by_subject
-                .get(subject)
-                .into_iter()
-                .flatten()
-                .any(|quad| {
-                    quad.predicate.as_str() == RDF_TYPE
-                        && (matches_named(&quad.object, SH_NODE_SHAPE)
-                            || matches_named(&quad.object, SH_PROPERTY_SHAPE))
-                })
+            || by_subject.get(subject).into_iter().flatten().any(|quad| {
+                quad.predicate.as_str() == RDF_TYPE
+                    && (matches_named(&quad.object, SH_NODE_SHAPE)
+                        || matches_named(&quad.object, SH_PROPERTY_SHAPE))
+            })
     });
 
     let mut shapes: Vec<ShapeSyntax> = candidate_shapes
@@ -609,7 +605,12 @@ fn discover_inline_shapes_and_rules(
         for quad in quads {
             match quad.predicate.as_str() {
                 SH_TARGET => {
-                    discover_advanced_target_shapes(by_subject, candidate_shapes, &mut pending_shapes, &quad.object);
+                    discover_advanced_target_shapes(
+                        by_subject,
+                        candidate_shapes,
+                        &mut pending_shapes,
+                        &quad.object,
+                    );
                 }
                 SH_PROPERTY | SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
                     push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
@@ -653,7 +654,12 @@ fn discover_inline_shapes_and_rules(
         for quad in quads {
             match quad.predicate.as_str() {
                 SH_TARGET => {
-                    discover_advanced_target_shapes(by_subject, candidate_shapes, &mut pending_shapes, &quad.object);
+                    discover_advanced_target_shapes(
+                        by_subject,
+                        candidate_shapes,
+                        &mut pending_shapes,
+                        &quad.object,
+                    );
                 }
                 SH_PROPERTY | SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
                     push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
