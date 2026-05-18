@@ -1,10 +1,11 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    ContextFootprint, NormalizeOptions, RewriteOptions, SliceReason, SliceRoots, StaticCostHint,
-    analyze_program, analyze_static, analyze_static_with_roots, canonicalize_program,
-    context_requirements, fingerprint_program, lower_to_program, normalize_program, parse_quads,
-    prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
-    slice_program,
+    BackendBucket, BackendViewOptions, ContextFootprint, NormalizeOptions, RewriteOptions,
+    SliceReason, SliceRoots, StaticCostHint, analyze_program, analyze_static,
+    analyze_static_with_roots, canonicalize_program, context_requirements, derive_backend_views,
+    derive_inference_view, derive_validation_view, fingerprint_program, lower_to_program,
+    normalize_program, parse_quads, prune_deactivated_program, render_shape_program_dot,
+    rewrite_program, shared_work_candidates, slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
@@ -867,6 +868,112 @@ fn rewrite_program_reports_recursive_regions() {
     let rewritten = rewrite_program(&program, RewriteOptions::default());
     assert_eq!(rewritten.summary.recursive_regions.len(), 1);
     assert_eq!(rewritten.summary.recursive_regions[0].shapes.len(), 2);
+}
+
+#[test]
+fn validation_view_drops_rules_but_keeps_shape_partitions() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_target_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let view = derive_validation_view(&program, BackendViewOptions::default());
+    assert_eq!(view.program.rules.len(), 0);
+    assert!(!view.entry_shapes.is_empty());
+    assert!(!view.partition.histogram.is_empty());
+}
+
+#[test]
+fn inference_view_keeps_rule_owners_and_condition_shapes() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let owner = NamedNode::new("urn:owner").unwrap();
+    let condition = NamedNode::new("urn:condition").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            owner.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            condition.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_condition,
+            Term::NamedNode(condition.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::from(
+                "CONSTRUCT { $this <urn:p> <urn:o> } WHERE { }",
+            )),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&doc);
+    let view = derive_inference_view(
+        &program,
+        BackendViewOptions {
+            rewrite: RewriteOptions {
+                roots: Some(SliceRoots::ExplicitSelectors(vec![
+                    "<urn:owner>".to_string(),
+                ])),
+                prune_unreachable: true,
+                ..RewriteOptions::default()
+            },
+        },
+    );
+    assert_eq!(view.program.rules.len(), 1);
+    assert_eq!(view.rule_owner_shapes.len(), 1);
+    assert_eq!(view.condition_shapes.len(), 1);
+    assert!(matches!(
+        view.rule_buckets.values().next(),
+        Some(BackendBucket::ShapeReference)
+    ));
+}
+
+#[test]
+fn backend_views_can_be_derived_together() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let views = derive_backend_views(&program, BackendViewOptions::default());
+    assert!(!views.validation.program.shapes.is_empty());
+    assert!(!views.inference.program.shapes.is_empty());
 }
 
 #[test]

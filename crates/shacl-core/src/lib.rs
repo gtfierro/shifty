@@ -2,6 +2,7 @@
 
 pub mod algebra;
 pub mod analysis;
+pub mod backend_views;
 pub mod diagnostics;
 pub mod parse;
 pub mod passes;
@@ -12,6 +13,10 @@ pub mod static_analysis;
 pub mod syntax;
 
 pub use analysis::{AnalysisSummary, analyze_program};
+pub use backend_views::{
+    BackendBucket, BackendShapePartition, BackendViewOptions, BackendViews, InferenceView,
+    ValidationView, derive_backend_views, derive_inference_view, derive_validation_view,
+};
 pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::{
     NormalizeOptions, canonicalize_program, lower_to_program, normalize_program,
