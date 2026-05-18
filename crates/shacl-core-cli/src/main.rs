@@ -13,7 +13,7 @@ use shifty_shacl_core::{
     derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
     parse_resolved, render_shape_program_dot, rewrite_program,
 };
-use shifty_shacl_core_inmemory::InMemoryValidationBackend;
+use shifty_shacl_core_inmemory::{compile_validation_plan, InMemoryValidationBackend};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -41,6 +41,8 @@ enum Command {
     Plan(PlanArgs),
     /// Derive data-graph-aware validation plan annotations
     DataPlan(DataPlanArgs),
+    /// Inspect the in-memory backend physical plan
+    PhysicalPlan(PhysicalPlanArgs),
     /// Execute a narrow validation backend over data graphs
     Validate(ValidateArgs),
     /// Emit Graphviz DOT for the shape/component graph
@@ -354,6 +356,36 @@ struct DataPlanArgs {
     benchmark_json: Option<PathBuf>,
 }
 
+#[derive(Parser, Debug)]
+struct PhysicalPlanArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Data files or URLs used to derive the data-aware validation plan
+    #[arg(long = "data", value_name = "DATA", required = true)]
+    data: Vec<String>,
+
+    /// Drop deactivated shapes and rules before deriving plans
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
+    /// Closure mode used to derive backend-facing views before planning
+    #[arg(long, value_enum, default_value_t = BackendClosureArg::TargetRoots)]
+    closure: BackendClosureArg,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct BenchmarkStageRecord {
     name: String,
@@ -435,6 +467,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::BackendView(args) => run_backend_view(args)?,
         Command::Plan(args) => run_plan(args)?,
         Command::DataPlan(args) => run_data_plan(args)?,
+        Command::PhysicalPlan(args) => run_physical_plan(args)?,
         Command::Validate(args) => run_validate(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
@@ -993,6 +1026,62 @@ fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(path) = args.benchmark_json.as_deref() {
         if let Some(recorder) = benchmark {
             write_json(&recorder.finish(), Some(path))?;
+        }
+    }
+    Ok(())
+}
+
+fn run_physical_plan(args: PhysicalPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let roots = if args.root_shapes.is_empty() {
+        Some(SliceRoots::TargetShapes)
+    } else {
+        Some(SliceRoots::ExplicitSelectors(args.root_shapes.clone()))
+    };
+    let options = BackendViewOptions {
+        rewrite: RewriteOptions {
+            roots,
+            prune_unreachable: true,
+            ..RewriteOptions::default()
+        },
+        closure_mode: match args.closure {
+            BackendClosureArg::TargetRoots => BackendClosureMode::TargetRoots,
+            BackendClosureArg::ValidationClosure => BackendClosureMode::ValidationClosure,
+            BackendClosureArg::InferenceClosure => BackendClosureMode::InferenceClosure,
+            BackendClosureArg::MixedClosure => BackendClosureMode::MixedClosure,
+        },
+    };
+    let data_sources = args
+        .data
+        .iter()
+        .map(|value| source_from_str(value))
+        .collect::<Vec<_>>();
+    let data = if same_shape_and_data_sources(&shape_sources(&args.shared), &data_sources) {
+        resolved.clone()
+    } else {
+        shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+    };
+    let execution_data = resolved.merged_with(&data);
+    let plan = derive_validation_logical_plan_with_data(&program, options, &execution_data);
+    let physical = compile_validation_plan(&plan).inspect();
+    match args.format {
+        AnalyzeFormat::Json => write_json(
+            &serde_json::json!({
+                "validation_plan": plan,
+                "physical_plan": physical,
+            }),
+            args.output.as_deref(),
+        )?,
+        AnalyzeFormat::Text => {
+            let text = render_physical_plan_text(&physical);
+            write_text(&text, args.output.as_deref())?;
         }
     }
     Ok(())
@@ -2174,6 +2263,58 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
         out.push_str("  unavailable\n\n");
     }
     out.push_str(&render_validation_plan_text(plan));
+    out
+}
+
+fn render_physical_plan_text(
+    plan: &shifty_shacl_core_inmemory::InspectablePhysicalPlan,
+) -> String {
+    let mut out = String::new();
+    out.push_str("Physical Plan\n");
+    out.push_str(&format!("  shapes: {}\n", plan.shape_count));
+    out.push_str(&format!("  constraints: {}\n", plan.constraint_count));
+    out.push_str(&format!("  target_scans: {}\n", plan.target_scans.len()));
+    out.push_str(&format!(
+        "  constraint_batches: {}\n",
+        plan.constraint_batches.len()
+    ));
+    out.push_str(&format!("  has_sparql_work: {}\n", plan.has_sparql_work));
+    out.push_str(&format!(
+        "  has_advanced_targets: {}\n",
+        plan.has_advanced_targets
+    ));
+    out.push_str(&format!("  has_sparql_rules: {}\n", plan.has_sparql_rules));
+    out.push('\n');
+    out.push_str("  Target Scans\n");
+    for scan in &plan.target_scans {
+        out.push_str(&format!(
+            "    shape={} targets={} empty={} cacheable={}\n",
+            scan.shape.0,
+            scan.targets.len(),
+            scan.empty_scan,
+            scan.cacheable
+        ));
+    }
+    out.push('\n');
+    out.push_str("  Constraint Batches\n");
+    for batch in &plan.constraint_batches {
+        out.push_str(&format!(
+            "    shape={} bucket={} constraints={} dead={} vacuous={}\n",
+            batch.shape.0,
+            render_backend_bucket(&batch.bucket),
+            batch.constraints.len(),
+            batch.dead_constraints.len(),
+            batch.vacuous_constraints.len()
+        ));
+    }
+    out.push('\n');
+    out.push_str("  Compiled Constraints\n");
+    for op in &plan.constraint_ops {
+        out.push_str(&format!(
+            "    constraint={} kind={} compiled_as={} precompiled_regex={}\n",
+            op.constraint.0, op.kind, op.compiled_kind, op.precompiled_regex
+        ));
+    }
     out
 }
 
