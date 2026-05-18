@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    load_and_parse_with_ontoenv, lower_to_program, parse_resolved, render_shape_program_dot,
+    AnalysisSummary, analyze_program, load_and_parse_with_ontoenv, lower_to_program,
+    parse_resolved, render_shape_program_dot,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -17,6 +18,8 @@ struct Cli {
 enum Command {
     /// Dump parsed shapes as JSON
     Dump(DumpArgs),
+    /// Summarize the lowered shape program and diagnostics
+    Analyze(AnalyzeArgs),
     /// Emit Graphviz DOT for the shape/component graph
     Graphviz(GraphvizArgs),
 }
@@ -25,6 +28,12 @@ enum Command {
 enum DumpStage {
     Syntax,
     Program,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum AnalyzeFormat {
+    Text,
+    Json,
 }
 
 #[derive(Parser, Debug)]
@@ -74,10 +83,25 @@ struct GraphvizArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(Parser, Debug)]
+struct AnalyzeArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
         Command::Dump(args) => run_dump(args)?,
+        Command::Analyze(args) => run_analyze(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
     Ok(())
@@ -97,10 +121,35 @@ fn run_dump(args: DumpArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_graphviz(args: GraphvizArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let syntax = load_and_parse_with_ontoenv(&shape_sources(&args.shared), &load_options(&args.shared))?;
+    let syntax =
+        load_and_parse_with_ontoenv(&shape_sources(&args.shared), &load_options(&args.shared))?;
     let program = lower_to_program(&syntax);
     let dot = render_shape_program_dot(&program);
     write_text(&dot, args.output.as_deref())?;
+    Ok(())
+}
+
+fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let analysis = analyze_program(&program);
+    match args.format {
+        AnalyzeFormat::Json => {
+            write_json(
+                &serde_json::json!({
+                    "analysis": analysis,
+                    "program_diagnostics": program.diagnostics,
+                    "syntax_diagnostics": syntax.diagnostics,
+                }),
+                args.output.as_deref(),
+            )?;
+        }
+        AnalyzeFormat::Text => {
+            let text = render_analysis_text(&analysis, &program, &syntax);
+            write_text(&text, args.output.as_deref())?;
+        }
+    }
     Ok(())
 }
 
@@ -111,7 +160,10 @@ fn load_shapes(
 }
 
 fn shape_sources(args: &SharedArgs) -> Vec<ShapeSource> {
-    args.shapes.iter().map(|shape| source_from_str(shape)).collect()
+    args.shapes
+        .iter()
+        .map(|shape| source_from_str(shape))
+        .collect()
 }
 
 fn load_options(args: &SharedArgs) -> SourceLoadOptions {
@@ -143,7 +195,10 @@ fn write_json<T: serde::Serialize>(
     Ok(())
 }
 
-fn write_text(text: &str, output: Option<&std::path::Path>) -> Result<(), Box<dyn std::error::Error>> {
+fn write_text(
+    text: &str,
+    output: Option<&std::path::Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(path) = output {
         std::fs::write(path, text)?;
     } else {
@@ -152,4 +207,81 @@ fn write_text(text: &str, output: Option<&std::path::Path>) -> Result<(), Box<dy
         lock.write_all(text.as_bytes())?;
     }
     Ok(())
+}
+
+fn render_analysis_text(
+    analysis: &AnalysisSummary,
+    program: &shifty_shacl_core::algebra::ShapeProgram,
+    syntax: &shifty_shacl_core::syntax::ShapeSyntaxDocument,
+) -> String {
+    let mut out = String::new();
+    out.push_str("Shapes\n");
+    out.push_str(&format!("  total: {}\n", program.shapes.len()));
+    out.push_str(&format!(
+        "  validation: {}\n",
+        analysis.validation_shape_count
+    ));
+    out.push_str(&format!(
+        "  deactivated: {}\n",
+        analysis.deactivated_shape_count
+    ));
+    out.push_str(&format!(
+        "  reachable: {}\n",
+        analysis.reachable_shapes.len()
+    ));
+    out.push_str(&format!("  rules: {}\n", analysis.inference_rule_count));
+    out.push_str(&format!("  targets: {}\n", program.targets.len()));
+    out.push_str(&format!("  constraints: {}\n", program.constraints.len()));
+    out.push_str(&format!(
+        "  sources: {} root / {} imported\n",
+        program
+            .source_inventory
+            .iter()
+            .filter(|source| source.is_root)
+            .count(),
+        analysis.import_source_count
+    ));
+
+    out.push_str("\nFeatures\n");
+    let mut features: Vec<_> = analysis.feature_counts.iter().collect();
+    features.sort_by_key(|(name, _)| *name);
+    for (name, count) in features {
+        out.push_str(&format!("  {}: {}\n", name, count));
+    }
+
+    out.push_str("\nDependency Components\n");
+    for (index, component) in analysis.dependency_components.iter().enumerate() {
+        out.push_str(&format!(
+            "  {}. size={} recursive={}\n",
+            index + 1,
+            component.shapes.len(),
+            component.recursive
+        ));
+        let labels = component
+            .shapes
+            .iter()
+            .filter_map(|shape_id| {
+                program
+                    .shapes
+                    .iter()
+                    .find(|shape| shape.id == *shape_id)
+                    .map(|shape| shape.source.to_string())
+            })
+            .collect::<Vec<_>>();
+        if !labels.is_empty() {
+            out.push_str(&format!("     {}\n", labels.join(", ")));
+        }
+    }
+
+    out.push_str("\nDiagnostics\n");
+    out.push_str(&format!("  syntax: {}\n", syntax.diagnostics.len()));
+    out.push_str(&format!("  program: {}\n", program.diagnostics.len()));
+    for diagnostic in syntax.diagnostics.iter().chain(program.diagnostics.iter()) {
+        out.push_str(&format!(
+            "  - {:?}: {}\n",
+            diagnostic.severity, diagnostic.message
+        ));
+    }
+
+    out
 }

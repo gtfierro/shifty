@@ -2,7 +2,7 @@ use crate::algebra::{ConstraintExpr, PropertyPath, RuleExpr, ShapeKind, ShapePro
 
 pub fn render_shape_program_dot(program: &ShapeProgram) -> String {
     let mut out = String::from("digraph shacl_core {\n");
-    out.push_str("  rankdir=LR;\n");
+    out.push_str("  rankdir=TB;\n");
     out.push_str("  node [shape=box, style=rounded];\n");
 
     for shape in &program.shapes {
@@ -13,15 +13,13 @@ pub fn render_shape_program_dot(program: &ShapeProgram) -> String {
         let label = escape_label(&format!(
             "{kind}\\n{}{}",
             shape.source,
-            shape.path
+            shape
+                .path
                 .as_ref()
                 .map(|path| format!("\\npath: {}", path_label(path)))
                 .unwrap_or_default()
         ));
-        out.push_str(&format!(
-            "  shape_{} [label=\"{}\"];\n",
-            shape.id.0, label
-        ));
+        out.push_str(&format!("  shape_{} [label=\"{}\"];\n", shape.id.0, label));
     }
 
     for constraint in &program.constraints {
@@ -92,7 +90,11 @@ fn constraint_label(expr: &ConstraintExpr) -> String {
         ConstraintExpr::Class(term) => format!("class {}", term),
         ConstraintExpr::Datatype(term) => format!("datatype {}", term),
         ConstraintExpr::NodeKind(term) => format!("nodeKind {}", term),
-        ConstraintExpr::Cardinality { predicate, min, max } => {
+        ConstraintExpr::Cardinality {
+            predicate,
+            min,
+            max,
+        } => {
             format!("{} min={:?} max={:?}", predicate, min, max)
         }
         ConstraintExpr::NumericRange { predicate, values } => {
@@ -160,7 +162,9 @@ fn path_label(path: &PropertyPath) -> String {
     match path {
         PropertyPath::Predicate(node) => node.to_string(),
         PropertyPath::Inverse(inner) => format!("^({})", path_label(inner)),
-        PropertyPath::Sequence(paths) => paths.iter().map(path_label).collect::<Vec<_>>().join(" / "),
+        PropertyPath::Sequence(paths) => {
+            paths.iter().map(path_label).collect::<Vec<_>>().join(" / ")
+        }
         PropertyPath::Alternative(paths) => {
             paths.iter().map(path_label).collect::<Vec<_>>().join(" | ")
         }
