@@ -15,6 +15,9 @@ pub struct RuleId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct TargetId(pub u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct ComponentDefId(pub u64);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShapeKind {
     Node,
@@ -116,6 +119,11 @@ pub enum ConstraintExpr {
     Sparql {
         node: Term,
     },
+    CustomComponent {
+        predicate: NamedNode,
+        component: Option<ComponentDefId>,
+        values: Vec<Term>,
+    },
     GenericPredicate {
         predicate: NamedNode,
         values: Vec<Term>,
@@ -160,6 +168,40 @@ pub enum FeatureUse {
     Sparql,
     Templates,
     CustomComponents,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParameterDefinition {
+    pub node: Term,
+    pub path: Option<Term>,
+    pub datatype: Option<Term>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub optional: bool,
+    pub default_values: Vec<Term>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparqlValidator {
+    pub node: Term,
+    pub kind: Option<Term>,
+    pub select: Option<String>,
+    pub ask: Option<String>,
+    pub messages: Vec<Term>,
+    pub prefixes: Vec<Term>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConstraintComponent {
+    pub id: ComponentDefId,
+    pub subject: Term,
+    pub parameters: Vec<ParameterDefinition>,
+    pub validators: Vec<SparqlValidator>,
+    pub messages: Vec<Term>,
+    pub prefixes: Vec<Term>,
+    pub label: Option<String>,
+    pub comment: Option<String>,
+    pub provenance: Vec<SourceRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,10 +255,12 @@ pub struct ShapeProgram {
     pub constraints: Vec<Constraint>,
     pub targets: Vec<Target>,
     pub rules: Vec<Rule>,
+    pub constraint_components: Vec<ConstraintComponent>,
     pub dependencies: Vec<DependencyEdge>,
     pub source_inventory: Vec<SourceRef>,
     pub features: Vec<FeatureUse>,
     pub diagnostics: Vec<Diagnostic>,
     pub inspection: InspectionGraph,
     pub shape_index: HashMap<String, ShapeId>,
+    pub component_index: HashMap<String, ComponentDefId>,
 }

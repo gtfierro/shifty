@@ -1,14 +1,15 @@
 use crate::algebra::{
-    Constraint, ConstraintExpr, ConstraintId, DependencyEdge, FeatureUse, LogicalKind,
-    PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram,
-    Target, TargetExpr, TargetId, TriplePatternTerm,
+    ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr, ConstraintId,
+    DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PropertyPath, Rule, RuleExpr,
+    RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram, SparqlValidator, Target,
+    TargetExpr, TargetId, TriplePatternTerm,
 };
 use crate::diagnostics::{
     Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode,
 };
 use crate::syntax::{
-    ConstraintSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument,
-    ShapeSyntaxKind, TargetSyntax,
+    ConstraintSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument, ShapeSyntaxKind,
+    TargetSyntax,
 };
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -77,11 +78,23 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         .enumerate()
         .map(|(idx, shape)| (shape.subject.to_string(), ShapeId((idx + 1) as u64)))
         .collect();
+    let component_index: HashMap<String, ComponentDefId> = document
+        .constraint_components
+        .iter()
+        .enumerate()
+        .map(|(idx, component)| {
+            (
+                component.subject.to_string(),
+                ComponentDefId((idx + 1) as u64),
+            )
+        })
+        .collect();
 
     let mut lowered_shapes = Vec::new();
     let mut lowered_targets = Vec::new();
     let mut lowered_constraints = Vec::new();
     let mut lowered_rules = Vec::new();
+    let lowered_components = lower_constraint_components(document, &component_index);
     let mut dependencies = Vec::new();
     let mut features = HashSet::new();
     features.insert(FeatureUse::Core);
@@ -127,6 +140,8 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
                 shape,
                 &quad_index,
                 &shape_index,
+                &document.constraint_components,
+                &component_index,
                 &mut dependencies,
                 &mut features,
                 &mut diagnostics,
@@ -227,12 +242,14 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         constraints: lowered_constraints,
         targets: lowered_targets,
         rules: lowered_rules,
+        constraint_components: lowered_components,
         dependencies,
         source_inventory: document.sources.clone(),
         features: feature_list,
         diagnostics,
         inspection,
         shape_index,
+        component_index,
     }
 }
 
@@ -285,6 +302,8 @@ fn lower_constraint(
     shape: &ShapeSyntax,
     quads: &QuadIndex,
     shape_index: &HashMap<String, ShapeId>,
+    components: &[crate::syntax::ConstraintComponentSyntax],
+    component_index: &HashMap<String, ComponentDefId>,
     dependencies: &mut Vec<DependencyEdge>,
     features: &mut HashSet<FeatureUse>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -469,6 +488,15 @@ fn lower_constraint(
                 .starts_with("http://www.w3.org/ns/shacl#")
             {
                 features.insert(FeatureUse::CustomComponents);
+                return ConstraintExpr::CustomComponent {
+                    predicate: constraint.predicate.clone(),
+                    component: resolve_custom_component_for_parameter(
+                        &constraint.predicate,
+                        components,
+                        component_index,
+                    ),
+                    values: constraint.objects.clone(),
+                };
             }
             diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Info,
@@ -481,6 +509,64 @@ fn lower_constraint(
             generic_expr(constraint)
         }
     }
+}
+
+fn lower_constraint_components(
+    document: &ShapeSyntaxDocument,
+    component_index: &HashMap<String, ComponentDefId>,
+) -> Vec<ConstraintComponent> {
+    document
+        .constraint_components
+        .iter()
+        .map(|component| ConstraintComponent {
+            id: component_index[&component.subject.to_string()],
+            subject: component.subject.clone(),
+            parameters: component
+                .parameters
+                .iter()
+                .map(|parameter| ParameterDefinition {
+                    node: parameter.node.clone(),
+                    path: parameter.path.clone(),
+                    datatype: parameter.datatype.clone(),
+                    name: parameter.name.clone(),
+                    description: parameter.description.clone(),
+                    optional: parameter.optional,
+                    default_values: parameter.default_values.clone(),
+                })
+                .collect(),
+            validators: component
+                .validators
+                .iter()
+                .map(|validator| SparqlValidator {
+                    node: validator.node.clone(),
+                    kind: validator.kind.clone(),
+                    select: validator.select.clone(),
+                    ask: validator.ask.clone(),
+                    messages: validator.messages.clone(),
+                    prefixes: validator.prefixes.clone(),
+                })
+                .collect(),
+            messages: component.messages.clone(),
+            prefixes: component.prefixes.clone(),
+            label: component.label.clone(),
+            comment: component.comment.clone(),
+            provenance: component.provenance.clone(),
+        })
+        .collect()
+}
+
+fn resolve_custom_component_for_parameter(
+    predicate: &NamedNode,
+    components: &[crate::syntax::ConstraintComponentSyntax],
+    component_index: &HashMap<String, ComponentDefId>,
+) -> Option<ComponentDefId> {
+    components.iter().find_map(|component| {
+        component
+            .parameters
+            .iter()
+            .any(|parameter| parameter.path.as_ref() == Some(&Term::NamedNode(predicate.clone())))
+            .then(|| component_index[&component.subject.to_string()])
+    })
 }
 
 fn lower_rule(

@@ -30,6 +30,42 @@ pub struct ConstraintSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParameterSyntax {
+    pub node: Term,
+    pub path: Option<Term>,
+    pub datatype: Option<Term>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub optional: bool,
+    pub default_values: Vec<Term>,
+    pub extras: Vec<PredicateObjects>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparqlValidatorSyntax {
+    pub node: Term,
+    pub kind: Option<Term>,
+    pub select: Option<String>,
+    pub ask: Option<String>,
+    pub messages: Vec<Term>,
+    pub prefixes: Vec<Term>,
+    pub extras: Vec<PredicateObjects>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConstraintComponentSyntax {
+    pub subject: Term,
+    pub parameters: Vec<ParameterSyntax>,
+    pub validators: Vec<SparqlValidatorSyntax>,
+    pub messages: Vec<Term>,
+    pub prefixes: Vec<Term>,
+    pub label: Option<String>,
+    pub comment: Option<String>,
+    pub extras: Vec<PredicateObjects>,
+    pub provenance: Vec<SourceRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RuleSyntaxKind {
     Triple,
     Sparql,
@@ -65,6 +101,7 @@ pub struct ShapeSyntax {
 pub struct ShapeSyntaxDocument {
     pub shapes: Vec<ShapeSyntax>,
     pub rules: Vec<RuleSyntax>,
+    pub constraint_components: Vec<ConstraintComponentSyntax>,
     pub quads: Vec<oxrdf::Quad>,
     pub sources: Vec<SourceRef>,
     pub diagnostics: Vec<Diagnostic>,

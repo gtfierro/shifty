@@ -1,8 +1,9 @@
 use crate::diagnostics::{Diagnostic, DiagnosticSeverity, SourceRef};
 use crate::source::{ResolvedShapeSet, ShapeSource, SourceLoadOptions, load_with_ontoenv};
 use crate::syntax::{
-    ConstraintSyntax, PredicateObjects, RuleSyntax, RuleSyntaxKind, ShapeSyntax,
-    ShapeSyntaxDocument, ShapeSyntaxKind, TargetSyntax,
+    ConstraintComponentSyntax, ConstraintSyntax, ParameterSyntax, PredicateObjects, RuleSyntax,
+    RuleSyntaxKind, ShapeSyntax, ShapeSyntaxDocument, ShapeSyntaxKind, SparqlValidatorSyntax,
+    TargetSyntax,
 };
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -29,6 +30,7 @@ const SH_AND: &str = "http://www.w3.org/ns/shacl#and";
 const SH_OR: &str = "http://www.w3.org/ns/shacl#or";
 const SH_XONE: &str = "http://www.w3.org/ns/shacl#xone";
 const SH_QUALIFIED_VALUE_SHAPE: &str = "http://www.w3.org/ns/shacl#qualifiedValueShape";
+const SH_CONSTRAINT_COMPONENT: &str = "http://www.w3.org/ns/shacl#ConstraintComponent";
 const SH_RULE: &str = "http://www.w3.org/ns/shacl#rule";
 const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
@@ -36,6 +38,20 @@ const SH_DEACTIVATED: &str = "http://www.w3.org/ns/shacl#deactivated";
 const SH_ORDER: &str = "http://www.w3.org/ns/shacl#order";
 const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
 const RDFS_COMMENT: &str = "http://www.w3.org/2000/01/rdf-schema#comment";
+const SH_PARAMETER: &str = "http://www.w3.org/ns/shacl#parameter";
+const SH_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
+const SH_PREFIXES: &str = "http://www.w3.org/ns/shacl#prefixes";
+const SH_DECLARE: &str = "http://www.w3.org/ns/shacl#declare";
+const SH_NAME: &str = "http://www.w3.org/ns/shacl#name";
+const SH_DESCRIPTION: &str = "http://www.w3.org/ns/shacl#description";
+const SH_OPTIONAL: &str = "http://www.w3.org/ns/shacl#optional";
+const SH_DEFAULT_VALUE: &str = "http://www.w3.org/ns/shacl#defaultValue";
+const SH_DATATYPE: &str = "http://www.w3.org/ns/shacl#datatype";
+const SH_NODE_VALIDATOR: &str = "http://www.w3.org/ns/shacl#nodeValidator";
+const SH_PROPERTY_VALIDATOR: &str = "http://www.w3.org/ns/shacl#propertyValidator";
+const SH_VALIDATOR: &str = "http://www.w3.org/ns/shacl#validator";
+const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
+const SH_ASK: &str = "http://www.w3.org/ns/shacl#ask";
 
 pub fn load_and_parse_with_ontoenv(
     sources: &[ShapeSource],
@@ -62,6 +78,7 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
     let mut by_subject: HashMap<Term, Vec<Quad>> = HashMap::new();
     let mut candidate_shapes = HashSet::new();
     let mut candidate_rules = HashSet::new();
+    let mut candidate_components = HashSet::new();
 
     for quad in &quads {
         let subject_term = subject_to_term(&quad.subject);
@@ -81,6 +98,9 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
                 || matches_named(&quad.object, SH_SPARQL_RULE)
             {
                 candidate_rules.insert(subject_term.clone());
+            }
+            if matches_named(&quad.object, SH_CONSTRAINT_COMPONENT) {
+                candidate_components.insert(subject_term.clone());
             }
         }
         if matches!(
@@ -115,6 +135,12 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
         .collect();
     rules.sort_by_key(|rule| rule.subject.to_string());
 
+    let mut constraint_components: Vec<ConstraintComponentSyntax> = candidate_components
+        .into_iter()
+        .map(|subject| build_constraint_component(&subject, &by_subject, &provenance_by_graph))
+        .collect();
+    constraint_components.sort_by_key(|component| component.subject.to_string());
+
     let diagnostics = shapes
         .iter()
         .filter(|shape| {
@@ -130,6 +156,7 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
     ShapeSyntaxDocument {
         shapes,
         rules,
+        constraint_components,
         quads,
         sources: resolved
             .all_graphs()
@@ -137,6 +164,122 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
             .map(|graph| graph.source.clone())
             .collect(),
         diagnostics,
+    }
+}
+
+fn build_constraint_component(
+    subject: &Term,
+    by_subject: &HashMap<Term, Vec<Quad>>,
+    provenance_by_graph: &HashMap<Option<String>, SourceRef>,
+) -> ConstraintComponentSyntax {
+    let quads = by_subject.get(subject).cloned().unwrap_or_default();
+    let grouped = group_predicates(&quads);
+    let mut parameters = Vec::new();
+    let mut validators = Vec::new();
+    let mut messages = Vec::new();
+    let mut prefixes = Vec::new();
+    let mut extras = Vec::new();
+    let mut label = None;
+    let mut comment = None;
+
+    for (predicate, objects) in grouped {
+        match predicate.as_str() {
+            SH_PARAMETER => {
+                for object in objects {
+                    parameters.push(build_parameter(&object, by_subject));
+                }
+            }
+            SH_NODE_VALIDATOR | SH_PROPERTY_VALIDATOR | SH_VALIDATOR => {
+                for object in objects {
+                    validators.push(build_validator(&object, by_subject));
+                }
+            }
+            SH_MESSAGE => messages.extend(objects),
+            SH_PREFIXES | SH_DECLARE => prefixes.extend(objects),
+            RDFS_LABEL => label = first_literal_owned(&objects),
+            RDFS_COMMENT => comment = first_literal_owned(&objects),
+            RDF_TYPE => {}
+            _ => extras.push(PredicateObjects { predicate, objects }),
+        }
+    }
+
+    ConstraintComponentSyntax {
+        subject: subject.clone(),
+        parameters,
+        validators,
+        messages,
+        prefixes,
+        label,
+        comment,
+        extras,
+        provenance: provenance_for_quads(&quads, provenance_by_graph),
+    }
+}
+
+fn build_parameter(parameter: &Term, by_subject: &HashMap<Term, Vec<Quad>>) -> ParameterSyntax {
+    let quads = by_subject.get(parameter).cloned().unwrap_or_default();
+    let grouped = group_predicates(&quads);
+    let mut path = None;
+    let mut datatype = None;
+    let mut name = None;
+    let mut description = None;
+    let mut optional = false;
+    let mut default_values = Vec::new();
+    let mut extras = Vec::new();
+    for (predicate, objects) in grouped {
+        match predicate.as_str() {
+            SH_PATH => path = objects.first().cloned(),
+            SH_DATATYPE => datatype = objects.first().cloned(),
+            SH_NAME => name = first_literal_owned(&objects),
+            SH_DESCRIPTION => description = first_literal_owned(&objects),
+            SH_OPTIONAL => optional = objects.iter().any(is_true_literal),
+            SH_DEFAULT_VALUE => default_values.extend(objects),
+            RDF_TYPE => {}
+            _ => extras.push(PredicateObjects { predicate, objects }),
+        }
+    }
+    ParameterSyntax {
+        node: parameter.clone(),
+        path,
+        datatype,
+        name,
+        description,
+        optional,
+        default_values,
+        extras,
+    }
+}
+
+fn build_validator(
+    validator: &Term,
+    by_subject: &HashMap<Term, Vec<Quad>>,
+) -> SparqlValidatorSyntax {
+    let quads = by_subject.get(validator).cloned().unwrap_or_default();
+    let grouped = group_predicates(&quads);
+    let mut kind = None;
+    let mut select = None;
+    let mut ask = None;
+    let mut messages = Vec::new();
+    let mut prefixes = Vec::new();
+    let mut extras = Vec::new();
+    for (predicate, objects) in grouped {
+        match predicate.as_str() {
+            RDF_TYPE => kind = objects.first().cloned(),
+            SH_SELECT => select = first_literal_owned(&objects),
+            SH_ASK => ask = first_literal_owned(&objects),
+            SH_MESSAGE => messages.extend(objects),
+            SH_PREFIXES | SH_DECLARE => prefixes.extend(objects),
+            _ => extras.push(PredicateObjects { predicate, objects }),
+        }
+    }
+    SparqlValidatorSyntax {
+        node: validator.clone(),
+        kind,
+        select,
+        ask,
+        messages,
+        prefixes,
+        extras,
     }
 }
 
@@ -473,4 +616,11 @@ fn parse_numeric_literal(term: &Term) -> Option<f64> {
 
 fn is_true_literal(term: &Term) -> bool {
     matches!(term, Term::Literal(lit) if lit.value().eq_ignore_ascii_case("true") || lit.value() == "1")
+}
+
+fn first_literal_owned(values: &[Term]) -> Option<String> {
+    values.first().and_then(|term| match term {
+        Term::Literal(lit) => Some(lit.value().to_string()),
+        _ => None,
+    })
 }

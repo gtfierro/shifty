@@ -82,7 +82,7 @@ fn direct_quad_parsing_preserves_custom_component_constraints() {
     assert!(program.constraints.iter().any(|constraint| {
         matches!(
             &constraint.expr,
-            shifty_shacl_core::algebra::ConstraintExpr::GenericPredicate { predicate, .. }
+            shifty_shacl_core::algebra::ConstraintExpr::CustomComponent { predicate, .. }
             if predicate.as_str() == "http://example.org/activate"
         )
     }));
@@ -558,4 +558,55 @@ fn renders_graphviz_for_shape_program() {
     assert!(dot.contains("digraph shacl_core"));
     assert!(dot.contains("shape_1"));
     assert!(dot.contains("target_1"));
+}
+
+#[test]
+fn parses_constraint_component_definitions() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    assert_eq!(syntax.constraint_components.len(), 1);
+    let component = &syntax.constraint_components[0];
+    assert!(component.subject.to_string().contains("LengthComponent"));
+    assert_eq!(component.parameters.len(), 2);
+    assert_eq!(component.validators.len(), 1);
+    assert!(component.validators[0].select.is_some());
+}
+
+#[test]
+fn lowers_custom_component_attachments() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+
+    assert_eq!(program.constraint_components.len(), 1);
+    assert!(program.constraints.iter().any(|constraint| {
+        matches!(
+            &constraint.expr,
+            shifty_shacl_core::algebra::ConstraintExpr::CustomComponent {
+                predicate,
+                component: Some(_),
+                ..
+            } if predicate.as_str() == "http://example.org/activate"
+        )
+    }));
 }

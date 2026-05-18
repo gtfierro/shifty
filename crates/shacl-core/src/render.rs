@@ -112,6 +112,11 @@ fn constraint_label(expr: &ConstraintExpr) -> String {
         ConstraintExpr::HasValue(term) => format!("hasValue {}", term),
         ConstraintExpr::In(values) => format!("in {:?}", values),
         ConstraintExpr::Sparql { node } => format!("sparql {}", node),
+        ConstraintExpr::CustomComponent {
+            predicate,
+            component,
+            values,
+        } => format!("custom {} component={:?} {:?}", predicate, component, values),
         ConstraintExpr::GenericPredicate { predicate, values } => {
             format!("{} {:?}", predicate, values)
         }
