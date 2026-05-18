@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    AnalysisSummary, NormalizeOptions, analyze_program, load_and_parse_with_ontoenv,
-    lower_to_program, normalize_program, parse_resolved, render_shape_program_dot,
+    AnalysisSummary, NormalizeOptions, SliceRoots, StaticAnalysisSummary, analyze_program,
+    analyze_static, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
+    parse_resolved, render_shape_program_dot, slice_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -20,6 +21,8 @@ enum Command {
     Dump(DumpArgs),
     /// Summarize the lowered shape program and diagnostics
     Analyze(AnalyzeArgs),
+    /// Run deeper static analysis over the lowered shape program
+    StaticAnalyze(StaticAnalyzeArgs),
     /// Emit Graphviz DOT for the shape/component graph
     Graphviz(GraphvizArgs),
 }
@@ -105,11 +108,34 @@ struct AnalyzeArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(Parser, Debug)]
+struct StaticAnalyzeArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Drop deactivated shapes and rules before analysis
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Slice from target-bearing root shapes
+    #[arg(long, default_value_t = true)]
+    slice_from_targets: bool,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
         Command::Dump(args) => run_dump(args)?,
         Command::Analyze(args) => run_analyze(args)?,
+        Command::StaticAnalyze(args) => run_static_analyze(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
     Ok(())
@@ -166,6 +192,42 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
         AnalyzeFormat::Text => {
             let text = render_analysis_text(&analysis, &program, &syntax);
+            write_text(&text, args.output.as_deref())?;
+        }
+    }
+    Ok(())
+}
+
+fn run_static_analyze(args: StaticAnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let summary = analyze_static(&program);
+    let slice = if args.slice_from_targets {
+        slice_program(&program, SliceRoots::TargetShapes)
+    } else {
+        summary.slice.clone()
+    };
+    match args.format {
+        AnalyzeFormat::Json => {
+            write_json(
+                &serde_json::json!({
+                    "static_analysis": summary,
+                    "slice": slice,
+                    "template_inspection": collect_template_inspection(&program),
+                    "program_diagnostics": program.diagnostics,
+                    "syntax_diagnostics": syntax.diagnostics,
+                }),
+                args.output.as_deref(),
+            )?;
+        }
+        AnalyzeFormat::Text => {
+            let text = render_static_analysis_text(&summary, &slice, &program, &syntax);
             write_text(&text, args.output.as_deref())?;
         }
     }
@@ -392,6 +454,160 @@ fn render_analysis_text(
         ));
     }
 
+    out
+}
+
+fn render_static_analysis_text(
+    summary: &StaticAnalysisSummary,
+    slice: &shifty_shacl_core::ProgramSlice,
+    program: &shifty_shacl_core::algebra::ShapeProgram,
+    syntax: &shifty_shacl_core::syntax::ShapeSyntaxDocument,
+) -> String {
+    let template_inspection = collect_template_inspection(program);
+    let mut out = String::new();
+    out.push_str("Static Analysis\n");
+    out.push_str(&format!("  roots: {}\n", slice.roots.len()));
+    out.push_str(&format!(
+        "  retained shapes: {}\n",
+        slice.retained_shape_ids.len()
+    ));
+    out.push_str(&format!(
+        "  dropped shapes: {}\n",
+        slice.dropped_shape_ids.len()
+    ));
+    out.push_str(&format!(
+        "  retained rules: {}\n",
+        slice.retained_rule_ids.len()
+    ));
+    out.push_str(&format!(
+        "  dropped rules: {}\n",
+        slice.dropped_rule_ids.len()
+    ));
+    out.push_str(&format!(
+        "  retained constraints: {}\n",
+        slice.retained_constraint_ids.len()
+    ));
+    out.push_str(&format!(
+        "  retained components: {}\n",
+        slice.retained_component_ids.len()
+    ));
+
+    out.push_str("\nPer-Root Slice\n");
+    for root in &slice.root_summaries {
+        let label = summary
+            .baseline
+            .shape_labels
+            .get(&root.root)
+            .cloned()
+            .unwrap_or_else(|| format!("shape:{}", root.root.0));
+        out.push_str(&format!(
+            "  {}: shapes={} rules={} constraints={} targets={} components={}\n",
+            label,
+            root.retained_shapes,
+            root.retained_rules,
+            root.retained_constraints,
+            root.retained_targets,
+            root.retained_components
+        ));
+    }
+
+    out.push_str("\nContext Footprint\n");
+    let mut histogram: Vec<_> = summary.context.histogram.iter().collect();
+    histogram.sort_by_key(|(name, _)| *name);
+    for (name, count) in histogram {
+        out.push_str(&format!("  {}: {}\n", name, count));
+    }
+
+    out.push_str("\nRecursive Components\n");
+    for component in summary
+        .baseline
+        .dependency_components
+        .iter()
+        .filter(|component| component.recursive)
+    {
+        let labels = component
+            .shapes
+            .iter()
+            .filter_map(|shape_id| summary.baseline.shape_labels.get(shape_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        out.push_str(&format!("  size={} {}\n", component.shapes.len(), labels.join(", ")));
+    }
+    if !summary
+        .baseline
+        .dependency_components
+        .iter()
+        .any(|component| component.recursive)
+    {
+        out.push_str("  none\n");
+    }
+
+    out.push_str("\nSPARQL / Global Touch\n");
+    let mut global_shapes = summary
+        .context
+        .shape_footprints
+        .iter()
+        .filter(|(_, footprint)| {
+            matches!(
+                footprint,
+                shifty_shacl_core::ContextFootprint::GlobalSparql
+            )
+        })
+        .filter_map(|(shape_id, _)| summary.baseline.shape_labels.get(shape_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    global_shapes.sort();
+    if global_shapes.is_empty() {
+        out.push_str("  none\n");
+    } else {
+        for label in global_shapes {
+            out.push_str(&format!("  {}\n", label));
+        }
+    }
+
+    out.push_str("\nDuplicate Fingerprints\n");
+    out.push_str(&format!(
+        "  constraints: {}\n",
+        summary.fingerprints.duplicate_constraints.len()
+    ));
+    out.push_str(&format!(
+        "  targets: {}\n",
+        summary.fingerprints.duplicate_targets.len()
+    ));
+    out.push_str(&format!(
+        "  rules: {}\n",
+        summary.fingerprints.duplicate_rules.len()
+    ));
+
+    if !template_inspection.is_empty() {
+        out.push_str("\nTemplates\n");
+        for instance in &template_inspection {
+            out.push_str(&format!(
+                "  shape={} predicate={}\n",
+                instance.owner_shape, instance.predicate
+            ));
+            if !instance.bindings.is_empty() {
+                out.push_str(&format!(
+                    "    bindings: {}\n",
+                    instance
+                        .bindings
+                        .iter()
+                        .map(|binding| format!(
+                            "{}={}{}",
+                            binding.name,
+                            binding.values.join(", "),
+                            if binding.from_default { " [default]" } else { "" }
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ));
+            }
+        }
+    }
+
+    out.push_str("\nDiagnostics\n");
+    out.push_str(&format!("  syntax: {}\n", syntax.diagnostics.len()));
+    out.push_str(&format!("  program: {}\n", program.diagnostics.len()));
     out
 }
 
