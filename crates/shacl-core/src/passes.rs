@@ -65,6 +65,19 @@ const SH_RULE_SUBJECT: &str = "http://www.w3.org/ns/shacl#subject";
 const SH_RULE_PREDICATE: &str = "http://www.w3.org/ns/shacl#predicate";
 const SH_RULE_OBJECT: &str = "http://www.w3.org/ns/shacl#object";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NormalizeOptions {
+    pub prune_deactivated: bool,
+}
+
+impl Default for NormalizeOptions {
+    fn default() -> Self {
+        Self {
+            prune_deactivated: false,
+        }
+    }
+}
+
 pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
     let quad_index = QuadIndex::new(&document.quads);
     let mut shapes = document.shapes.clone();
@@ -284,7 +297,7 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
     feature_list.sort_by_key(feature_order);
     dependencies.sort_by_key(|edge| (edge.from, edge.to, edge.kind.clone()));
 
-    ShapeProgram {
+    canonicalize_program(&ShapeProgram {
         shapes: lowered_shapes,
         constraints: lowered_constraints,
         targets: lowered_targets,
@@ -298,7 +311,140 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         shape_index,
         normalized_shape_index,
         component_index,
+    })
+}
+
+pub fn normalize_program(program: &ShapeProgram, options: NormalizeOptions) -> ShapeProgram {
+    let canonical = canonicalize_program(program);
+    if options.prune_deactivated {
+        prune_deactivated_program(&canonical)
+    } else {
+        canonical
     }
+}
+
+pub fn canonicalize_program(program: &ShapeProgram) -> ShapeProgram {
+    let mut normalized = program.clone();
+    normalized.shapes.sort_by_key(|shape| shape.id);
+    normalized.constraints.sort_by_key(|constraint| constraint.id);
+    normalized.targets.sort_by_key(|target| target.id);
+    normalized.rules.sort_by_key(|rule| rule.id);
+    normalized
+        .constraint_components
+        .sort_by_key(|component| component.id);
+    normalized
+        .dependencies
+        .sort_by_key(|edge| (edge.from, edge.to, edge.kind.clone()));
+    normalized.dependencies.dedup_by(|left, right| {
+        left.from == right.from && left.to == right.to && left.kind == right.kind
+    });
+    normalized.features.sort_by_key(feature_order);
+    normalized.features.dedup();
+    normalized
+        .source_inventory
+        .sort_by_key(|source| (source.is_root, source.graph_iri.clone(), source.locator.clone()));
+    normalized
+        .source_inventory
+        .dedup_by(|left, right| left.graph_iri == right.graph_iri && left.locator == right.locator);
+    normalized.shape_index = normalized
+        .shapes
+        .iter()
+        .map(|shape| (shape.source.to_string(), shape.id))
+        .collect();
+    normalized.normalized_shape_index = normalized
+        .shapes
+        .iter()
+        .map(|shape| (shape.normalized_key.clone(), shape.id))
+        .collect();
+    normalized.component_index = normalized
+        .constraint_components
+        .iter()
+        .map(|component| (component.subject.to_string(), component.id))
+        .collect();
+    normalized.inspection = build_program_inspection_graph(
+        &normalized.shapes,
+        &normalized.constraints,
+        &normalized.rules,
+        &normalized.targets,
+        &normalized.dependencies,
+        &normalized.source_inventory,
+    );
+    normalized
+}
+
+pub fn prune_deactivated_program(program: &ShapeProgram) -> ShapeProgram {
+    let kept_shape_ids: HashSet<_> = program
+        .shapes
+        .iter()
+        .filter(|shape| !shape.deactivated)
+        .map(|shape| shape.id)
+        .collect();
+    let kept_constraint_ids: HashSet<_> = program
+        .constraints
+        .iter()
+        .filter(|constraint| kept_shape_ids.contains(&constraint.owner))
+        .map(|constraint| constraint.id)
+        .collect();
+    let kept_target_ids: HashSet<_> = program
+        .targets
+        .iter()
+        .filter(|target| kept_shape_ids.contains(&target.owner))
+        .map(|target| target.id)
+        .collect();
+    let kept_rule_ids: HashSet<_> = program
+        .rules
+        .iter()
+        .filter(|rule| !rule.deactivated && kept_shape_ids.contains(&rule.owner))
+        .map(|rule| rule.id)
+        .collect();
+
+    let mut pruned = program.clone();
+    pruned.shapes = program
+        .shapes
+        .iter()
+        .filter(|shape| kept_shape_ids.contains(&shape.id))
+        .cloned()
+        .map(|mut shape| {
+            shape.property_shapes.retain(|id| kept_shape_ids.contains(id));
+            shape.constraints.retain(|id| kept_constraint_ids.contains(id));
+            shape.targets.retain(|id| kept_target_ids.contains(id));
+            shape
+        })
+        .collect();
+    pruned.constraints = program
+        .constraints
+        .iter()
+        .filter(|constraint| kept_constraint_ids.contains(&constraint.id))
+        .cloned()
+        .collect();
+    pruned.targets = program
+        .targets
+        .iter()
+        .filter(|target| kept_target_ids.contains(&target.id))
+        .cloned()
+        .collect();
+    pruned.rules = program
+        .rules
+        .iter()
+        .filter(|rule| kept_rule_ids.contains(&rule.id))
+        .cloned()
+        .collect();
+    pruned.dependencies = program
+        .dependencies
+        .iter()
+        .filter(|edge| kept_shape_ids.contains(&edge.from) && kept_shape_ids.contains(&edge.to))
+        .cloned()
+        .collect();
+    pruned.diagnostics.push(Diagnostic {
+        severity: DiagnosticSeverity::Info,
+        message: format!(
+            "pruned {} deactivated shapes and {} deactivated rules",
+            program.shapes.len().saturating_sub(pruned.shapes.len()),
+            program.rules.len().saturating_sub(pruned.rules.len()),
+        ),
+        source: None,
+    });
+    canonicalize_program(&pruned)
 }
 
 fn lower_target(
@@ -845,6 +991,115 @@ fn build_inspection_graph(
     }
 
     for source in &document.sources {
+        nodes.push(InspectionNode {
+            id: format!("source:{}", source.graph_iri),
+            kind: "source".to_string(),
+            label: source
+                .locator
+                .clone()
+                .unwrap_or_else(|| source.graph_iri.clone()),
+            annotations: HashMap::from([("is_root".to_string(), source.is_root.to_string())]),
+        });
+    }
+
+    for shape in shapes {
+        for source in &shape.provenance {
+            edges.push(InspectionEdge {
+                source: format!("source:{}", source.graph_iri),
+                target: format!("shape:{}", shape.id.0),
+                kind: "provides".to_string(),
+                weight: 1,
+                annotations: HashMap::new(),
+            });
+        }
+    }
+
+    InspectionGraph { nodes, edges }
+}
+
+fn build_program_inspection_graph(
+    shapes: &[Shape],
+    constraints: &[Constraint],
+    rules: &[Rule],
+    targets: &[Target],
+    dependencies: &[DependencyEdge],
+    sources: &[crate::diagnostics::SourceRef],
+) -> InspectionGraph {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    for shape in shapes {
+        nodes.push(InspectionNode {
+            id: format!("shape:{}", shape.id.0),
+            kind: "shape".to_string(),
+            label: shape.normalized_key.clone(),
+            annotations: HashMap::from([
+                ("shape_kind".to_string(), format!("{:?}", shape.kind)),
+                ("deactivated".to_string(), shape.deactivated.to_string()),
+                ("source".to_string(), shape.source.to_string()),
+            ]),
+        });
+    }
+
+    for constraint in constraints {
+        nodes.push(InspectionNode {
+            id: format!("constraint:{}", constraint.id.0),
+            kind: "constraint".to_string(),
+            label: format!("{:?}", constraint.expr),
+            annotations: HashMap::new(),
+        });
+        edges.push(InspectionEdge {
+            source: format!("shape:{}", constraint.owner.0),
+            target: format!("constraint:{}", constraint.id.0),
+            kind: "owns_constraint".to_string(),
+            weight: 1,
+            annotations: HashMap::new(),
+        });
+    }
+
+    for rule in rules {
+        nodes.push(InspectionNode {
+            id: format!("rule:{}", rule.id.0),
+            kind: "rule".to_string(),
+            label: format!("{:?}", rule.expr),
+            annotations: HashMap::from([("deactivated".to_string(), rule.deactivated.to_string())]),
+        });
+        edges.push(InspectionEdge {
+            source: format!("shape:{}", rule.owner.0),
+            target: format!("rule:{}", rule.id.0),
+            kind: "owns_rule".to_string(),
+            weight: 1,
+            annotations: HashMap::new(),
+        });
+    }
+
+    for target in targets {
+        nodes.push(InspectionNode {
+            id: format!("target:{}", target.id.0),
+            kind: "target".to_string(),
+            label: format!("{:?}", target.expr),
+            annotations: HashMap::new(),
+        });
+        edges.push(InspectionEdge {
+            source: format!("shape:{}", target.owner.0),
+            target: format!("target:{}", target.id.0),
+            kind: "owns_target".to_string(),
+            weight: 1,
+            annotations: HashMap::new(),
+        });
+    }
+
+    for dep in dependencies {
+        edges.push(InspectionEdge {
+            source: format!("shape:{}", dep.from.0),
+            target: format!("shape:{}", dep.to.0),
+            kind: dep.kind.clone(),
+            weight: 1,
+            annotations: HashMap::new(),
+        });
+    }
+
+    for source in sources {
         nodes.push(InspectionNode {
             id: format!("source:{}", source.graph_iri),
             kind: "source".to_string(),

@@ -1,6 +1,7 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    analyze_program, lower_to_program, parse_quads, render_shape_program_dot,
+    NormalizeOptions, analyze_program, canonicalize_program, lower_to_program, normalize_program,
+    parse_quads, prune_deactivated_program, render_shape_program_dot,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
 };
 
@@ -797,4 +798,156 @@ fn lowers_label_templates_on_constraint_components() {
         .features
         .iter()
         .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Sparql)));
+}
+
+#[test]
+fn canonicalize_program_deduplicates_and_rebuilds_indexes() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let a = NamedNode::new("urn:a").unwrap();
+    let b = NamedNode::new("urn:b").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            a.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            b.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            a.clone(),
+            sh_node.clone(),
+            Term::NamedNode(b.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            a,
+            sh_node,
+            Term::NamedNode(b),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    assert_eq!(program.dependencies.len(), 1);
+
+    let mut duplicated = program.clone();
+    duplicated.dependencies.push(duplicated.dependencies[0].clone());
+    duplicated.features.push(shifty_shacl_core::algebra::FeatureUse::Core);
+
+    let canonical = canonicalize_program(&duplicated);
+    assert_eq!(canonical.dependencies.len(), 1);
+    assert_eq!(
+        canonical
+            .features
+            .iter()
+            .filter(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Core))
+            .count(),
+        1
+    );
+    assert_eq!(canonical.shape_index.len(), canonical.shapes.len());
+    assert_eq!(canonical.normalized_shape_index.len(), canonical.shapes.len());
+}
+
+#[test]
+fn prunes_deactivated_shapes_and_rules() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_sparql_rule = NamedNode::new("http://www.w3.org/ns/shacl#SPARQLRule").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let sh_deactivated = NamedNode::new("http://www.w3.org/ns/shacl#deactivated").unwrap();
+    let active = NamedNode::new("urn:active").unwrap();
+    let inactive = NamedNode::new("urn:inactive").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            active.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            active.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            active.clone(),
+            sh_node,
+            Term::NamedNode(inactive.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            active.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inactive.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inactive,
+            sh_deactivated.clone(),
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            rdf_type,
+            Term::NamedNode(sh_sparql_rule),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_construct,
+            Term::Literal(Literal::from("CONSTRUCT { } WHERE { }")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_deactivated,
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    assert_eq!(program.shapes.len(), 2);
+    assert_eq!(program.rules.len(), 1);
+
+    let pruned = prune_deactivated_program(&program);
+    assert_eq!(pruned.shapes.len(), 1);
+    assert_eq!(pruned.rules.len(), 0);
+    assert!(pruned
+        .shape_index
+        .contains_key(&Term::NamedNode(active.clone()).to_string()));
+    assert!(!pruned
+        .shape_index
+        .contains_key(&Term::NamedNode(NamedNode::new("urn:inactive").unwrap()).to_string()));
+
+    let normalized = normalize_program(
+        &program,
+        NormalizeOptions {
+            prune_deactivated: true,
+        },
+    );
+    assert_eq!(normalized.shapes.len(), 1);
+    assert_eq!(normalized.rules.len(), 0);
 }
