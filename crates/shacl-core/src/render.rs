@@ -11,12 +11,12 @@ pub fn render_shape_program_dot(program: &ShapeProgram) -> String {
             ShapeKind::Property => "PropertyShape",
         };
         let label = escape_label(&format!(
-            "{kind}\\n{}{}",
+            "{kind}\n{}{}",
             shape.source,
             shape
                 .path
                 .as_ref()
-                .map(|path| format!("\\npath: {}", path_label(path)))
+                .map(|path| format!("\npath: {}", path_label(path)))
                 .unwrap_or_default()
         ));
         out.push_str(&format!("  shape_{} [label=\"{}\"];\n", shape.id.0, label));
@@ -136,7 +136,7 @@ fn target_label(expr: &TargetExpr) -> String {
             target_shape,
             filter_shape,
         } => format!(
-            "advanced {}\\nselect={:?}\\nask={:?}\\ntargetShape={:?}\\nfilterShape={:?}",
+            "advanced {}\nselect={:?}\nask={:?}\ntargetShape={:?}\nfilterShape={:?}",
             node, select, ask, target_shape, filter_shape
         ),
     }
@@ -151,12 +151,12 @@ fn rule_label(expr: &RuleExpr) -> String {
             conditions,
             ..
         } => format!(
-            "triple\\nsubject={:?}\\npredicate={:?}\\nobject={:?}\\nconditions={:?}",
+            "triple\nsubject={:?}\npredicate={:?}\nobject={:?}\nconditions={:?}",
             subject, predicate, object, conditions
         ),
         RuleExpr::Sparql {
             query, conditions, ..
-        } => format!("sparql\\nquery={:?}\\nconditions={:?}", query, conditions),
+        } => format!("sparql\nquery={:?}\nconditions={:?}", query, conditions),
         RuleExpr::Generic {
             node, conditions, ..
         } => format!("generic {} {:?}", node, conditions),
