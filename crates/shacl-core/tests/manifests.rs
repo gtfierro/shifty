@@ -3,6 +3,21 @@ mod manifest_harness;
 
 use manifest_harness::{InMemoryManifestBackend, ManifestValidationBackend, run_manifest_suite};
 
+fn print_suite_summary(name: &str, outcome: &manifest_harness::SuiteOutcome) {
+    println!(
+        "{name}: total={} executed={} skipped={}",
+        outcome.total_cases,
+        outcome.executed_cases,
+        outcome.skipped_cases.len()
+    );
+    for case in &outcome.executed_case_keys {
+        println!("  executed: {case}");
+    }
+    for (case, reason) in &outcome.skipped_cases {
+        println!("  skipped: {case} ({reason})");
+    }
+}
+
 #[test]
 fn in_memory_backend_declares_manifest_conformance_metadata() {
     let backend = InMemoryManifestBackend;
@@ -28,6 +43,7 @@ fn in_memory_backend_declares_manifest_conformance_metadata() {
 fn manifest_core_suite_matches_expected_conformance_for_in_memory_backend() {
     let backend = InMemoryManifestBackend;
     let outcome = run_manifest_suite(&backend, "core/manifest.ttl");
+    print_suite_summary("core", &outcome);
     assert!(outcome.executed_cases > 0);
     assert!(outcome.total_cases >= outcome.executed_cases);
     assert!(
@@ -42,6 +58,7 @@ fn manifest_core_suite_matches_expected_conformance_for_in_memory_backend() {
 fn manifest_sparql_suite_matches_expected_conformance_for_in_memory_backend() {
     let backend = InMemoryManifestBackend;
     let outcome = run_manifest_suite(&backend, "sparql/manifest.ttl");
+    print_suite_summary("sparql", &outcome);
     assert!(outcome.executed_cases > 0);
     assert!(outcome.total_cases >= outcome.executed_cases);
     assert!(
@@ -56,6 +73,7 @@ fn manifest_sparql_suite_matches_expected_conformance_for_in_memory_backend() {
 fn manifest_advanced_suite_matches_expected_conformance_for_in_memory_backend() {
     let backend = InMemoryManifestBackend;
     let outcome = run_manifest_suite(&backend, "advanced/manifest.ttl");
+    print_suite_summary("advanced", &outcome);
     assert!(outcome.total_cases > 0);
     assert!(outcome.total_cases >= outcome.executed_cases);
     assert!(

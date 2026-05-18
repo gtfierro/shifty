@@ -75,6 +75,7 @@ pub struct KnownDivergenceCase {
 pub struct SuiteOutcome {
     pub total_cases: usize,
     pub executed_cases: usize,
+    pub executed_case_keys: Vec<String>,
     pub skipped_cases: Vec<(String, &'static str)>,
 }
 
@@ -118,6 +119,7 @@ pub fn run_manifest_suite<B: ManifestValidationBackend>(
 ) -> SuiteOutcome {
     let cases = collect_manifest_cases(root_relative_path);
     let mut executed_cases = 0usize;
+    let mut executed_case_keys = Vec::new();
     let mut skipped_cases = Vec::new();
     let mut failures = Vec::new();
     for case in cases {
@@ -127,9 +129,11 @@ pub fn run_manifest_suite<B: ManifestValidationBackend>(
             }
             CaseSupport::Supported => {
                 executed_cases += 1;
+                let case_key = case_key(&case);
+                executed_case_keys.push(case_key.clone());
                 if let Err(message) = assert_case(backend, &case) {
                     failures.push(ManifestFailure {
-                        case_key: case_key(&case),
+                        case_key,
                         message,
                     });
                 }
@@ -150,6 +154,7 @@ pub fn run_manifest_suite<B: ManifestValidationBackend>(
     SuiteOutcome {
         total_cases: executed_cases + skipped_cases.len(),
         executed_cases,
+        executed_case_keys,
         skipped_cases,
     }
 }
