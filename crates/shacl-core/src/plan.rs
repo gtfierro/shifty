@@ -97,7 +97,7 @@ pub fn derive_validation_logical_plan(
     let executable_rules = program
         .rules
         .iter()
-        .filter(|rule| retained_shapes.contains(&rule.owner))
+        .filter(|rule| retained_shapes.contains(&rule.owner) && !rule.deactivated)
         .cloned()
         .collect::<Vec<_>>();
     derive_validation_logical_plan_from_view_with_rules(view, executable_rules)

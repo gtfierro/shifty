@@ -54,6 +54,7 @@ const SH_MAX_INCLUSIVE: &str = "http://www.w3.org/ns/shacl#maxInclusive";
 const SH_MIN_LENGTH: &str = "http://www.w3.org/ns/shacl#minLength";
 const SH_MAX_LENGTH: &str = "http://www.w3.org/ns/shacl#maxLength";
 const SH_PATTERN: &str = "http://www.w3.org/ns/shacl#pattern";
+const SH_FLAGS: &str = "http://www.w3.org/ns/shacl#flags";
 const SH_LANGUAGE_IN: &str = "http://www.w3.org/ns/shacl#languageIn";
 const SH_UNIQUE_LANG: &str = "http://www.w3.org/ns/shacl#uniqueLang";
 const SH_EQUALS: &str = "http://www.w3.org/ns/shacl#equals";
@@ -196,34 +197,51 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
             if constraint_is_auxiliary(constraint) {
                 continue;
             }
-            let constraint_id = ConstraintId((lowered_constraints.len() + 1) as u64);
-            let expr = lower_constraint(
-                shape_id,
-                constraint,
-                shape,
-                &quad_index,
-                &shape_index,
-                &document.constraint_components,
-                &component_index,
-                &mut dependencies,
-                &mut features,
-                &mut diagnostics,
-            );
-            if let ConstraintExpr::CustomComponent {
-                component: Some(component_id),
-                ..
-            } = &expr
-                && !seen_component_constraints.insert(*component_id)
+            let per_object_constraints = if constraint.predicate.as_str() == SH_CLASS
+                && constraint.objects.len() > 1
             {
-                continue;
+                constraint
+                    .objects
+                    .iter()
+                    .cloned()
+                    .map(|object| crate::syntax::ConstraintSyntax {
+                        predicate: constraint.predicate.clone(),
+                        objects: vec![object],
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![constraint.clone()]
+            };
+            for lowered in per_object_constraints {
+                let constraint_id = ConstraintId((lowered_constraints.len() + 1) as u64);
+                let expr = lower_constraint(
+                    shape_id,
+                    &lowered,
+                    shape,
+                    &quad_index,
+                    &shape_index,
+                    &document.constraint_components,
+                    &component_index,
+                    &mut dependencies,
+                    &mut features,
+                    &mut diagnostics,
+                );
+                if let ConstraintExpr::CustomComponent {
+                    component: Some(component_id),
+                    ..
+                } = &expr
+                    && !seen_component_constraints.insert(*component_id)
+                {
+                    continue;
+                }
+                lowered_constraints.push(Constraint {
+                    id: constraint_id,
+                    owner: shape_id,
+                    expr,
+                    provenance: shape.provenance.clone(),
+                });
+                constraint_ids.push(constraint_id);
             }
-            lowered_constraints.push(Constraint {
-                id: constraint_id,
-                owner: shape_id,
-                expr,
-                provenance: shape.provenance.clone(),
-            });
-            constraint_ids.push(constraint_id);
         }
         for sparql in &shape.sparql_constraints {
             features.insert(FeatureUse::Sparql);
@@ -684,7 +702,7 @@ fn lower_constraint(
             }
         }
         SH_MIN_LENGTH | SH_MAX_LENGTH | SH_PATTERN | SH_LANGUAGE_IN | SH_UNIQUE_LANG => {
-            let values = if predicate == SH_LANGUAGE_IN {
+            let mut values = if predicate == SH_LANGUAGE_IN {
                 constraint
                     .objects
                     .iter()
@@ -693,6 +711,9 @@ fn lower_constraint(
             } else {
                 constraint.objects.clone()
             };
+            if predicate == SH_PATTERN {
+                values.extend(shape_property(shape, SH_FLAGS));
+            }
             ConstraintExpr::StringConstraint {
                 predicate: constraint.predicate.clone(),
                 values,
@@ -1007,6 +1028,7 @@ fn constraint_is_auxiliary(constraint: &ConstraintSyntax) -> bool {
             | SH_SEVERITY
             | SH_PREFIXES
             | SH_DECLARE
+            | SH_FLAGS
             | SH_QUALIFIED_MIN_COUNT
             | SH_QUALIFIED_MAX_COUNT
             | SH_QUALIFIED_VALUE_SHAPES_DISJOINT

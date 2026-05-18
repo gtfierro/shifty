@@ -243,6 +243,18 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Assert backend conformance metadata in manifest integration tests
 - [x] Keep per-skip reasons visible in suite outcomes for future backend comparisons
 
+## Phase 16 Checklist
+
+- [x] Fix self-contained manifest execution so shapes/data blank nodes are not duplicated
+- [x] Deduplicate overlapping target resolutions per shape during validation execution
+- [x] Skip deactivated shapes and rules during validation execution
+- [x] Support `sh:flags` for in-memory `sh:pattern` execution
+- [x] Deduplicate sequence-path traversal results
+- [x] Expand string-based constraint execution to treat IRIs as executable string values
+- [x] Evaluate nested `sh:property` constraints hanging off property shapes
+- [x] Lower multi-valued `sh:class` constraints as independent checks
+- [x] Remove fixed core manifest cases from known divergence metadata
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`

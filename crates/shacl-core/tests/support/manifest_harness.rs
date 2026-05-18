@@ -507,7 +507,11 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
 
     fn execute_case(&self, case: &ManifestCase) -> Result<ValidationResult, String> {
         let resolved_shapes = load_resolved(&case.shapes_path)?;
-        let resolved_data = load_resolved(&case.data_path)?;
+        let resolved_data = if case.data_path == case.shapes_path {
+            resolved_shapes.clone()
+        } else {
+            load_resolved(&case.data_path)?
+        };
         let syntax = shifty_shacl_core::parse_resolved(&resolved_shapes);
         let program = lower_to_program(&syntax);
         let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
@@ -519,32 +523,21 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
 const KNOWN_IN_MEMORY_DIVERGENCES: &[(&str, &str)] = &[
     ("core/complex/personexample.ttl", "known in-memory backend divergence"),
     ("core/complex/shacl-shacl.ttl", "known in-memory backend divergence"),
-    ("core/misc/deactivated-001.ttl", "known in-memory backend divergence"),
-    ("core/node/class-002.ttl", "known in-memory backend divergence"),
-    ("core/node/class-003.ttl", "known in-memory backend divergence"),
     ("core/node/datatype-001.ttl", "known in-memory backend divergence"),
     ("core/node/maxExclusive-001.ttl", "known in-memory backend divergence"),
     ("core/node/maxInclusive-001.ttl", "known in-memory backend divergence"),
-    ("core/node/maxLength-001.ttl", "known in-memory backend divergence"),
     ("core/node/minExclusive-001.ttl", "known in-memory backend divergence"),
     ("core/node/minInclusive-002.ttl", "known in-memory backend divergence"),
     ("core/node/minInclusive-003.ttl", "known in-memory backend divergence"),
-    ("core/node/minLength-001.ttl", "known in-memory backend divergence"),
-    ("core/node/pattern-001.ttl", "known in-memory backend divergence"),
-    ("core/node/pattern-002.ttl", "known in-memory backend divergence"),
-    ("core/path/path-sequence-duplicate-001.ttl", "known in-memory backend divergence"),
     ("core/property/and-001.ttl", "known in-memory backend divergence"),
     ("core/property/equals-001.ttl", "known in-memory backend divergence"),
     ("core/property/lessThan-002.ttl", "known in-memory backend divergence"),
     ("core/property/node-001.ttl", "known in-memory backend divergence"),
     ("core/property/nodeKind-001.ttl", "known in-memory backend divergence"),
-    ("core/property/pattern-002.ttl", "known in-memory backend divergence"),
-    ("core/property/property-001.ttl", "known in-memory backend divergence"),
     ("core/property/qualifiedMinCountDisjoint-001.ttl", "known in-memory backend divergence"),
     ("core/property/qualifiedValueShapesDisjoint-001.ttl", "known in-memory backend divergence"),
     ("core/property/uniqueLang-001.ttl", "known in-memory backend divergence"),
     ("core/property/uniqueLang-002.ttl", "known in-memory backend divergence"),
-    ("core/targets/targetSubjectsOf-002.ttl", "known in-memory backend divergence"),
     ("core/validation-reports/shared.ttl", "known in-memory backend divergence"),
     ("sparql/component/optional-001.ttl", "known in-memory backend divergence"),
     ("sparql/component/propertyValidator-select-001.ttl", "known in-memory backend divergence"),

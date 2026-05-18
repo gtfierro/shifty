@@ -117,6 +117,15 @@ impl ValidationBackend for InMemoryValidationBackend {
         execute_rules_to_fixed_point(&plan.executable_rules, &mut state)?;
         for node in &plan.nodes {
             if let ValidationPlanNode::TargetScan { shape, .. } = node {
+                if state
+                    .program
+                    .shapes
+                    .iter()
+                    .find(|candidate| candidate.id == *shape)
+                    .is_some_and(|candidate| candidate.deactivated)
+                {
+                    continue;
+                }
                 let targets = plan
                     .view
                     .program
@@ -124,6 +133,7 @@ impl ValidationBackend for InMemoryValidationBackend {
                     .iter()
                     .filter(|target| target.owner == *shape)
                     .collect::<Vec<_>>();
+                let mut focuses = Vec::new();
                 for target in targets {
                     state.trace.push(ValidationTraceEvent {
                         event: TraceEventSchema::TargetResolutionStart,
@@ -132,11 +142,7 @@ impl ValidationBackend for InMemoryValidationBackend {
                         focus_node: None,
                         message: format!("resolving target {}", target.id.0),
                     });
-                    let focuses = resolve_target(*shape, &target.expr, &mut state)?;
-                    for focus in focuses {
-                        state.focus_nodes_evaluated += 1;
-                        let _ = eval_shape(*shape, &focus, &mut state)?;
-                    }
+                    focuses.extend(resolve_target(*shape, &target.expr, &mut state)?);
                     state.trace.push(ValidationTraceEvent {
                         event: TraceEventSchema::TargetResolutionEnd,
                         shape: Some(*shape),
@@ -144,6 +150,10 @@ impl ValidationBackend for InMemoryValidationBackend {
                         focus_node: None,
                         message: format!("resolved target {}", target.id.0),
                     });
+                }
+                for focus in dedup_terms(focuses) {
+                    state.focus_nodes_evaluated += 1;
+                    let _ = eval_shape(*shape, &focus, &mut state)?;
                 }
             }
         }
@@ -609,6 +619,9 @@ fn eval_shape(
     else {
         return Err(format!("unknown shape {}", shape_id.0));
     };
+    if shape.deactivated {
+        return Ok(ExecutionStatus::Completed);
+    }
     let key = (shape_id, focus.to_string());
     if !state.active.insert(key.clone()) {
         state.trace.push(ValidationTraceEvent {
@@ -714,6 +727,9 @@ fn eval_node_shape(
             .iter()
             .find(|shape| shape.id == *property_shape_id)
             .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+        if property_shape.deactivated {
+            continue;
+        }
         if let Some(path) = property_shape.path.as_ref() {
             if !path_is_executable(path) {
                 record_unsupported(
@@ -756,6 +772,9 @@ fn eval_property_shape(
         .iter()
         .find(|shape| shape.id == shape_id)
         .ok_or_else(|| format!("unknown property shape {}", shape_id.0))?;
+    if shape.deactivated {
+        return Ok(ExecutionStatus::Completed);
+    }
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::EnterShape,
         shape: Some(shape_id),
@@ -786,6 +805,42 @@ fn eval_property_shape(
         )? == ExecutionStatus::DeferredRecursion
         {
             status = ExecutionStatus::DeferredRecursion;
+        }
+    }
+    for nested_property_shape_id in &shape.property_shapes {
+        let nested_property_shape = state
+            .program
+            .shapes
+            .iter()
+            .find(|candidate| candidate.id == *nested_property_shape_id)
+            .ok_or_else(|| format!("unknown property shape {}", nested_property_shape_id.0))?;
+        if nested_property_shape.deactivated {
+            continue;
+        }
+        let Some(path) = nested_property_shape.path.as_ref() else {
+            continue;
+        };
+        if !path_is_executable(path) {
+            record_unsupported(
+                *nested_property_shape_id,
+                None,
+                Some(parent_focus),
+                "property_path",
+                format!(
+                    "property path {} is not executable in the in-memory backend",
+                    path_label(path)
+                ),
+                state,
+            );
+            continue;
+        }
+        for value in values {
+            let nested_values = eval_path(&state.index, value, path);
+            if eval_property_shape(*nested_property_shape_id, value, &nested_values, state)?
+                == ExecutionStatus::DeferredRecursion
+            {
+                status = ExecutionStatus::DeferredRecursion;
+            }
         }
     }
     state.trace.push(ValidationTraceEvent {
@@ -1443,6 +1498,16 @@ fn resolve_shape_targets(
     if !active.insert(shape_id) {
         return Ok(Vec::new());
     }
+    if state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+        .is_some_and(|shape| shape.deactivated)
+    {
+        active.remove(&shape_id);
+        return Ok(Vec::new());
+    }
     let mut out = Vec::new();
     for target in state
         .program
@@ -1796,9 +1861,9 @@ fn eval_path(index: &DataIndex, focus: &Term, path: &PropertyPath) -> Vec<Term> 
                 for term in &current {
                     next.extend(eval_path(index, term, part));
                 }
-                current = next;
+                current = dedup_terms(next);
             }
-            current
+            dedup_terms(current)
         }
         PropertyPath::Alternative(parts) => {
             let mut out = Vec::new();
@@ -1841,6 +1906,9 @@ fn probe_shape_conforms_inner(
     else {
         return Err(format!("unknown shape {}", shape_id.0));
     };
+    if shape.deactivated {
+        return Ok(ProbeOutcome::Conformant);
+    }
     let key = (shape_id, focus.to_string());
     if !active.insert(key.clone()) {
         return Ok(ProbeOutcome::DeferredRecursion);
@@ -1872,6 +1940,9 @@ fn probe_shape_conforms_inner(
                 .iter()
                 .find(|shape| shape.id == *property_shape_id)
                 .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+            if property_shape.deactivated {
+                continue;
+            }
             if let Some(path) = property_shape.path.as_ref() {
                 if !path_is_executable(path) {
                     return Ok(ProbeOutcome::Unsupported(format!(
@@ -2585,32 +2656,42 @@ fn check_string_constraint(
     params: &[Term],
     value: &Term,
 ) -> Result<Option<String>, String> {
-    let literal = match value {
-        Term::Literal(lit) => lit,
-        _ => return Ok(Some("value is not a literal".to_string())),
-    };
     match predicate {
         "http://www.w3.org/ns/shacl#minLength" => {
             let Some(min) = params.first().and_then(literal_u64) else {
                 return Err("minLength is missing an integer literal bound".to_string());
             };
-            Ok((literal.value().chars().count() < min as usize)
+            let Some(text) = string_constraint_text(value) else {
+                return Ok(Some("value is a blank node".to_string()));
+            };
+            Ok((text.chars().count() < min as usize)
                 .then(|| format!("literal shorter than minimum length {min}")))
         }
         "http://www.w3.org/ns/shacl#maxLength" => {
             let Some(max) = params.first().and_then(literal_u64) else {
                 return Err("maxLength is missing an integer literal bound".to_string());
             };
-            Ok((literal.value().chars().count() > max as usize)
+            let Some(text) = string_constraint_text(value) else {
+                return Ok(Some("value is a blank node".to_string()));
+            };
+            Ok((text.chars().count() > max as usize)
                 .then(|| format!("literal longer than maximum length {max}")))
         }
         "http://www.w3.org/ns/shacl#pattern" => {
             let Some(needle) = params.first().and_then(term_string) else {
                 return Err("pattern is missing a string literal".to_string());
             };
-            let regex = Regex::new(&needle)
+            let mut builder = regex::RegexBuilder::new(&needle);
+            if params.iter().skip(1).filter_map(term_string).any(|flags| flags.contains('i')) {
+                builder.case_insensitive(true);
+            }
+            let regex = builder
+                .build()
                 .map_err(|error| format!("pattern is not a valid regex: {error}"))?;
-            Ok((!regex.is_match(literal.value()))
+            let Some(text) = string_constraint_text(value) else {
+                return Ok(Some("value is a blank node".to_string()));
+            };
+            Ok((!regex.is_match(&text))
                 .then(|| format!("literal does not match pattern {needle}")))
         }
         "http://www.w3.org/ns/shacl#languageIn" => {
@@ -2618,6 +2699,9 @@ fn check_string_constraint(
             if ranges.is_empty() {
                 return Err("languageIn requires at least one language range".to_string());
             }
+            let Term::Literal(literal) = value else {
+                return Ok(Some("literal is missing a language tag".to_string()));
+            };
             let Some(language) = literal.language() else {
                 return Ok(Some("literal is missing a language tag".to_string()));
             };
@@ -2628,12 +2712,23 @@ fn check_string_constraint(
             .then(|| format!("literal language tag {language} not allowed by languageIn")))
         }
         "http://www.w3.org/ns/shacl#uniqueLang" => {
+            let Term::Literal(literal) = value else {
+                return Ok(None);
+            };
             if literal.language().is_none() {
                 return Ok(None);
             }
             Ok(None)
         }
         _ => Ok(None),
+    }
+}
+
+fn string_constraint_text(value: &Term) -> Option<String> {
+    match value {
+        Term::Literal(literal) => Some(literal.value().to_string()),
+        Term::NamedNode(node) => Some(node.as_str().to_string()),
+        Term::BlankNode(_) => None,
     }
 }
 
@@ -3260,7 +3355,10 @@ fn language_range_matches(range: &str, language: &str) -> bool {
 }
 
 fn unique_lang_enabled(params: &[Term]) -> bool {
-    params.first().and_then(term_bool).unwrap_or(true)
+    params
+        .first()
+        .map(|term| matches!(term, Term::Literal(lit) if lit.value() == "true"))
+        .unwrap_or(true)
 }
 
 fn check_unique_lang(values: &[Term]) -> Vec<(Option<Term>, String)> {
@@ -3282,15 +3380,4 @@ fn check_unique_lang(values: &[Term]) -> Vec<(Option<Term>, String)> {
         }
     }
     violations
-}
-
-fn term_bool(term: &Term) -> Option<bool> {
-    match term {
-        Term::Literal(lit) => match lit.value() {
-            "true" | "1" => Some(true),
-            "false" | "0" => Some(false),
-            _ => None,
-        },
-        _ => None,
-    }
 }
