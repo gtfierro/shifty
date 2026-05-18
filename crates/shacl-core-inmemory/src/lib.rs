@@ -1,3 +1,5 @@
+mod physical;
+
 use oxigraph::sparql::{QueryResults, SparqlEvaluator, Variable};
 use oxigraph::store::Store;
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
@@ -7,10 +9,10 @@ use shifty_shacl_core::algebra::{
     AdvancedTarget, ComponentDefId, Constraint, ConstraintExpr, ConstraintId, LogicalKind,
     PrefixDeclaration, PropertyPath, Rule, RuleExpr, Severity, Shape, ShapeId, ShapeKind,
     ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template, TemplateBinding,
-    TemplatePart, TemplateSlotKind, TriplePatternTerm,
+    TemplatePart, TemplateSlotKind, TriplePatternTerm, TargetId,
 };
 use shifty_shacl_core::diagnostics::{SourceRef, TraceEventSchema};
-use shifty_shacl_core::plan::{ValidationPlan, ValidationPlanAnnotations, ValidationPlanNode};
+use shifty_shacl_core::plan::ValidationPlan;
 use shifty_shacl_core::source::ResolvedShapeSet;
 use shifty_shacl_core::{
     ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
@@ -21,6 +23,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Instant;
 use serde::{Deserialize, Serialize};
+
+pub use physical::{
+    compile_validation_plan, CompiledConstraintBatch, CompiledTargetScan,
+    CompiledValidationProgram, InspectablePhysicalPlan,
+};
+use physical::{target_expr_cacheable, CompiledConstraintOp, CompiledPattern};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -67,24 +75,24 @@ impl InMemoryValidationBackend {
         let mut stages = Vec::new();
 
         let stage_started = Instant::now();
+        let compiled = compile_validation_plan(plan);
+        stages.push(BenchmarkStage {
+            name: "backend.compile".to_string(),
+            elapsed_ms: elapsed_ms(stage_started.elapsed()),
+        });
+
+        let stage_started = Instant::now();
         let index = DataIndex::new(&data.quads);
         stages.push(BenchmarkStage {
             name: "backend.data_index".to_string(),
             elapsed_ms: elapsed_ms(stage_started.elapsed()),
         });
 
-        let stage_started = Instant::now();
-        let store = build_query_store(data)?;
-        stages.push(BenchmarkStage {
-            name: "backend.query_store".to_string(),
-            elapsed_ms: elapsed_ms(stage_started.elapsed()),
-        });
-
         let mut state = ExecutionState::new(
             &plan.view.program,
-            build_plan_execution_hints(plan),
+            compiled,
             index,
-            store,
+            data,
         );
 
         let stage_started = Instant::now();
@@ -100,6 +108,12 @@ impl InMemoryValidationBackend {
             name: "backend.validation".to_string(),
             elapsed_ms: elapsed_ms(stage_started.elapsed()),
         });
+        if let Some(elapsed_ms) = state.query_store_build_ms {
+            stages.push(BenchmarkStage {
+                name: "backend.query_store".to_string(),
+                elapsed_ms,
+            });
+        }
 
         let result = ValidationResult {
             conforms: state.violations.is_empty(),
@@ -121,9 +135,11 @@ impl InMemoryValidationBackend {
 
 struct ExecutionState<'a> {
     program: &'a ShapeProgram,
-    plan_hints: PlanExecutionHints,
+    compiled: CompiledValidationProgram,
     index: DataIndex,
-    store: Store,
+    data: &'a ResolvedShapeSet,
+    store: Option<Store>,
+    query_store_build_ms: Option<f64>,
     violations: Vec<ValidationViolation>,
     unsupported: Vec<ValidationUnsupported>,
     coverage: ValidationCoverage,
@@ -131,26 +147,25 @@ struct ExecutionState<'a> {
     heatmap: ValidationHeatmap,
     active: HashSet<(ShapeId, String)>,
     focus_nodes_evaluated: usize,
-}
-
-#[derive(Debug, Clone, Default)]
-struct PlanExecutionHints {
-    empty_target_shapes: HashSet<ShapeId>,
-    constraint_order_by_shape: HashMap<ShapeId, Vec<ConstraintId>>,
+    path_cache: HashMap<(String, String), Vec<Term>>,
+    target_cache: HashMap<TargetId, Vec<Term>>,
+    inferred_quads: Vec<Quad>,
 }
 
 impl<'a> ExecutionState<'a> {
     fn new(
         program: &'a ShapeProgram,
-        plan_hints: PlanExecutionHints,
+        compiled: CompiledValidationProgram,
         index: DataIndex,
-        store: Store,
+        data: &'a ResolvedShapeSet,
     ) -> Self {
         Self {
             program,
-            plan_hints,
+            compiled,
             index,
-            store,
+            data,
+            store: None,
+            query_store_build_ms: None,
             violations: Vec::new(),
             unsupported: Vec::new(),
             coverage: ValidationCoverage::default(),
@@ -158,6 +173,9 @@ impl<'a> ExecutionState<'a> {
             heatmap: ValidationHeatmap::default(),
             active: HashSet::new(),
             focus_nodes_evaluated: 0,
+            path_cache: HashMap::new(),
+            target_cache: HashMap::new(),
+            inferred_quads: Vec::new(),
         }
     }
 }
@@ -284,15 +302,16 @@ fn execute_rules_to_fixed_point(
 }
 
 fn execute_validation_plan(
-    plan: &ValidationPlan,
+    _plan: &ValidationPlan,
     state: &mut ExecutionState<'_>,
 ) -> Result<(), String> {
-    for node in &plan.nodes {
-        if let ValidationPlanNode::TargetScan { shape, .. } = node {
-            if state.plan_hints.empty_target_shapes.contains(shape) {
+    let scans = state.compiled.target_scans.clone();
+    for scan in scans {
+        let shape = scan.shape;
+        if scan.empty_scan {
                 state.trace.push(ValidationTraceEvent {
                     event: TraceEventSchema::TargetResolutionStart,
-                    shape: Some(*shape),
+                    shape: Some(shape),
                     constraint: None,
                     focus_node: None,
                     message:
@@ -301,51 +320,40 @@ fn execute_validation_plan(
                 });
                 state.trace.push(ValidationTraceEvent {
                     event: TraceEventSchema::TargetResolutionEnd,
-                    shape: Some(*shape),
+                    shape: Some(shape),
                     constraint: None,
                     focus_node: None,
                     message: "skipped empty target resolution".to_string(),
                 });
-                continue;
-            }
-            if state
-                .program
-                .shapes
-                .iter()
-                .find(|candidate| candidate.id == *shape)
-                .is_some_and(|candidate| candidate.deactivated)
-            {
-                continue;
-            }
-            let targets = plan
-                .view
-                .program
-                .targets
-                .iter()
-                .filter(|target| target.owner == *shape)
-                .collect::<Vec<_>>();
-            let mut focuses = Vec::new();
-            for target in targets {
+            continue;
+        }
+        if get_shape(state, shape)?.deactivated {
+            continue;
+        }
+        let mut focuses = Vec::new();
+        for target_id in &scan.targets {
+            let target = get_target(state, *target_id)?;
+            let resolved_target_id = target.id;
+            let target_expr = target.expr.clone();
                 state.trace.push(ValidationTraceEvent {
                     event: TraceEventSchema::TargetResolutionStart,
-                    shape: Some(*shape),
+                    shape: Some(shape),
                     constraint: None,
                     focus_node: None,
-                    message: format!("resolving target {}", target.id.0),
+                    message: format!("resolving target {}", resolved_target_id.0),
                 });
-                focuses.extend(resolve_target(*shape, &target.expr, state)?);
+                focuses.extend(resolve_target_cached(shape, resolved_target_id, &target_expr, state)?);
                 state.trace.push(ValidationTraceEvent {
                     event: TraceEventSchema::TargetResolutionEnd,
-                    shape: Some(*shape),
+                    shape: Some(shape),
                     constraint: None,
                     focus_node: None,
-                    message: format!("resolved target {}", target.id.0),
+                    message: format!("resolved target {}", resolved_target_id.0),
                 });
-            }
-            for focus in dedup_terms(focuses) {
-                state.focus_nodes_evaluated += 1;
-                let _ = eval_shape(*shape, &focus, state)?;
-            }
+        }
+        for focus in dedup_terms(focuses) {
+            state.focus_nodes_evaluated += 1;
+            let _ = eval_shape(shape, &focus, state)?;
         }
     }
     Ok(())
@@ -355,51 +363,6 @@ fn elapsed_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
-fn build_plan_execution_hints(plan: &ValidationPlan) -> PlanExecutionHints {
-    let mut hints = PlanExecutionHints::default();
-    hints.empty_target_shapes.extend(
-        plan.annotations
-            .target_scans
-            .values()
-            .filter(|annotation| annotation.empty_scan == Some(true))
-            .map(|annotation| annotation.shape),
-    );
-    for node in &plan.nodes {
-        if let ValidationPlanNode::ConstraintBatch {
-            shape,
-            constraints,
-            ..
-        } = node
-        {
-            hints
-                .constraint_order_by_shape
-                .insert(*shape, constraints.clone());
-        }
-    }
-    append_annotation_constraints(&mut hints, &plan.annotations);
-    hints
-}
-
-fn append_annotation_constraints(
-    hints: &mut PlanExecutionHints,
-    annotations: &ValidationPlanAnnotations,
-) {
-    for (shape, annotation) in &annotations.constraint_batches {
-        let entry = hints
-            .constraint_order_by_shape
-            .entry(ShapeId(*shape))
-            .or_default();
-        for constraint_id in annotation
-            .dead_constraint_candidates
-            .iter()
-            .chain(annotation.vacuous_constraint_candidates.iter())
-        {
-            if !entry.contains(constraint_id) {
-                entry.push(*constraint_id);
-            }
-        }
-    }
-}
 
 fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, String> {
     state.trace.push(ValidationTraceEvent {
@@ -416,21 +379,12 @@ fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, St
         .or_insert(0) += 1;
     state.coverage.executed_rules += 1;
 
-    let owner_shape = state
-        .program
-        .shapes
-        .iter()
-        .find(|shape| shape.id == rule.owner)
-        .ok_or_else(|| format!("unknown rule owner shape {}", rule.owner.0))?;
+    let owner_targets = get_shape(state, rule.owner)?.targets.clone();
     let mut focuses = Vec::new();
-    for target_id in &owner_shape.targets {
-        let target = state
-            .program
-            .targets
-            .iter()
-            .find(|target| target.id == *target_id)
-            .ok_or_else(|| format!("unknown target {}", target_id.0))?;
-        focuses.extend(resolve_target(rule.owner, &target.expr, state)?);
+    for target_id in &owner_targets {
+        let target = get_target(state, *target_id)?;
+        let target_expr = target.expr.clone();
+        focuses.extend(resolve_target_cached(rule.owner, target.id, &target_expr, state)?);
     }
     let focuses = dedup_terms(focuses);
 
@@ -482,7 +436,7 @@ fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, St
 }
 
 fn ordered_constraint_ids(shape: &Shape, state: &ExecutionState<'_>) -> Vec<ConstraintId> {
-    if let Some(planned) = state.plan_hints.constraint_order_by_shape.get(&shape.id) {
+    if let Some(planned) = state.compiled.constraint_order_by_shape.get(&shape.id) {
         let mut ordered = planned.clone();
         for constraint_id in &shape.constraints {
             if !ordered.contains(constraint_id) {
@@ -493,6 +447,39 @@ fn ordered_constraint_ids(shape: &Shape, state: &ExecutionState<'_>) -> Vec<Cons
     } else {
         shape.constraints.clone()
     }
+}
+
+fn get_shape<'a>(state: &'a ExecutionState<'_>, shape_id: ShapeId) -> Result<&'a Shape, String> {
+    state
+        .compiled
+        .shape_positions
+        .get(&shape_id)
+        .and_then(|index| state.program.shapes.get(*index))
+        .ok_or_else(|| format!("unknown shape {}", shape_id.0))
+}
+
+fn get_constraint<'a>(
+    state: &'a ExecutionState<'_>,
+    constraint_id: ConstraintId,
+) -> Result<&'a Constraint, String> {
+    state
+        .compiled
+        .constraint_positions
+        .get(&constraint_id)
+        .and_then(|index| state.program.constraints.get(*index))
+        .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))
+}
+
+fn get_target<'a>(
+    state: &'a ExecutionState<'_>,
+    target_id: TargetId,
+) -> Result<&'a shifty_shacl_core::algebra::Target, String> {
+    state
+        .compiled
+        .target_positions
+        .get(&target_id)
+        .and_then(|index| state.program.targets.get(*index))
+        .ok_or_else(|| format!("unknown target {}", target_id.0))
 }
 
 fn rule_conditions_hold(
@@ -671,7 +658,7 @@ fn eval_triple_pattern_term(
                     path_label(path)
                 ));
             }
-            Ok(eval_path(&state.index, focus, path))
+            Ok(eval_path_cached(state, focus, path))
         }
     }
 }
@@ -685,20 +672,26 @@ fn term_to_subject(term: &Term) -> Option<NamedOrBlankNode> {
 }
 
 fn insert_inferred_quad(quad: Quad, state: &mut ExecutionState<'_>) -> Result<usize, String> {
-    if state
-        .store
-        .contains(&quad)
-        .map_err(|error| error.to_string())?
-    {
+    if quad_exists(&state.index, &quad) {
         return Ok(0);
     }
-    state
-        .store
-        .insert(&quad)
-        .map_err(|error| error.to_string())?;
+    if let Some(store) = state.store.as_ref() {
+        store.insert(&quad).map_err(|error| error.to_string())?;
+    }
     state.index.insert_quad(&quad);
+    state.inferred_quads.push(quad);
+    state.path_cache.clear();
+    state.target_cache.clear();
     state.coverage.inferred_triples += 1;
     Ok(1)
+}
+
+fn quad_exists(index: &DataIndex, quad: &Quad) -> bool {
+    let subject_key = subject_to_term(&quad.subject).to_string();
+    index
+        .outgoing
+        .get(&subject_key)
+        .is_some_and(|edges| edges.contains(&(quad.predicate.clone(), quad.object.clone())))
 }
 
 fn eval_shape(
@@ -706,15 +699,12 @@ fn eval_shape(
     focus: &Term,
     state: &mut ExecutionState<'_>,
 ) -> Result<ExecutionStatus, String> {
-    let Some(shape) = state
-        .program
-        .shapes
-        .iter()
-        .find(|shape| shape.id == shape_id)
-    else {
-        return Err(format!("unknown shape {}", shape_id.0));
-    };
-    if shape.deactivated {
+    let shape = get_shape(state, shape_id)?;
+    let shape_deactivated = shape.deactivated;
+    let shape_key = shape.normalized_key.clone();
+    let shape_kind = shape.kind.clone();
+    let shape_path = shape.path.clone();
+    if shape_deactivated {
         return Ok(ExecutionStatus::Completed);
     }
     let key = (shape_id, focus.to_string());
@@ -735,22 +725,22 @@ fn eval_shape(
         shape: Some(shape_id),
         constraint: None,
         focus_node: Some(focus.to_string()),
-        message: format!("enter shape {}", shape.normalized_key),
+        message: format!("enter shape {}", shape_key),
     });
     *state
         .heatmap
         .shape_hits
-        .entry(shape.normalized_key.clone())
+        .entry(shape_key.clone())
         .or_insert(0) += 1;
 
-    let status = match shape.kind {
+    let status = match shape_kind {
         ShapeKind::Node => eval_node_shape(shape_id, focus, state)?,
         ShapeKind::Property => {
-            let Some(path) = shape.path.as_ref() else {
+            let Some(path) = shape_path.as_ref() else {
                 state.active.remove(&key);
                 return Err(format!(
                     "property shape {} is missing sh:path",
-                    shape.normalized_key
+                    shape_key
                 ));
             };
             if !path_is_executable(path) {
@@ -767,7 +757,7 @@ fn eval_shape(
                 );
                 ExecutionStatus::Completed
             } else {
-                let values = eval_path(&state.index, focus, path);
+                let values = eval_path_cached(state, focus, path);
                 eval_property_shape(shape_id, focus, &values, state)?
             }
         }
@@ -778,7 +768,7 @@ fn eval_shape(
         shape: Some(shape_id),
         constraint: None,
         focus_node: Some(focus.to_string()),
-        message: format!("exit shape {}", shape.normalized_key),
+        message: format!("exit shape {}", shape_key),
     });
     state.active.remove(&key);
     Ok(status)
@@ -789,24 +779,17 @@ fn eval_node_shape(
     focus: &Term,
     state: &mut ExecutionState<'_>,
 ) -> Result<ExecutionStatus, String> {
-    let shape = state
-        .program
-        .shapes
-        .iter()
-        .find(|shape| shape.id == shape_id)
-        .ok_or_else(|| format!("unknown shape {}", shape_id.0))?;
+    let shape = get_shape(state, shape_id)?;
+    let ordered_constraints = ordered_constraint_ids(shape, state);
+    let property_shapes = shape.property_shapes.clone();
     let mut status = ExecutionStatus::Completed;
-    for constraint_id in ordered_constraint_ids(shape, state) {
-        let constraint = state
-            .program
-            .constraints
-            .iter()
-            .find(|constraint| constraint.id == constraint_id)
-            .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
+    for constraint_id in ordered_constraints {
+        let constraint = get_constraint(state, constraint_id)?;
+        let constraint_expr = constraint.expr.clone();
         if eval_constraint(
             shape_id,
             constraint.id,
-            &constraint.expr,
+            &constraint_expr,
             focus,
             None,
             state,
@@ -815,17 +798,13 @@ fn eval_node_shape(
             status = ExecutionStatus::DeferredRecursion;
         }
     }
-    for property_shape_id in &shape.property_shapes {
-        let property_shape = state
-            .program
-            .shapes
-            .iter()
-            .find(|shape| shape.id == *property_shape_id)
-            .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+    for property_shape_id in &property_shapes {
+        let property_shape = get_shape(state, *property_shape_id)?;
+        let property_path = property_shape.path.clone();
         if property_shape.deactivated {
             continue;
         }
-        if let Some(path) = property_shape.path.as_ref() {
+        if let Some(path) = property_path.as_ref() {
             if !path_is_executable(path) {
                 record_unsupported(
                     *property_shape_id,
@@ -841,10 +820,9 @@ fn eval_node_shape(
                 continue;
             }
         }
-        let values = property_shape
-            .path
+        let values = property_path
             .as_ref()
-            .map(|path| eval_path(&state.index, focus, path))
+            .map(|path| eval_path_cached(state, focus, path))
             .unwrap_or_default();
         if eval_property_shape(*property_shape_id, focus, &values, state)?
             == ExecutionStatus::DeferredRecursion
@@ -861,13 +839,12 @@ fn eval_property_shape(
     values: &[Term],
     state: &mut ExecutionState<'_>,
 ) -> Result<ExecutionStatus, String> {
-    let shape = state
-        .program
-        .shapes
-        .iter()
-        .find(|shape| shape.id == shape_id)
-        .ok_or_else(|| format!("unknown property shape {}", shape_id.0))?;
-    if shape.deactivated {
+    let shape = get_shape(state, shape_id)?;
+    let shape_deactivated = shape.deactivated;
+    let shape_key = shape.normalized_key.clone();
+    let ordered_constraints = ordered_constraint_ids(shape, state);
+    let property_shapes = shape.property_shapes.clone();
+    if shape_deactivated {
         return Ok(ExecutionStatus::Completed);
     }
     state.trace.push(ValidationTraceEvent {
@@ -875,25 +852,21 @@ fn eval_property_shape(
         shape: Some(shape_id),
         constraint: None,
         focus_node: Some(parent_focus.to_string()),
-        message: format!("enter property shape {}", shape.normalized_key),
+        message: format!("enter property shape {}", shape_key),
     });
     *state
         .heatmap
         .shape_hits
-        .entry(shape.normalized_key.clone())
+        .entry(shape_key.clone())
         .or_insert(0) += 1;
     let mut status = ExecutionStatus::Completed;
-    for constraint_id in ordered_constraint_ids(shape, state) {
-        let constraint = state
-            .program
-            .constraints
-            .iter()
-            .find(|constraint| constraint.id == constraint_id)
-            .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
+    for constraint_id in ordered_constraints {
+        let constraint = get_constraint(state, constraint_id)?;
+        let constraint_expr = constraint.expr.clone();
         if eval_constraint(
             shape_id,
             constraint.id,
-            &constraint.expr,
+            &constraint_expr,
             parent_focus,
             Some(values),
             state,
@@ -902,17 +875,13 @@ fn eval_property_shape(
             status = ExecutionStatus::DeferredRecursion;
         }
     }
-    for nested_property_shape_id in &shape.property_shapes {
-        let nested_property_shape = state
-            .program
-            .shapes
-            .iter()
-            .find(|candidate| candidate.id == *nested_property_shape_id)
-            .ok_or_else(|| format!("unknown property shape {}", nested_property_shape_id.0))?;
+    for nested_property_shape_id in &property_shapes {
+        let nested_property_shape = get_shape(state, *nested_property_shape_id)?;
+        let nested_path = nested_property_shape.path.clone();
         if nested_property_shape.deactivated {
             continue;
         }
-        let Some(path) = nested_property_shape.path.as_ref() else {
+        let Some(path) = nested_path.as_ref() else {
             continue;
         };
         if !path_is_executable(path) {
@@ -930,7 +899,7 @@ fn eval_property_shape(
             continue;
         }
         for value in values {
-            let nested_values = eval_path(&state.index, value, path);
+            let nested_values = eval_path_cached(state, value, path);
             if eval_property_shape(*nested_property_shape_id, value, &nested_values, state)?
                 == ExecutionStatus::DeferredRecursion
             {
@@ -943,7 +912,7 @@ fn eval_property_shape(
         shape: Some(shape_id),
         constraint: None,
         focus_node: Some(parent_focus.to_string()),
-        message: format!("exit property shape {}", shape.normalized_key),
+        message: format!("exit property shape {}", shape_key),
     });
     Ok(status)
 }
@@ -956,6 +925,12 @@ fn eval_constraint(
     values: Option<&[Term]>,
     state: &mut ExecutionState<'_>,
 ) -> Result<ExecutionStatus, String> {
+    let compiled_pattern = match state.compiled.constraint_ops.get(&constraint_id) {
+        Some(CompiledConstraintOp::StringConstraint {
+            compiled_pattern, ..
+        }) => compiled_pattern.clone(),
+        _ => None,
+    };
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::EnterConstraint,
         shape: Some(shape_id),
@@ -1084,7 +1059,12 @@ fn eval_constraint(
                 }
             } else {
                 for value in local_values {
-                    match check_string_constraint(predicate.as_str(), params, value) {
+                    match check_string_constraint_compiled(
+                        predicate.as_str(),
+                        params,
+                        compiled_pattern.as_ref(),
+                        value,
+                    ) {
                         Ok(Some(message)) => {
                             record_violation(
                                 shape_id,
@@ -1266,7 +1246,7 @@ fn eval_constraint(
                 let nested_values = nested_shape
                     .path
                     .as_ref()
-                    .map(|path| eval_path(&state.index, value, path))
+                    .map(|path| eval_path_cached(state, value, path))
                     .unwrap_or_default();
                 if eval_property_shape(*target, value, &nested_values, state)?
                     == ExecutionStatus::DeferredRecursion
@@ -1615,6 +1595,34 @@ fn resolve_target(
     }
 }
 
+fn resolve_target_cached(
+    owner: ShapeId,
+    target_id: TargetId,
+    target: &TargetExpr,
+    state: &mut ExecutionState<'_>,
+) -> Result<Vec<Term>, String> {
+    if target_expr_cacheable(target)
+        && let Some(cached) = state.target_cache.get(&target_id)
+    {
+        return Ok(cached.clone());
+    }
+    let resolved = resolve_target(owner, target, state)?;
+    if target_expr_cacheable(target) {
+        state.target_cache.insert(target_id, resolved.clone());
+    }
+    Ok(resolved)
+}
+
+fn eval_path_cached(state: &mut ExecutionState<'_>, focus: &Term, path: &PropertyPath) -> Vec<Term> {
+    let key = (focus.to_string(), path_label(path).to_string());
+    if let Some(cached) = state.path_cache.get(&key) {
+        return cached.clone();
+    }
+    let values = eval_path(&state.index, focus, path);
+    state.path_cache.insert(key, values.clone());
+    values
+}
+
 fn resolve_advanced_target(
     owner: ShapeId,
     target: &AdvancedTarget,
@@ -1662,24 +1670,21 @@ fn resolve_shape_targets(
     if !active.insert(shape_id) {
         return Ok(Vec::new());
     }
-    if state
-        .program
-        .shapes
-        .iter()
-        .find(|shape| shape.id == shape_id)
-        .is_some_and(|shape| shape.deactivated)
-    {
+    if get_shape(state, shape_id)?.deactivated {
         active.remove(&shape_id);
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for target in state
-        .program
-        .targets
-        .iter()
-        .filter(|target| target.owner == shape_id)
-    {
-        out.extend(resolve_target(shape_id, &target.expr, state)?);
+    let targets = state
+        .compiled
+        .targets_by_owner
+        .get(&shape_id)
+        .cloned()
+        .unwrap_or_default();
+    for target_id in targets {
+        let target = get_target(state, target_id)?;
+        let target_expr = target.expr.clone();
+        out.extend(resolve_target_cached(shape_id, target.id, &target_expr, state)?);
     }
     active.remove(&shape_id);
     Ok(dedup_terms(out))
@@ -2888,6 +2893,25 @@ fn check_string_constraint(
     }
 }
 
+fn check_string_constraint_compiled(
+    predicate: &str,
+    params: &[Term],
+    compiled_pattern: Option<&CompiledPattern>,
+    value: &Term,
+) -> Result<Option<String>, String> {
+    if predicate != "http://www.w3.org/ns/shacl#pattern" {
+        return check_string_constraint(predicate, params, value);
+    }
+    let Some(pattern) = compiled_pattern else {
+        return check_string_constraint(predicate, params, value);
+    };
+    let Some(text) = string_constraint_text(value) else {
+        return Ok(Some("value is a blank node".to_string()));
+    };
+    Ok((!pattern.regex.is_match(&text))
+        .then(|| format!("literal does not match pattern {}", pattern.pattern)))
+}
+
 fn string_constraint_text(value: &Term) -> Option<String> {
     match value {
         Term::Literal(literal) => Some(literal.value().to_string()),
@@ -3128,10 +3152,11 @@ fn build_query_store(data: &ResolvedShapeSet) -> Result<Store, String> {
 }
 
 fn execute_prepared_query<'a>(
-    state: &'a ExecutionState<'_>,
+    state: &'a mut ExecutionState<'_>,
     query: &str,
     bindings: &[(Variable, Term)],
 ) -> Result<QueryResults<'a>, String> {
+    ensure_query_store(state)?;
     let mut rewritten = query.to_string();
     let mut remaining = bindings.to_vec();
     loop {
@@ -3139,7 +3164,7 @@ fn execute_prepared_query<'a>(
             .parse_query(&rewritten)
             .map_err(|error| format!("Failed to parse SPARQL query: {error}"))?;
         prepared.dataset_mut().set_default_graph_as_union();
-        let mut bound = prepared.on_store(&state.store);
+        let mut bound = prepared.on_store(state.store.as_ref().expect("query store initialized"));
         for (variable, term) in &remaining {
             bound = bound.substitute_variable(variable.clone(), term.clone());
         }
@@ -3166,8 +3191,22 @@ fn execute_prepared_query<'a>(
     }
 }
 
+fn ensure_query_store(state: &mut ExecutionState<'_>) -> Result<(), String> {
+    if state.store.is_some() {
+        return Ok(());
+    }
+    let started = Instant::now();
+    let store = build_query_store(state.data)?;
+    for quad in &state.inferred_quads {
+        store.insert(quad).map_err(|error| error.to_string())?;
+    }
+    state.query_store_build_ms = Some(elapsed_ms(started.elapsed()));
+    state.store = Some(store);
+    Ok(())
+}
+
 fn execute_ask_or_select_probe(
-    state: &ExecutionState<'_>,
+    state: &mut ExecutionState<'_>,
     query: &str,
     bindings: &[(Variable, Term)],
 ) -> Result<bool, String> {
@@ -3183,7 +3222,7 @@ fn execute_ask_or_select_probe(
 }
 
 fn execute_select_violations(
-    state: &ExecutionState<'_>,
+    state: &mut ExecutionState<'_>,
     query: &str,
     bindings: &[(Variable, Term)],
 ) -> Result<Vec<SelectViolation>, String> {
