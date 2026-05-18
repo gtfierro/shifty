@@ -179,11 +179,11 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 
 ## Phase 10 Checklist
 
-- [ ] Execute regex semantics for `sh:pattern`
-- [ ] Execute inverse paths for all currently represented executable path forms
-- [ ] Preserve deterministic inverse-path traversal output
-- [ ] Add fixture-backed tests for regex pattern execution
-- [ ] Add fixture-backed tests for nested inverse/transitive path execution
+- [x] Execute regex semantics for `sh:pattern`
+- [x] Execute inverse paths for all currently represented executable path forms
+- [x] Preserve deterministic inverse-path traversal output
+- [x] Add fixture-backed tests for regex pattern execution
+- [x] Add fixture-backed tests for nested inverse/transitive path execution
 
 ## Data Types / APIs
 

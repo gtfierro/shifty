@@ -2319,6 +2319,195 @@ fn validation_backend_reports_unsupported_path_forms_explicitly() {
 }
 
 #[test]
+fn validation_backend_executes_regex_pattern_constraints() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_pattern = NamedNode::new("http://www.w3.org/ns/shacl#pattern").unwrap();
+    let shape = NamedNode::new("urn:regex-shape").unwrap();
+    let property_shape = NamedNode::new("urn:code-property").unwrap();
+    let focus = NamedNode::new("urn:regex-focus").unwrap();
+    let code = NamedNode::new("urn:code").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::NamedNode(code.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_pattern,
+            Term::Literal(Literal::new_simple_literal("^[A-Z]{3}-\\d{2}$")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-regex").unwrap(),
+            quads: vec![Quad::new(
+                focus,
+                code,
+                Term::Literal(Literal::new_simple_literal("abc-12")),
+                oxrdf::GraphName::DefaultGraph,
+            )],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(!result.conforms);
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|violation| violation.message.contains("does not match pattern"))
+    );
+}
+
+#[test]
+fn validation_backend_executes_nested_inverse_transitive_paths() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_inverse_path = NamedNode::new("http://www.w3.org/ns/shacl#inversePath").unwrap();
+    let sh_one_or_more = NamedNode::new("http://www.w3.org/ns/shacl#oneOrMorePath").unwrap();
+    let sh_has_value = NamedNode::new("http://www.w3.org/ns/shacl#hasValue").unwrap();
+    let shape = NamedNode::new("urn:inverse-shape").unwrap();
+    let property_shape = NamedNode::new("urn:inverse-property").unwrap();
+    let focus = NamedNode::new("urn:leaf").unwrap();
+    let link = NamedNode::new("urn:link").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let middle = NamedNode::new("urn:middle").unwrap();
+    let inverse_path = oxrdf::BlankNode::new("inv-path").unwrap();
+    let one_or_more = oxrdf::BlankNode::new("oom-path").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::BlankNode(inverse_path.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inverse_path,
+            sh_inverse_path,
+            Term::BlankNode(one_or_more.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            one_or_more,
+            sh_one_or_more,
+            Term::NamedNode(link.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_has_value,
+            Term::NamedNode(root.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-inverse").unwrap(),
+            quads: vec![
+                Quad::new(
+                    root,
+                    link.clone(),
+                    Term::NamedNode(middle.clone()),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    middle,
+                    link,
+                    Term::NamedNode(focus),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+            ],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(result.conforms);
+    assert!(result.unsupported.is_empty());
+}
+
+#[test]
 fn lowers_property_paths_and_qualified_shapes() {
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let rdf_first = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap();

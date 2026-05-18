@@ -3192,6 +3192,7 @@ dependencies = [
  "ontoenv",
  "oxigraph",
  "oxrdf",
+ "regex",
  "serde",
  "tempfile",
 ]

@@ -6,6 +6,7 @@ use crate::diagnostics::{SourceRef, TraceEventSchema};
 use crate::plan::{ValidationPlan, ValidationPlanNode};
 use crate::source::ResolvedShapeSet;
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -184,14 +185,12 @@ enum ProbeOutcome {
 #[derive(Debug, Clone)]
 struct DataIndex {
     outgoing: HashMap<String, Vec<(NamedNode, Term)>>,
-    incoming: HashMap<String, Vec<(NamedNode, Term)>>,
     types: HashMap<String, BTreeSet<String>>,
 }
 
 impl DataIndex {
     fn new(quads: &[Quad]) -> Self {
         let mut outgoing = HashMap::new();
-        let mut incoming = HashMap::new();
         let mut types = HashMap::new();
         for quad in quads {
             let subject = subject_to_term(&quad.subject);
@@ -200,11 +199,6 @@ impl DataIndex {
                 .entry(subject_key.clone())
                 .or_insert_with(Vec::new)
                 .push((quad.predicate.clone(), quad.object.clone()));
-            let object_key = quad.object.to_string();
-            incoming
-                .entry(object_key.clone())
-                .or_insert_with(Vec::new)
-                .push((quad.predicate.clone(), subject.clone()));
             if quad.predicate.as_str() == RDF_TYPE {
                 types
                     .entry(subject_key)
@@ -214,7 +208,6 @@ impl DataIndex {
         }
         Self {
             outgoing,
-            incoming,
             types,
         }
     }
@@ -922,16 +915,7 @@ fn eval_path(index: &DataIndex, focus: &Term, path: &PropertyPath) -> Vec<Term> 
             .flatten()
             .filter_map(|(pred, object)| (pred == predicate).then(|| object.clone()))
             .collect(),
-        PropertyPath::Inverse(inner) => match inner.as_ref() {
-            PropertyPath::Predicate(predicate) => index
-                .incoming
-                .get(&focus.to_string())
-                .into_iter()
-                .flatten()
-                .filter_map(|(pred, subject)| (pred == predicate).then(|| subject.clone()))
-                .collect(),
-            _ => Vec::new(),
-        },
+        PropertyPath::Inverse(inner) => eval_inverse_path(index, focus, inner),
         PropertyPath::Sequence(parts) => {
             let mut current = vec![focus.clone()];
             for part in parts {
@@ -1485,8 +1469,10 @@ fn check_string_constraint(
             let Some(needle) = params.first().and_then(term_string) else {
                 return Err("pattern is missing a string literal".to_string());
             };
-            Ok((!literal.value().contains(&needle))
-                .then(|| format!("literal does not contain pattern {needle}")))
+            let regex = Regex::new(&needle)
+                .map_err(|error| format!("pattern is not a valid regex: {error}"))?;
+            Ok((!regex.is_match(literal.value()))
+                .then(|| format!("literal does not match pattern {needle}")))
         }
         "http://www.w3.org/ns/shacl#languageIn" => {
             let ranges = params
@@ -1705,6 +1691,16 @@ fn parse_term(value: &str) -> Option<Term> {
     }
 }
 
+fn parse_term_or_blank(value: &str) -> Option<Term> {
+    if let Some(term) = parse_term(value) {
+        return Some(term);
+    }
+    value
+        .strip_prefix("_:")
+        .and_then(|id| oxrdf::BlankNode::new(id).ok())
+        .map(Term::BlankNode)
+}
+
 fn dedup_terms(values: Vec<Term>) -> Vec<Term> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
@@ -1771,6 +1767,25 @@ fn eval_transitive_path(
                 out.push(next.clone());
                 queue.push(next);
             }
+        }
+    }
+    out
+}
+
+fn eval_inverse_path(index: &DataIndex, focus: &Term, inner: &PropertyPath) -> Vec<Term> {
+    let focus_key = focus.to_string();
+    let mut candidates = index.outgoing.keys().cloned().collect::<Vec<_>>();
+    candidates.sort();
+    let mut out = Vec::new();
+    for candidate in candidates {
+        let Some(candidate_term) = parse_term_or_blank(&candidate) else {
+            continue;
+        };
+        if eval_path(index, &candidate_term, inner)
+            .iter()
+            .any(|term| term.to_string() == focus_key)
+        {
+            out.push(candidate_term);
         }
     }
     out

@@ -14,6 +14,7 @@ oxrdf = { workspace = true }
 oxigraph = { workspace = true, default-features = false }
 ontoenv = { git = "https://github.com/gtfierro/ontoenv-rs" }
 serde = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
