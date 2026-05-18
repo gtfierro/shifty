@@ -135,6 +135,22 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for validation planning
 - [x] Add fixture-backed tests for inference planning
 
+## Phase 7 Checklist
+
+- [x] Add a validation backend trait over logical validation plans
+- [x] Add an in-memory quad index for executable backends
+- [x] Execute target scans for node/class/subjects-of/objects-of targets
+- [x] Execute local constraint batches
+- [x] Execute bounded property-path traversal for validation
+- [x] Add structured validation result types
+- [x] Add structured trace events for validation execution
+- [x] Add heatmap-style execution counters
+- [x] Add a CLI command for executing validation
+- [x] Add text output for validation results
+- [x] Add JSON output for validation results
+- [x] Add fixture-backed tests for target resolution
+- [x] Add fixture-backed tests for local/path validation execution
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`

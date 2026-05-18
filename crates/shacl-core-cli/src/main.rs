@@ -2,13 +2,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
-    InferencePlan, InferenceView, NormalizeOptions, RewriteOptions, RewriteSummary,
-    SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
-    ValidationPlan, ValidationView, analyze_program, analyze_static_with_roots,
-    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
-    derive_inference_view, derive_validation_logical_plan, derive_validation_view,
-    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
-    render_shape_program_dot, rewrite_program,
+    InMemoryValidationBackend, InferencePlan, InferenceView, NormalizeOptions, RewriteOptions,
+    RewriteSummary, SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary,
+    StaticCostHint, ValidationBackend, ValidationPlan, ValidationResult, ValidationView,
+    analyze_program, analyze_static_with_roots, derive_backend_logical_plans, derive_backend_views,
+    derive_inference_logical_plan, derive_inference_view, derive_validation_logical_plan,
+    derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
+    parse_resolved, render_shape_program_dot, rewrite_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -34,6 +34,8 @@ enum Command {
     BackendView(BackendViewArgs),
     /// Derive backend-agnostic logical plans
     Plan(PlanArgs),
+    /// Execute a narrow validation backend over data graphs
+    Validate(ValidateArgs),
     /// Emit Graphviz DOT for the shape/component graph
     Graphviz(GraphvizArgs),
 }
@@ -269,6 +271,36 @@ struct PlanArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(Parser, Debug)]
+struct ValidateArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Data files or URLs to validate
+    #[arg(long = "data", value_name = "DATA", required = true)]
+    data: Vec<String>,
+
+    /// Drop deactivated shapes and rules before planning/execution
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
+    /// Closure mode used to derive the validation view and plan
+    #[arg(long, value_enum, default_value_t = BackendClosureArg::TargetRoots)]
+    closure: BackendClosureArg,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -278,6 +310,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Rewrite(args) => run_rewrite(args)?,
         Command::BackendView(args) => run_backend_view(args)?,
         Command::Plan(args) => run_plan(args)?,
+        Command::Validate(args) => run_validate(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
     Ok(())
@@ -543,6 +576,56 @@ fn run_plan(args: PlanArgs) -> Result<(), Box<dyn std::error::Error>> {
                     write_text(&text, args.output.as_deref())?;
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let roots = if args.root_shapes.is_empty() {
+        Some(SliceRoots::TargetShapes)
+    } else {
+        Some(SliceRoots::ExplicitSelectors(args.root_shapes.clone()))
+    };
+    let options = BackendViewOptions {
+        rewrite: RewriteOptions {
+            roots,
+            prune_unreachable: true,
+            ..RewriteOptions::default()
+        },
+        closure_mode: match args.closure {
+            BackendClosureArg::TargetRoots => BackendClosureMode::TargetRoots,
+            BackendClosureArg::ValidationClosure => BackendClosureMode::ValidationClosure,
+            BackendClosureArg::InferenceClosure => BackendClosureMode::InferenceClosure,
+            BackendClosureArg::MixedClosure => BackendClosureMode::MixedClosure,
+        },
+    };
+    let plan = derive_validation_logical_plan(&program, options);
+    let data = shifty_shacl_core::source::load_with_ontoenv(
+        &args
+            .data
+            .iter()
+            .map(|value| source_from_str(value))
+            .collect::<Vec<_>>(),
+        &load_options(&args.shared),
+    )?;
+    let backend = InMemoryValidationBackend;
+    let result = backend
+        .execute(&plan, &data)
+        .map_err(|message| io::Error::other(message))?;
+    match args.format {
+        AnalyzeFormat::Json => write_json(&result, args.output.as_deref())?,
+        AnalyzeFormat::Text => {
+            let text = render_validation_result_text(&result);
+            write_text(&text, args.output.as_deref())?;
         }
     }
     Ok(())
@@ -1651,6 +1734,68 @@ fn render_inference_plan_text(plan: &InferencePlan) -> String {
                     ));
                 }
             }
+        }
+    }
+    out
+}
+
+fn render_validation_result_text(result: &ValidationResult) -> String {
+    let mut out = String::new();
+    out.push_str("Validation Result\n");
+    out.push_str(&format!("  conforms: {}\n", result.conforms));
+    out.push_str(&format!(
+        "  focus_nodes_evaluated: {}\n",
+        result.focus_nodes_evaluated
+    ));
+    out.push_str(&format!("  violations: {}\n", result.violations.len()));
+    out.push_str(&format!("  trace_events: {}\n", result.trace.len()));
+    out.push_str("\nHeatmap\n");
+    out.push_str(&format!(
+        "  shapes_evaluated: {}\n",
+        result.heatmap.shape_hits.len()
+    ));
+    out.push_str(&format!(
+        "  constraints_evaluated: {}\n",
+        result.heatmap.constraint_hits.len()
+    ));
+    if !result.violations.is_empty() {
+        out.push_str("\nViolations\n");
+        for violation in &result.violations {
+            out.push_str(&format!(
+                "  shape={} constraint={} focus={}\n",
+                violation.shape.0,
+                violation
+                    .constraint
+                    .map(|constraint| constraint.0.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                violation.focus_node
+            ));
+            if let Some(value_node) = &violation.value_node {
+                out.push_str(&format!("    value={}\n", value_node));
+            }
+            out.push_str(&format!("    {}\n", violation.message));
+        }
+    }
+    if !result.trace.is_empty() {
+        out.push_str("\nTrace\n");
+        for event in result.trace.iter().take(20) {
+            out.push_str(&format!(
+                "  {:?} shape={} constraint={} focus={} {}\n",
+                event.event,
+                event
+                    .shape
+                    .map(|shape| shape.0.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                event
+                    .constraint
+                    .map(|constraint| constraint.0.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                event.focus_node.as_deref().unwrap_or("-"),
+                event.message
+            ));
+        }
+        if result.trace.len() > 20 {
+            out.push_str(&format!("  ... {} more events\n", result.trace.len() - 20));
         }
     }
     out
