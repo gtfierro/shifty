@@ -9,6 +9,9 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const RDF_FIRST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first";
+const RDF_REST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest";
+const RDF_NIL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil";
 const SH_NODE_SHAPE: &str = "http://www.w3.org/ns/shacl#NodeShape";
 const SH_PROPERTY_SHAPE: &str = "http://www.w3.org/ns/shacl#PropertyShape";
 const SH_TRIPLE_RULE: &str = "http://www.w3.org/ns/shacl#TripleRule";
@@ -20,7 +23,14 @@ const SH_TARGET_SUBJECTS_OF: &str = "http://www.w3.org/ns/shacl#targetSubjectsOf
 const SH_TARGET_OBJECTS_OF: &str = "http://www.w3.org/ns/shacl#targetObjectsOf";
 const SH_PATH: &str = "http://www.w3.org/ns/shacl#path";
 const SH_PROPERTY: &str = "http://www.w3.org/ns/shacl#property";
+const SH_NODE: &str = "http://www.w3.org/ns/shacl#node";
+const SH_NOT: &str = "http://www.w3.org/ns/shacl#not";
+const SH_AND: &str = "http://www.w3.org/ns/shacl#and";
+const SH_OR: &str = "http://www.w3.org/ns/shacl#or";
+const SH_XONE: &str = "http://www.w3.org/ns/shacl#xone";
+const SH_QUALIFIED_VALUE_SHAPE: &str = "http://www.w3.org/ns/shacl#qualifiedValueShape";
 const SH_RULE: &str = "http://www.w3.org/ns/shacl#rule";
+const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
 const SH_DEACTIVATED: &str = "http://www.w3.org/ns/shacl#deactivated";
 const SH_ORDER: &str = "http://www.w3.org/ns/shacl#order";
@@ -90,6 +100,8 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
             candidate_rules.insert(quad.object.clone());
         }
     }
+
+    discover_inline_shapes_and_rules(&by_subject, &mut candidate_shapes, &mut candidate_rules);
 
     let mut shapes: Vec<ShapeSyntax> = candidate_shapes
         .into_iter()
@@ -245,6 +257,128 @@ fn build_rule(
         properties,
         provenance: provenance_for_quads(&quads, provenance_by_graph),
     }
+}
+
+fn discover_inline_shapes_and_rules(
+    by_subject: &HashMap<Term, Vec<Quad>>,
+    candidate_shapes: &mut HashSet<Term>,
+    candidate_rules: &mut HashSet<Term>,
+) {
+    let mut pending_shapes: Vec<Term> = candidate_shapes.iter().cloned().collect();
+    let mut pending_rules: Vec<Term> = candidate_rules.iter().cloned().collect();
+    let mut visited_shapes = HashSet::new();
+    let mut visited_rules = HashSet::new();
+
+    while let Some(shape) = pending_shapes.pop() {
+        if !visited_shapes.insert(shape.clone()) {
+            continue;
+        }
+        let Some(quads) = by_subject.get(&shape) else {
+            continue;
+        };
+        for quad in quads {
+            match quad.predicate.as_str() {
+                SH_PROPERTY | SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
+                    push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
+                }
+                SH_AND | SH_OR | SH_XONE => {
+                    for member in list_members(by_subject, &quad.object) {
+                        push_candidate_shape(candidate_shapes, &mut pending_shapes, &member);
+                    }
+                }
+                SH_RULE => {
+                    if candidate_rules.insert(quad.object.clone()) {
+                        pending_rules.push(quad.object.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    while let Some(rule) = pending_rules.pop() {
+        if !visited_rules.insert(rule.clone()) {
+            continue;
+        }
+        let Some(quads) = by_subject.get(&rule) else {
+            continue;
+        };
+        for quad in quads {
+            if quad.predicate.as_str() == SH_CONDITION {
+                push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
+            }
+        }
+    }
+
+    while let Some(shape) = pending_shapes.pop() {
+        if !visited_shapes.insert(shape.clone()) {
+            continue;
+        }
+        let Some(quads) = by_subject.get(&shape) else {
+            continue;
+        };
+        for quad in quads {
+            match quad.predicate.as_str() {
+                SH_PROPERTY | SH_NODE | SH_NOT | SH_QUALIFIED_VALUE_SHAPE => {
+                    push_candidate_shape(candidate_shapes, &mut pending_shapes, &quad.object);
+                }
+                SH_AND | SH_OR | SH_XONE => {
+                    for member in list_members(by_subject, &quad.object) {
+                        push_candidate_shape(candidate_shapes, &mut pending_shapes, &member);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn push_candidate_shape(
+    candidate_shapes: &mut HashSet<Term>,
+    pending_shapes: &mut Vec<Term>,
+    term: &Term,
+) {
+    if matches!(term, Term::NamedNode(_) | Term::BlankNode(_))
+        && candidate_shapes.insert(term.clone())
+    {
+        pending_shapes.push(term.clone());
+    }
+}
+
+fn list_members(by_subject: &HashMap<Term, Vec<Quad>>, head: &Term) -> Vec<Term> {
+    let mut members = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current = head.clone();
+
+    loop {
+        if matches!(&current, Term::NamedNode(node) if node.as_str() == RDF_NIL) {
+            break;
+        }
+        if !seen.insert(current.clone()) {
+            break;
+        }
+        let Some(quads) = by_subject.get(&current) else {
+            break;
+        };
+        let first = quads
+            .iter()
+            .find(|quad| quad.predicate.as_str() == RDF_FIRST)
+            .map(|quad| quad.object.clone());
+        let rest = quads
+            .iter()
+            .find(|quad| quad.predicate.as_str() == RDF_REST)
+            .map(|quad| quad.object.clone());
+        let Some(value) = first else {
+            break;
+        };
+        members.push(value);
+        let Some(next) = rest else {
+            break;
+        };
+        current = next;
+    }
+
+    members
 }
 
 fn provenance_map(resolved: &ResolvedShapeSet) -> HashMap<Option<String>, SourceRef> {

@@ -345,12 +345,23 @@ fn parse_separates_metadata_from_constraints() {
         ),
     ]);
 
-    let shape = syntax.shapes.iter().find(|shape| !shape.targets.is_empty()).unwrap();
-    assert!(shape.extras.iter().any(|extra| extra.predicate == rdfs_label));
-    assert!(shape
-        .constraints
+    let shape = syntax
+        .shapes
         .iter()
-        .any(|constraint| constraint.predicate == ex_activate));
+        .find(|shape| !shape.targets.is_empty())
+        .unwrap();
+    assert!(
+        shape
+            .extras
+            .iter()
+            .any(|extra| extra.predicate == rdfs_label)
+    );
+    assert!(
+        shape
+            .constraints
+            .iter()
+            .any(|constraint| constraint.predicate == ex_activate)
+    );
 }
 
 #[test]
@@ -367,8 +378,154 @@ fn core_feature_is_always_present() {
     )]);
     let program = lower_to_program(&doc);
 
-    assert!(program
-        .features
-        .iter()
-        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Core)));
+    assert!(
+        program
+            .features
+            .iter()
+            .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Core))
+    );
+}
+
+#[test]
+fn discovers_inline_shapes_from_logical_lists_and_rule_conditions() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdf_first = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#first").unwrap();
+    let rdf_rest = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#rest").unwrap();
+    let rdf_nil = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#nil").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_or = NamedNode::new("http://www.w3.org/ns/shacl#or").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_min_count = NamedNode::new("http://www.w3.org/ns/shacl#minCount").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_sparql_rule = NamedNode::new("http://www.w3.org/ns/shacl#SPARQLRule").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let owner = NamedNode::new("urn:owner").unwrap();
+    let path = NamedNode::new("urn:path").unwrap();
+    let list1 = oxrdf::BlankNode::new("ll1").unwrap();
+    let list2 = oxrdf::BlankNode::new("ll2").unwrap();
+    let inline_node = oxrdf::BlankNode::new("inline-node").unwrap();
+    let inline_prop = oxrdf::BlankNode::new("inline-prop").unwrap();
+    let inline_cond = oxrdf::BlankNode::new("inline-cond").unwrap();
+    let inline_cond_prop = oxrdf::BlankNode::new("inline-cond-prop").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let syntax = parse_quads(vec![
+        Quad::new(
+            owner.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_or,
+            Term::BlankNode(list1.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list1.clone(),
+            rdf_first.clone(),
+            Term::BlankNode(inline_node.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list1,
+            rdf_rest.clone(),
+            Term::BlankNode(list2.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list2.clone(),
+            rdf_first,
+            Term::NamedNode(owner.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            list2,
+            rdf_rest,
+            Term::NamedNode(rdf_nil),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_node.clone(),
+            sh_property.clone(),
+            Term::BlankNode(inline_prop.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_prop.clone(),
+            sh_path.clone(),
+            Term::NamedNode(path.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_prop.clone(),
+            sh_min_count.clone(),
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            rdf_type,
+            Term::NamedNode(sh_sparql_rule),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_condition,
+            Term::BlankNode(inline_cond.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::from("CONSTRUCT { } WHERE { }")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_cond.clone(),
+            sh_property,
+            Term::BlankNode(inline_cond_prop.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_cond_prop.clone(),
+            sh_path,
+            Term::NamedNode(path),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            inline_cond_prop,
+            sh_min_count,
+            Term::Literal(Literal::from(1)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    assert!(
+        syntax
+            .shapes
+            .iter()
+            .any(|shape| shape.subject == Term::BlankNode(inline_node.clone()))
+    );
+    assert!(
+        syntax
+            .shapes
+            .iter()
+            .any(|shape| shape.subject == Term::BlankNode(inline_prop.clone()))
+    );
+    assert!(
+        syntax
+            .shapes
+            .iter()
+            .any(|shape| shape.subject == Term::BlankNode(inline_cond.clone()))
+    );
 }
