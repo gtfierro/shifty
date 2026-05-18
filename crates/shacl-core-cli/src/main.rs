@@ -8,9 +8,9 @@ use shifty_shacl_core::{
     ValidationBackend, ValidationPlan, ValidationResult, ValidationView, analyze_program,
     analyze_static_with_roots, build_validation_report, derive_backend_logical_plans,
     derive_backend_views, derive_inference_logical_plan, derive_inference_view,
-    derive_validation_logical_plan, derive_validation_view, load_and_parse_with_ontoenv,
-    lower_to_program, normalize_program, parse_resolved, render_shape_program_dot,
-    rewrite_program,
+    derive_validation_logical_plan, derive_validation_logical_plan_with_data,
+    derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
+    parse_resolved, render_shape_program_dot, rewrite_program,
 };
 use shifty_shacl_core_inmemory::InMemoryValidationBackend;
 use std::io::{self, Write};
@@ -37,6 +37,8 @@ enum Command {
     BackendView(BackendViewArgs),
     /// Derive backend-agnostic logical plans
     Plan(PlanArgs),
+    /// Derive data-graph-aware validation plan annotations
+    DataPlan(DataPlanArgs),
     /// Execute a narrow validation backend over data graphs
     Validate(ValidateArgs),
     /// Emit Graphviz DOT for the shape/component graph
@@ -312,6 +314,36 @@ struct ValidateArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(Parser, Debug)]
+struct DataPlanArgs {
+    #[command(flatten)]
+    shared: SharedArgs,
+
+    /// Data files or URLs used to summarize selectivity and annotate the logical plan
+    #[arg(long = "data", value_name = "DATA", required = true)]
+    data: Vec<String>,
+
+    /// Drop deactivated shapes and rules before deriving plans
+    #[arg(long)]
+    prune_deactivated: bool,
+
+    /// Explicit root shape selector, matched against a shape IRI or normalized key
+    #[arg(long = "root-shape")]
+    root_shapes: Vec<String>,
+
+    /// Closure mode used to derive backend-facing views before planning
+    #[arg(long, value_enum, default_value_t = BackendClosureArg::TargetRoots)]
+    closure: BackendClosureArg,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
+    format: AnalyzeFormat,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -321,6 +353,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Rewrite(args) => run_rewrite(args)?,
         Command::BackendView(args) => run_backend_view(args)?,
         Command::Plan(args) => run_plan(args)?,
+        Command::DataPlan(args) => run_data_plan(args)?,
         Command::Validate(args) => run_validate(args)?,
         Command::Graphviz(args) => run_graphviz(args)?,
     }
@@ -619,7 +652,6 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
             BackendClosureArg::MixedClosure => BackendClosureMode::MixedClosure,
         },
     };
-    let plan = derive_validation_logical_plan(&program, options);
     let data_sources = args
         .data
         .iter()
@@ -631,6 +663,7 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
         shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
     };
     let execution_data = resolved.merged_with(&data);
+    let plan = derive_validation_logical_plan_with_data(&program, options, &execution_data);
     let backend = InMemoryValidationBackend;
     let result = backend
         .execute(&plan, &execution_data)
@@ -651,6 +684,61 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .map_err(io::Error::other)?;
             write_text(&rdf, args.output.as_deref())?;
+        }
+    }
+    Ok(())
+}
+
+fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = load_shapes(&args.shared)?;
+    let syntax = parse_resolved(&resolved);
+    let program = normalize_program(
+        &lower_to_program(&syntax),
+        NormalizeOptions {
+            prune_deactivated: args.prune_deactivated,
+        },
+    );
+    let roots = if args.root_shapes.is_empty() {
+        Some(SliceRoots::TargetShapes)
+    } else {
+        Some(SliceRoots::ExplicitSelectors(args.root_shapes.clone()))
+    };
+    let options = BackendViewOptions {
+        rewrite: RewriteOptions {
+            roots,
+            prune_unreachable: true,
+            ..RewriteOptions::default()
+        },
+        closure_mode: match args.closure {
+            BackendClosureArg::TargetRoots => BackendClosureMode::TargetRoots,
+            BackendClosureArg::ValidationClosure => BackendClosureMode::ValidationClosure,
+            BackendClosureArg::InferenceClosure => BackendClosureMode::InferenceClosure,
+            BackendClosureArg::MixedClosure => BackendClosureMode::MixedClosure,
+        },
+    };
+    let data_sources = args
+        .data
+        .iter()
+        .map(|value| source_from_str(value))
+        .collect::<Vec<_>>();
+    let data = if same_shape_and_data_sources(&shape_sources(&args.shared), &data_sources) {
+        resolved.clone()
+    } else {
+        shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+    };
+    let execution_data = resolved.merged_with(&data);
+    let plan = derive_validation_logical_plan_with_data(&program, options, &execution_data);
+    match args.format {
+        AnalyzeFormat::Json => write_json(
+            &serde_json::json!({
+                "data_summary": plan.data_summary,
+                "validation_plan": plan,
+            }),
+            args.output.as_deref(),
+        )?,
+        AnalyzeFormat::Text => {
+            let text = render_data_plan_text(&plan);
+            write_text(&text, args.output.as_deref())?;
         }
     }
     Ok(())
@@ -1697,23 +1785,63 @@ fn render_validation_plan_text(plan: &ValidationPlan) -> String {
         for node in &plan.nodes {
             match node {
                 shifty_shacl_core::ValidationPlanNode::TargetScan { shape, targets } => {
+                    let hint = plan.annotations.target_scans.get(&shape.0);
                     out.push_str(&format!(
-                        "    target_scan shape={} targets={}\n",
+                        "    target_scan shape={} targets={}",
                         shape.0,
                         targets.len()
                     ));
+                    if let Some(hint) = hint {
+                        out.push_str(&format!(
+                            " estimated_focus={} empty={}",
+                            hint.estimated_focus_nodes
+                                .map(|count| count.to_string())
+                                .unwrap_or_else(|| "?".to_string()),
+                            hint.empty_scan
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "?".to_string())
+                        ));
+                    }
+                    out.push('\n');
                 }
                 shifty_shacl_core::ValidationPlanNode::ConstraintBatch {
                     shape,
                     bucket,
                     constraints,
                 } => {
+                    let hint = plan.annotations.constraint_batches.get(&shape.0);
                     out.push_str(&format!(
-                        "    constraint_batch shape={} bucket={} constraints={}\n",
+                        "    constraint_batch shape={} bucket={} constraints={}",
                         shape.0,
                         render_backend_bucket(bucket),
                         constraints.len()
                     ));
+                    if let Some(hint) = hint {
+                        if !hint.fanout_hints.is_empty() {
+                            let fanout = hint
+                                .fanout_hints
+                                .iter()
+                                .map(|(predicate, class)| {
+                                    format!("{predicate}={}", render_fanout_class(class))
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            out.push_str(&format!(" fanout=[{}]", fanout));
+                        }
+                        if !hint.dead_constraint_candidates.is_empty() {
+                            out.push_str(&format!(
+                                " dead_candidates={}",
+                                hint.dead_constraint_candidates.len()
+                            ));
+                        }
+                        if !hint.vacuous_constraint_candidates.is_empty() {
+                            out.push_str(&format!(
+                                " vacuous_candidates={}",
+                                hint.vacuous_constraint_candidates.len()
+                            ));
+                        }
+                    }
+                    out.push('\n');
                 }
                 shifty_shacl_core::ValidationPlanNode::SharedWorkUnit { unit_id } => {
                     out.push_str(&format!("    shared_work_unit {}\n", unit_id));
@@ -1729,6 +1857,76 @@ fn render_validation_plan_text(plan: &ValidationPlan) -> String {
         }
     }
     out
+}
+
+fn render_data_plan_text(plan: &ValidationPlan) -> String {
+    let mut out = String::new();
+    out.push_str("Data Graph Summary\n");
+    if let Some(summary) = &plan.data_summary {
+        out.push_str(&format!("  quads: {}\n", summary.total_quads));
+        out.push_str(&format!("  subjects: {}\n", summary.distinct_subjects));
+        out.push_str(&format!("  predicates: {}\n", summary.distinct_predicates));
+        out.push_str(&format!("  objects: {}\n", summary.distinct_objects));
+        out.push_str(&format!("  target_estimates: {}\n", summary.target_estimates.len()));
+        let empty_scans = summary
+            .shape_summaries
+            .iter()
+            .filter(|shape| shape.empty_target_scan == Some(true))
+            .count();
+        out.push_str(&format!("  empty_target_scans: {}\n", empty_scans));
+
+        out.push_str("\nShape Data Hints\n");
+        for shape in &summary.shape_summaries {
+            out.push_str(&format!(
+                "  {} focus={} empty={}\n",
+                shape.label,
+                shape.estimated_focus_nodes
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "?".to_string()),
+                shape.empty_target_scan
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            ));
+            if !shape.fanout_hints.is_empty() {
+                out.push_str(&format!(
+                    "    fanout: {}\n",
+                    shape
+                        .fanout_hints
+                        .iter()
+                        .map(|(predicate, class)| format!("{predicate}={}", render_fanout_class(class)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            if !shape.dead_constraint_candidates.is_empty() {
+                out.push_str(&format!(
+                    "    dead_constraints: {}\n",
+                    shape.dead_constraint_candidates.len()
+                ));
+            }
+            if !shape.vacuous_constraint_candidates.is_empty() {
+                out.push_str(&format!(
+                    "    vacuous_constraints: {}\n",
+                    shape.vacuous_constraint_candidates.len()
+                ));
+            }
+        }
+        out.push('\n');
+    } else {
+        out.push_str("  unavailable\n\n");
+    }
+    out.push_str(&render_validation_plan_text(plan));
+    out
+}
+
+fn render_fanout_class(class: &shifty_shacl_core::FanoutClass) -> &'static str {
+    match class {
+        shifty_shacl_core::FanoutClass::Empty => "empty",
+        shifty_shacl_core::FanoutClass::Single => "single",
+        shifty_shacl_core::FanoutClass::Bounded => "bounded",
+        shifty_shacl_core::FanoutClass::Broad => "broad",
+        shifty_shacl_core::FanoutClass::Unknown => "unknown",
+    }
 }
 
 fn render_inference_plan_text(plan: &InferencePlan) -> String {
