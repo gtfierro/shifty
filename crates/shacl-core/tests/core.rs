@@ -1,7 +1,9 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    NormalizeOptions, analyze_program, canonicalize_program, lower_to_program, normalize_program,
-    parse_quads, prune_deactivated_program, render_shape_program_dot,
+    ContextFootprint, NormalizeOptions, SliceRoots, analyze_program, analyze_static,
+    canonicalize_program, context_requirements, fingerprint_program, lower_to_program,
+    normalize_program, parse_quads, prune_deactivated_program, render_shape_program_dot,
+    slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
 };
 
@@ -220,6 +222,206 @@ fn analysis_reports_reachability_and_inventories() {
     assert_eq!(analysis.dependency_kind_counts["node"], 1);
     let orphan_id = program.shape_index[&Term::NamedNode(orphan).to_string()];
     assert!(analysis.unreachable_shapes.contains(&orphan_id));
+}
+
+#[test]
+fn static_slice_keeps_only_target_reachable_shapes() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let helper = NamedNode::new("urn:helper").unwrap();
+    let orphan = NamedNode::new("urn:orphan").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            root.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            helper.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            orphan.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root,
+            sh_node,
+            Term::NamedNode(helper.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let slice = slice_program(&program, SliceRoots::TargetShapes);
+    assert_eq!(slice.roots.len(), 1);
+    assert_eq!(slice.retained_shape_ids.len(), 2);
+    let orphan_id = program.shape_index[&Term::NamedNode(orphan).to_string()];
+    assert!(slice.dropped_shape_ids.contains(&orphan_id));
+    assert_eq!(slice.reduced_program.shapes.len(), 2);
+}
+
+#[test]
+fn static_context_classifies_node_path_and_global_shapes() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_has_value = NamedNode::new("http://www.w3.org/ns/shacl#hasValue").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let sh_sparql = NamedNode::new("http://www.w3.org/ns/shacl#sparql").unwrap();
+    let sh_select = NamedNode::new("http://www.w3.org/ns/shacl#select").unwrap();
+    let local = NamedNode::new("urn:local").unwrap();
+    let helper = NamedNode::new("urn:helper").unwrap();
+    let path_shape = NamedNode::new("urn:path-shape").unwrap();
+    let sparql_shape = NamedNode::new("urn:sparql-shape").unwrap();
+    let property = NamedNode::new("urn:property").unwrap();
+    let sparql_node = NamedNode::new("urn:sparql-node").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            local.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            local.clone(),
+            sh_path.clone(),
+            Term::NamedNode(property.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            local.clone(),
+            sh_has_value,
+            Term::Literal(Literal::from("ready")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            helper.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            path_shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            path_shape.clone(),
+            sh_node,
+            Term::NamedNode(helper),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            sparql_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            sparql_shape,
+            sh_sparql,
+            Term::NamedNode(sparql_node.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            sparql_node,
+            sh_select,
+            Term::Literal(Literal::from("SELECT $this WHERE { }")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let report = context_requirements(&program);
+    assert_eq!(
+        report.shape_footprints[&program.shape_index[&Term::NamedNode(path_shape).to_string()]],
+        ContextFootprint::PathLocal
+    );
+    assert_eq!(
+        report.shape_footprints[&program.shape_index[&Term::NamedNode(local).to_string()]],
+        ContextFootprint::PathLocal
+    );
+    assert_eq!(
+        report.shape_footprints[&program.shape_index[&Term::NamedNode(NamedNode::new("urn:sparql-shape").unwrap()).to_string()]],
+        ContextFootprint::GlobalSparql
+    );
+}
+
+#[test]
+fn static_fingerprints_group_identical_component_constraints() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let mut syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let second_property = NamedNode::new("urn:duplicate-property").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let activate = NamedNode::new("http://example.org/activate").unwrap();
+    let name = NamedNode::new("http://example.org/name").unwrap();
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+
+    syntax.quads.push(Quad::new(
+        NamedNode::new("http://example.org/NameShape").unwrap(),
+        sh_property,
+        Term::NamedNode(second_property.clone()),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    syntax.quads.push(Quad::new(
+        second_property.clone(),
+        rdf_type,
+        Term::NamedNode(sh_property_shape),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    syntax.quads.push(Quad::new(
+        second_property.clone(),
+        sh_path,
+        Term::NamedNode(name),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+    syntax.quads.push(Quad::new(
+        second_property,
+        activate,
+        Term::Literal(Literal::from(true)),
+        oxrdf::GraphName::DefaultGraph,
+    ));
+
+    let syntax = shifty_shacl_core::parse_quads(syntax.quads);
+    let program = lower_to_program(&syntax);
+    let fingerprints = fingerprint_program(&program);
+    assert!(fingerprints
+        .duplicate_constraints
+        .iter()
+        .any(|group| group.ids.len() >= 2));
+    let static_summary = analyze_static(&program);
+    assert!(!static_summary.fingerprints.duplicate_constraints.is_empty());
 }
 
 #[test]

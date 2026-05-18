@@ -7,6 +7,7 @@ pub mod parse;
 pub mod passes;
 pub mod render;
 pub mod source;
+pub mod static_analysis;
 pub mod syntax;
 
 pub use analysis::{AnalysisSummary, analyze_program};
@@ -16,3 +17,8 @@ pub use passes::{
     prune_deactivated_program,
 };
 pub use render::render_shape_program_dot;
+pub use static_analysis::{
+    ContextFootprint, ContextFootprintReport, FingerprintReport, ProgramSlice, SliceRoots,
+    StaticAnalysisSummary, analyze_static, context_requirements, fingerprint_program,
+    slice_program,
+};
