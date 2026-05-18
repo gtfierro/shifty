@@ -185,6 +185,18 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for regex pattern execution
 - [x] Add fixture-backed tests for nested inverse/transitive path execution
 
+## Phase 11 Checklist
+
+- [ ] Resolve advanced targets in the in-memory validation backend
+- [ ] Execute `sh:sparql` constraints in the in-memory validation backend
+- [ ] Execute SPARQL-backed custom constraint components in the in-memory validation backend
+- [ ] Bind `$this`, `$PATH`, `?value`, `?currentShape`, and component parameters for supported SPARQL execution
+- [ ] Render templated custom-component messages from bound/default parameter values
+- [ ] Surface explicit unsupported results for SHACL-AF rule execution until an inference executor exists
+- [ ] Add fixture-backed tests for advanced-target validation
+- [ ] Add fixture-backed tests for SPARQL constraint validation
+- [ ] Add fixture-backed tests for custom-component SPARQL validation
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
