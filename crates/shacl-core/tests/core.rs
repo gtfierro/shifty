@@ -1,10 +1,11 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
-    ContextFootprint, NormalizeOptions, SliceRoots, analyze_program, analyze_static,
-    canonicalize_program, context_requirements, fingerprint_program, lower_to_program,
-    normalize_program, parse_quads, prune_deactivated_program, render_shape_program_dot,
-    slice_program,
+    ContextFootprint, NormalizeOptions, SliceReason, SliceRoots, StaticCostHint, analyze_program,
+    analyze_static, analyze_static_with_roots, canonicalize_program, context_requirements,
+    fingerprint_program, lower_to_program, normalize_program, parse_quads,
+    prune_deactivated_program, render_shape_program_dot, shared_work_candidates, slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
+    static_cost_hints,
 };
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
@@ -51,10 +52,7 @@ fn lowers_af_targets_into_advanced_target_algebra() {
         panic!("expected advanced target syntax");
     };
     assert_eq!(parsed_target.declarations.len(), 1);
-    assert_eq!(
-        parsed_target.declarations[0].prefix.as_deref(),
-        Some("ex")
-    );
+    assert_eq!(parsed_target.declarations[0].prefix.as_deref(), Some("ex"));
 
     let lowered_target = program
         .targets
@@ -66,10 +64,7 @@ fn lowers_af_targets_into_advanced_target_algebra() {
         panic!("expected advanced target algebra");
     };
     assert_eq!(lowered_target.declarations.len(), 1);
-    assert_eq!(
-        lowered_target.declarations[0].prefix.as_deref(),
-        Some("ex")
-    );
+    assert_eq!(lowered_target.declarations[0].prefix.as_deref(), Some("ex"));
     assert!(lowered_target.target_shape_id.is_some());
     assert!(lowered_target.filter_shape_id.is_some());
 }
@@ -278,6 +273,90 @@ fn static_slice_keeps_only_target_reachable_shapes() {
 }
 
 #[test]
+fn static_slice_supports_explicit_root_selectors_and_reasons() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let property_shape = NamedNode::new("urn:property-shape").unwrap();
+    let path = NamedNode::new("urn:p").unwrap();
+    let orphan = NamedNode::new("urn:orphan").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            root.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root.clone(),
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_path,
+            Term::NamedNode(path),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            orphan.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let slice = slice_program(
+        &program,
+        SliceRoots::ExplicitSelectors(vec!["<urn:root>".to_string()]),
+    );
+
+    assert_eq!(slice.roots.len(), 1);
+    assert!(slice.unresolved_root_selectors.is_empty());
+    assert_eq!(slice.retained_shape_ids.len(), 2);
+    let orphan_id = program.shape_index[&Term::NamedNode(orphan).to_string()];
+    assert!(matches!(
+        slice.retained_shape_reasons[&slice.roots[0]],
+        SliceReason::Root { .. }
+    ));
+    assert!(matches!(
+        slice.dropped_shape_reasons[&orphan_id],
+        SliceReason::UnreachableFromRoots
+    ));
+    let property_shape_id = program.shape_index
+        [&Term::NamedNode(NamedNode::new("urn:property-shape").unwrap()).to_string()];
+    let property_shape_key = program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == property_shape_id)
+        .map(|shape| shape.normalized_key.clone())
+        .expect("property shape should have a normalized key");
+    assert!(matches!(
+        slice.retained_shape_reasons[&property_shape_id],
+        SliceReason::ReachableFromRoots { .. }
+    ));
+
+    let normalized_slice = slice_program(
+        &program,
+        SliceRoots::ExplicitSelectors(vec![property_shape_key]),
+    );
+    assert_eq!(normalized_slice.roots, vec![property_shape_id]);
+    assert!(normalized_slice.unresolved_root_selectors.is_empty());
+}
+
+#[test]
 fn static_context_classifies_node_path_and_global_shapes() {
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
@@ -355,15 +434,99 @@ fn static_context_classifies_node_path_and_global_shapes() {
     let report = context_requirements(&program);
     assert_eq!(
         report.shape_footprints[&program.shape_index[&Term::NamedNode(path_shape).to_string()]],
-        ContextFootprint::PathLocal
+        ContextFootprint::ShapeReferenceTraversal
     );
     assert_eq!(
         report.shape_footprints[&program.shape_index[&Term::NamedNode(local).to_string()]],
-        ContextFootprint::PathLocal
+        ContextFootprint::SingleHopPath
     );
     assert_eq!(
-        report.shape_footprints[&program.shape_index[&Term::NamedNode(NamedNode::new("urn:sparql-shape").unwrap()).to_string()]],
+        report.shape_footprints[&program.shape_index
+            [&Term::NamedNode(NamedNode::new("urn:sparql-shape").unwrap()).to_string()]],
         ContextFootprint::GlobalSparql
+    );
+}
+
+#[test]
+fn static_context_distinguishes_single_hop_bounded_and_shape_reference() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let sh_zero_or_more_path = NamedNode::new("http://www.w3.org/ns/shacl#zeroOrMorePath").unwrap();
+    let single = NamedNode::new("urn:single").unwrap();
+    let bounded = NamedNode::new("urn:bounded").unwrap();
+    let referenced = NamedNode::new("urn:referenced").unwrap();
+    let helper = NamedNode::new("urn:helper").unwrap();
+    let p = NamedNode::new("urn:p").unwrap();
+    let path_node = oxrdf::BlankNode::new("path-node").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            single.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            single.clone(),
+            sh_path.clone(),
+            Term::NamedNode(p.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            bounded.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            bounded.clone(),
+            sh_path.clone(),
+            Term::BlankNode(path_node.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            path_node,
+            sh_zero_or_more_path,
+            Term::NamedNode(p),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            referenced.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            helper.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            referenced.clone(),
+            sh_node,
+            Term::NamedNode(helper),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let report = context_requirements(&program);
+
+    assert_eq!(
+        report.shape_footprints[&program.shape_index[&Term::NamedNode(single).to_string()]],
+        ContextFootprint::SingleHopPath
+    );
+    assert_eq!(
+        report.shape_footprints[&program.shape_index[&Term::NamedNode(bounded).to_string()]],
+        ContextFootprint::BoundedTraversal
+    );
+    assert_eq!(
+        report.shape_footprints[&program.shape_index[&Term::NamedNode(referenced).to_string()]],
+        ContextFootprint::ShapeReferenceTraversal
     );
 }
 
@@ -416,12 +579,121 @@ fn static_fingerprints_group_identical_component_constraints() {
     let syntax = shifty_shacl_core::parse_quads(syntax.quads);
     let program = lower_to_program(&syntax);
     let fingerprints = fingerprint_program(&program);
-    assert!(fingerprints
-        .duplicate_constraints
-        .iter()
-        .any(|group| group.ids.len() >= 2));
+    assert!(
+        fingerprints
+            .duplicate_constraints
+            .iter()
+            .any(|group| group.ids.len() >= 2)
+    );
     let static_summary = analyze_static(&program);
     assert!(!static_summary.fingerprints.duplicate_constraints.is_empty());
+}
+
+#[test]
+fn static_shared_work_and_cost_hints_report_duplicates() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let ex_activate = NamedNode::new("http://example.org/activate").unwrap();
+    let a = NamedNode::new("urn:a").unwrap();
+    let b = NamedNode::new("urn:b").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            a.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            b.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            a.clone(),
+            ex_activate.clone(),
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            b.clone(),
+            ex_activate,
+            Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let baseline = analyze_program(&program);
+    let context = context_requirements(&program);
+    let fingerprints = fingerprint_program(&program);
+    let shared_work = shared_work_candidates(&program, &fingerprints);
+    let cost_hints = static_cost_hints(&program, &baseline, &context, &shared_work);
+
+    assert_eq!(shared_work.duplicate_constraints.len(), 1);
+    assert_eq!(shared_work.duplicate_custom_component_constraints.len(), 1);
+    assert!(
+        cost_hints.shape_hints[&program.shape_index[&Term::NamedNode(a).to_string()]]
+            .contains(&StaticCostHint::DuplicateConstraintWork)
+    );
+    assert!(
+        cost_hints.shape_hints[&program.shape_index[&Term::NamedNode(b).to_string()]]
+            .contains(&StaticCostHint::DuplicateConstraintWork)
+    );
+}
+
+#[test]
+fn static_analyze_uses_explicit_root_set() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_node = NamedNode::new("http://www.w3.org/ns/shacl#node").unwrap();
+    let root = NamedNode::new("urn:root").unwrap();
+    let helper = NamedNode::new("urn:helper").unwrap();
+    let ignored = NamedNode::new("urn:ignored").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            root.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            helper.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            ignored.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            ignored,
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            root,
+            sh_node,
+            Term::NamedNode(helper),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    let summary = analyze_static_with_roots(
+        &program,
+        SliceRoots::ExplicitSelectors(vec!["<urn:root>".to_string()]),
+    );
+    assert_eq!(summary.slice.roots.len(), 1);
+    assert_eq!(summary.slice.retained_shape_ids.len(), 2);
 }
 
 #[test]
@@ -882,17 +1154,21 @@ fn discovers_and_normalizes_inline_target_shapes() {
     ]);
     let program = lower_to_program(&syntax);
 
-    assert!(program
-        .shapes
-        .iter()
-        .any(|shape| shape.source == Term::BlankNode(inline_shape.clone())));
+    assert!(
+        program
+            .shapes
+            .iter()
+            .any(|shape| shape.source == Term::BlankNode(inline_shape.clone()))
+    );
     assert_eq!(
         program.shape_index[&Term::BlankNode(inline_shape.clone()).to_string()],
         program.normalized_shape_index["<urn:root>/target[0]/targetShape"]
     );
-    assert!(program
-        .normalized_shape_index
-        .contains_key("<urn:root>/target[0]/targetShape/property[0]"));
+    assert!(
+        program
+            .normalized_shape_index
+            .contains_key("<urn:root>/target[0]/targetShape/property[0]")
+    );
 }
 
 #[test]
@@ -944,7 +1220,10 @@ fn parses_constraint_component_definitions() {
     let component = &syntax.constraint_components[0];
     assert!(component.subject.to_string().contains("LengthComponent"));
     assert_eq!(component.parameters.len(), 2);
-    assert_eq!(component.parameters[1].var_name.as_deref(), Some("minLength"));
+    assert_eq!(
+        component.parameters[1].var_name.as_deref(),
+        Some("minLength")
+    );
     assert_eq!(component.validators.len(), 1);
     assert!(component.validators[0].select.is_some());
     assert_eq!(component.declarations.len(), 0);
@@ -969,15 +1248,23 @@ fn lowers_custom_component_attachments() {
 
     assert_eq!(program.constraint_components.len(), 1);
     let component = &program.constraint_components[0];
-    assert_eq!(component.parameters[1].var_name.as_deref(), Some("minLength"));
+    assert_eq!(
+        component.parameters[1].var_name.as_deref(),
+        Some("minLength")
+    );
     assert_eq!(component.message_templates.len(), 1);
-    assert!(component.message_templates[0].parts.iter().any(|part| matches!(
-        part,
-        shifty_shacl_core::algebra::TemplatePart::Slot {
-            kind: shifty_shacl_core::algebra::TemplateSlotKind::Variable,
-            name,
-        } if name == "minLength"
-    )));
+    assert!(
+        component.message_templates[0]
+            .parts
+            .iter()
+            .any(|part| matches!(
+                part,
+                shifty_shacl_core::algebra::TemplatePart::Slot {
+                    kind: shifty_shacl_core::algebra::TemplateSlotKind::Variable,
+                    name,
+                } if name == "minLength"
+            ))
+    );
     assert!(program.constraints.iter().any(|constraint| {
         matches!(
             &constraint.expr,
@@ -1001,9 +1288,9 @@ fn lowers_custom_component_attachments() {
 #[test]
 fn parses_first_class_sparql_constraints() {
     let resolved = load_with_ontoenv(
-        &[ShapeSource::File(
-            fixture_path("../test-suite/sparql/node/sparql-001.ttl"),
-        )],
+        &[ShapeSource::File(fixture_path(
+            "../test-suite/sparql/node/sparql-001.ttl",
+        ))],
         &SourceLoadOptions {
             include_imports: true,
             import_depth: -1,
@@ -1054,7 +1341,12 @@ fn lowers_label_templates_on_constraint_components() {
     let component = syntax
         .constraint_components
         .iter()
-        .find(|component| component.subject.to_string().contains("LanguageConstraintComponentUsingSELECT"))
+        .find(|component| {
+            component
+                .subject
+                .to_string()
+                .contains("LanguageConstraintComponentUsingSELECT")
+        })
         .expect("fixture should include the language component");
     assert!(component.label_template.is_some());
     assert_eq!(component.validators.len(), 1);
@@ -1064,32 +1356,43 @@ fn lowers_label_templates_on_constraint_components() {
     let component = program
         .constraint_components
         .iter()
-        .find(|component| component.subject.to_string().contains("LanguageConstraintComponentUsingSELECT"))
+        .find(|component| {
+            component
+                .subject
+                .to_string()
+                .contains("LanguageConstraintComponentUsingSELECT")
+        })
         .expect("component should lower");
     assert!(component.label_template.is_some());
     assert!(component.label_template_expr.is_some());
-    assert!(component
-        .label_template_expr
-        .as_ref()
-        .unwrap()
-        .parts
-        .iter()
-        .any(|part| matches!(
-            part,
-            shifty_shacl_core::algebra::TemplatePart::Slot {
-                kind: shifty_shacl_core::algebra::TemplateSlotKind::Parameter,
-                name,
-            } if name == "lang"
-        )));
+    assert!(
+        component
+            .label_template_expr
+            .as_ref()
+            .unwrap()
+            .parts
+            .iter()
+            .any(|part| matches!(
+                part,
+                shifty_shacl_core::algebra::TemplatePart::Slot {
+                    kind: shifty_shacl_core::algebra::TemplateSlotKind::Parameter,
+                    name,
+                } if name == "lang"
+            ))
+    );
     assert_eq!(component.validators[0].prefixes.len(), 1);
-    assert!(program
-        .features
-        .iter()
-        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Templates)));
-    assert!(program
-        .features
-        .iter()
-        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Sparql)));
+    assert!(
+        program
+            .features
+            .iter()
+            .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Templates))
+    );
+    assert!(
+        program
+            .features
+            .iter()
+            .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Sparql))
+    );
 }
 
 #[test]
@@ -1131,8 +1434,12 @@ fn canonicalize_program_deduplicates_and_rebuilds_indexes() {
     assert_eq!(program.dependencies.len(), 1);
 
     let mut duplicated = program.clone();
-    duplicated.dependencies.push(duplicated.dependencies[0].clone());
-    duplicated.features.push(shifty_shacl_core::algebra::FeatureUse::Core);
+    duplicated
+        .dependencies
+        .push(duplicated.dependencies[0].clone());
+    duplicated
+        .features
+        .push(shifty_shacl_core::algebra::FeatureUse::Core);
 
     let canonical = canonicalize_program(&duplicated);
     assert_eq!(canonical.dependencies.len(), 1);
@@ -1145,7 +1452,10 @@ fn canonicalize_program_deduplicates_and_rebuilds_indexes() {
         1
     );
     assert_eq!(canonical.shape_index.len(), canonical.shapes.len());
-    assert_eq!(canonical.normalized_shape_index.len(), canonical.shapes.len());
+    assert_eq!(
+        canonical.normalized_shape_index.len(),
+        canonical.shapes.len()
+    );
 }
 
 #[test]
@@ -1227,12 +1537,16 @@ fn prunes_deactivated_shapes_and_rules() {
     let pruned = prune_deactivated_program(&program);
     assert_eq!(pruned.shapes.len(), 1);
     assert_eq!(pruned.rules.len(), 0);
-    assert!(pruned
-        .shape_index
-        .contains_key(&Term::NamedNode(active.clone()).to_string()));
-    assert!(!pruned
-        .shape_index
-        .contains_key(&Term::NamedNode(NamedNode::new("urn:inactive").unwrap()).to_string()));
+    assert!(
+        pruned
+            .shape_index
+            .contains_key(&Term::NamedNode(active.clone()).to_string())
+    );
+    assert!(
+        !pruned
+            .shape_index
+            .contains_key(&Term::NamedNode(NamedNode::new("urn:inactive").unwrap()).to_string())
+    );
 
     let normalized = normalize_program(
         &program,

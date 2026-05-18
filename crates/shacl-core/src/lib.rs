@@ -18,7 +18,8 @@ pub use passes::{
 };
 pub use render::render_shape_program_dot;
 pub use static_analysis::{
-    ContextFootprint, ContextFootprintReport, FingerprintReport, ProgramSlice, SliceRoots,
-    StaticAnalysisSummary, analyze_static, context_requirements, fingerprint_program,
-    slice_program,
+    ContextFootprint, ContextFootprintReport, FingerprintReport, ProgramSlice, SharedWorkReport,
+    SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint, StaticCostHintReport,
+    analyze_static, analyze_static_with_roots, context_requirements, fingerprint_program,
+    shared_work_candidates, slice_program, static_cost_hints,
 };
