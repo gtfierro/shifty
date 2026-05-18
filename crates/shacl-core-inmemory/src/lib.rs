@@ -19,6 +19,8 @@ use shifty_shacl_core::{
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
+use std::time::Instant;
+use serde::{Deserialize, Serialize};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -32,59 +34,69 @@ const SH_IRI_OR_LITERAL: &str = "http://www.w3.org/ns/shacl#IRIOrLiteral";
 #[derive(Debug, Clone, Default)]
 pub struct InMemoryValidationBackend;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkStage {
+    pub name: String,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InMemoryValidationBenchmark {
+    pub backend: String,
+    pub stages: Vec<BenchmarkStage>,
+    pub total_ms: f64,
+}
+
 impl ValidationBackend for InMemoryValidationBackend {
     fn execute(
         &self,
         plan: &ValidationPlan,
         data: &ResolvedShapeSet,
     ) -> Result<ValidationResult, String> {
+        self.execute_profiled(plan, data).map(|(result, _)| result)
+    }
+}
+
+impl InMemoryValidationBackend {
+    pub fn execute_profiled(
+        &self,
+        plan: &ValidationPlan,
+        data: &ResolvedShapeSet,
+    ) -> Result<(ValidationResult, InMemoryValidationBenchmark), String> {
+        let total_started = Instant::now();
+        let mut stages = Vec::new();
+
+        let stage_started = Instant::now();
         let index = DataIndex::new(&data.quads);
+        stages.push(BenchmarkStage {
+            name: "backend.data_index".to_string(),
+            elapsed_ms: elapsed_ms(stage_started.elapsed()),
+        });
+
+        let stage_started = Instant::now();
         let store = build_query_store(data)?;
+        stages.push(BenchmarkStage {
+            name: "backend.query_store".to_string(),
+            elapsed_ms: elapsed_ms(stage_started.elapsed()),
+        });
+
         let mut state = ExecutionState::new(&plan.view.program, index, store);
+
+        let stage_started = Instant::now();
         execute_rules_to_fixed_point(&plan.executable_rules, &mut state)?;
-        for node in &plan.nodes {
-            if let ValidationPlanNode::TargetScan { shape, .. } = node {
-                if state
-                    .program
-                    .shapes
-                    .iter()
-                    .find(|candidate| candidate.id == *shape)
-                    .is_some_and(|candidate| candidate.deactivated)
-                {
-                    continue;
-                }
-                let targets = plan
-                    .view
-                    .program
-                    .targets
-                    .iter()
-                    .filter(|target| target.owner == *shape)
-                    .collect::<Vec<_>>();
-                let mut focuses = Vec::new();
-                for target in targets {
-                    state.trace.push(ValidationTraceEvent {
-                        event: TraceEventSchema::TargetResolutionStart,
-                        shape: Some(*shape),
-                        constraint: None,
-                        focus_node: None,
-                        message: format!("resolving target {}", target.id.0),
-                    });
-                    focuses.extend(resolve_target(*shape, &target.expr, &mut state)?);
-                    state.trace.push(ValidationTraceEvent {
-                        event: TraceEventSchema::TargetResolutionEnd,
-                        shape: Some(*shape),
-                        constraint: None,
-                        focus_node: None,
-                        message: format!("resolved target {}", target.id.0),
-                    });
-                }
-                for focus in dedup_terms(focuses) {
-                    state.focus_nodes_evaluated += 1;
-                    let _ = eval_shape(*shape, &focus, &mut state)?;
-                }
-            }
-        }
-        Ok(ValidationResult {
+        stages.push(BenchmarkStage {
+            name: "backend.inference".to_string(),
+            elapsed_ms: elapsed_ms(stage_started.elapsed()),
+        });
+
+        let stage_started = Instant::now();
+        execute_validation_plan(plan, &mut state)?;
+        stages.push(BenchmarkStage {
+            name: "backend.validation".to_string(),
+            elapsed_ms: elapsed_ms(stage_started.elapsed()),
+        });
+
+        let result = ValidationResult {
             conforms: state.violations.is_empty(),
             focus_nodes_evaluated: state.focus_nodes_evaluated,
             violations: state.violations,
@@ -92,7 +104,13 @@ impl ValidationBackend for InMemoryValidationBackend {
             coverage: state.coverage,
             trace: state.trace,
             heatmap: state.heatmap,
-        })
+        };
+        let benchmark = InMemoryValidationBenchmark {
+            backend: "inmemory".to_string(),
+            stages,
+            total_ms: elapsed_ms(total_started.elapsed()),
+        };
+        Ok((result, benchmark))
     }
 }
 
@@ -245,6 +263,59 @@ fn execute_rules_to_fixed_point(
         }
     }
     Ok(())
+}
+
+fn execute_validation_plan(
+    plan: &ValidationPlan,
+    state: &mut ExecutionState<'_>,
+) -> Result<(), String> {
+    for node in &plan.nodes {
+        if let ValidationPlanNode::TargetScan { shape, .. } = node {
+            if state
+                .program
+                .shapes
+                .iter()
+                .find(|candidate| candidate.id == *shape)
+                .is_some_and(|candidate| candidate.deactivated)
+            {
+                continue;
+            }
+            let targets = plan
+                .view
+                .program
+                .targets
+                .iter()
+                .filter(|target| target.owner == *shape)
+                .collect::<Vec<_>>();
+            let mut focuses = Vec::new();
+            for target in targets {
+                state.trace.push(ValidationTraceEvent {
+                    event: TraceEventSchema::TargetResolutionStart,
+                    shape: Some(*shape),
+                    constraint: None,
+                    focus_node: None,
+                    message: format!("resolving target {}", target.id.0),
+                });
+                focuses.extend(resolve_target(*shape, &target.expr, state)?);
+                state.trace.push(ValidationTraceEvent {
+                    event: TraceEventSchema::TargetResolutionEnd,
+                    shape: Some(*shape),
+                    constraint: None,
+                    focus_node: None,
+                    message: format!("resolved target {}", target.id.0),
+                });
+            }
+            for focus in dedup_terms(focuses) {
+                state.focus_nodes_evaluated += 1;
+                let _ = eval_shape(*shape, &focus, state)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn elapsed_ms(duration: std::time::Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
 }
 
 fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, String> {
