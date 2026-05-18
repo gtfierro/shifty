@@ -5,6 +5,7 @@ use shifty_shacl_core::{
     BackendViewOptions, ValidationBackend, ValidationResult, build_validation_report,
     derive_validation_logical_plan, lower_to_program,
 };
+use shifty_shacl_core_inmemory::InMemoryValidationBackend;
 use std::collections::HashSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -515,7 +516,7 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
         let syntax = shifty_shacl_core::parse_resolved(&resolved_shapes);
         let program = lower_to_program(&syntax);
         let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
-        let backend = shifty_shacl_core::InMemoryValidationBackend;
+        let backend = InMemoryValidationBackend;
         backend.execute(&plan, &resolved_shapes.merged_with(&resolved_data))
     }
 }

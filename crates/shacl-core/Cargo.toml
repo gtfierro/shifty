@@ -18,4 +18,5 @@ regex = { workspace = true }
 oxsdatatypes = "0.2.2"
 
 [dev-dependencies]
+shifty-shacl-core-inmemory = { path = "../shacl-core-inmemory" }
 tempfile = { workspace = true }

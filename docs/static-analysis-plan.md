@@ -218,6 +218,19 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Re-run rule targets against inferred triples until a fixed point is reached
 - [x] Respect rule conditions during execution
 - [x] Update the in-memory quad index and SPARQL store with inferred triples
+
+## Phase 17 Checklist
+
+- [ ] Extract the in-memory validation backend into its own crate
+- [ ] Keep `shacl-core` as the backend-agnostic validation contract crate
+- [ ] Rewire the CLI to depend on the extracted in-memory backend crate
+- [ ] Rewire manifest and core integration tests to use the extracted backend crate
+- [ ] Preserve existing validation/report APIs across the crate split
+- [ ] Add workspace membership and crate metadata for the extracted backend crate
+- [ ] Re-run core, CLI, and manifest test suites after the crate split
+- [ ] Burn down remaining manifest divergences from the shared harness
+- [ ] Remove fixed manifest divergence cases from backend conformance metadata
+- [ ] Keep backend conformance metadata aligned with actual remaining gaps
 - [x] Surface inference iterations and inferred triple counts in validation coverage
 - [x] Surface rule execution hits in validation heatmaps / traces
 - [x] Keep unsupported reporting explicit for generic or still-unhandled rule forms

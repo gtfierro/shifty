@@ -23,8 +23,8 @@ pub use backend_views::{
     derive_inference_view, derive_validation_view,
 };
 pub use execute::{
-    InMemoryValidationBackend, ValidationBackend, ValidationCoverage, ValidationHeatmap,
-    ValidationResult, ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
+    ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
+    ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
 };
 pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::{

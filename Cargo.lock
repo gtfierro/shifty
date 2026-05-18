@@ -3195,6 +3195,7 @@ dependencies = [
  "oxsdatatypes",
  "regex",
  "serde",
+ "shifty-shacl-core-inmemory",
  "tempfile",
 ]
 
@@ -3206,6 +3207,19 @@ dependencies = [
  "oxigraph",
  "serde",
  "serde_json",
+ "shifty-shacl-core",
+ "shifty-shacl-core-inmemory",
+]
+
+[[package]]
+name = "shifty-shacl-core-inmemory"
+version = "0.0.13"
+dependencies = [
+ "oxigraph",
+ "oxrdf",
+ "oxsdatatypes",
+ "regex",
+ "serde",
  "shifty-shacl-core",
 ]
 

@@ -3,15 +3,16 @@ use oxigraph::io::RdfFormat;
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
-    InMemoryValidationBackend, InferencePlan, InferenceView, NormalizeOptions, RewriteOptions,
-    RewriteSummary, SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary,
-    StaticCostHint, ValidationBackend, ValidationPlan, ValidationResult, ValidationView,
-    analyze_program, analyze_static_with_roots, build_validation_report,
-    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
-    derive_inference_view, derive_validation_logical_plan, derive_validation_view,
-    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
-    render_shape_program_dot, rewrite_program,
+    InferencePlan, InferenceView, NormalizeOptions, RewriteOptions, RewriteSummary,
+    SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
+    ValidationBackend, ValidationPlan, ValidationResult, ValidationView, analyze_program,
+    analyze_static_with_roots, build_validation_report, derive_backend_logical_plans,
+    derive_backend_views, derive_inference_logical_plan, derive_inference_view,
+    derive_validation_logical_plan, derive_validation_view, load_and_parse_with_ontoenv,
+    lower_to_program, normalize_program, parse_resolved, render_shape_program_dot,
+    rewrite_program,
 };
+use shifty_shacl_core_inmemory::InMemoryValidationBackend;
 use std::io::{self, Write};
 use std::path::PathBuf;
 

@@ -1,9 +1,9 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
     BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
-    InMemoryValidationBackend, NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason,
-    SliceRoots, StaticCostHint, ValidationBackend, analyze_program, analyze_static,
-    analyze_static_with_roots, build_validation_report, canonicalize_program, context_requirements,
+    NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots,
+    StaticCostHint, ValidationBackend, analyze_program, analyze_static, analyze_static_with_roots,
+    build_validation_report, canonicalize_program, context_requirements,
     derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
     derive_inference_view, derive_validation_logical_plan, derive_validation_view,
     fingerprint_program, lower_to_program, normalize_program, parse_quads,
@@ -12,6 +12,7 @@ use shifty_shacl_core::{
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
+use shifty_shacl_core_inmemory::InMemoryValidationBackend;
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
