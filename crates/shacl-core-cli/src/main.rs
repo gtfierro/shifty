@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use oxigraph::io::RdfFormat;
+use serde::Serialize;
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
@@ -15,6 +16,7 @@ use shifty_shacl_core::{
 use shifty_shacl_core_inmemory::InMemoryValidationBackend;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Inspect parsed SHACL core structures")]
@@ -312,6 +314,10 @@ struct ValidateArgs {
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Write stage timing benchmarks to a JSON file
+    #[arg(long)]
+    benchmark_json: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -342,6 +348,81 @@ struct DataPlanArgs {
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Write stage timing benchmarks to a JSON file
+    #[arg(long)]
+    benchmark_json: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BenchmarkStageRecord {
+    name: String,
+    elapsed_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BenchmarkReport {
+    command: String,
+    stages: Vec<BenchmarkStageRecord>,
+    total_ms: f64,
+}
+
+#[derive(Debug)]
+struct BenchmarkRecorder {
+    command: &'static str,
+    started: Instant,
+    stages: Vec<BenchmarkStageRecord>,
+}
+
+impl BenchmarkRecorder {
+    fn new(command: &'static str) -> Self {
+        Self {
+            command,
+            started: Instant::now(),
+            stages: Vec::new(),
+        }
+    }
+
+    fn measure<T, E, F>(&mut self, name: &str, f: F) -> Result<T, E>
+    where
+        F: FnOnce() -> Result<T, E>,
+    {
+        let started = Instant::now();
+        let result = f();
+        self.stages.push(BenchmarkStageRecord {
+            name: name.to_string(),
+            elapsed_ms: elapsed_ms(started.elapsed()),
+        });
+        result
+    }
+
+    fn measure_value<T, F>(&mut self, name: &str, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let started = Instant::now();
+        let value = f();
+        self.stages.push(BenchmarkStageRecord {
+            name: name.to_string(),
+            elapsed_ms: elapsed_ms(started.elapsed()),
+        });
+        value
+    }
+
+    fn extend_stages<I>(&mut self, stages: I)
+    where
+        I: IntoIterator<Item = BenchmarkStageRecord>,
+    {
+        self.stages.extend(stages);
+    }
+
+    fn finish(self) -> BenchmarkReport {
+        BenchmarkReport {
+            command: self.command.to_string(),
+            stages: self.stages,
+            total_ms: elapsed_ms(self.started.elapsed()),
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -626,14 +707,42 @@ fn run_plan(args: PlanArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let resolved = load_shapes(&args.shared)?;
-    let syntax = parse_resolved(&resolved);
-    let program = normalize_program(
-        &lower_to_program(&syntax),
-        NormalizeOptions {
-            prune_deactivated: args.prune_deactivated,
-        },
-    );
+    let mut benchmark = args
+        .benchmark_json
+        .as_ref()
+        .map(|_| BenchmarkRecorder::new("validate"));
+    let resolved = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure("load.shapes", || load_shapes(&args.shared))?
+    } else {
+        load_shapes(&args.shared)?
+    };
+    let syntax = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("parse.syntax", || parse_resolved(&resolved))
+    } else {
+        parse_resolved(&resolved)
+    };
+    let lowered = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("lower.program", || lower_to_program(&syntax))
+    } else {
+        lower_to_program(&syntax)
+    };
+    let program = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("optimize.normalize", || {
+            normalize_program(
+                &lowered,
+                NormalizeOptions {
+                    prune_deactivated: args.prune_deactivated,
+                },
+            )
+        })
+    } else {
+        normalize_program(
+            &lowered,
+            NormalizeOptions {
+                prune_deactivated: args.prune_deactivated,
+            },
+        )
+    };
     let roots = if args.root_shapes.is_empty() {
         Some(SliceRoots::TargetShapes)
     } else {
@@ -658,46 +767,144 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| source_from_str(value))
         .collect::<Vec<_>>();
     let data = if same_shape_and_data_sources(&shape_sources(&args.shared), &data_sources) {
-        resolved.clone()
-    } else {
-        shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
-    };
-    let execution_data = resolved.merged_with(&data);
-    let plan = derive_validation_logical_plan_with_data(&program, options, &execution_data);
-    let backend = InMemoryValidationBackend;
-    let result = backend
-        .execute(&plan, &execution_data)
-        .map_err(|message| io::Error::other(message))?;
-    match args.format {
-        ValidateFormat::Json => write_json(&result, args.output.as_deref())?,
-        ValidateFormat::Text => {
-            let text = render_validation_result_text(&result);
-            write_text(&text, args.output.as_deref())?;
+        if let Some(recorder) = benchmark.as_mut() {
+            recorder.measure_value("load.data", || resolved.clone())
+        } else {
+            resolved.clone()
         }
-        ValidateFormat::Turtle | ValidateFormat::NTriples => {
-            let report = build_validation_report(&result, &plan.view.program);
-            let rdf = report
-                .serialize(match args.format {
-                    ValidateFormat::Turtle => RdfFormat::Turtle,
-                    ValidateFormat::NTriples => RdfFormat::NTriples,
-                    ValidateFormat::Text | ValidateFormat::Json => unreachable!(),
-                })
-                .map_err(io::Error::other)?;
-            write_text(&rdf, args.output.as_deref())?;
+    } else {
+        if let Some(recorder) = benchmark.as_mut() {
+            recorder.measure("load.data", || {
+                shifty_shacl_core::source::load_with_ontoenv(
+                    &data_sources,
+                    &load_options(&args.shared),
+                )
+            })?
+        } else {
+            shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+        }
+    };
+    let execution_data = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("prepare.execution_data", || resolved.merged_with(&data))
+    } else {
+        resolved.merged_with(&data)
+    };
+    let plan = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("plan.validation", || {
+            derive_validation_logical_plan_with_data(&program, options, &execution_data)
+        })
+    } else {
+        derive_validation_logical_plan_with_data(&program, options, &execution_data)
+    };
+    let backend = InMemoryValidationBackend;
+    let (result, backend_benchmark) = if benchmark.is_some() {
+        let (result, benchmark) = backend
+            .execute_profiled(&plan, &execution_data)
+            .map_err(io::Error::other)?;
+        (result, Some(benchmark))
+    } else {
+        (
+            backend
+                .execute(&plan, &execution_data)
+                .map_err(io::Error::other)?,
+            None,
+        )
+    };
+    if let (Some(recorder), Some(backend_benchmark)) = (benchmark.as_mut(), backend_benchmark) {
+        recorder.extend_stages(backend_benchmark.stages.into_iter().map(|stage| {
+            BenchmarkStageRecord {
+                name: stage.name,
+                elapsed_ms: stage.elapsed_ms,
+            }
+        }));
+    }
+    if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure("output.render_write", || {
+            match args.format {
+                ValidateFormat::Json => write_json(&result, args.output.as_deref())?,
+                ValidateFormat::Text => {
+                    let text = render_validation_result_text(&result);
+                    write_text(&text, args.output.as_deref())?;
+                }
+                ValidateFormat::Turtle | ValidateFormat::NTriples => {
+                    let report = build_validation_report(&result, &plan.view.program);
+                    let rdf = report
+                        .serialize(match args.format {
+                            ValidateFormat::Turtle => RdfFormat::Turtle,
+                            ValidateFormat::NTriples => RdfFormat::NTriples,
+                            ValidateFormat::Text | ValidateFormat::Json => unreachable!(),
+                        })
+                        .map_err(io::Error::other)?;
+                    write_text(&rdf, args.output.as_deref())?;
+                }
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        })?;
+    } else {
+        match args.format {
+            ValidateFormat::Json => write_json(&result, args.output.as_deref())?,
+            ValidateFormat::Text => {
+                let text = render_validation_result_text(&result);
+                write_text(&text, args.output.as_deref())?;
+            }
+            ValidateFormat::Turtle | ValidateFormat::NTriples => {
+                let report = build_validation_report(&result, &plan.view.program);
+                let rdf = report
+                    .serialize(match args.format {
+                        ValidateFormat::Turtle => RdfFormat::Turtle,
+                        ValidateFormat::NTriples => RdfFormat::NTriples,
+                        ValidateFormat::Text | ValidateFormat::Json => unreachable!(),
+                    })
+                    .map_err(io::Error::other)?;
+                write_text(&rdf, args.output.as_deref())?;
+            }
+        }
+    }
+    if let Some(path) = args.benchmark_json.as_deref() {
+        if let Some(recorder) = benchmark {
+            write_json(&recorder.finish(), Some(path))?;
         }
     }
     Ok(())
 }
 
 fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let resolved = load_shapes(&args.shared)?;
-    let syntax = parse_resolved(&resolved);
-    let program = normalize_program(
-        &lower_to_program(&syntax),
-        NormalizeOptions {
-            prune_deactivated: args.prune_deactivated,
-        },
-    );
+    let mut benchmark = args
+        .benchmark_json
+        .as_ref()
+        .map(|_| BenchmarkRecorder::new("data-plan"));
+    let resolved = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure("load.shapes", || load_shapes(&args.shared))?
+    } else {
+        load_shapes(&args.shared)?
+    };
+    let syntax = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("parse.syntax", || parse_resolved(&resolved))
+    } else {
+        parse_resolved(&resolved)
+    };
+    let lowered = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("lower.program", || lower_to_program(&syntax))
+    } else {
+        lower_to_program(&syntax)
+    };
+    let program = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("optimize.normalize", || {
+            normalize_program(
+                &lowered,
+                NormalizeOptions {
+                    prune_deactivated: args.prune_deactivated,
+                },
+            )
+        })
+    } else {
+        normalize_program(
+            &lowered,
+            NormalizeOptions {
+                prune_deactivated: args.prune_deactivated,
+            },
+        )
+    };
     let roots = if args.root_shapes.is_empty() {
         Some(SliceRoots::TargetShapes)
     } else {
@@ -722,23 +929,70 @@ fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| source_from_str(value))
         .collect::<Vec<_>>();
     let data = if same_shape_and_data_sources(&shape_sources(&args.shared), &data_sources) {
-        resolved.clone()
+        if let Some(recorder) = benchmark.as_mut() {
+            recorder.measure_value("load.data", || resolved.clone())
+        } else {
+            resolved.clone()
+        }
     } else {
-        shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+        if let Some(recorder) = benchmark.as_mut() {
+            recorder.measure("load.data", || {
+                shifty_shacl_core::source::load_with_ontoenv(
+                    &data_sources,
+                    &load_options(&args.shared),
+                )
+            })?
+        } else {
+            shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+        }
     };
-    let execution_data = resolved.merged_with(&data);
-    let plan = derive_validation_logical_plan_with_data(&program, options, &execution_data);
-    match args.format {
-        AnalyzeFormat::Json => write_json(
-            &serde_json::json!({
-                "data_summary": plan.data_summary,
-                "validation_plan": plan,
-            }),
-            args.output.as_deref(),
-        )?,
-        AnalyzeFormat::Text => {
-            let text = render_data_plan_text(&plan);
-            write_text(&text, args.output.as_deref())?;
+    let execution_data = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("prepare.execution_data", || resolved.merged_with(&data))
+    } else {
+        resolved.merged_with(&data)
+    };
+    let plan = if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure_value("plan.validation", || {
+            derive_validation_logical_plan_with_data(&program, options, &execution_data)
+        })
+    } else {
+        derive_validation_logical_plan_with_data(&program, options, &execution_data)
+    };
+    if let Some(recorder) = benchmark.as_mut() {
+        recorder.measure("output.render_write", || {
+            match args.format {
+                AnalyzeFormat::Json => write_json(
+                    &serde_json::json!({
+                        "data_summary": plan.data_summary,
+                        "validation_plan": plan,
+                    }),
+                    args.output.as_deref(),
+                )?,
+                AnalyzeFormat::Text => {
+                    let text = render_data_plan_text(&plan);
+                    write_text(&text, args.output.as_deref())?;
+                }
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        })?;
+    } else {
+        match args.format {
+            AnalyzeFormat::Json => write_json(
+                &serde_json::json!({
+                    "data_summary": plan.data_summary,
+                    "validation_plan": plan,
+                }),
+                args.output.as_deref(),
+            )?,
+            AnalyzeFormat::Text => {
+                let text = render_data_plan_text(&plan);
+                write_text(&text, args.output.as_deref())?;
+            }
+        }
+    }
+    if let Some(path) = args.benchmark_json.as_deref() {
+        if let Some(recorder) = benchmark {
+            write_json(&recorder.finish(), Some(path))?;
         }
     }
     Ok(())
@@ -817,6 +1071,10 @@ fn write_text(
         lock.write_all(text.as_bytes())?;
     }
     Ok(())
+}
+
+fn elapsed_ms(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
 }
 
 fn render_analysis_text(
