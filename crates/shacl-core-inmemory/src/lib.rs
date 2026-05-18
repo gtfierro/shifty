@@ -1042,19 +1042,43 @@ fn eval_constraint(
         } => {
             let mut status = ExecutionStatus::Completed;
             for value in local_values {
-                if eval_shape(*target, value, state)? == ExecutionStatus::DeferredRecursion {
-                    status = ExecutionStatus::DeferredRecursion;
-                    record_unsupported(
-                        shape_id,
-                        Some(constraint_id),
-                        Some(focus),
-                        constraint_kind_name(expr),
-                        format!(
-                            "deferred recursive validation while evaluating shape {}",
-                            target.0
-                        ),
-                        state,
-                    );
+                match probe_shape_conforms(*target, value, state)? {
+                    ProbeOutcome::Conformant => {}
+                    ProbeOutcome::NonConformant => {
+                        record_violation(
+                            shape_id,
+                            constraint_id,
+                            focus,
+                            Some(value),
+                            None,
+                            format!("value {} does not conform to shape {}", value, target.0),
+                            state,
+                        );
+                    }
+                    ProbeOutcome::Unsupported(reason) => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            reason,
+                            state,
+                        );
+                    }
+                    ProbeOutcome::DeferredRecursion => {
+                        status = ExecutionStatus::DeferredRecursion;
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            format!(
+                                "deferred recursive validation while evaluating shape {}",
+                                target.0
+                            ),
+                            state,
+                        );
+                    }
                 }
             }
             status
@@ -2701,14 +2725,29 @@ fn eval_property_comparison(
     let comparison_set: BTreeSet<_> = comparison_values.iter().map(ToString::to_string).collect();
     match predicate {
         "http://www.w3.org/ns/shacl#equals" => {
-            if local_set == comparison_set {
-                Ok(Vec::new())
-            } else {
-                Ok(vec![(
-                    None,
-                    "property values do not equal values of comparison property".to_string(),
-                )])
-            }
+            let mut differences = local_set
+                .difference(&comparison_set)
+                .cloned()
+                .collect::<Vec<_>>();
+            differences.extend(comparison_set.difference(&local_set).cloned());
+            differences.sort();
+            Ok(differences
+                .into_iter()
+                .map(|value| {
+                    (
+                        parse_term_or_blank(&value).or_else(|| {
+                            local_values
+                                .iter()
+                                .chain(comparison_values.iter())
+                                .find(|term| term.to_string() == value)
+                                .cloned()
+                        }),
+                        format!(
+                            "property values do not equal values of comparison property at {value}"
+                        ),
+                    )
+                })
+                .collect())
         }
         "http://www.w3.org/ns/shacl#disjoint" => {
             let overlap = local_set.intersection(&comparison_set).next().cloned();
@@ -3290,6 +3329,7 @@ fn unique_lang_enabled(params: &[Term]) -> bool {
 
 fn check_unique_lang(values: &[Term]) -> Vec<(Option<Term>, String)> {
     let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
     let mut violations = Vec::new();
     for value in values {
         let Term::Literal(literal) = value else {
@@ -3299,9 +3339,9 @@ fn check_unique_lang(values: &[Term]) -> Vec<(Option<Term>, String)> {
             continue;
         };
         let language = language.to_ascii_lowercase();
-        if !seen.insert(language.clone()) {
+        if !seen.insert(language.clone()) && duplicates.insert(language.clone()) {
             violations.push((
-                Some(value.clone()),
+                None,
                 format!("duplicate language tag {language} violates uniqueLang"),
             ));
         }

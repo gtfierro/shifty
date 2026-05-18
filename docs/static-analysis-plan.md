@@ -221,15 +221,15 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 
 ## Phase 17 Checklist
 
-- [ ] Extract the in-memory validation backend into its own crate
-- [ ] Keep `shacl-core` as the backend-agnostic validation contract crate
-- [ ] Rewire the CLI to depend on the extracted in-memory backend crate
-- [ ] Rewire manifest and core integration tests to use the extracted backend crate
-- [ ] Preserve existing validation/report APIs across the crate split
-- [ ] Add workspace membership and crate metadata for the extracted backend crate
-- [ ] Re-run core, CLI, and manifest test suites after the crate split
+- [x] Extract the in-memory validation backend into its own crate
+- [x] Keep `shacl-core` as the backend-agnostic validation contract crate
+- [x] Rewire the CLI to depend on the extracted in-memory backend crate
+- [x] Rewire manifest and core integration tests to use the extracted backend crate
+- [x] Preserve existing validation/report APIs across the crate split
+- [x] Add workspace membership and crate metadata for the extracted backend crate
+- [x] Re-run core, CLI, and manifest test suites after the crate split
 - [ ] Burn down remaining manifest divergences from the shared harness
-- [ ] Remove fixed manifest divergence cases from backend conformance metadata
+- [x] Remove fixed manifest divergence cases from backend conformance metadata
 - [ ] Keep backend conformance metadata aligned with actual remaining gaps
 - [x] Surface inference iterations and inferred triple counts in validation coverage
 - [x] Surface rule execution hits in validation heatmaps / traces
