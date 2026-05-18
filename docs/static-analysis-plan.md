@@ -101,6 +101,25 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for validation views
 - [x] Add fixture-backed tests for inference views
 
+## Phase 5 Checklist
+
+- [x] Materialize explicit shared work units from duplicate fingerprints
+- [x] Add shared work units for repeated custom-component constraints
+- [x] Add shared work units for repeated SPARQL constraints
+- [x] Add shared work units for repeated rule bodies
+- [x] Add explicit closure modes for backend views
+- [x] Separate validation closure from inference closure
+- [x] Add dependency classes for validation-only, inference-only, and shared edges
+- [x] Surface dependency classes in backend views
+- [x] Add per-view work inventories for validation
+- [x] Add per-view work inventories for inference
+- [x] Surface shared work units in CLI inspection output
+- [x] Surface closure modes and dependency classes in CLI inspection output
+- [x] Add JSON output for shared work units and work inventories
+- [x] Add fixture-backed tests for shared work unit derivation
+- [x] Add fixture-backed tests for validation vs inference closure differences
+- [x] Add fixture-backed tests for dependency classification
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`

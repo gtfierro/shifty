@@ -1,11 +1,12 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
-    AnalysisSummary, BackendViewOptions, BackendViews, InferenceView, NormalizeOptions,
-    RewriteOptions, RewriteSummary, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
-    ValidationView, analyze_program, analyze_static_with_roots, derive_backend_views,
-    derive_inference_view, derive_validation_view, load_and_parse_with_ontoenv, lower_to_program,
-    normalize_program, parse_resolved, render_shape_program_dot, rewrite_program,
+    AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
+    InferenceView, NormalizeOptions, RewriteOptions, RewriteSummary, SharedWorkUnitKind,
+    SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint, ValidationView,
+    analyze_program, analyze_static_with_roots, derive_backend_views, derive_inference_view,
+    derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
+    parse_resolved, render_shape_program_dot, rewrite_program,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -189,6 +190,14 @@ enum BackendViewKind {
     Inference,
 }
 
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum BackendClosureArg {
+    TargetRoots,
+    ValidationClosure,
+    InferenceClosure,
+    MixedClosure,
+}
+
 #[derive(Parser, Debug)]
 struct BackendViewArgs {
     #[command(flatten)]
@@ -205,6 +214,10 @@ struct BackendViewArgs {
     /// Which backend-facing view to render
     #[arg(long, value_enum, default_value_t = BackendViewKind::Both)]
     kind: BackendViewKind,
+
+    /// Closure mode used to derive backend-facing views
+    #[arg(long, value_enum, default_value_t = BackendClosureArg::TargetRoots)]
+    closure: BackendClosureArg,
 
     /// Output format
     #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
@@ -388,6 +401,12 @@ fn run_backend_view(args: BackendViewArgs) -> Result<(), Box<dyn std::error::Err
             roots,
             prune_unreachable: true,
             ..RewriteOptions::default()
+        },
+        closure_mode: match args.closure {
+            BackendClosureArg::TargetRoots => BackendClosureMode::TargetRoots,
+            BackendClosureArg::ValidationClosure => BackendClosureMode::ValidationClosure,
+            BackendClosureArg::InferenceClosure => BackendClosureMode::InferenceClosure,
+            BackendClosureArg::MixedClosure => BackendClosureMode::MixedClosure,
         },
     };
     match args.kind {
@@ -1219,6 +1238,10 @@ fn render_backend_views_text(views: &BackendViews) -> String {
 fn render_validation_view_text(view: &ValidationView) -> String {
     let mut out = String::new();
     out.push_str("Validation View\n");
+    out.push_str(&format!(
+        "  closure_mode: {}\n",
+        render_backend_closure_mode(&view.closure_mode)
+    ));
     out.push_str(&format!("  shapes: {}\n", view.program.shapes.len()));
     out.push_str(&format!(
         "  constraints: {}\n",
@@ -1232,9 +1255,46 @@ fn render_validation_view_text(view: &ValidationView) -> String {
         "  recursive_regions: {}\n",
         view.recursive_regions.len()
     ));
+    out.push_str(&format!(
+        "  shared_work_units: {}\n",
+        view.shared_work_units.len()
+    ));
     out.push_str("\n  Buckets\n");
     for (bucket, count) in &view.partition.histogram {
         out.push_str(&format!("    {}: {}\n", bucket, count));
+    }
+    out.push_str("\n  Dependency Classes\n");
+    for (class, count) in dependency_class_histogram(&view.dependencies) {
+        out.push_str(&format!("    {}: {}\n", class, count));
+    }
+    out.push_str("\n  Work Inventory\n");
+    out.push_str(&format!(
+        "    local_checks: {}\n",
+        view.work_inventory.local_checks
+    ));
+    out.push_str(&format!(
+        "    traversal_checks: {}\n",
+        view.work_inventory.traversal_checks
+    ));
+    out.push_str(&format!(
+        "    global_checks: {}\n",
+        view.work_inventory.global_checks
+    ));
+    out.push_str(&format!(
+        "    shared_work_units: {}\n",
+        view.work_inventory.shared_work_units
+    ));
+    if !view.shared_work_units.is_empty() {
+        out.push_str("\n  Shared Work Units\n");
+        for unit in &view.shared_work_units {
+            out.push_str(&format!(
+                "    {} {} owners={} members={}\n",
+                unit.id,
+                render_shared_work_unit_kind(&unit.kind),
+                unit.owner_shapes.len(),
+                unit.member_ids.len()
+            ));
+        }
     }
     out
 }
@@ -1242,6 +1302,10 @@ fn render_validation_view_text(view: &ValidationView) -> String {
 fn render_inference_view_text(view: &InferenceView) -> String {
     let mut out = String::new();
     out.push_str("Inference View\n");
+    out.push_str(&format!(
+        "  closure_mode: {}\n",
+        render_backend_closure_mode(&view.closure_mode)
+    ));
     out.push_str(&format!("  shapes: {}\n", view.program.shapes.len()));
     out.push_str(&format!(
         "  constraints: {}\n",
@@ -1265,6 +1329,10 @@ fn render_inference_view_text(view: &InferenceView) -> String {
         "  recursive_regions: {}\n",
         view.recursive_regions.len()
     ));
+    out.push_str(&format!(
+        "  shared_work_units: {}\n",
+        view.shared_work_units.len()
+    ));
     out.push_str("\n  Shape Buckets\n");
     for (bucket, count) in &view.partition.histogram {
         out.push_str(&format!("    {}: {}\n", bucket, count));
@@ -1283,6 +1351,51 @@ fn render_inference_view_text(view: &InferenceView) -> String {
             out.push_str(&format!("    {}: {}\n", bucket, count));
         }
     }
+    out.push_str("\n  Dependency Classes\n");
+    for (class, count) in dependency_class_histogram(&view.dependencies) {
+        out.push_str(&format!("    {}: {}\n", class, count));
+    }
+    out.push_str("\n  Work Inventory\n");
+    out.push_str(&format!(
+        "    seed_shapes: {}\n",
+        view.work_inventory.seed_shapes
+    ));
+    out.push_str(&format!(
+        "    rule_clusters: {}\n",
+        view.work_inventory.rule_clusters
+    ));
+    out.push_str(&format!(
+        "    recursive_regions: {}\n",
+        view.work_inventory.recursive_regions
+    ));
+    out.push_str(&format!(
+        "    local_rules: {}\n",
+        view.work_inventory.local_rules
+    ));
+    out.push_str(&format!(
+        "    traversal_rules: {}\n",
+        view.work_inventory.traversal_rules
+    ));
+    out.push_str(&format!(
+        "    global_rules: {}\n",
+        view.work_inventory.global_rules
+    ));
+    out.push_str(&format!(
+        "    shared_work_units: {}\n",
+        view.work_inventory.shared_work_units
+    ));
+    if !view.shared_work_units.is_empty() {
+        out.push_str("\n  Shared Work Units\n");
+        for unit in &view.shared_work_units {
+            out.push_str(&format!(
+                "    {} {} owners={} members={}\n",
+                unit.id,
+                render_shared_work_unit_kind(&unit.kind),
+                unit.owner_shapes.len(),
+                unit.member_ids.len()
+            ));
+        }
+    }
     out
 }
 
@@ -1294,4 +1407,37 @@ fn render_backend_bucket(bucket: &shifty_shacl_core::BackendBucket) -> &'static 
         shifty_shacl_core::BackendBucket::GlobalSparql => "global_sparql",
         shifty_shacl_core::BackendBucket::Recursive => "recursive",
     }
+}
+
+fn render_backend_closure_mode(mode: &BackendClosureMode) -> &'static str {
+    match mode {
+        BackendClosureMode::TargetRoots => "target_roots",
+        BackendClosureMode::ValidationClosure => "validation_closure",
+        BackendClosureMode::InferenceClosure => "inference_closure",
+        BackendClosureMode::MixedClosure => "mixed_closure",
+    }
+}
+
+fn render_shared_work_unit_kind(kind: &SharedWorkUnitKind) -> &'static str {
+    match kind {
+        SharedWorkUnitKind::CustomComponentConstraint => "custom_component_constraint",
+        SharedWorkUnitKind::SparqlConstraint => "sparql_constraint",
+        SharedWorkUnitKind::RuleBody => "rule_body",
+    }
+}
+
+fn dependency_class_histogram(
+    dependencies: &[shifty_shacl_core::ClassifiedDependency],
+) -> Vec<(String, usize)> {
+    let mut histogram = std::collections::BTreeMap::<String, usize>::new();
+    for dependency in dependencies {
+        *histogram
+            .entry(match dependency.class {
+                DependencyClass::ValidationOnly => "validation_only".to_string(),
+                DependencyClass::InferenceOnly => "inference_only".to_string(),
+                DependencyClass::Shared => "shared".to_string(),
+            })
+            .or_insert(0) += 1;
+    }
+    histogram.into_iter().collect()
 }
