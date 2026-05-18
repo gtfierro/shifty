@@ -151,6 +151,21 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add fixture-backed tests for target resolution
 - [x] Add fixture-backed tests for local/path validation execution
 
+## Phase 8 Checklist
+
+- [ ] Execute core numeric range constraints
+- [ ] Execute property comparison constraints
+- [ ] Execute closed-shape constraints
+- [ ] Execute `sh:not`
+- [ ] Execute logical `sh:and`, `sh:or`, and `sh:xone`
+- [ ] Execute `sh:qualifiedValueShape`
+- [ ] Carry shape severity into validation violations
+- [ ] Carry provenance/source references into validation results
+- [ ] Distinguish unsupported constraints from failing constraints
+- [ ] Surface execution coverage explicitly in text and JSON output
+- [ ] Tighten recursive validation handling for speculative shape checks
+- [ ] Add fixture-backed tests for new core execution coverage
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
@@ -177,6 +192,13 @@ Rewrite-phase additions:
   - recursive-region annotation
 - rewrite summaries that explain which passes ran and what they changed
 
+Execution-phase additions:
+
+- broaden the in-memory validation backend over SHACL Core constraints
+- add explicit execution coverage and unsupported-constraint reporting
+- enrich validation violations with severity and provenance
+- add speculative nested conformance checks for logical and qualified constraints
+
 ## CLI Output
 
 - text summary
@@ -197,6 +219,12 @@ Rewrite-phase additions:
 - rewrite summary output in text mode
 - rewrite summary output in JSON mode
 - optional inspection command support for rewritten-program output
+
+Execution-phase additions:
+
+- validation coverage summary in text output
+- unsupported-constraint inventory in text and JSON output
+- richer violation metadata in text and JSON output
 
 ## Tests
 
@@ -223,6 +251,13 @@ Rewrite-phase additions:
 - rewritten programs rebuild indexes consistently
 - ordering rewrites are deterministic and analysis-informed
 - recursive-region annotations match SCC analysis
+
+Execution-phase additions:
+
+- numeric-range and property-comparison execution fixtures
+- logical/not/qualified execution fixtures
+- closed-shape execution fixtures
+- unsupported-constraint reporting fixtures
 
 ## Deferred Work
 
