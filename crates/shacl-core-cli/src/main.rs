@@ -157,6 +157,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<(), Box<dyn std::error::Error>> {
             write_json(
                 &serde_json::json!({
                     "analysis": analysis,
+                    "template_inspection": collect_template_inspection(&program),
                     "program_diagnostics": program.diagnostics,
                     "syntax_diagnostics": syntax.diagnostics,
                 }),
@@ -232,6 +233,7 @@ fn render_analysis_text(
     program: &shifty_shacl_core::algebra::ShapeProgram,
     syntax: &shifty_shacl_core::syntax::ShapeSyntaxDocument,
 ) -> String {
+    let template_inspection = collect_template_inspection(program);
     let mut out = String::new();
     out.push_str("Shapes\n");
     out.push_str(&format!("  total: {}\n", program.shapes.len()));
@@ -331,6 +333,46 @@ fn render_analysis_text(
         }
     }
 
+    if !template_inspection.is_empty() {
+        out.push_str("\nTemplates\n");
+        for instance in &template_inspection {
+            out.push_str(&format!(
+                "  shape={} predicate={}\n",
+                instance.owner_shape, instance.predicate
+            ));
+            if !instance.bindings.is_empty() {
+                out.push_str(&format!(
+                    "    bindings: {}\n",
+                    instance
+                        .bindings
+                        .iter()
+                        .map(|binding| format!(
+                            "{}={}{}",
+                            binding.name,
+                            binding.values.join(", "),
+                            if binding.from_default { " [default]" } else { "" }
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ));
+            }
+            for message in &instance.messages {
+                out.push_str(&format!(
+                    "    message: {}\n",
+                    message.rendered
+                        .as_deref()
+                        .unwrap_or(message.raw.as_str())
+                ));
+            }
+            if let Some(label) = &instance.label_template {
+                out.push_str(&format!(
+                    "    label: {}\n",
+                    label.rendered.as_deref().unwrap_or(label.raw.as_str())
+                ));
+            }
+        }
+    }
+
     if !analysis.diagnostics_by_severity.is_empty() {
         out.push_str("\nDiagnostic Summary\n");
         let mut diagnostics: Vec<_> = analysis.diagnostics_by_severity.iter().collect();
@@ -351,4 +393,111 @@ fn render_analysis_text(
     }
 
     out
+}
+
+#[derive(serde::Serialize)]
+struct TemplateInspection {
+    owner_shape: String,
+    predicate: String,
+    component: Option<u64>,
+    bindings: Vec<TemplateBindingView>,
+    messages: Vec<RenderedTemplate>,
+    label_template: Option<RenderedTemplate>,
+}
+
+#[derive(serde::Serialize)]
+struct TemplateBindingView {
+    name: String,
+    values: Vec<String>,
+    from_default: bool,
+}
+
+#[derive(serde::Serialize)]
+struct RenderedTemplate {
+    raw: String,
+    rendered: Option<String>,
+}
+
+fn collect_template_inspection(
+    program: &shifty_shacl_core::algebra::ShapeProgram,
+) -> Vec<TemplateInspection> {
+    program
+        .constraints
+        .iter()
+        .filter_map(|constraint| {
+            let shifty_shacl_core::algebra::ConstraintExpr::CustomComponent {
+                predicate,
+                component,
+                bindings,
+                message_templates,
+                label_template,
+                ..
+            } = &constraint.expr
+            else {
+                return None;
+            };
+            if bindings.is_empty() && message_templates.is_empty() && label_template.is_none() {
+                return None;
+            }
+            let owner_shape = program
+                .shapes
+                .iter()
+                .find(|shape| shape.id == constraint.owner)
+                .map(|shape| shape.normalized_key.clone())
+                .unwrap_or_else(|| format!("shape:{}", constraint.owner.0));
+            Some(TemplateInspection {
+                owner_shape,
+                predicate: predicate.to_string(),
+                component: component.map(|id| id.0),
+                bindings: bindings
+                    .iter()
+                    .map(|binding| TemplateBindingView {
+                        name: binding.name.clone(),
+                        values: binding.values.iter().map(|value| value.to_string()).collect(),
+                        from_default: binding.from_default,
+                    })
+                    .collect(),
+                messages: message_templates
+                    .iter()
+                    .map(|template| RenderedTemplate {
+                        raw: template.raw.clone(),
+                        rendered: render_template(template, bindings),
+                    })
+                    .collect(),
+                label_template: label_template.as_ref().map(|template| RenderedTemplate {
+                    raw: template.raw.clone(),
+                    rendered: render_template(template, bindings),
+                }),
+            })
+        })
+        .collect()
+}
+
+fn render_template(
+    template: &shifty_shacl_core::algebra::Template,
+    bindings: &[shifty_shacl_core::algebra::TemplateBinding],
+) -> Option<String> {
+    let mut out = String::new();
+    let mut saw_slot = false;
+    for part in &template.parts {
+        match part {
+            shifty_shacl_core::algebra::TemplatePart::Text(text) => out.push_str(text),
+            shifty_shacl_core::algebra::TemplatePart::Slot { name, .. } => {
+                saw_slot = true;
+                if let Some(binding) = bindings.iter().find(|binding| binding.name == *name) {
+                    out.push_str(
+                        &binding
+                            .values
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    );
+                } else {
+                    out.push_str(&format!("{{unbound:{name}}}"));
+                }
+            }
+        }
+    }
+    saw_slot.then_some(out)
 }
