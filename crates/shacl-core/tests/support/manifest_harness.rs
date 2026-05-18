@@ -524,7 +524,6 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
 const KNOWN_IN_MEMORY_DIVERGENCES: &[(&str, &str)] = &[
     ("core/complex/personexample.ttl", "known in-memory backend divergence"),
     ("core/complex/shacl-shacl.ttl", "known in-memory backend divergence"),
-    ("core/property/nodeKind-001.ttl", "known in-memory backend divergence"),
     ("core/property/uniqueLang-002.ttl", "known in-memory backend divergence"),
     ("core/validation-reports/shared.ttl", "known in-memory backend divergence"),
     ("sparql/component/optional-001.ttl", "known in-memory backend divergence"),

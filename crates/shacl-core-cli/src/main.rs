@@ -620,14 +620,16 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     let plan = derive_validation_logical_plan(&program, options);
-    let data = shifty_shacl_core::source::load_with_ontoenv(
-        &args
-            .data
-            .iter()
-            .map(|value| source_from_str(value))
-            .collect::<Vec<_>>(),
-        &load_options(&args.shared),
-    )?;
+    let data_sources = args
+        .data
+        .iter()
+        .map(|value| source_from_str(value))
+        .collect::<Vec<_>>();
+    let data = if same_shape_and_data_sources(&shape_sources(&args.shared), &data_sources) {
+        resolved.clone()
+    } else {
+        shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+    };
     let execution_data = resolved.merged_with(&data);
     let backend = InMemoryValidationBackend;
     let result = backend
@@ -665,6 +667,25 @@ fn shape_sources(args: &SharedArgs) -> Vec<ShapeSource> {
         .iter()
         .map(|shape| source_from_str(shape))
         .collect()
+}
+
+fn same_shape_and_data_sources(shapes: &[ShapeSource], data: &[ShapeSource]) -> bool {
+    shapes.len() == data.len()
+        && shapes.iter().zip(data).all(|(left, right)| match (left, right) {
+            (ShapeSource::File(left), ShapeSource::File(right)) => left == right,
+            (ShapeSource::Url(left), ShapeSource::Url(right)) => left == right,
+            (
+                ShapeSource::Quads {
+                    graph_iri: left_graph,
+                    quads: left_quads,
+                },
+                ShapeSource::Quads {
+                    graph_iri: right_graph,
+                    quads: right_quads,
+                },
+            ) => left_graph == right_graph && left_quads == right_quads,
+            _ => false,
+        })
 }
 
 fn load_options(args: &SharedArgs) -> SourceLoadOptions {
