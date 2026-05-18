@@ -65,6 +65,13 @@ const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_RULE_SUBJECT: &str = "http://www.w3.org/ns/shacl#subject";
 const SH_RULE_PREDICATE: &str = "http://www.w3.org/ns/shacl#predicate";
 const SH_RULE_OBJECT: &str = "http://www.w3.org/ns/shacl#object";
+const SH_MESSAGE: &str = "http://www.w3.org/ns/shacl#message";
+const SH_NAME: &str = "http://www.w3.org/ns/shacl#name";
+const SH_DESCRIPTION: &str = "http://www.w3.org/ns/shacl#description";
+const SH_ORDER: &str = "http://www.w3.org/ns/shacl#order";
+const SH_DEACTIVATED: &str = "http://www.w3.org/ns/shacl#deactivated";
+const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
+const SH_PREFIXES: &str = "http://www.w3.org/ns/shacl#prefixes";
 const SH_DECLARE: &str = "http://www.w3.org/ns/shacl#declare";
 const SH_PREFIX: &str = "http://www.w3.org/ns/shacl#prefix";
 const SH_NAMESPACE: &str = "http://www.w3.org/ns/shacl#namespace";
@@ -184,7 +191,11 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
         }
 
         let mut constraint_ids = Vec::new();
+        let mut seen_component_constraints = HashSet::new();
         for constraint in &shape.constraints {
+            if constraint_is_auxiliary(constraint) {
+                continue;
+            }
             let constraint_id = ConstraintId((lowered_constraints.len() + 1) as u64);
             let expr = lower_constraint(
                 shape_id,
@@ -198,6 +209,14 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
                 &mut features,
                 &mut diagnostics,
             );
+            if let ConstraintExpr::CustomComponent {
+                component: Some(component_id),
+                ..
+            } = &expr
+                && !seen_component_constraints.insert(*component_id)
+            {
+                continue;
+            }
             lowered_constraints.push(Constraint {
                 id: constraint_id,
                 owner: shape_id,
@@ -710,20 +729,31 @@ fn lower_constraint(
                 .as_str()
                 .starts_with("http://www.w3.org/ns/shacl#")
             {
-                features.insert(FeatureUse::CustomComponents);
                 let component = resolve_custom_component_for_parameter(
                     &constraint.predicate,
                     components,
                     component_index,
                 );
-                return ConstraintExpr::CustomComponent {
-                    predicate: constraint.predicate.clone(),
-                    component,
-                    values: constraint.objects.clone(),
-                    bindings: lower_component_bindings(shape, components, component),
-                    message_templates: lower_component_message_templates(components, component),
-                    label_template: lower_component_label_template(components, component),
-                };
+                if component.is_some() {
+                    features.insert(FeatureUse::CustomComponents);
+                    return ConstraintExpr::CustomComponent {
+                        predicate: constraint.predicate.clone(),
+                        component,
+                        values: constraint.objects.clone(),
+                        bindings: lower_component_bindings(shape, components, component),
+                        message_templates: lower_component_message_templates(components, component),
+                        label_template: lower_component_label_template(components, component),
+                    };
+                }
+                diagnostics.push(Diagnostic {
+                    severity: DiagnosticSeverity::Info,
+                    message: format!(
+                        "preserving non-sh predicate {} on shape {} as generic metadata/extension",
+                        constraint.predicate, shape.subject
+                    ),
+                    source: shape.provenance.first().cloned(),
+                });
+                return generic_expr(constraint);
             }
             diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Info,
@@ -827,7 +857,8 @@ fn lower_component_bindings(
             let name = parameter
                 .var_name
                 .clone()
-                .or_else(|| parameter.name.clone())?;
+                .or_else(|| parameter.name.clone())
+                .or_else(|| parameter.path.as_ref().and_then(term_local_name))?;
             let values = parameter_value_bindings(shape, parameter);
             if values.is_empty() {
                 return None;
@@ -865,6 +896,20 @@ fn parameter_value_from_shape(shape: &ShapeSyntax, path: &Term) -> Option<Vec<Te
         .constraints
         .iter()
         .find_map(|constraint| (constraint.predicate == *path).then(|| constraint.objects.clone()))
+}
+
+fn term_local_name(term: &Term) -> Option<String> {
+    let Term::NamedNode(node) = term else {
+        return None;
+    };
+    iri_local_name(node.as_str())
+}
+
+fn iri_local_name(iri: &str) -> Option<String> {
+    iri.rsplit(['#', '/'])
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_string)
 }
 
 fn lower_component_message_templates(
@@ -930,6 +975,24 @@ fn lower_prefix_declarations(
             namespace: declaration.namespace.clone(),
         })
         .collect()
+}
+
+fn constraint_is_auxiliary(constraint: &ConstraintSyntax) -> bool {
+    matches!(
+        constraint.predicate.as_str(),
+        SH_MESSAGE
+            | SH_NAME
+            | SH_DESCRIPTION
+            | SH_ORDER
+            | SH_DEACTIVATED
+            | SH_SEVERITY
+            | SH_PREFIXES
+            | SH_DECLARE
+            | SH_QUALIFIED_MIN_COUNT
+            | SH_QUALIFIED_MAX_COUNT
+            | SH_QUALIFIED_VALUE_SHAPES_DISJOINT
+            | SH_IGNORED_PROPERTIES
+    )
 }
 
 fn resolve_prefix_reference_declarations(

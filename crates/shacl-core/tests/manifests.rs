@@ -118,12 +118,21 @@ fn manifest_core_hasvalue_case_matches_expected_conformance() {
 }
 
 #[test]
+fn manifest_core_target_class_implicit_case_matches_expected_conformance() {
+    run_self_contained_manifest_case("core/targets/targetClassImplicit-001.ttl");
+}
+
+#[test]
+fn manifest_core_datatype_ill_formed_case_matches_expected_conformance() {
+    run_self_contained_manifest_case("core/property/datatype-ill-formed.ttl");
+}
+
+#[test]
 fn manifest_sparql_node_case_matches_expected_conformance() {
     run_self_contained_manifest_case("sparql/node/sparql-001.ttl");
 }
 
 #[test]
-#[ignore = "custom component attachment resolution for validator-001 is not wired through this manifest case yet"]
 fn manifest_sparql_component_case_matches_expected_conformance() {
     run_self_contained_manifest_case("sparql/component/validator-001.ttl");
 }

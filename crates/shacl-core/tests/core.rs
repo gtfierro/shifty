@@ -86,8 +86,13 @@ fn direct_quad_parsing_preserves_custom_component_constraints() {
     let property = NamedNode::new("urn:property").unwrap();
     let path = NamedNode::new("urn:path").unwrap();
     let activate = NamedNode::new("http://example.org/activate").unwrap();
+    let component = NamedNode::new("urn:activate-component").unwrap();
+    let parameter = NamedNode::new("urn:activate-parameter").unwrap();
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_constraint_component =
+        NamedNode::new("http://www.w3.org/ns/shacl#ConstraintComponent").unwrap();
+    let sh_parameter = NamedNode::new("http://www.w3.org/ns/shacl#parameter").unwrap();
     let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
     let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
 
@@ -106,14 +111,32 @@ fn direct_quad_parsing_preserves_custom_component_constraints() {
         ),
         Quad::new(
             property.clone(),
-            sh_path,
+            sh_path.clone(),
             Term::NamedNode(path),
             oxrdf::GraphName::DefaultGraph,
         ),
         Quad::new(
             property,
-            activate,
+            activate.clone(),
             Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            component.clone(),
+            rdf_type,
+            Term::NamedNode(sh_constraint_component),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            component,
+            sh_parameter,
+            Term::NamedNode(parameter.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            parameter,
+            sh_path,
+            Term::NamedNode(activate),
             oxrdf::GraphName::DefaultGraph,
         ),
     ]);
@@ -125,6 +148,47 @@ fn direct_quad_parsing_preserves_custom_component_constraints() {
             &constraint.expr,
             shifty_shacl_core::algebra::ConstraintExpr::CustomComponent { predicate, .. }
             if predicate.as_str() == "http://example.org/activate"
+        )
+    }));
+}
+
+#[test]
+fn non_sh_predicates_without_component_definitions_lower_as_generic_predicates() {
+    let shape = NamedNode::new("urn:shape").unwrap();
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let rdfs_subclass_of =
+        NamedNode::new("http://www.w3.org/2000/01/rdf-schema#subClassOf").unwrap();
+    let parent = NamedNode::new("urn:parent").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            rdfs_subclass_of,
+            Term::NamedNode(parent),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+
+    let program = lower_to_program(&doc);
+    assert!(program.constraints.iter().any(|constraint| {
+        matches!(
+            &constraint.expr,
+            shifty_shacl_core::algebra::ConstraintExpr::GenericPredicate { predicate, .. }
+            if predicate.as_str() == "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+        )
+    }));
+    assert!(!program.constraints.iter().any(|constraint| {
+        matches!(
+            &constraint.expr,
+            shifty_shacl_core::algebra::ConstraintExpr::CustomComponent { component, predicate, .. }
+            if component.is_none() && predicate.as_str() == "http://www.w3.org/2000/01/rdf-schema#subClassOf"
         )
     }));
 }
@@ -146,7 +210,7 @@ fn analysis_reports_recursive_components() {
         ),
         Quad::new(
             b.clone(),
-            rdf_type,
+            rdf_type.clone(),
             Term::NamedNode(sh_node_shape),
             oxrdf::GraphName::DefaultGraph,
         ),
@@ -604,7 +668,13 @@ fn static_fingerprints_group_identical_component_constraints() {
 fn static_shared_work_and_cost_hints_report_duplicates() {
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_constraint_component =
+        NamedNode::new("http://www.w3.org/ns/shacl#ConstraintComponent").unwrap();
+    let sh_parameter = NamedNode::new("http://www.w3.org/ns/shacl#parameter").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
     let ex_activate = NamedNode::new("http://example.org/activate").unwrap();
+    let component = NamedNode::new("urn:activate-component").unwrap();
+    let parameter = NamedNode::new("urn:activate-parameter").unwrap();
     let a = NamedNode::new("urn:a").unwrap();
     let b = NamedNode::new("urn:b").unwrap();
 
@@ -617,7 +687,7 @@ fn static_shared_work_and_cost_hints_report_duplicates() {
         ),
         Quad::new(
             b.clone(),
-            rdf_type,
+            rdf_type.clone(),
             Term::NamedNode(sh_node_shape),
             oxrdf::GraphName::DefaultGraph,
         ),
@@ -631,6 +701,24 @@ fn static_shared_work_and_cost_hints_report_duplicates() {
             b.clone(),
             ex_activate,
             Term::Literal(Literal::from(true)),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            component.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_constraint_component),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            component,
+            sh_parameter,
+            Term::NamedNode(parameter.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            parameter,
+            sh_path,
+            Term::NamedNode(NamedNode::new("http://example.org/activate").unwrap()),
             oxrdf::GraphName::DefaultGraph,
         ),
     ]);
@@ -3389,6 +3477,39 @@ fn lowers_custom_component_attachments() {
                         && binding.values.iter().any(|value| value.to_string().contains('5'))
                 })
                 && message_templates.iter().any(|template| template.raw.contains("minLength"))
+        )
+    }));
+}
+
+#[test]
+fn derives_custom_component_binding_names_from_parameter_paths() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(suite_path(
+            "sparql/component/validator-001.ttl",
+        ))],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load without imports");
+
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+
+    assert!(program.constraints.iter().any(|constraint| {
+        matches!(
+            &constraint.expr,
+            shifty_shacl_core::algebra::ConstraintExpr::CustomComponent {
+                predicate,
+                bindings,
+                ..
+            } if predicate.as_str()
+                == "http://datashapes.org/sh/tests/sparql/component/validator-001.test#test1"
+                && bindings.iter().any(|binding| binding.name == "test1")
+                && bindings.iter().any(|binding| binding.name == "test2")
         )
     }));
 }

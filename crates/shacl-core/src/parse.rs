@@ -14,6 +14,8 @@ const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDF_FIRST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first";
 const RDF_REST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest";
 const RDF_NIL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil";
+const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+const RDFS_CLASS: &str = "http://www.w3.org/2000/01/rdf-schema#Class";
 const SH_NODE_SHAPE: &str = "http://www.w3.org/ns/shacl#NodeShape";
 const SH_PROPERTY_SHAPE: &str = "http://www.w3.org/ns/shacl#PropertyShape";
 const SH_TRIPLE_RULE: &str = "http://www.w3.org/ns/shacl#TripleRule";
@@ -84,6 +86,7 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
     let quads = resolved.quads.clone();
     let provenance_by_graph = provenance_map(resolved);
     let mut by_subject: HashMap<Term, Vec<Quad>> = HashMap::new();
+    let mut subclass_index: HashMap<Term, Vec<Term>> = HashMap::new();
     let mut candidate_shapes = HashSet::new();
     let mut candidate_rules = HashSet::new();
     let mut candidate_components = HashSet::new();
@@ -91,12 +94,18 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
 
     for quad in &quads {
         let subject_term = subject_to_term(&quad.subject);
+        let pred = quad.predicate.as_str();
         by_subject
             .entry(subject_term.clone())
             .or_default()
             .push(quad.clone());
+        if pred == RDFS_SUBCLASS_OF {
+            subclass_index
+                .entry(subject_term.clone())
+                .or_default()
+                .push(quad.object.clone());
+        }
 
-        let pred = quad.predicate.as_str();
         if pred == RDF_TYPE {
             if matches_named(&quad.object, SH_NODE_SHAPE)
                 || matches_named(&quad.object, SH_PROPERTY_SHAPE)
@@ -108,7 +117,12 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
             {
                 candidate_rules.insert(subject_term.clone());
             }
-            if matches_named(&quad.object, SH_CONSTRAINT_COMPONENT) {
+            if term_is_or_subclass_of(
+                &quad.object,
+                SH_CONSTRAINT_COMPONENT,
+                &subclass_index,
+                &mut HashSet::new(),
+            ) {
                 candidate_components.insert(subject_term.clone());
             }
         }
@@ -193,6 +207,28 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
             .collect(),
         diagnostics,
     }
+}
+
+fn term_is_or_subclass_of(
+    term: &Term,
+    target_iri: &str,
+    subclass_index: &HashMap<Term, Vec<Term>>,
+    active: &mut HashSet<String>,
+) -> bool {
+    if matches_named(term, target_iri) {
+        return true;
+    }
+    let key = term.to_string();
+    if !active.insert(key) {
+        return false;
+    }
+    let result = subclass_index.get(term).is_some_and(|parents| {
+        parents
+            .iter()
+            .any(|parent| term_is_or_subclass_of(parent, target_iri, subclass_index, active))
+    });
+    active.remove(&term.to_string());
+    result
 }
 
 fn build_constraint_component(
@@ -472,6 +508,7 @@ fn build_shape(
     let mut sparql_constraints = Vec::new();
     let mut extras = Vec::new();
     let mut rule_nodes = Vec::new();
+    let mut implicit_class_target = false;
 
     let grouped = group_predicates(&quads);
     for (predicate, objects) in grouped {
@@ -509,7 +546,11 @@ fn build_shape(
                 }
             }
             SH_RULE => rule_nodes.extend(objects),
-            RDF_TYPE => {}
+            RDF_TYPE => {
+                implicit_class_target |= objects
+                    .iter()
+                    .any(|object| matches_named(object, RDFS_CLASS));
+            }
             _ => {
                 if is_constraint_predicate(predicate.as_str())
                     || is_custom_constraint_predicate(predicate.as_str())
@@ -520,6 +561,10 @@ fn build_shape(
                 }
             }
         }
+    }
+
+    if implicit_class_target && matches!(subject, Term::NamedNode(_)) {
+        targets.push(TargetSyntax::Class(subject.clone()));
     }
 
     ShapeSyntax {

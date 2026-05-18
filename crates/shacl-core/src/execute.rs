@@ -9,12 +9,15 @@ use crate::source::ResolvedShapeSet;
 use oxigraph::sparql::{QueryResults, SparqlEvaluator, Variable};
 use oxigraph::store::Store;
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
+use oxsdatatypes::{Boolean, Date, DateTime, Decimal, Double, Float, Integer, Time};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::str::FromStr;
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
 const SH_IRI: &str = "http://www.w3.org/ns/shacl#IRI";
 const SH_LITERAL: &str = "http://www.w3.org/ns/shacl#Literal";
 const SH_BLANK_NODE: &str = "http://www.w3.org/ns/shacl#BlankNode";
@@ -218,12 +221,14 @@ struct SelectViolation {
 struct DataIndex {
     outgoing: HashMap<String, Vec<(NamedNode, Term)>>,
     types: HashMap<String, BTreeSet<String>>,
+    superclasses: HashMap<String, BTreeSet<String>>,
 }
 
 impl DataIndex {
     fn new(quads: &[Quad]) -> Self {
         let mut outgoing = HashMap::new();
         let mut types = HashMap::new();
+        let mut superclasses = HashMap::new();
         for quad in quads {
             let subject = subject_to_term(&quad.subject);
             let subject_key = subject.to_string();
@@ -233,12 +238,22 @@ impl DataIndex {
                 .push((quad.predicate.clone(), quad.object.clone()));
             if quad.predicate.as_str() == RDF_TYPE {
                 types
+                    .entry(subject_key.clone())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(quad.object.to_string());
+            }
+            if quad.predicate.as_str() == RDFS_SUBCLASS_OF {
+                superclasses
                     .entry(subject_key)
                     .or_insert_with(BTreeSet::new)
                     .insert(quad.object.to_string());
             }
         }
-        Self { outgoing, types }
+        Self {
+            outgoing,
+            types,
+            superclasses,
+        }
     }
 }
 
@@ -284,11 +299,30 @@ fn eval_shape(
     let status = match shape.kind {
         ShapeKind::Node => eval_node_shape(shape_id, focus, state)?,
         ShapeKind::Property => {
-            state.active.remove(&key);
-            return Err(format!(
-                "property shape {} requires a parent node context",
-                shape.normalized_key
-            ));
+            let Some(path) = shape.path.as_ref() else {
+                state.active.remove(&key);
+                return Err(format!(
+                    "property shape {} is missing sh:path",
+                    shape.normalized_key
+                ));
+            };
+            if !path_is_executable(path) {
+                record_unsupported(
+                    shape_id,
+                    None,
+                    Some(focus),
+                    "property_path",
+                    format!(
+                        "property path {} is not executable in the in-memory backend",
+                        path_label(path)
+                    ),
+                    state,
+                );
+                ExecutionStatus::Completed
+            } else {
+                let values = eval_path(&state.index, focus, path);
+                eval_property_shape(shape_id, focus, &values, state)?
+            }
         }
     };
 
@@ -929,14 +963,17 @@ fn eval_constraint(
             ExecutionStatus::Completed
         }
         ConstraintExpr::GenericPredicate { .. } => {
-            record_unsupported(
-                shape_id,
-                Some(constraint_id),
-                Some(focus),
-                constraint_kind_name(expr),
-                "constraint kind is not executable in the in-memory backend".to_string(),
-                state,
-            );
+            if matches!(expr, ConstraintExpr::GenericPredicate { predicate, .. } if predicate.as_str().starts_with("http://www.w3.org/ns/shacl#"))
+            {
+                record_unsupported(
+                    shape_id,
+                    Some(constraint_id),
+                    Some(focus),
+                    constraint_kind_name(expr),
+                    "constraint kind is not executable in the in-memory backend".to_string(),
+                    state,
+                );
+            }
             ExecutionStatus::Completed
         }
         ConstraintExpr::NodeRef { shape: None, .. }
@@ -975,8 +1012,17 @@ fn resolve_target(
             .index
             .types
             .iter()
-            .filter(|(_, types)| types.contains(&term.to_string()))
-            .filter_map(|(subject, _)| parse_term(subject))
+            .filter(|(_, types)| {
+                types.iter().any(|candidate| {
+                    class_is_or_subclass_of(
+                        candidate,
+                        &term.to_string(),
+                        &state.index.superclasses,
+                        &mut HashSet::new(),
+                    )
+                })
+            })
+            .filter_map(|(subject, _)| parse_term_or_blank(subject))
             .collect()),
         TargetExpr::SubjectsOf(predicate) => Ok(named_target_predicate(predicate)
             .map(|predicate| {
@@ -1170,11 +1216,16 @@ fn execute_sparql_constraint(
                 }
             }
         } else {
+            let value_binding = if query_mentions_var(&full_query, "value") {
+                local_values.first()
+            } else {
+                None
+            };
             let bindings = query_bindings(
                 full_query.as_str(),
                 focus,
                 Some(&owner_shape.source),
-                None,
+                value_binding,
                 &[],
             );
             let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
@@ -1336,11 +1387,16 @@ fn execute_custom_component_validator(
                 }
             }
         } else {
+            let value_binding = if query_mentions_var(&full_query, "value") {
+                local_values.first()
+            } else {
+                None
+            };
             let bindings = query_bindings(
                 full_query.as_str(),
                 focus,
                 Some(&owner_shape.source),
-                None,
+                value_binding,
                 &extra_bindings,
             );
             let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
@@ -1768,11 +1824,23 @@ fn probe_constraint(
             }
             Ok(ProbeOutcome::Conformant)
         }
-        ConstraintExpr::Sparql(_)
-        | ConstraintExpr::CustomComponent { .. }
-        | ConstraintExpr::GenericPredicate { .. } => Ok(ProbeOutcome::Unsupported(
-            "constraint kind is not executable in the in-memory backend".to_string(),
-        )),
+        ConstraintExpr::Sparql(_) | ConstraintExpr::CustomComponent { .. } => {
+            Ok(ProbeOutcome::Unsupported(
+                "constraint kind is not executable in the in-memory backend".to_string(),
+            ))
+        }
+        ConstraintExpr::GenericPredicate { predicate, .. } => {
+            if predicate
+                .as_str()
+                .starts_with("http://www.w3.org/ns/shacl#")
+            {
+                Ok(ProbeOutcome::Unsupported(
+                    "constraint kind is not executable in the in-memory backend".to_string(),
+                ))
+            } else {
+                Ok(ProbeOutcome::Conformant)
+            }
+        }
         ConstraintExpr::NodeRef { shape: None, .. }
         | ConstraintExpr::PropertyRef { shape: None, .. }
         | ConstraintExpr::QualifiedValueShape { shape: None, .. }
@@ -2050,10 +2118,68 @@ fn constraint_kind_name(expr: &ConstraintExpr) -> &'static str {
 }
 
 fn matches_datatype(value: &Term, expected: &Term) -> bool {
-    matches!(
-        (value, expected),
-        (Term::Literal(lit), Term::NamedNode(expected)) if lit.datatype() == expected.as_ref()
-    )
+    matches!((value, expected), (Term::Literal(lit), Term::NamedNode(expected))
+        if lit.datatype() == expected.as_ref() && literal_has_valid_lexical_form(&lit, expected.as_str()))
+}
+
+fn literal_has_valid_lexical_form(literal: &oxrdf::Literal, datatype_iri: &str) -> bool {
+    let value = literal.value();
+    match datatype_iri {
+        "http://www.w3.org/2001/XMLSchema#string" => true,
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString" => literal.language().is_some(),
+        "http://www.w3.org/2001/XMLSchema#boolean" => Boolean::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#decimal" => Decimal::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#integer" => Integer::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#long" => {
+            parse_integer_in_range(value, i64::MIN as i128, i64::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#int" => {
+            parse_integer_in_range(value, i32::MIN as i128, i32::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#short" => {
+            parse_integer_in_range(value, i16::MIN as i128, i16::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#byte" => {
+            parse_integer_in_range(value, i8::MIN as i128, i8::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#nonNegativeInteger" => {
+            parse_integer_in_range(value, 0, i128::MAX)
+        }
+        "http://www.w3.org/2001/XMLSchema#positiveInteger" => {
+            parse_integer_in_range(value, 1, i128::MAX)
+        }
+        "http://www.w3.org/2001/XMLSchema#nonPositiveInteger" => {
+            parse_integer_in_range(value, i128::MIN, 0)
+        }
+        "http://www.w3.org/2001/XMLSchema#negativeInteger" => {
+            parse_integer_in_range(value, i128::MIN, -1)
+        }
+        "http://www.w3.org/2001/XMLSchema#unsignedLong" => {
+            parse_integer_in_range(value, 0, u64::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#unsignedInt" => {
+            parse_integer_in_range(value, 0, u32::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#unsignedShort" => {
+            parse_integer_in_range(value, 0, u16::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#unsignedByte" => {
+            parse_integer_in_range(value, 0, u8::MAX as i128)
+        }
+        "http://www.w3.org/2001/XMLSchema#float" => Float::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#double" => Double::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#date" => Date::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#dateTime" => DateTime::from_str(value).is_ok(),
+        "http://www.w3.org/2001/XMLSchema#time" => Time::from_str(value).is_ok(),
+        _ => true,
+    }
+}
+
+fn parse_integer_in_range(value: &str, min: i128, max: i128) -> bool {
+    Integer::from_str(value)
+        .ok()
+        .and_then(|parsed| i128::from_str(&parsed.to_string()).ok())
+        .is_some_and(|parsed| parsed >= min && parsed <= max)
 }
 
 fn matches_node_kind(value: &Term, expected: &Term) -> bool {
@@ -2081,11 +2207,38 @@ fn matches_node_kind(value: &Term, expected: &Term) -> bool {
 }
 
 fn has_class(index: &DataIndex, value: &Term, expected: &Term) -> bool {
-    index
-        .types
-        .get(&value.to_string())
-        .map(|types| types.contains(&expected.to_string()))
-        .unwrap_or(false)
+    let expected = expected.to_string();
+    index.types.get(&value.to_string()).is_some_and(|types| {
+        types.iter().any(|candidate| {
+            class_is_or_subclass_of(
+                candidate,
+                &expected,
+                &index.superclasses,
+                &mut HashSet::new(),
+            )
+        })
+    })
+}
+
+fn class_is_or_subclass_of(
+    candidate: &str,
+    expected: &str,
+    superclasses: &HashMap<String, BTreeSet<String>>,
+    active: &mut HashSet<String>,
+) -> bool {
+    if candidate == expected {
+        return true;
+    }
+    if !active.insert(candidate.to_string()) {
+        return false;
+    }
+    let result = superclasses.get(candidate).is_some_and(|parents| {
+        parents
+            .iter()
+            .any(|parent| class_is_or_subclass_of(parent, expected, superclasses, active))
+    });
+    active.remove(candidate);
+    result
 }
 
 fn check_string_constraint(
