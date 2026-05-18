@@ -1,11 +1,14 @@
 use crate::algebra::{
-    ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, Severity, ShapeId, ShapeKind,
-    ShapeProgram, TargetExpr,
+    ComponentDefId, ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, Severity, ShapeId,
+    ShapeKind, ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template,
+    TemplatePart, TemplateSlotKind,
 };
 use crate::diagnostics::{SourceRef, TraceEventSchema};
 use crate::plan::{ValidationPlan, ValidationPlanNode};
 use crate::source::ResolvedShapeSet;
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
+use oxigraph::sparql::{QueryResults, SparqlEvaluator, Variable};
+use oxigraph::store::Store;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -95,7 +98,21 @@ impl ValidationBackend for InMemoryValidationBackend {
         data: &ResolvedShapeSet,
     ) -> Result<ValidationResult, String> {
         let index = DataIndex::new(&data.quads);
-        let mut state = ExecutionState::new(&plan.view.program, index);
+        let store = build_query_store(data)?;
+        let mut state = ExecutionState::new(&plan.view.program, index, store);
+        for (owner, rule) in &plan.deferred_rules {
+            record_unsupported(
+                *owner,
+                None,
+                None,
+                "rule",
+                format!(
+                    "rule execution is not available in the validation backend for rule {}",
+                    rule.0
+                ),
+                &mut state,
+            );
+        }
         for node in &plan.nodes {
             if let ValidationPlanNode::TargetScan { shape, .. } = node {
                 let targets = plan
@@ -113,7 +130,7 @@ impl ValidationBackend for InMemoryValidationBackend {
                         focus_node: None,
                         message: format!("resolving target {}", target.id.0),
                     });
-                    let focuses = resolve_target(&state.index, &target.expr);
+                    let focuses = resolve_target(*shape, &target.expr, &mut state)?;
                     for focus in focuses {
                         state.focus_nodes_evaluated += 1;
                         let _ = eval_shape(*shape, &focus, &mut state)?;
@@ -143,6 +160,7 @@ impl ValidationBackend for InMemoryValidationBackend {
 struct ExecutionState<'a> {
     program: &'a ShapeProgram,
     index: DataIndex,
+    store: Store,
     violations: Vec<ValidationViolation>,
     unsupported: Vec<ValidationUnsupported>,
     coverage: ValidationCoverage,
@@ -153,10 +171,11 @@ struct ExecutionState<'a> {
 }
 
 impl<'a> ExecutionState<'a> {
-    fn new(program: &'a ShapeProgram, index: DataIndex) -> Self {
+    fn new(program: &'a ShapeProgram, index: DataIndex, store: Store) -> Self {
         Self {
             program,
             index,
+            store,
             violations: Vec::new(),
             unsupported: Vec::new(),
             coverage: ValidationCoverage::default(),
@@ -828,9 +847,38 @@ fn eval_constraint(
             }
             ExecutionStatus::Completed
         }
-        ConstraintExpr::Sparql(_)
-        | ConstraintExpr::CustomComponent { .. }
-        | ConstraintExpr::GenericPredicate { .. } => {
+        ConstraintExpr::Sparql(sparql) => {
+            execute_sparql_constraint(
+                shape_id,
+                constraint_id,
+                sparql,
+                focus,
+                local_values,
+                state,
+            )?;
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::CustomComponent {
+            component,
+            bindings,
+            message_templates,
+            label_template,
+            ..
+        } => {
+            execute_custom_component_constraint(
+                shape_id,
+                constraint_id,
+                *component,
+                bindings,
+                message_templates,
+                label_template.as_ref(),
+                focus,
+                local_values,
+                state,
+            )?;
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::GenericPredicate { .. } => {
             record_unsupported(
                 shape_id,
                 Some(constraint_id),
@@ -866,28 +914,35 @@ fn eval_constraint(
     Ok(status)
 }
 
-fn resolve_target(index: &DataIndex, target: &TargetExpr) -> Vec<Term> {
+fn resolve_target(
+    owner: ShapeId,
+    target: &TargetExpr,
+    state: &mut ExecutionState<'_>,
+) -> Result<Vec<Term>, String> {
     match target {
-        TargetExpr::Node(term) => vec![term.clone()],
-        TargetExpr::Class(term) => index
+        TargetExpr::Node(term) => Ok(vec![term.clone()]),
+        TargetExpr::Class(term) => Ok(state
+            .index
             .types
             .iter()
             .filter(|(_, types)| types.contains(&term.to_string()))
             .filter_map(|(subject, _)| parse_term(subject))
-            .collect(),
-        TargetExpr::SubjectsOf(predicate) => named_target_predicate(predicate)
+            .collect()),
+        TargetExpr::SubjectsOf(predicate) => Ok(named_target_predicate(predicate)
             .map(|predicate| {
-                index
+                state
+                    .index
                     .outgoing
                     .iter()
                     .filter(|(_, edges)| edges.iter().any(|(pred, _)| pred == &predicate))
                     .filter_map(|(subject, _)| parse_term(subject))
                     .collect()
             })
-            .unwrap_or_default(),
-        TargetExpr::ObjectsOf(predicate) => named_target_predicate(predicate)
+            .unwrap_or_default()),
+        TargetExpr::ObjectsOf(predicate) => Ok(named_target_predicate(predicate)
             .map(|predicate| {
-                index
+                state
+                    .index
                     .outgoing
                     .values()
                     .flat_map(|edges| {
@@ -901,9 +956,348 @@ fn resolve_target(index: &DataIndex, target: &TargetExpr) -> Vec<Term> {
                     })
                     .collect()
             })
-            .unwrap_or_default(),
-        TargetExpr::Advanced(_) => Vec::new(),
+            .unwrap_or_default()),
+        TargetExpr::Advanced(target) => resolve_advanced_target(owner, target, state),
     }
+}
+
+fn resolve_advanced_target(
+    owner: ShapeId,
+    target: &crate::algebra::AdvancedTarget,
+    state: &mut ExecutionState<'_>,
+) -> Result<Vec<Term>, String> {
+    let mut candidates = if let Some(select) = target.select.as_deref() {
+        execute_target_select_query(select, &target.declarations, state)?
+    } else if let Some(shape_id) = target.target_shape_id {
+        resolve_shape_targets(shape_id, state, &mut HashSet::new())?
+    } else {
+        all_subject_terms(&state.index)
+    };
+
+    if let Some(filter_shape_id) = target.filter_shape_id {
+        let mut filtered = Vec::new();
+        for candidate in candidates {
+            if matches!(
+                probe_shape_conforms(filter_shape_id, &candidate, state)?,
+                ProbeOutcome::Conformant
+            ) {
+                filtered.push(candidate);
+            }
+        }
+        candidates = filtered;
+    }
+
+    if let Some(ask) = target.ask.as_deref() {
+        let mut filtered = Vec::new();
+        for candidate in candidates {
+            if execute_target_ask_query(ask, &target.declarations, &candidate, owner, state)? {
+                filtered.push(candidate);
+            }
+        }
+        candidates = filtered;
+    }
+
+    Ok(dedup_terms(candidates))
+}
+
+fn resolve_shape_targets(
+    shape_id: ShapeId,
+    state: &mut ExecutionState<'_>,
+    active: &mut HashSet<ShapeId>,
+) -> Result<Vec<Term>, String> {
+    if !active.insert(shape_id) {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for target in state.program.targets.iter().filter(|target| target.owner == shape_id) {
+        out.extend(resolve_target(shape_id, &target.expr, state)?);
+    }
+    active.remove(&shape_id);
+    Ok(dedup_terms(out))
+}
+
+fn execute_target_select_query(
+    query: &str,
+    declarations: &[crate::algebra::PrefixDeclaration],
+    state: &mut ExecutionState<'_>,
+) -> Result<Vec<Term>, String> {
+    let full_query = with_prefixes(declarations, query);
+    reject_unsupported_query_variables(&full_query)?;
+    let results = execute_prepared_query(state, &full_query, &[])?;
+    extract_solution_terms(results, "this")
+}
+
+fn execute_target_ask_query(
+    query: &str,
+    declarations: &[crate::algebra::PrefixDeclaration],
+    focus: &Term,
+    owner: ShapeId,
+    state: &mut ExecutionState<'_>,
+) -> Result<bool, String> {
+    let full_query = with_prefixes(declarations, query);
+    reject_unsupported_query_variables(&full_query)?;
+    let current_shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == owner)
+        .map(|shape| shape.source.clone());
+    let bindings = query_bindings(
+        full_query.as_str(),
+        focus,
+        current_shape.as_ref(),
+        None,
+        &[],
+    );
+    match execute_prepared_query(state, &full_query, &bindings)? {
+        QueryResults::Boolean(result) => Ok(result),
+        QueryResults::Solutions(mut solutions) => {
+            while let Some(solution) = solutions.next() {
+                if solution.map_err(|error| error.to_string())?.get("this").is_some() {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        QueryResults::Graph(_) => Err("advanced target query returned a graph result".to_string()),
+    }
+}
+
+fn execute_sparql_constraint(
+    shape_id: ShapeId,
+    constraint_id: ConstraintId,
+    sparql: &SparqlConstraint,
+    focus: &Term,
+    local_values: &[Term],
+    state: &mut ExecutionState<'_>,
+) -> Result<(), String> {
+    let query = sparql
+        .select
+        .as_deref()
+        .or(sparql.ask.as_deref())
+        .ok_or_else(|| "SPARQL constraint does not include sh:select or sh:ask".to_string())?;
+    let owner_shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+        .ok_or_else(|| format!("unknown shape {}", shape_id.0))?;
+    let query = substitute_path_placeholder(query, owner_shape.path.as_ref())?;
+    let full_query = with_prefixes(&sparql.declarations, &query);
+    reject_unsupported_query_variables(&full_query)?;
+
+    if sparql.ask.is_some() {
+        if local_values.len() > 1 && query_mentions_var(&full_query, "value") {
+            for value in local_values {
+                let bindings = query_bindings(
+                    full_query.as_str(),
+                    focus,
+                    Some(&owner_shape.source),
+                    Some(value),
+                    &[],
+                );
+                let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
+                if !conforms {
+                    record_violation(
+                        shape_id,
+                        constraint_id,
+                        focus,
+                        Some(value),
+                        first_message_literal(&sparql.messages)
+                            .unwrap_or_else(|| "SPARQL ASK constraint failed".to_string()),
+                        state,
+                    );
+                }
+            }
+        } else {
+            let bindings =
+                query_bindings(full_query.as_str(), focus, Some(&owner_shape.source), None, &[]);
+            let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
+            if !conforms {
+                record_violation(
+                    shape_id,
+                    constraint_id,
+                    focus,
+                    None,
+                    first_message_literal(&sparql.messages)
+                        .unwrap_or_else(|| "SPARQL ASK constraint failed".to_string()),
+                    state,
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let bindings = query_bindings(full_query.as_str(), focus, Some(&owner_shape.source), None, &[]);
+    let violations = execute_select_violations(state, &full_query, &bindings)?;
+    if violations.is_empty() {
+        return Ok(());
+    }
+    let message = first_message_literal(&sparql.messages)
+        .unwrap_or_else(|| "SPARQL constraint failed".to_string());
+    for value in violations {
+        record_violation(shape_id, constraint_id, focus, value.as_ref(), message.clone(), state);
+    }
+    Ok(())
+}
+
+fn execute_custom_component_constraint(
+    shape_id: ShapeId,
+    constraint_id: ConstraintId,
+    component_id: Option<ComponentDefId>,
+    bindings: &[crate::algebra::TemplateBinding],
+    message_templates: &[Template],
+    label_template: Option<&Template>,
+    focus: &Term,
+    local_values: &[Term],
+    state: &mut ExecutionState<'_>,
+) -> Result<(), String> {
+    let Some(component_id) = component_id else {
+        record_unsupported(
+            shape_id,
+            Some(constraint_id),
+            Some(focus),
+            "custom_component",
+            "custom component attachment did not resolve to a definition".to_string(),
+            state,
+        );
+        return Ok(());
+    };
+    let component = state
+        .program
+        .constraint_components
+        .iter()
+        .find(|component| component.id == component_id)
+        .ok_or_else(|| format!("unknown component {}", component_id.0))?;
+    if component.validators.is_empty() {
+        record_unsupported(
+            shape_id,
+            Some(constraint_id),
+            Some(focus),
+            "custom_component",
+            "custom component does not define a SPARQL validator".to_string(),
+            state,
+        );
+        return Ok(());
+    }
+    let owner_shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+        .ok_or_else(|| format!("unknown shape {}", shape_id.0))?;
+    let binding_values = template_binding_values(bindings);
+    for validator in &component.validators {
+        execute_custom_component_validator(
+            shape_id,
+            constraint_id,
+            owner_shape,
+            validator,
+            &binding_values,
+            message_templates,
+            label_template,
+            focus,
+            local_values,
+            state,
+        )?;
+    }
+    Ok(())
+}
+
+fn execute_custom_component_validator(
+    shape_id: ShapeId,
+    constraint_id: ConstraintId,
+    owner_shape: &crate::algebra::Shape,
+    validator: &SparqlValidator,
+    binding_values: &BTreeMap<String, Term>,
+    message_templates: &[Template],
+    label_template: Option<&Template>,
+    focus: &Term,
+    local_values: &[Term],
+    state: &mut ExecutionState<'_>,
+) -> Result<(), String> {
+    let query = validator
+        .select
+        .as_deref()
+        .or(validator.ask.as_deref())
+        .ok_or_else(|| "custom component validator does not provide sh:select or sh:ask".to_string())?;
+    let query = substitute_path_placeholder(query, owner_shape.path.as_ref())?;
+    let full_query = with_prefixes(&validator.declarations, &query);
+    reject_unsupported_query_variables(&full_query)?;
+    let extra_bindings = component_query_bindings(full_query.as_str(), binding_values);
+    let fallback_message = first_message_literal(&validator.messages)
+        .or_else(|| render_templates(message_templates, binding_values))
+        .or_else(|| label_template.map(|template| render_template(template, binding_values)))
+        .unwrap_or_else(|| "custom component constraint failed".to_string());
+
+    if validator.ask.is_some() {
+        if local_values.len() > 1 && query_mentions_var(&full_query, "value") {
+            for value in local_values {
+                let bindings =
+                    query_bindings(
+                        full_query.as_str(),
+                        focus,
+                        Some(&owner_shape.source),
+                        Some(value),
+                        &extra_bindings,
+                    );
+                let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
+                if !conforms {
+                    record_violation(
+                        shape_id,
+                        constraint_id,
+                        focus,
+                        Some(value),
+                        fallback_message.clone(),
+                        state,
+                    );
+                }
+            }
+        } else {
+            let bindings = query_bindings(
+                full_query.as_str(),
+                focus,
+                Some(&owner_shape.source),
+                None,
+                &extra_bindings,
+            );
+            let conforms = execute_ask_or_select_probe(state, &full_query, &bindings)?;
+            if !conforms {
+                record_violation(
+                    shape_id,
+                    constraint_id,
+                    focus,
+                    None,
+                    fallback_message,
+                    state,
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let bindings = query_bindings(
+        full_query.as_str(),
+        focus,
+        Some(&owner_shape.source),
+        None,
+        &extra_bindings,
+    );
+    let violations = execute_select_violations(state, &full_query, &bindings)?;
+    if violations.is_empty() {
+        return Ok(());
+    }
+    for value in violations {
+        record_violation(
+            shape_id,
+            constraint_id,
+            focus,
+            value.as_ref(),
+            fallback_message.clone(),
+            state,
+        );
+    }
+    Ok(())
 }
 
 fn eval_path(index: &DataIndex, focus: &Term, path: &PropertyPath) -> Vec<Term> {
@@ -1637,6 +2031,305 @@ fn eval_closed_shape(
         }
     }
     Ok(violations)
+}
+
+fn build_query_store(data: &ResolvedShapeSet) -> Result<Store, String> {
+    let store = Store::new().map_err(|error| error.to_string())?;
+    for quad in &data.quads {
+        store.insert(quad).map_err(|error| error.to_string())?;
+    }
+    Ok(store)
+}
+
+fn execute_prepared_query<'a>(
+    state: &'a ExecutionState<'_>,
+    query: &str,
+    bindings: &[(Variable, Term)],
+) -> Result<QueryResults<'a>, String> {
+    let mut rewritten = query.to_string();
+    let mut remaining = bindings.to_vec();
+    loop {
+        let mut prepared = SparqlEvaluator::new()
+            .parse_query(&rewritten)
+            .map_err(|error| format!("Failed to parse SPARQL query: {error}"))?;
+        prepared.dataset_mut().set_default_graph_as_union();
+        let mut bound = prepared.on_store(&state.store);
+        for (variable, term) in &remaining {
+            bound = bound.substitute_variable(variable.clone(), term.clone());
+        }
+        match bound.execute() {
+            Ok(results) => return Ok(results),
+            Err(error) => {
+                let message = error.to_string();
+                let Some(var_name) = extract_non_projected_variable(&message) else {
+                    return Err(message);
+                };
+                let Some(index) = remaining.iter().position(|(variable, _)| variable.as_str() == var_name) else {
+                    return Err(message);
+                };
+                let (_, term) = remaining.remove(index);
+                rewritten = apply_textual_bindings(
+                    &rewritten,
+                    &[(Variable::new_unchecked(var_name), term)],
+                );
+            }
+        }
+    }
+}
+
+fn execute_ask_or_select_probe(
+    state: &ExecutionState<'_>,
+    query: &str,
+    bindings: &[(Variable, Term)],
+) -> Result<bool, String> {
+    match execute_prepared_query(state, query, bindings)? {
+        QueryResults::Boolean(result) => Ok(result),
+        QueryResults::Solutions(mut solutions) => Ok(solutions
+            .next()
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .is_some()),
+        QueryResults::Graph(_) => Err("SPARQL query returned a graph result".to_string()),
+    }
+}
+
+fn execute_select_violations(
+    state: &ExecutionState<'_>,
+    query: &str,
+    bindings: &[(Variable, Term)],
+) -> Result<Vec<Option<Term>>, String> {
+    match execute_prepared_query(state, query, bindings)? {
+        QueryResults::Solutions(solutions) => {
+            let mut out = Vec::new();
+            for solution in solutions {
+                let solution = solution.map_err(|error| error.to_string())?;
+                out.push(solution.get("value").cloned());
+            }
+            Ok(out)
+        }
+        QueryResults::Boolean(result) => Ok(if result { Vec::new() } else { vec![None] }),
+        QueryResults::Graph(_) => Err("SPARQL query returned a graph result".to_string()),
+    }
+}
+
+fn extract_solution_terms(
+    results: QueryResults<'_>,
+    variable: &str,
+) -> Result<Vec<Term>, String> {
+    match results {
+        QueryResults::Solutions(solutions) => {
+            let mut out = Vec::new();
+            for solution in solutions {
+                let solution = solution.map_err(|error| error.to_string())?;
+                if let Some(term) = solution.get(variable) {
+                    out.push(term.clone());
+                }
+            }
+            Ok(out)
+        }
+        QueryResults::Boolean(result) => Ok(if result { Vec::new() } else { Vec::new() }),
+        QueryResults::Graph(_) => Err("SPARQL query returned a graph result".to_string()),
+    }
+}
+
+fn all_subject_terms(index: &DataIndex) -> Vec<Term> {
+    let mut keys = index.outgoing.keys().cloned().collect::<Vec<_>>();
+    keys.sort();
+    keys.into_iter()
+        .filter_map(|key| parse_term_or_blank(&key))
+        .collect()
+}
+
+fn with_prefixes(declarations: &[crate::algebra::PrefixDeclaration], query: &str) -> String {
+    let prefixes = declarations
+        .iter()
+        .filter_map(|declaration| {
+            Some(format!(
+                "PREFIX {}: <{}>",
+                declaration.prefix.as_deref()?,
+                term_string(declaration.namespace.as_ref()?)?
+            ))
+        })
+        .collect::<Vec<_>>();
+    if prefixes.is_empty() {
+        query.to_string()
+    } else {
+        format!("{}\n{}", prefixes.join("\n"), query)
+    }
+}
+
+fn substitute_path_placeholder(
+    query: &str,
+    path: Option<&PropertyPath>,
+) -> Result<String, String> {
+    if !query.contains("$PATH") {
+        return Ok(query.to_string());
+    }
+    let Some(path) = path else {
+        return Err("SPARQL query uses $PATH without a property path".to_string());
+    };
+    Ok(query.replace("$PATH", &sparql_path(path)?))
+}
+
+fn query_bindings(
+    query: &str,
+    focus: &Term,
+    current_shape: Option<&Term>,
+    value: Option<&Term>,
+    extra: &[(Variable, Term)],
+) -> Vec<(Variable, Term)> {
+    let mut bindings = Vec::new();
+    if query_mentions_var(query, "this") {
+        bindings.push((Variable::new_unchecked("this"), focus.clone()));
+    }
+    if query_mentions_var(query, "currentShape") {
+        if let Some(current_shape) = current_shape {
+            bindings.push((Variable::new_unchecked("currentShape"), current_shape.clone()));
+        }
+    }
+    if let Some(value) = value
+        && query_mentions_var(query, "value")
+    {
+        bindings.push((Variable::new_unchecked("value"), value.clone()));
+    }
+    bindings.extend_from_slice(extra);
+    bindings
+}
+
+fn component_query_bindings(
+    query: &str,
+    binding_values: &BTreeMap<String, Term>,
+) -> Vec<(Variable, Term)> {
+    let mut bindings = Vec::new();
+    let mut names = binding_values.keys().cloned().collect::<Vec<_>>();
+    names.sort();
+    for name in names {
+        if query_mentions_var(query, &name)
+            && let Some(value) = binding_values.get(&name)
+        {
+            bindings.push((Variable::new_unchecked(name), value.clone()));
+        }
+    }
+    bindings
+}
+
+fn first_message_literal(messages: &[Term]) -> Option<String> {
+    messages.first().and_then(term_string)
+}
+
+fn template_binding_values(bindings: &[crate::algebra::TemplateBinding]) -> BTreeMap<String, Term> {
+    let mut out = BTreeMap::new();
+    for binding in bindings {
+        if let Some(value) = binding.values.first() {
+            out.insert(binding.name.clone(), value.clone());
+        }
+    }
+    out
+}
+
+fn render_templates(templates: &[Template], bindings: &BTreeMap<String, Term>) -> Option<String> {
+    templates.first().map(|template| render_template(template, bindings))
+}
+
+fn render_template(template: &Template, bindings: &BTreeMap<String, Term>) -> String {
+    let mut out = String::new();
+    for part in &template.parts {
+        match part {
+            TemplatePart::Text(text) => out.push_str(text),
+            TemplatePart::Slot {
+                kind: TemplateSlotKind::Variable | TemplateSlotKind::Parameter,
+                name,
+            } => out.push_str(
+                bindings
+                    .get(name)
+                    .and_then(term_string)
+                    .as_deref()
+                    .unwrap_or(""),
+            ),
+        }
+    }
+    out
+}
+
+fn query_mentions_var(query: &str, var: &str) -> bool {
+    query.contains(&format!("?{var}")) || query.contains(&format!("${var}"))
+}
+
+fn apply_textual_bindings(query: &str, bindings: &[(Variable, Term)]) -> String {
+    let mut rendered = query.to_string();
+    for (variable, term) in bindings {
+        let escaped = regex::escape(variable.as_str());
+        let pattern = Regex::new(&format!(r"(?P<prefix>[\?\$]){}(?P<suffix>\b)", escaped))
+            .expect("binding regex should compile");
+        let replacement = format_term_for_sparql(term);
+        rendered = pattern
+            .replace_all(&rendered, replacement.as_str())
+            .to_string();
+    }
+    rendered
+}
+
+fn extract_non_projected_variable(message: &str) -> Option<&str> {
+    let marker = "variable ?";
+    let start = message.find(marker)? + marker.len();
+    let end = message[start..]
+        .find(|ch: char| ch.is_whitespace())
+        .map(|offset| start + offset)
+        .unwrap_or(message.len());
+    Some(&message[start..end])
+}
+
+fn format_term_for_sparql(term: &Term) -> String {
+    match term {
+        Term::NamedNode(node) => format!("<{}>", node.as_str()),
+        Term::BlankNode(node) => format!("_:{}", node.as_str()),
+        Term::Literal(literal) => {
+            let value = literal
+                .value()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            if let Some(language) = literal.language() {
+                format!("\"{}\"@{}", value, language)
+            } else if literal.datatype().as_str()
+                != "http://www.w3.org/2001/XMLSchema#string"
+            {
+                format!("\"{}\"^^<{}>", value, literal.datatype().as_str())
+            } else {
+                format!("\"{}\"", value)
+            }
+        }
+    }
+}
+
+fn reject_unsupported_query_variables(query: &str) -> Result<(), String> {
+    if query_mentions_var(query, "shapesGraph") {
+        return Err("SPARQL execution with ?shapesGraph/$shapesGraph is not yet supported".to_string());
+    }
+    Ok(())
+}
+
+fn sparql_path(path: &PropertyPath) -> Result<String, String> {
+    match path {
+        PropertyPath::Predicate(predicate) => Ok(format!("<{}>", predicate.as_str())),
+        PropertyPath::Inverse(inner) => Ok(format!("^{}", sparql_path(inner)?)),
+        PropertyPath::Sequence(parts) => Ok(parts
+            .iter()
+            .map(sparql_path)
+            .collect::<Result<Vec<_>, _>>()?
+            .join("/")),
+        PropertyPath::Alternative(parts) => Ok(format!(
+            "({})",
+            parts
+                .iter()
+                .map(sparql_path)
+                .collect::<Result<Vec<_>, _>>()?
+                .join("|")
+        )),
+        PropertyPath::ZeroOrMore(inner) => Ok(format!("({})*", sparql_path(inner)?)),
+        PropertyPath::OneOrMore(inner) => Ok(format!("({})+", sparql_path(inner)?)),
+        PropertyPath::ZeroOrOne(inner) => Ok(format!("({})?", sparql_path(inner)?)),
+        PropertyPath::Unsupported(term) => Err(format!("unsupported SPARQL path form {term}")),
+    }
 }
 
 fn literal_u64(term: &Term) -> Option<u64> {

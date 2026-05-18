@@ -55,6 +55,7 @@ pub struct LogicalPlanSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationPlan {
     pub view: ValidationView,
+    pub deferred_rules: Vec<(ShapeId, RuleId)>,
     pub nodes: Vec<ValidationPlanNode>,
     pub summary: LogicalPlanSummary,
 }
@@ -87,7 +88,14 @@ pub fn derive_validation_logical_plan(
     options: BackendViewOptions,
 ) -> ValidationPlan {
     let view = derive_validation_view(program, options);
-    derive_validation_logical_plan_from_view(view)
+    let retained_shapes = view.program.shapes.iter().map(|shape| shape.id).collect::<std::collections::BTreeSet<_>>();
+    let deferred_rules = program
+        .rules
+        .iter()
+        .filter(|rule| retained_shapes.contains(&rule.owner))
+        .map(|rule| (rule.owner, rule.id))
+        .collect::<Vec<_>>();
+    derive_validation_logical_plan_from_view_with_rules(view, deferred_rules)
 }
 
 pub fn derive_inference_logical_plan(
@@ -99,6 +107,13 @@ pub fn derive_inference_logical_plan(
 }
 
 pub fn derive_validation_logical_plan_from_view(view: ValidationView) -> ValidationPlan {
+    derive_validation_logical_plan_from_view_with_rules(view, Vec::new())
+}
+
+fn derive_validation_logical_plan_from_view_with_rules(
+    view: ValidationView,
+    deferred_rules: Vec<(ShapeId, RuleId)>,
+) -> ValidationPlan {
     let mut nodes = Vec::new();
     for shape in &view.program.shapes {
         if !shape.targets.is_empty() {
@@ -141,6 +156,7 @@ pub fn derive_validation_logical_plan_from_view(view: ValidationView) -> Validat
     let summary = validation_plan_summary(&nodes);
     ValidationPlan {
         view,
+        deferred_rules,
         nodes,
         summary,
     }

@@ -1933,14 +1933,8 @@ fn validation_backend_reports_closed_shapes_and_unsupported_constraints_with_met
             .iter()
             .any(|violation| violation.message.contains("not allowed by closed shape"))
     );
-    assert_eq!(result.unsupported.len(), 1);
-    assert_eq!(result.unsupported[0].kind, "sparql");
-    assert!(matches!(
-        result.unsupported[0].severity,
-        shifty_shacl_core::algebra::Severity::Warning
-    ));
-    assert!(result.unsupported[0].source.is_some());
-    assert!(result.coverage.unsupported_constraints >= 1);
+    assert!(result.unsupported.is_empty());
+    assert_eq!(result.coverage.unsupported_constraints, 0);
 }
 
 #[test]
@@ -2505,6 +2499,232 @@ fn validation_backend_executes_nested_inverse_transitive_paths() {
     let result = backend.execute(&plan, &data).expect("validation executes");
     assert!(result.conforms);
     assert!(result.unsupported.is_empty());
+}
+
+#[test]
+fn validation_backend_executes_advanced_targets() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_target_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+
+    let ex_targeted = NamedNode::new("http://example.org/Targeted").unwrap();
+    let ex_thing = NamedNode::new("http://example.org/Thing").unwrap();
+    let ex_flag = NamedNode::new("http://example.org/flag").unwrap();
+    let ex_status = NamedNode::new("http://example.org/status").unwrap();
+    let a = NamedNode::new("http://example.org/a").unwrap();
+    let b = NamedNode::new("http://example.org/b").unwrap();
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-advanced-targets").unwrap(),
+            quads: vec![
+                Quad::new(
+                    a.clone(),
+                    NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+                    Term::NamedNode(ex_targeted),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    a,
+                    ex_flag.clone(),
+                    Term::Literal(Literal::new_simple_literal("yes")),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    b.clone(),
+                    NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+                    Term::NamedNode(ex_thing),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    b.clone(),
+                    ex_flag,
+                    Term::Literal(Literal::new_simple_literal("keep")),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    b,
+                    ex_status,
+                    Term::Literal(Literal::new_simple_literal("review")),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+            ],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(!result.conforms);
+    assert!(result.focus_nodes_evaluated >= 2);
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|violation| violation.focus_node.contains("http://example.org/b"))
+    );
+}
+
+#[test]
+fn validation_backend_executes_sparql_constraints() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path(
+            "../test-suite/sparql/node/sparql-001.ttl",
+        ))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &resolved).expect("validation executes");
+    assert!(!result.conforms);
+    assert_eq!(result.violations.len(), 3);
+    assert!(result.unsupported.is_empty());
+}
+
+#[test]
+fn validation_backend_executes_custom_component_sparql_validators() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+
+    let ex_item = NamedNode::new("http://example.org/Item").unwrap();
+    let ex_name = NamedNode::new("http://example.org/name").unwrap();
+    let item = NamedNode::new("http://example.org/item1").unwrap();
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-component").unwrap(),
+            quads: vec![
+                Quad::new(
+                    item.clone(),
+                    NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+                    Term::NamedNode(ex_item),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                Quad::new(
+                    item,
+                    ex_name,
+                    Term::Literal(Literal::new_simple_literal("abc")),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+            ],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(!result.conforms);
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|violation| violation.message.contains("Value shorter than 5 characters."))
+    );
+}
+
+#[test]
+fn validation_backend_reports_rules_as_unsupported() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let shape = NamedNode::new("urn:rule-shape").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+    let focus = NamedNode::new("urn:focus-rule").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::new_simple_literal(
+                "CONSTRUCT { $this <urn:p> <urn:o> } WHERE { }",
+            )),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-rule").unwrap(),
+            quads: vec![],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let backend = InMemoryValidationBackend;
+    let result = backend.execute(&plan, &data).expect("validation executes");
+    assert!(
+        result
+            .unsupported
+            .iter()
+            .any(|unsupported| unsupported.kind == "rule")
+    );
 }
 
 #[test]

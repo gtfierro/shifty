@@ -187,15 +187,15 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 
 ## Phase 11 Checklist
 
-- [ ] Resolve advanced targets in the in-memory validation backend
-- [ ] Execute `sh:sparql` constraints in the in-memory validation backend
-- [ ] Execute SPARQL-backed custom constraint components in the in-memory validation backend
-- [ ] Bind `$this`, `$PATH`, `?value`, `?currentShape`, and component parameters for supported SPARQL execution
-- [ ] Render templated custom-component messages from bound/default parameter values
-- [ ] Surface explicit unsupported results for SHACL-AF rule execution until an inference executor exists
-- [ ] Add fixture-backed tests for advanced-target validation
-- [ ] Add fixture-backed tests for SPARQL constraint validation
-- [ ] Add fixture-backed tests for custom-component SPARQL validation
+- [x] Resolve advanced targets in the in-memory validation backend
+- [x] Execute `sh:sparql` constraints in the in-memory validation backend
+- [x] Execute SPARQL-backed custom constraint components in the in-memory validation backend
+- [x] Bind `$this`, `$PATH`, `?value`, `?currentShape`, and component parameters for supported SPARQL execution
+- [x] Render templated custom-component messages from bound/default parameter values
+- [x] Surface explicit unsupported results for SHACL-AF rule execution until an inference executor exists
+- [x] Add fixture-backed tests for advanced-target validation
+- [x] Add fixture-backed tests for SPARQL constraint validation
+- [x] Add fixture-backed tests for custom-component SPARQL validation
 
 ## Data Types / APIs
 
