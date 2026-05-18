@@ -6,6 +6,7 @@ pub mod backend_views;
 pub mod diagnostics;
 pub mod parse;
 pub mod passes;
+pub mod plan;
 pub mod render;
 pub mod rewrite;
 pub mod source;
@@ -23,6 +24,12 @@ pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::{
     NormalizeOptions, canonicalize_program, lower_to_program, normalize_program,
     prune_deactivated_program,
+};
+pub use plan::{
+    BackendPlans, InferencePlan, InferencePlanNode, LogicalPlanSummary, ValidationPlan,
+    ValidationPlanNode, derive_backend_logical_plans, derive_inference_logical_plan,
+    derive_inference_logical_plan_from_view, derive_validation_logical_plan,
+    derive_validation_logical_plan_from_view,
 };
 pub use render::render_shape_program_dot;
 pub use rewrite::{

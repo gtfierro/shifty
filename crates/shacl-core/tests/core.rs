@@ -3,8 +3,9 @@ use shifty_shacl_core::{
     BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
     NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots, StaticCostHint,
     analyze_program, analyze_static, analyze_static_with_roots, canonicalize_program,
-    context_requirements, derive_backend_views, derive_inference_view, derive_validation_view,
-    fingerprint_program, lower_to_program, normalize_program, parse_quads,
+    context_requirements, derive_backend_logical_plans, derive_backend_views,
+    derive_inference_logical_plan, derive_inference_view, derive_validation_logical_plan,
+    derive_validation_view, fingerprint_program, lower_to_program, normalize_program, parse_quads,
     prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
     slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
@@ -1203,6 +1204,109 @@ fn backend_views_classify_dependencies() {
     assert!(inference.dependencies.iter().any(|edge| {
         edge.kind == "rule_condition" && edge.class == DependencyClass::InferenceOnly
     }));
+}
+
+#[test]
+fn validation_logical_plan_contains_target_scans_and_constraint_batches() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    assert!(plan.summary.node_counts.contains_key("target_scan"));
+    assert!(plan.summary.node_counts.contains_key("constraint_batch"));
+}
+
+#[test]
+fn inference_logical_plan_contains_rule_batches() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let owner = NamedNode::new("urn:owner").unwrap();
+    let condition = NamedNode::new("urn:condition").unwrap();
+    let focus = NamedNode::new("urn:focus").unwrap();
+    let rule = NamedNode::new("urn:rule").unwrap();
+
+    let doc = parse_quads(vec![
+        Quad::new(
+            owner.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            condition.clone(),
+            rdf_type,
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            owner.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_condition,
+            Term::NamedNode(condition),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::from(
+                "CONSTRUCT { $this <urn:p> <urn:o> } WHERE { }",
+            )),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&doc);
+    let plan = derive_inference_logical_plan(
+        &program,
+        BackendViewOptions {
+            rewrite: RewriteOptions::default(),
+            closure_mode: BackendClosureMode::InferenceClosure,
+        },
+    );
+    assert!(plan.summary.node_counts.contains_key("seed_scan"));
+    assert!(plan.summary.node_counts.contains_key("rule_batch"));
+}
+
+#[test]
+fn backend_logical_plans_can_be_derived_together() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path("af_default_shapes.ttl"))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let plans = derive_backend_logical_plans(&program, BackendViewOptions::default());
+    assert!(!plans.validation.nodes.is_empty());
+    assert!(!plans.inference.nodes.is_empty());
 }
 
 #[test]
