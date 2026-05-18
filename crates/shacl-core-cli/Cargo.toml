@@ -1,0 +1,20 @@
+[package]
+name = "shifty-shacl-core-cli"
+version.workspace = true
+edition.workspace = true
+description = "Inspection CLI for shifty-shacl-core"
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+[[bin]]
+name = "shacl-core-inspect"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shifty-shacl-core = { path = "../shacl-core" }

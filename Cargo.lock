@@ -3197,6 +3197,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "shifty-shacl-core-cli"
+version = "0.0.13"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "shifty-shacl-core",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
