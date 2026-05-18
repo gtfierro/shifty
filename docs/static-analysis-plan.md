@@ -166,6 +166,17 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Tighten recursive validation handling for speculative shape checks
 - [x] Add fixture-backed tests for new core execution coverage
 
+## Phase 9 Checklist
+
+- [ ] Execute `sh:languageIn`
+- [ ] Execute `sh:uniqueLang`
+- [ ] Execute zero-or-more property paths
+- [ ] Execute one-or-more property paths
+- [ ] Preserve deterministic path traversal output under repetition
+- [ ] Add fixture-backed tests for language-tag constraints
+- [ ] Add fixture-backed tests for transitive path traversal
+- [ ] Keep unsupported-path reporting explicit for still-unhandled path forms
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
@@ -199,6 +210,12 @@ Execution-phase additions:
 - enrich validation violations with severity and provenance
 - add speculative nested conformance checks for logical and qualified constraints
 
+Phase 9 additions:
+
+- broaden executable string constraints to language-tag semantics
+- broaden executable path traversal to transitive closures
+- keep remaining unsupported path forms explicit in execution coverage
+
 ## CLI Output
 
 - text summary
@@ -225,6 +242,10 @@ Execution-phase additions:
 - validation coverage summary in text output
 - unsupported-constraint inventory in text and JSON output
 - richer violation metadata in text and JSON output
+
+Phase 9 additions:
+
+- validation traces and coverage for language-tag and transitive-path execution
 
 ## Tests
 
@@ -258,6 +279,11 @@ Execution-phase additions:
 - logical/not/qualified execution fixtures
 - closed-shape execution fixtures
 - unsupported-constraint reporting fixtures
+
+Phase 9 additions:
+
+- languageIn and uniqueLang execution fixtures
+- zero-or-more and one-or-more path execution fixtures
 
 ## Deferred Work
 
