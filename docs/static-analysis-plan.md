@@ -153,18 +153,18 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 
 ## Phase 8 Checklist
 
-- [ ] Execute core numeric range constraints
-- [ ] Execute property comparison constraints
-- [ ] Execute closed-shape constraints
-- [ ] Execute `sh:not`
-- [ ] Execute logical `sh:and`, `sh:or`, and `sh:xone`
-- [ ] Execute `sh:qualifiedValueShape`
-- [ ] Carry shape severity into validation violations
-- [ ] Carry provenance/source references into validation results
-- [ ] Distinguish unsupported constraints from failing constraints
-- [ ] Surface execution coverage explicitly in text and JSON output
-- [ ] Tighten recursive validation handling for speculative shape checks
-- [ ] Add fixture-backed tests for new core execution coverage
+- [x] Execute core numeric range constraints
+- [x] Execute property comparison constraints
+- [x] Execute closed-shape constraints
+- [x] Execute `sh:not`
+- [x] Execute logical `sh:and`, `sh:or`, and `sh:xone`
+- [x] Execute `sh:qualifiedValueShape`
+- [x] Carry shape severity into validation violations
+- [x] Carry provenance/source references into validation results
+- [x] Distinguish unsupported constraints from failing constraints
+- [x] Surface execution coverage explicitly in text and JSON output
+- [x] Tighten recursive validation handling for speculative shape checks
+- [x] Add fixture-backed tests for new core execution coverage
 
 ## Data Types / APIs
 

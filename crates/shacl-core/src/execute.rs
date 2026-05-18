@@ -1,11 +1,13 @@
 use crate::algebra::{
-    ConstraintExpr, ConstraintId, PropertyPath, ShapeId, ShapeKind, ShapeProgram, TargetExpr,
+    ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, Severity, ShapeId, ShapeKind,
+    ShapeProgram, TargetExpr,
 };
-use crate::diagnostics::TraceEventSchema;
+use crate::diagnostics::{SourceRef, TraceEventSchema};
 use crate::plan::{ValidationPlan, ValidationPlanNode};
 use crate::source::ResolvedShapeSet;
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -34,6 +36,27 @@ pub struct ValidationViolation {
     pub focus_node: String,
     pub value_node: Option<String>,
     pub message: String,
+    pub severity: Severity,
+    pub source: Option<SourceRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationUnsupported {
+    pub shape: ShapeId,
+    pub constraint: Option<ConstraintId>,
+    pub focus_node: Option<String>,
+    pub reason: String,
+    pub kind: String,
+    pub severity: Severity,
+    pub source: Option<SourceRef>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ValidationCoverage {
+    pub executed_constraints: usize,
+    pub unsupported_constraints: usize,
+    pub deferred_recursions: usize,
+    pub unsupported_by_kind: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +81,8 @@ pub struct ValidationResult {
     pub conforms: bool,
     pub focus_nodes_evaluated: usize,
     pub violations: Vec<ValidationViolation>,
+    pub unsupported: Vec<ValidationUnsupported>,
+    pub coverage: ValidationCoverage,
     pub trace: Vec<ValidationTraceEvent>,
     pub heatmap: ValidationHeatmap,
 }
@@ -80,7 +105,6 @@ impl ValidationBackend for InMemoryValidationBackend {
                     .filter(|target| target.owner == *shape)
                     .collect::<Vec<_>>();
                 for target in targets {
-                    let focuses = resolve_target(&state.index, &target.expr);
                     state.trace.push(ValidationTraceEvent {
                         event: TraceEventSchema::TargetResolutionStart,
                         shape: Some(*shape),
@@ -88,9 +112,10 @@ impl ValidationBackend for InMemoryValidationBackend {
                         focus_node: None,
                         message: format!("resolving target {}", target.id.0),
                     });
+                    let focuses = resolve_target(&state.index, &target.expr);
                     for focus in focuses {
                         state.focus_nodes_evaluated += 1;
-                        eval_shape(*shape, &focus, &mut state)?;
+                        let _ = eval_shape(*shape, &focus, &mut state)?;
                     }
                     state.trace.push(ValidationTraceEvent {
                         event: TraceEventSchema::TargetResolutionEnd,
@@ -106,6 +131,8 @@ impl ValidationBackend for InMemoryValidationBackend {
             conforms: state.violations.is_empty(),
             focus_nodes_evaluated: state.focus_nodes_evaluated,
             violations: state.violations,
+            unsupported: state.unsupported,
+            coverage: state.coverage,
             trace: state.trace,
             heatmap: state.heatmap,
         })
@@ -116,6 +143,8 @@ struct ExecutionState<'a> {
     program: &'a ShapeProgram,
     index: DataIndex,
     violations: Vec<ValidationViolation>,
+    unsupported: Vec<ValidationUnsupported>,
+    coverage: ValidationCoverage,
     trace: Vec<ValidationTraceEvent>,
     heatmap: ValidationHeatmap,
     active: HashSet<(ShapeId, String)>,
@@ -128,12 +157,28 @@ impl<'a> ExecutionState<'a> {
             program,
             index,
             violations: Vec::new(),
+            unsupported: Vec::new(),
+            coverage: ValidationCoverage::default(),
             trace: Vec::new(),
             heatmap: ValidationHeatmap::default(),
             active: HashSet::new(),
             focus_nodes_evaluated: 0,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecutionStatus {
+    Completed,
+    DeferredRecursion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProbeOutcome {
+    Conformant,
+    NonConformant,
+    Unsupported(String),
+    DeferredRecursion,
 }
 
 #[derive(Debug, Clone)]
@@ -179,7 +224,7 @@ fn eval_shape(
     shape_id: ShapeId,
     focus: &Term,
     state: &mut ExecutionState<'_>,
-) -> Result<(), String> {
+) -> Result<ExecutionStatus, String> {
     let Some(shape) = state
         .program
         .shapes
@@ -195,9 +240,10 @@ fn eval_shape(
             shape: Some(shape_id),
             constraint: None,
             focus_node: Some(focus.to_string()),
-            message: "skipping recursive re-entry".to_string(),
+            message: "deferring recursive re-entry".to_string(),
         });
-        return Ok(());
+        state.coverage.deferred_recursions += 1;
+        return Ok(ExecutionStatus::DeferredRecursion);
     }
 
     state.trace.push(ValidationTraceEvent {
@@ -213,15 +259,16 @@ fn eval_shape(
         .entry(shape.normalized_key.clone())
         .or_insert(0) += 1;
 
-    match shape.kind {
+    let status = match shape.kind {
         ShapeKind::Node => eval_node_shape(shape_id, focus, state)?,
         ShapeKind::Property => {
+            state.active.remove(&key);
             return Err(format!(
                 "property shape {} requires a parent node context",
                 shape.normalized_key
             ));
         }
-    }
+    };
 
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::ExitShape,
@@ -231,20 +278,21 @@ fn eval_shape(
         message: format!("exit shape {}", shape.normalized_key),
     });
     state.active.remove(&key);
-    Ok(())
+    Ok(status)
 }
 
 fn eval_node_shape(
     shape_id: ShapeId,
     focus: &Term,
     state: &mut ExecutionState<'_>,
-) -> Result<(), String> {
+) -> Result<ExecutionStatus, String> {
     let shape = state
         .program
         .shapes
         .iter()
         .find(|shape| shape.id == shape_id)
         .ok_or_else(|| format!("unknown shape {}", shape_id.0))?;
+    let mut status = ExecutionStatus::Completed;
     for constraint_id in &shape.constraints {
         let constraint = state
             .program
@@ -252,14 +300,11 @@ fn eval_node_shape(
             .iter()
             .find(|constraint| constraint.id == *constraint_id)
             .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
-        eval_constraint(
-            shape_id,
-            constraint.id,
-            &constraint.expr,
-            focus,
-            None,
-            state,
-        )?;
+        if eval_constraint(shape_id, constraint.id, &constraint.expr, focus, None, state)?
+            == ExecutionStatus::DeferredRecursion
+        {
+            status = ExecutionStatus::DeferredRecursion;
+        }
     }
     for property_shape_id in &shape.property_shapes {
         let property_shape = state
@@ -273,9 +318,13 @@ fn eval_node_shape(
             .as_ref()
             .map(|path| eval_path(&state.index, focus, path))
             .unwrap_or_default();
-        eval_property_shape(*property_shape_id, focus, &values, state)?;
+        if eval_property_shape(*property_shape_id, focus, &values, state)?
+            == ExecutionStatus::DeferredRecursion
+        {
+            status = ExecutionStatus::DeferredRecursion;
+        }
     }
-    Ok(())
+    Ok(status)
 }
 
 fn eval_property_shape(
@@ -283,7 +332,7 @@ fn eval_property_shape(
     parent_focus: &Term,
     values: &[Term],
     state: &mut ExecutionState<'_>,
-) -> Result<(), String> {
+) -> Result<ExecutionStatus, String> {
     let shape = state
         .program
         .shapes
@@ -302,6 +351,7 @@ fn eval_property_shape(
         .shape_hits
         .entry(shape.normalized_key.clone())
         .or_insert(0) += 1;
+    let mut status = ExecutionStatus::Completed;
     for constraint_id in &shape.constraints {
         let constraint = state
             .program
@@ -309,14 +359,17 @@ fn eval_property_shape(
             .iter()
             .find(|constraint| constraint.id == *constraint_id)
             .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
-        eval_constraint(
+        if eval_constraint(
             shape_id,
             constraint.id,
             &constraint.expr,
             parent_focus,
             Some(values),
             state,
-        )?;
+        )? == ExecutionStatus::DeferredRecursion
+        {
+            status = ExecutionStatus::DeferredRecursion;
+        }
     }
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::ExitShape,
@@ -325,7 +378,7 @@ fn eval_property_shape(
         focus_node: Some(parent_focus.to_string()),
         message: format!("exit property shape {}", shape.normalized_key),
     });
-    Ok(())
+    Ok(status)
 }
 
 fn eval_constraint(
@@ -335,7 +388,7 @@ fn eval_constraint(
     focus: &Term,
     values: Option<&[Term]>,
     state: &mut ExecutionState<'_>,
-) -> Result<(), String> {
+) -> Result<ExecutionStatus, String> {
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::EnterConstraint,
         shape: Some(shape_id),
@@ -348,8 +401,9 @@ fn eval_constraint(
         .constraint_hits
         .entry(constraint_id.0.to_string())
         .or_insert(0) += 1;
+    state.coverage.executed_constraints += 1;
     let local_values = values.unwrap_or(std::slice::from_ref(focus));
-    match expr {
+    let status = match expr {
         ConstraintExpr::Cardinality { min, max, .. } => {
             let count = local_values.len() as u64;
             if min.is_some_and(|min| count < min) || max.is_some_and(|max| count > max) {
@@ -362,6 +416,7 @@ fn eval_constraint(
                     state,
                 );
             }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::HasValue(expected) => {
             if !local_values.iter().any(|value| value == expected) {
@@ -374,6 +429,7 @@ fn eval_constraint(
                     state,
                 );
             }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::In(allowed) => {
             for value in local_values {
@@ -388,6 +444,7 @@ fn eval_constraint(
                     );
                 }
             }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::Datatype(expected) => {
             for value in local_values {
@@ -402,6 +459,7 @@ fn eval_constraint(
                     );
                 }
             }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::NodeKind(expected) => {
             for value in local_values {
@@ -416,6 +474,7 @@ fn eval_constraint(
                     );
                 }
             }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::Class(expected) => {
             for value in local_values {
@@ -430,29 +489,132 @@ fn eval_constraint(
                     );
                 }
             }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::StringConstraint {
             predicate,
             values: params,
         } => {
             for value in local_values {
-                if let Some(message) = check_string_constraint(predicate.as_str(), params, value) {
-                    record_violation(shape_id, constraint_id, focus, Some(value), message, state);
+                match check_string_constraint(predicate.as_str(), params, value) {
+                    Ok(Some(message)) => {
+                        record_violation(shape_id, constraint_id, focus, Some(value), message, state);
+                    }
+                    Ok(None) => {}
+                    Err(reason) => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            reason,
+                            state,
+                        );
+                    }
                 }
             }
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::NumericRange { predicate, values } => {
+            for value in local_values {
+                match check_numeric_range(predicate.as_str(), values, value) {
+                    Ok(Some(message)) => {
+                        record_violation(shape_id, constraint_id, focus, Some(value), message, state);
+                    }
+                    Ok(None) => {}
+                    Err(reason) => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            reason,
+                            state,
+                        );
+                        break;
+                    }
+                }
+            }
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::PropertyComparison { predicate, values } => {
+            match eval_property_comparison(
+                &state.index,
+                predicate.as_str(),
+                focus,
+                local_values,
+                values,
+            ) {
+                Ok(messages) => {
+                    for (value, message) in messages {
+                        record_violation(
+                            shape_id,
+                            constraint_id,
+                            focus,
+                            value.as_ref(),
+                            message,
+                            state,
+                        );
+                    }
+                }
+                Err(reason) => {
+                    record_unsupported(
+                        shape_id,
+                        Some(constraint_id),
+                        Some(focus),
+                        constraint_kind_name(expr),
+                        reason,
+                        state,
+                    );
+                }
+            }
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::Closed { ignored_properties } => {
+            match eval_closed_shape(shape_id, focus, ignored_properties, state) {
+                Ok(messages) => {
+                    for message in messages {
+                        record_violation(shape_id, constraint_id, focus, None, message, state);
+                    }
+                }
+                Err(reason) => {
+                    record_unsupported(
+                        shape_id,
+                        Some(constraint_id),
+                        Some(focus),
+                        constraint_kind_name(expr),
+                        reason,
+                        state,
+                    );
+                }
+            }
+            ExecutionStatus::Completed
         }
         ConstraintExpr::NodeRef {
             shape: Some(target),
             ..
         } => {
+            let mut status = ExecutionStatus::Completed;
             for value in local_values {
-                eval_shape(*target, value, state)?;
+                if eval_shape(*target, value, state)? == ExecutionStatus::DeferredRecursion {
+                    status = ExecutionStatus::DeferredRecursion;
+                    record_unsupported(
+                        shape_id,
+                        Some(constraint_id),
+                        Some(focus),
+                        constraint_kind_name(expr),
+                        format!("deferred recursive validation while evaluating shape {}", target.0),
+                        state,
+                    );
+                }
             }
+            status
         }
         ConstraintExpr::PropertyRef {
             shape: Some(target),
             ..
         } => {
+            let mut status = ExecutionStatus::Completed;
             for value in local_values {
                 let nested_shape = state
                     .program
@@ -465,11 +627,207 @@ fn eval_constraint(
                     .as_ref()
                     .map(|path| eval_path(&state.index, value, path))
                     .unwrap_or_default();
-                eval_property_shape(*target, value, &nested_values, state)?;
+                if eval_property_shape(*target, value, &nested_values, state)?
+                    == ExecutionStatus::DeferredRecursion
+                {
+                    status = ExecutionStatus::DeferredRecursion;
+                    record_unsupported(
+                        shape_id,
+                        Some(constraint_id),
+                        Some(focus),
+                        constraint_kind_name(expr),
+                        format!(
+                            "deferred recursive validation while evaluating property shape {}",
+                            target.0
+                        ),
+                        state,
+                    );
+                }
+            }
+            status
+        }
+        ConstraintExpr::QualifiedValueShape {
+            shape: Some(target),
+            min_count,
+            max_count,
+            disjoint,
+            ..
+        } => {
+            if disjoint == &Some(true) {
+                record_unsupported(
+                    shape_id,
+                    Some(constraint_id),
+                    Some(focus),
+                    constraint_kind_name(expr),
+                    "qualifiedValueShapesDisjoint is not yet executable".to_string(),
+                    state,
+                );
+                ExecutionStatus::Completed
+            } else {
+                let mut matching = 0u64;
+                for value in local_values {
+                    match probe_shape_conforms(*target, value, state)? {
+                        ProbeOutcome::Conformant => matching += 1,
+                        ProbeOutcome::NonConformant => {}
+                        ProbeOutcome::Unsupported(reason) => {
+                            record_unsupported(
+                                shape_id,
+                                Some(constraint_id),
+                                Some(focus),
+                                constraint_kind_name(expr),
+                                reason,
+                                state,
+                            );
+                            return Ok(ExecutionStatus::Completed);
+                        }
+                        ProbeOutcome::DeferredRecursion => {
+                            record_unsupported(
+                                shape_id,
+                                Some(constraint_id),
+                                Some(focus),
+                                constraint_kind_name(expr),
+                                format!(
+                                    "deferred recursive validation while probing qualified shape {}",
+                                    target.0
+                                ),
+                                state,
+                            );
+                            return Ok(ExecutionStatus::DeferredRecursion);
+                        }
+                    }
+                }
+                if min_count.is_some_and(|min| matching < min)
+                    || max_count.is_some_and(|max| matching > max)
+                {
+                    record_violation(
+                        shape_id,
+                        constraint_id,
+                        focus,
+                        None,
+                        format!("qualified value shape count violation: count={matching}"),
+                        state,
+                    );
+                }
+                ExecutionStatus::Completed
             }
         }
-        _ => {}
-    }
+        ConstraintExpr::Not {
+            shape: Some(target), ..
+        } => {
+            for value in local_values {
+                match probe_shape_conforms(*target, value, state)? {
+                    ProbeOutcome::Conformant => record_violation(
+                        shape_id,
+                        constraint_id,
+                        focus,
+                        Some(value),
+                        format!("value {} conforms to forbidden shape {}", value, target.0),
+                        state,
+                    ),
+                    ProbeOutcome::NonConformant => {}
+                    ProbeOutcome::Unsupported(reason) => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            reason,
+                            state,
+                        );
+                    }
+                    ProbeOutcome::DeferredRecursion => {
+                        record_unsupported(
+                            shape_id,
+                            Some(constraint_id),
+                            Some(focus),
+                            constraint_kind_name(expr),
+                            format!("deferred recursive validation while probing not-shape {}", target.0),
+                            state,
+                        );
+                        return Ok(ExecutionStatus::DeferredRecursion);
+                    }
+                }
+            }
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::Logical { kind, shapes } => {
+            for value in local_values {
+                let mut conformant = 0usize;
+                for nested_shape in shapes {
+                    match probe_shape_conforms(*nested_shape, value, state)? {
+                        ProbeOutcome::Conformant => conformant += 1,
+                        ProbeOutcome::NonConformant => {}
+                        ProbeOutcome::Unsupported(reason) => {
+                            record_unsupported(
+                                shape_id,
+                                Some(constraint_id),
+                                Some(focus),
+                                constraint_kind_name(expr),
+                                reason,
+                                state,
+                            );
+                            return Ok(ExecutionStatus::Completed);
+                        }
+                        ProbeOutcome::DeferredRecursion => {
+                            record_unsupported(
+                                shape_id,
+                                Some(constraint_id),
+                                Some(focus),
+                                constraint_kind_name(expr),
+                                "deferred recursive validation while probing logical constraint"
+                                    .to_string(),
+                                state,
+                            );
+                            return Ok(ExecutionStatus::DeferredRecursion);
+                        }
+                    }
+                }
+                let passes = match kind {
+                    LogicalKind::And => conformant == shapes.len(),
+                    LogicalKind::Or => conformant >= 1,
+                    LogicalKind::Xone => conformant == 1,
+                };
+                if !passes {
+                    record_violation(
+                        shape_id,
+                        constraint_id,
+                        focus,
+                        Some(value),
+                        format!("logical constraint {:?} failed with {} matching shapes", kind, conformant),
+                        state,
+                    );
+                }
+            }
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::Sparql(_)
+        | ConstraintExpr::CustomComponent { .. }
+        | ConstraintExpr::GenericPredicate { .. } => {
+            record_unsupported(
+                shape_id,
+                Some(constraint_id),
+                Some(focus),
+                constraint_kind_name(expr),
+                "constraint kind is not executable in the in-memory backend".to_string(),
+                state,
+            );
+            ExecutionStatus::Completed
+        }
+        ConstraintExpr::NodeRef { shape: None, .. }
+        | ConstraintExpr::PropertyRef { shape: None, .. }
+        | ConstraintExpr::QualifiedValueShape { shape: None, .. }
+        | ConstraintExpr::Not { shape: None, .. } => {
+            record_unsupported(
+                shape_id,
+                Some(constraint_id),
+                Some(focus),
+                constraint_kind_name(expr),
+                "constraint references an unresolved shape".to_string(),
+                state,
+            );
+            ExecutionStatus::Completed
+        }
+    };
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::ExitConstraint,
         shape: Some(shape_id),
@@ -477,7 +835,7 @@ fn eval_constraint(
         focus_node: Some(focus.to_string()),
         message: format!("exit constraint {}", constraint_id.0),
     });
-    Ok(())
+    Ok(status)
 }
 
 fn resolve_target(index: &DataIndex, target: &TargetExpr) -> Vec<Term> {
@@ -568,6 +926,340 @@ fn eval_path(index: &DataIndex, focus: &Term, path: &PropertyPath) -> Vec<Term> 
     }
 }
 
+fn probe_shape_conforms(
+    shape_id: ShapeId,
+    focus: &Term,
+    state: &ExecutionState<'_>,
+) -> Result<ProbeOutcome, String> {
+    let mut active = state.active.clone();
+    probe_shape_conforms_inner(shape_id, focus, state, &mut active)
+}
+
+fn probe_shape_conforms_inner(
+    shape_id: ShapeId,
+    focus: &Term,
+    state: &ExecutionState<'_>,
+    active: &mut HashSet<(ShapeId, String)>,
+) -> Result<ProbeOutcome, String> {
+    let Some(shape) = state.program.shapes.iter().find(|shape| shape.id == shape_id) else {
+        return Err(format!("unknown shape {}", shape_id.0));
+    };
+    let key = (shape_id, focus.to_string());
+    if !active.insert(key.clone()) {
+        return Ok(ProbeOutcome::DeferredRecursion);
+    }
+    let mut unsupported = None;
+    let mut deferred = false;
+    if shape.kind == ShapeKind::Node {
+        for constraint_id in &shape.constraints {
+            let constraint = state
+                .program
+                .constraints
+                .iter()
+                .find(|constraint| constraint.id == *constraint_id)
+                .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
+            match probe_constraint(shape_id, &constraint.expr, focus, None, state, active)? {
+                ProbeOutcome::Conformant => {}
+                ProbeOutcome::NonConformant => {
+                    active.remove(&key);
+                    return Ok(ProbeOutcome::NonConformant);
+                }
+                ProbeOutcome::Unsupported(reason) => unsupported = Some(reason),
+                ProbeOutcome::DeferredRecursion => deferred = true,
+            }
+        }
+        for property_shape_id in &shape.property_shapes {
+            let property_shape = state
+                .program
+                .shapes
+                .iter()
+                .find(|shape| shape.id == *property_shape_id)
+                .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+            let values = property_shape
+                .path
+                .as_ref()
+                .map(|path| eval_path(&state.index, focus, path))
+                .unwrap_or_default();
+            match probe_property_shape(*property_shape_id, focus, &values, state, active)? {
+                ProbeOutcome::Conformant => {}
+                ProbeOutcome::NonConformant => {
+                    active.remove(&key);
+                    return Ok(ProbeOutcome::NonConformant);
+                }
+                ProbeOutcome::Unsupported(reason) => unsupported = Some(reason),
+                ProbeOutcome::DeferredRecursion => deferred = true,
+            }
+        }
+    } else {
+        active.remove(&key);
+        return Ok(ProbeOutcome::Unsupported(
+            "property shapes require a parent focus context".to_string(),
+        ));
+    }
+    active.remove(&key);
+    if let Some(reason) = unsupported {
+        Ok(ProbeOutcome::Unsupported(reason))
+    } else if deferred {
+        Ok(ProbeOutcome::DeferredRecursion)
+    } else {
+        Ok(ProbeOutcome::Conformant)
+    }
+}
+
+fn probe_property_shape(
+    shape_id: ShapeId,
+    parent_focus: &Term,
+    values: &[Term],
+    state: &ExecutionState<'_>,
+    active: &mut HashSet<(ShapeId, String)>,
+) -> Result<ProbeOutcome, String> {
+    let shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+        .ok_or_else(|| format!("unknown property shape {}", shape_id.0))?;
+    let mut unsupported = None;
+    let mut deferred = false;
+    for constraint_id in &shape.constraints {
+        let constraint = state
+            .program
+            .constraints
+            .iter()
+            .find(|constraint| constraint.id == *constraint_id)
+            .ok_or_else(|| format!("unknown constraint {}", constraint_id.0))?;
+        match probe_constraint(
+            shape_id,
+            &constraint.expr,
+            parent_focus,
+            Some(values),
+            state,
+            active,
+        )? {
+            ProbeOutcome::Conformant => {}
+            ProbeOutcome::NonConformant => return Ok(ProbeOutcome::NonConformant),
+            ProbeOutcome::Unsupported(reason) => unsupported = Some(reason),
+            ProbeOutcome::DeferredRecursion => deferred = true,
+        }
+    }
+    if let Some(reason) = unsupported {
+        Ok(ProbeOutcome::Unsupported(reason))
+    } else if deferred {
+        Ok(ProbeOutcome::DeferredRecursion)
+    } else {
+        Ok(ProbeOutcome::Conformant)
+    }
+}
+
+fn probe_constraint(
+    shape_id: ShapeId,
+    expr: &ConstraintExpr,
+    focus: &Term,
+    values: Option<&[Term]>,
+    state: &ExecutionState<'_>,
+    active: &mut HashSet<(ShapeId, String)>,
+) -> Result<ProbeOutcome, String> {
+    let local_values = values.unwrap_or(std::slice::from_ref(focus));
+    match expr {
+        ConstraintExpr::Cardinality { min, max, .. } => {
+            let count = local_values.len() as u64;
+            Ok(if min.is_some_and(|min| count < min) || max.is_some_and(|max| count > max) {
+                ProbeOutcome::NonConformant
+            } else {
+                ProbeOutcome::Conformant
+            })
+        }
+        ConstraintExpr::HasValue(expected) => Ok(
+            if local_values.iter().any(|value| value == expected) {
+                ProbeOutcome::Conformant
+            } else {
+                ProbeOutcome::NonConformant
+            },
+        ),
+        ConstraintExpr::In(allowed) => Ok(
+            if local_values.iter().all(|value| allowed.contains(value)) {
+                ProbeOutcome::Conformant
+            } else {
+                ProbeOutcome::NonConformant
+            },
+        ),
+        ConstraintExpr::Datatype(expected) => Ok(
+            if local_values
+                .iter()
+                .all(|value| matches_datatype(value, expected))
+            {
+                ProbeOutcome::Conformant
+            } else {
+                ProbeOutcome::NonConformant
+            },
+        ),
+        ConstraintExpr::NodeKind(expected) => Ok(
+            if local_values
+                .iter()
+                .all(|value| matches_node_kind(value, expected))
+            {
+                ProbeOutcome::Conformant
+            } else {
+                ProbeOutcome::NonConformant
+            },
+        ),
+        ConstraintExpr::Class(expected) => Ok(
+            if local_values
+                .iter()
+                .all(|value| has_class(&state.index, value, expected))
+            {
+                ProbeOutcome::Conformant
+            } else {
+                ProbeOutcome::NonConformant
+            },
+        ),
+        ConstraintExpr::StringConstraint {
+            predicate,
+            values: params,
+        } => {
+            for value in local_values {
+                match check_string_constraint(predicate.as_str(), params, value) {
+                    Ok(Some(_)) => return Ok(ProbeOutcome::NonConformant),
+                    Ok(None) => {}
+                    Err(reason) => return Ok(ProbeOutcome::Unsupported(reason)),
+                }
+            }
+            Ok(ProbeOutcome::Conformant)
+        }
+        ConstraintExpr::NumericRange { predicate, values } => {
+            for value in local_values {
+                match check_numeric_range(predicate.as_str(), values, value) {
+                    Ok(Some(_)) => return Ok(ProbeOutcome::NonConformant),
+                    Ok(None) => {}
+                    Err(reason) => return Ok(ProbeOutcome::Unsupported(reason)),
+                }
+            }
+            Ok(ProbeOutcome::Conformant)
+        }
+        ConstraintExpr::PropertyComparison { predicate, values } => {
+            match eval_property_comparison(
+                &state.index,
+                predicate.as_str(),
+                focus,
+                local_values,
+                values,
+            ) {
+                Ok(messages) if messages.is_empty() => Ok(ProbeOutcome::Conformant),
+                Ok(_) => Ok(ProbeOutcome::NonConformant),
+                Err(reason) => Ok(ProbeOutcome::Unsupported(reason)),
+            }
+        }
+        ConstraintExpr::Closed { ignored_properties } => {
+            match eval_closed_shape(shape_id, focus, ignored_properties, state) {
+                Ok(messages) if messages.is_empty() => Ok(ProbeOutcome::Conformant),
+                Ok(_) => Ok(ProbeOutcome::NonConformant),
+                Err(reason) => Ok(ProbeOutcome::Unsupported(reason)),
+            }
+        }
+        ConstraintExpr::NodeRef {
+            shape: Some(target),
+            ..
+        } => probe_shape_conforms_inner(*target, focus, state, active),
+        ConstraintExpr::PropertyRef {
+            shape: Some(target),
+            ..
+        } => {
+            for value in local_values {
+                let nested_shape = state
+                    .program
+                    .shapes
+                    .iter()
+                    .find(|shape| shape.id == *target)
+                    .ok_or_else(|| format!("unknown property ref shape {}", target.0))?;
+                let nested_values = nested_shape
+                    .path
+                    .as_ref()
+                    .map(|path| eval_path(&state.index, value, path))
+                    .unwrap_or_default();
+                match probe_property_shape(*target, value, &nested_values, state, active)? {
+                    ProbeOutcome::Conformant => {}
+                    other => return Ok(other),
+                }
+            }
+            Ok(ProbeOutcome::Conformant)
+        }
+        ConstraintExpr::QualifiedValueShape {
+            shape: Some(target),
+            min_count,
+            max_count,
+            disjoint,
+            ..
+        } => {
+            if disjoint == &Some(true) {
+                return Ok(ProbeOutcome::Unsupported(
+                    "qualifiedValueShapesDisjoint is not yet executable".to_string(),
+                ));
+            }
+            let mut matching = 0u64;
+            for value in local_values {
+                match probe_shape_conforms_inner(*target, value, state, active)? {
+                    ProbeOutcome::Conformant => matching += 1,
+                    ProbeOutcome::NonConformant => {}
+                    other => return Ok(other),
+                }
+            }
+            Ok(
+                if min_count.is_some_and(|min| matching < min)
+                    || max_count.is_some_and(|max| matching > max)
+                {
+                    ProbeOutcome::NonConformant
+                } else {
+                    ProbeOutcome::Conformant
+                },
+            )
+        }
+        ConstraintExpr::Not {
+            shape: Some(target), ..
+        } => {
+            for value in local_values {
+                match probe_shape_conforms_inner(*target, value, state, active)? {
+                    ProbeOutcome::Conformant => return Ok(ProbeOutcome::NonConformant),
+                    ProbeOutcome::NonConformant => {}
+                    other => return Ok(other),
+                }
+            }
+            Ok(ProbeOutcome::Conformant)
+        }
+        ConstraintExpr::Logical { kind, shapes } => {
+            for value in local_values {
+                let mut conformant = 0usize;
+                for target in shapes {
+                    match probe_shape_conforms_inner(*target, value, state, active)? {
+                        ProbeOutcome::Conformant => conformant += 1,
+                        ProbeOutcome::NonConformant => {}
+                        other => return Ok(other),
+                    }
+                }
+                let passes = match kind {
+                    LogicalKind::And => conformant == shapes.len(),
+                    LogicalKind::Or => conformant >= 1,
+                    LogicalKind::Xone => conformant == 1,
+                };
+                if !passes {
+                    return Ok(ProbeOutcome::NonConformant);
+                }
+            }
+            Ok(ProbeOutcome::Conformant)
+        }
+        ConstraintExpr::Sparql(_)
+        | ConstraintExpr::CustomComponent { .. }
+        | ConstraintExpr::GenericPredicate { .. } => Ok(ProbeOutcome::Unsupported(
+            "constraint kind is not executable in the in-memory backend".to_string(),
+        )),
+        ConstraintExpr::NodeRef { shape: None, .. }
+        | ConstraintExpr::PropertyRef { shape: None, .. }
+        | ConstraintExpr::QualifiedValueShape { shape: None, .. }
+        | ConstraintExpr::Not { shape: None, .. } => Ok(ProbeOutcome::Unsupported(
+            "constraint references an unresolved shape".to_string(),
+        )),
+    }
+}
+
 fn record_violation(
     shape_id: ShapeId,
     constraint_id: ConstraintId,
@@ -593,13 +1285,86 @@ fn record_violation(
         .constraint_violations
         .entry(constraint_id.0.to_string())
         .or_insert(0) += 1;
+    let (severity, source) = violation_metadata(state.program, shape_id, Some(constraint_id));
     state.violations.push(ValidationViolation {
         shape: shape_id,
         constraint: Some(constraint_id),
         focus_node: focus.to_string(),
         value_node: value.map(ToString::to_string),
         message,
+        severity,
+        source,
     });
+}
+
+fn record_unsupported(
+    shape_id: ShapeId,
+    constraint_id: Option<ConstraintId>,
+    focus: Option<&Term>,
+    kind: &'static str,
+    reason: String,
+    state: &mut ExecutionState<'_>,
+) {
+    state.coverage.unsupported_constraints += usize::from(constraint_id.is_some());
+    *state
+        .coverage
+        .unsupported_by_kind
+        .entry(kind.to_string())
+        .or_insert(0) += 1;
+    let (severity, source) = violation_metadata(state.program, shape_id, constraint_id);
+    state.unsupported.push(ValidationUnsupported {
+        shape: shape_id,
+        constraint: constraint_id,
+        focus_node: focus.map(ToString::to_string),
+        reason,
+        kind: kind.to_string(),
+        severity,
+        source,
+    });
+}
+
+fn violation_metadata(
+    program: &ShapeProgram,
+    shape_id: ShapeId,
+    constraint_id: Option<ConstraintId>,
+) -> (Severity, Option<SourceRef>) {
+    let shape = program.shapes.iter().find(|shape| shape.id == shape_id);
+    let severity = shape
+        .map(|shape| shape.severity.clone())
+        .unwrap_or(Severity::Violation);
+    let source = constraint_id
+        .and_then(|id| {
+            program
+                .constraints
+                .iter()
+                .find(|constraint| constraint.id == id)
+                .and_then(|constraint| constraint.provenance.first().cloned())
+        })
+        .or_else(|| shape.and_then(|shape| shape.provenance.first().cloned()));
+    (severity, source)
+}
+
+fn constraint_kind_name(expr: &ConstraintExpr) -> &'static str {
+    match expr {
+        ConstraintExpr::NodeRef { .. } => "node_ref",
+        ConstraintExpr::PropertyRef { .. } => "property_ref",
+        ConstraintExpr::QualifiedValueShape { .. } => "qualified_value_shape",
+        ConstraintExpr::Logical { .. } => "logical",
+        ConstraintExpr::Not { .. } => "not",
+        ConstraintExpr::Class(_) => "class",
+        ConstraintExpr::Datatype(_) => "datatype",
+        ConstraintExpr::NodeKind(_) => "node_kind",
+        ConstraintExpr::Cardinality { .. } => "cardinality",
+        ConstraintExpr::NumericRange { .. } => "numeric_range",
+        ConstraintExpr::StringConstraint { .. } => "string_constraint",
+        ConstraintExpr::PropertyComparison { .. } => "property_comparison",
+        ConstraintExpr::Closed { .. } => "closed",
+        ConstraintExpr::HasValue(_) => "has_value",
+        ConstraintExpr::In(_) => "in",
+        ConstraintExpr::Sparql(_) => "sparql",
+        ConstraintExpr::CustomComponent { .. } => "custom_component",
+        ConstraintExpr::GenericPredicate { .. } => "generic_predicate",
+    }
 }
 
 fn matches_datatype(value: &Term, expected: &Term) -> bool {
@@ -641,32 +1406,193 @@ fn has_class(index: &DataIndex, value: &Term, expected: &Term) -> bool {
         .unwrap_or(false)
 }
 
-fn check_string_constraint(predicate: &str, params: &[Term], value: &Term) -> Option<String> {
+fn check_string_constraint(
+    predicate: &str,
+    params: &[Term],
+    value: &Term,
+) -> Result<Option<String>, String> {
     let literal = match value {
         Term::Literal(lit) => lit,
-        _ => return Some("value is not a literal".to_string()),
+        _ => return Ok(Some("value is not a literal".to_string())),
     };
     match predicate {
         "http://www.w3.org/ns/shacl#minLength" => {
-            let min = params.first().and_then(literal_u64)?;
-            (literal.value().chars().count() < min as usize)
-                .then(|| format!("literal shorter than minimum length {min}"))
+            let Some(min) = params.first().and_then(literal_u64) else {
+                return Err("minLength is missing an integer literal bound".to_string());
+            };
+            Ok((literal.value().chars().count() < min as usize)
+                .then(|| format!("literal shorter than minimum length {min}")))
         }
         "http://www.w3.org/ns/shacl#maxLength" => {
-            let max = params.first().and_then(literal_u64)?;
-            (literal.value().chars().count() > max as usize)
-                .then(|| format!("literal longer than maximum length {max}"))
+            let Some(max) = params.first().and_then(literal_u64) else {
+                return Err("maxLength is missing an integer literal bound".to_string());
+            };
+            Ok((literal.value().chars().count() > max as usize)
+                .then(|| format!("literal longer than maximum length {max}")))
         }
         "http://www.w3.org/ns/shacl#pattern" => {
-            let needle = params.first().and_then(term_string)?;
-            (!literal.value().contains(&needle))
-                .then(|| format!("literal does not contain pattern {needle}"))
+            let Some(needle) = params.first().and_then(term_string) else {
+                return Err("pattern is missing a string literal".to_string());
+            };
+            Ok((!literal.value().contains(&needle))
+                .then(|| format!("literal does not contain pattern {needle}")))
         }
+        "http://www.w3.org/ns/shacl#languageIn" => Err(
+            "languageIn is not yet executable in the in-memory backend".to_string(),
+        ),
+        "http://www.w3.org/ns/shacl#uniqueLang" => Err(
+            "uniqueLang is not yet executable in the in-memory backend".to_string(),
+        ),
+        _ => Ok(None),
+    }
+}
+
+fn check_numeric_range(
+    predicate: &str,
+    params: &[Term],
+    value: &Term,
+) -> Result<Option<String>, String> {
+    let Some(bound) = params.first().and_then(term_number) else {
+        return Err("numeric range is missing a numeric literal bound".to_string());
+    };
+    let Some(actual) = term_number(value) else {
+        return Ok(Some("value is not a numeric literal".to_string()));
+    };
+    let violation = match predicate {
+        "http://www.w3.org/ns/shacl#minExclusive" => (actual <= bound)
+            .then(|| format!("numeric value {actual} is not greater than {bound}")),
+        "http://www.w3.org/ns/shacl#minInclusive" => (actual < bound)
+            .then(|| format!("numeric value {actual} is less than minimum {bound}")),
+        "http://www.w3.org/ns/shacl#maxExclusive" => (actual >= bound)
+            .then(|| format!("numeric value {actual} is not less than {bound}")),
+        "http://www.w3.org/ns/shacl#maxInclusive" => (actual > bound)
+            .then(|| format!("numeric value {actual} is greater than maximum {bound}")),
+        _ => None,
+    };
+    Ok(violation)
+}
+
+fn eval_property_comparison(
+    index: &DataIndex,
+    predicate: &str,
+    focus: &Term,
+    local_values: &[Term],
+    params: &[Term],
+) -> Result<Vec<(Option<Term>, String)>, String> {
+    let comparison_path = params
+        .first()
+        .and_then(named_target_predicate)
+        .ok_or_else(|| "comparison constraint requires a named-node property path".to_string())?;
+    let comparison_values = eval_path(index, focus, &PropertyPath::Predicate(comparison_path));
+    let local_set: BTreeSet<_> = local_values.iter().map(ToString::to_string).collect();
+    let comparison_set: BTreeSet<_> = comparison_values.iter().map(ToString::to_string).collect();
+    match predicate {
+        "http://www.w3.org/ns/shacl#equals" => {
+            if local_set == comparison_set {
+                Ok(Vec::new())
+            } else {
+                Ok(vec![(
+                    None,
+                    "property values do not equal values of comparison property".to_string(),
+                )])
+            }
+        }
+        "http://www.w3.org/ns/shacl#disjoint" => {
+            let overlap = local_set.intersection(&comparison_set).next().cloned();
+            Ok(overlap
+                .into_iter()
+                .map(|value| {
+                    (
+                        None,
+                        format!("property values are not disjoint from comparison property at {value}"),
+                    )
+                })
+                .collect())
+        }
+        "http://www.w3.org/ns/shacl#lessThan"
+        | "http://www.w3.org/ns/shacl#lessThanOrEquals" => {
+            let mut messages = Vec::new();
+            for left in local_values {
+                for right in &comparison_values {
+                    let Some(ordering) = compare_terms(left, right) else {
+                        return Err("lessThan comparison needs comparable literal or IRI terms".to_string());
+                    };
+                    let ok = if predicate.ends_with("lessThan") {
+                        ordering == Ordering::Less
+                    } else {
+                        matches!(ordering, Ordering::Less | Ordering::Equal)
+                    };
+                    if !ok {
+                        messages.push((
+                            Some(left.clone()),
+                            format!("value {} does not satisfy comparison against {}", left, right),
+                        ));
+                    }
+                }
+            }
+            Ok(messages)
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn eval_closed_shape(
+    shape_id: ShapeId,
+    focus: &Term,
+    ignored_properties: &[Term],
+    state: &ExecutionState<'_>,
+) -> Result<Vec<String>, String> {
+    let shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == shape_id)
+        .ok_or_else(|| format!("unknown shape {}", shape_id.0))?;
+    let mut allowed = BTreeSet::new();
+    for property_shape_id in &shape.property_shapes {
+        let property_shape = state
+            .program
+            .shapes
+            .iter()
+            .find(|shape| shape.id == *property_shape_id)
+            .ok_or_else(|| format!("unknown property shape {}", property_shape_id.0))?;
+        match property_shape.path.as_ref() {
+            Some(PropertyPath::Predicate(predicate)) => {
+                allowed.insert(predicate.as_str().to_string());
+            }
+            Some(_) => {
+                return Err(
+                    "closed shapes currently require direct predicate property paths".to_string(),
+                )
+            }
+            None => {}
+        }
+    }
+    for ignored in ignored_properties {
+        let Some(predicate) = named_target_predicate(ignored) else {
+            return Err("ignoredProperties must contain named-node predicates".to_string());
+        };
+        allowed.insert(predicate.as_str().to_string());
+    }
+    let mut violations = Vec::new();
+    if let Some(edges) = state.index.outgoing.get(&focus.to_string()) {
+        for (predicate, _) in edges {
+            if !allowed.contains(predicate.as_str()) {
+                violations.push(format!("predicate <{}> is not allowed by closed shape", predicate));
+            }
+        }
+    }
+    Ok(violations)
+}
+
+fn literal_u64(term: &Term) -> Option<u64> {
+    match term {
+        Term::Literal(lit) => lit.value().parse().ok(),
         _ => None,
     }
 }
 
-fn literal_u64(term: &Term) -> Option<u64> {
+fn term_number(term: &Term) -> Option<f64> {
     match term {
         Term::Literal(lit) => lit.value().parse().ok(),
         _ => None,
@@ -677,6 +1603,20 @@ fn term_string(term: &Term) -> Option<String> {
     match term {
         Term::Literal(lit) => Some(lit.value().to_string()),
         Term::NamedNode(node) => Some(node.as_str().to_string()),
+        _ => None,
+    }
+}
+
+fn compare_terms(left: &Term, right: &Term) -> Option<Ordering> {
+    match (left, right) {
+        (Term::Literal(_), Term::Literal(_)) => {
+            if let (Some(lhs), Some(rhs)) = (term_number(left), term_number(right)) {
+                lhs.partial_cmp(&rhs)
+            } else {
+                term_string(left)?.partial_cmp(&term_string(right)?)
+            }
+        }
+        (Term::NamedNode(lhs), Term::NamedNode(rhs)) => lhs.as_str().partial_cmp(rhs.as_str()),
         _ => None,
     }
 }
