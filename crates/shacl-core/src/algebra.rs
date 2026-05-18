@@ -166,6 +166,8 @@ pub enum RuleExpr {
     Sparql {
         node: Term,
         query: Option<String>,
+        prefixes: Vec<Term>,
+        declarations: Vec<PrefixDeclaration>,
         conditions: Vec<ShapeId>,
         order: Option<String>,
     },

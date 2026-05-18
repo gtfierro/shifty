@@ -1,4 +1,4 @@
-use crate::algebra::{ConstraintId, RuleId, ShapeId, TargetId};
+use crate::algebra::{ConstraintId, Rule, RuleId, ShapeId, TargetId};
 use crate::backend_views::{
     BackendBucket, BackendViewOptions, InferenceView, SharedWorkUnit, ValidationView,
     derive_inference_view, derive_validation_view,
@@ -55,7 +55,7 @@ pub struct LogicalPlanSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationPlan {
     pub view: ValidationView,
-    pub deferred_rules: Vec<(ShapeId, RuleId)>,
+    pub executable_rules: Vec<Rule>,
     pub nodes: Vec<ValidationPlanNode>,
     pub summary: LogicalPlanSummary,
 }
@@ -94,13 +94,13 @@ pub fn derive_validation_logical_plan(
         .iter()
         .map(|shape| shape.id)
         .collect::<std::collections::BTreeSet<_>>();
-    let deferred_rules = program
+    let executable_rules = program
         .rules
         .iter()
         .filter(|rule| retained_shapes.contains(&rule.owner))
-        .map(|rule| (rule.owner, rule.id))
+        .cloned()
         .collect::<Vec<_>>();
-    derive_validation_logical_plan_from_view_with_rules(view, deferred_rules)
+    derive_validation_logical_plan_from_view_with_rules(view, executable_rules)
 }
 
 pub fn derive_inference_logical_plan(
@@ -117,7 +117,7 @@ pub fn derive_validation_logical_plan_from_view(view: ValidationView) -> Validat
 
 fn derive_validation_logical_plan_from_view_with_rules(
     view: ValidationView,
-    deferred_rules: Vec<(ShapeId, RuleId)>,
+    executable_rules: Vec<Rule>,
 ) -> ValidationPlan {
     let mut nodes = Vec::new();
     for shape in &view.program.shapes {
@@ -161,7 +161,7 @@ fn derive_validation_logical_plan_from_view_with_rules(
     let summary = validation_plan_summary(&nodes);
     ValidationPlan {
         view,
-        deferred_rules,
+        executable_rules,
         nodes,
         summary,
     }

@@ -1777,12 +1777,24 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
         result.coverage.executed_constraints
     ));
     out.push_str(&format!(
+        "  executed_rules: {}\n",
+        result.coverage.executed_rules
+    ));
+    out.push_str(&format!(
         "  unsupported_constraints: {}\n",
         result.coverage.unsupported_constraints
     ));
     out.push_str(&format!(
         "  deferred_recursions: {}\n",
         result.coverage.deferred_recursions
+    ));
+    out.push_str(&format!(
+        "  inference_iterations: {}\n",
+        result.coverage.inference_iterations
+    ));
+    out.push_str(&format!(
+        "  inferred_triples: {}\n",
+        result.coverage.inferred_triples
     ));
     if !result.coverage.unsupported_by_kind.is_empty() {
         out.push_str("  unsupported_by_kind:\n");
@@ -1798,6 +1810,10 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
     out.push_str(&format!(
         "  constraints_evaluated: {}\n",
         result.heatmap.constraint_hits.len()
+    ));
+    out.push_str(&format!(
+        "  rules_evaluated: {}\n",
+        result.heatmap.rule_hits.len()
     ));
     if !result.violations.is_empty() {
         out.push_str("\nViolations\n");

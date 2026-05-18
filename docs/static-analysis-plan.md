@@ -208,6 +208,23 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Assert expected `sh:conforms` on initial manifest-backed tests
 - [x] Assert expected validation-result counts on initial manifest-backed tests
 
+## Phase 13 Checklist
+
+- [x] Add AF rule execution to the in-memory validation backend
+- [x] Replace retained-rule unsupported reporting with executable rule saturation
+- [x] Execute SHACL-AF triple rules over retained validation-plan shapes
+- [x] Execute SHACL-AF SPARQL rules over retained validation-plan shapes
+- [x] Preserve SHACL prefix declarations for SPARQL rules
+- [x] Re-run rule targets against inferred triples until a fixed point is reached
+- [x] Respect rule conditions during execution
+- [x] Update the in-memory quad index and SPARQL store with inferred triples
+- [x] Surface inference iterations and inferred triple counts in validation coverage
+- [x] Surface rule execution hits in validation heatmaps / traces
+- [x] Keep unsupported reporting explicit for generic or still-unhandled rule forms
+- [x] Add fixture-backed tests for triple-rule execution
+- [x] Add fixture-backed tests for SPARQL-rule execution
+- [ ] Add a Brick smoke test assertion that AF rules no longer remain unsupported
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`

@@ -1,7 +1,7 @@
 use crate::algebra::{
-    ComponentDefId, ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, Severity, ShapeId,
-    ShapeKind, ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template, TemplatePart,
-    TemplateSlotKind,
+    ComponentDefId, ConstraintExpr, ConstraintId, LogicalKind, PropertyPath, Rule, RuleExpr,
+    Severity, ShapeId, ShapeKind, ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr,
+    Template, TemplatePart, TemplateSlotKind, TriplePatternTerm,
 };
 use crate::diagnostics::{SourceRef, TraceEventSchema};
 use crate::plan::{ValidationPlan, ValidationPlanNode};
@@ -68,8 +68,11 @@ pub struct ValidationUnsupported {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ValidationCoverage {
     pub executed_constraints: usize,
+    pub executed_rules: usize,
     pub unsupported_constraints: usize,
     pub deferred_recursions: usize,
+    pub inference_iterations: usize,
+    pub inferred_triples: usize,
     pub unsupported_by_kind: BTreeMap<String, usize>,
 }
 
@@ -86,6 +89,7 @@ pub struct ValidationTraceEvent {
 pub struct ValidationHeatmap {
     pub shape_hits: BTreeMap<String, usize>,
     pub constraint_hits: BTreeMap<String, usize>,
+    pub rule_hits: BTreeMap<String, usize>,
     pub shape_violations: BTreeMap<String, usize>,
     pub constraint_violations: BTreeMap<String, usize>,
 }
@@ -110,19 +114,7 @@ impl ValidationBackend for InMemoryValidationBackend {
         let index = DataIndex::new(&data.quads);
         let store = build_query_store(data)?;
         let mut state = ExecutionState::new(&plan.view.program, index, store);
-        for (owner, rule) in &plan.deferred_rules {
-            record_unsupported(
-                *owner,
-                None,
-                None,
-                "rule",
-                format!(
-                    "rule execution is not available in the validation backend for rule {}",
-                    rule.0
-                ),
-                &mut state,
-            );
-        }
+        execute_rules_to_fixed_point(&plan.executable_rules, &mut state)?;
         for node in &plan.nodes {
             if let ValidationPlanNode::TargetScan { shape, .. } = node {
                 let targets = plan
@@ -255,6 +247,353 @@ impl DataIndex {
             superclasses,
         }
     }
+
+    fn insert_quad(&mut self, quad: &Quad) {
+        let subject = subject_to_term(&quad.subject);
+        let subject_key = subject.to_string();
+        let edges = self.outgoing.entry(subject_key.clone()).or_default();
+        let edge = (quad.predicate.clone(), quad.object.clone());
+        if !edges.contains(&edge) {
+            edges.push(edge);
+        }
+        if quad.predicate.as_str() == RDF_TYPE {
+            self.types
+                .entry(subject_key.clone())
+                .or_default()
+                .insert(quad.object.to_string());
+        }
+        if quad.predicate.as_str() == RDFS_SUBCLASS_OF {
+            self.superclasses
+                .entry(subject_key)
+                .or_default()
+                .insert(quad.object.to_string());
+        }
+    }
+}
+
+fn execute_rules_to_fixed_point(
+    rules: &[Rule],
+    state: &mut ExecutionState<'_>,
+) -> Result<(), String> {
+    if rules.is_empty() {
+        return Ok(());
+    }
+    let max_iterations = 32;
+    for iteration in 0..max_iterations {
+        state.coverage.inference_iterations += 1;
+        state.trace.push(ValidationTraceEvent {
+            event: TraceEventSchema::InferenceIterationStart,
+            shape: None,
+            constraint: None,
+            focus_node: None,
+            message: format!("starting inference iteration {}", iteration + 1),
+        });
+        let mut new_triples = 0usize;
+        for rule in rules {
+            new_triples += execute_rule(rule, state)?;
+        }
+        state.trace.push(ValidationTraceEvent {
+            event: TraceEventSchema::InferenceIterationEnd,
+            shape: None,
+            constraint: None,
+            focus_node: None,
+            message: format!(
+                "finished inference iteration {} with {} inferred triples",
+                iteration + 1,
+                new_triples
+            ),
+        });
+        if new_triples == 0 {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, String> {
+    state.trace.push(ValidationTraceEvent {
+        event: TraceEventSchema::EnterRule,
+        shape: Some(rule.owner),
+        constraint: None,
+        focus_node: None,
+        message: format!("enter rule {}", rule.id.0),
+    });
+    *state
+        .heatmap
+        .rule_hits
+        .entry(rule.id.0.to_string())
+        .or_insert(0) += 1;
+    state.coverage.executed_rules += 1;
+
+    let owner_shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == rule.owner)
+        .ok_or_else(|| format!("unknown rule owner shape {}", rule.owner.0))?;
+    let mut focuses = Vec::new();
+    for target_id in &owner_shape.targets {
+        let target = state
+            .program
+            .targets
+            .iter()
+            .find(|target| target.id == *target_id)
+            .ok_or_else(|| format!("unknown target {}", target_id.0))?;
+        focuses.extend(resolve_target(rule.owner, &target.expr, state)?);
+    }
+    let focuses = dedup_terms(focuses);
+
+    let mut inferred = 0usize;
+    for focus in focuses {
+        if !rule_conditions_hold(rule, &focus, state)? {
+            continue;
+        }
+        inferred += match &rule.expr {
+            RuleExpr::Triple {
+                subject,
+                predicate,
+                object,
+                ..
+            } => execute_triple_rule(rule, subject, predicate.as_ref(), object, &focus, state)?,
+            RuleExpr::Sparql {
+                query,
+                declarations,
+                ..
+            } => execute_sparql_rule(rule, query.as_deref(), declarations, &focus, state)?,
+            RuleExpr::Generic { .. } => {
+                record_unsupported(
+                    rule.owner,
+                    None,
+                    Some(&focus),
+                    "rule",
+                    format!(
+                        "generic AF rule {} is not executable in the in-memory backend",
+                        rule.id.0
+                    ),
+                    state,
+                );
+                0
+            }
+        };
+    }
+
+    state.trace.push(ValidationTraceEvent {
+        event: TraceEventSchema::ExitRule,
+        shape: Some(rule.owner),
+        constraint: None,
+        focus_node: None,
+        message: format!(
+            "exit rule {} after inferring {} triples",
+            rule.id.0, inferred
+        ),
+    });
+    Ok(inferred)
+}
+
+fn rule_conditions_hold(
+    rule: &Rule,
+    focus: &Term,
+    state: &ExecutionState<'_>,
+) -> Result<bool, String> {
+    let conditions = match &rule.expr {
+        RuleExpr::Triple { conditions, .. }
+        | RuleExpr::Sparql { conditions, .. }
+        | RuleExpr::Generic { conditions, .. } => conditions,
+    };
+    if conditions.is_empty() {
+        return Ok(true);
+    }
+    let mut active = state.active.clone();
+    for condition in conditions {
+        match probe_shape_conforms_inner(*condition, focus, state, &mut active)? {
+            ProbeOutcome::Conformant => {}
+            ProbeOutcome::NonConformant
+            | ProbeOutcome::Unsupported(_)
+            | ProbeOutcome::DeferredRecursion => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+fn execute_triple_rule(
+    rule: &Rule,
+    subject: &Option<TriplePatternTerm>,
+    predicate: Option<&NamedNode>,
+    object: &Option<TriplePatternTerm>,
+    focus: &Term,
+    state: &mut ExecutionState<'_>,
+) -> Result<usize, String> {
+    let Some(subject) = subject else {
+        record_unsupported(
+            rule.owner,
+            None,
+            Some(focus),
+            "rule",
+            format!("triple rule {} is missing sh:subject", rule.id.0),
+            state,
+        );
+        return Ok(0);
+    };
+    let Some(predicate) = predicate else {
+        record_unsupported(
+            rule.owner,
+            None,
+            Some(focus),
+            "rule",
+            format!("triple rule {} is missing sh:predicate", rule.id.0),
+            state,
+        );
+        return Ok(0);
+    };
+    let Some(object) = object else {
+        record_unsupported(
+            rule.owner,
+            None,
+            Some(focus),
+            "rule",
+            format!("triple rule {} is missing sh:object", rule.id.0),
+            state,
+        );
+        return Ok(0);
+    };
+
+    let subjects = eval_triple_pattern_term(subject, focus, state)?;
+    let objects = eval_triple_pattern_term(object, focus, state)?;
+    let mut inferred = 0usize;
+    for subject in subjects {
+        let Some(subject) = term_to_subject(&subject) else {
+            continue;
+        };
+        for object in &objects {
+            inferred += insert_inferred_quad(
+                Quad::new(
+                    subject.clone(),
+                    predicate.clone(),
+                    object.clone(),
+                    oxrdf::GraphName::DefaultGraph,
+                ),
+                state,
+            )?;
+        }
+    }
+    Ok(inferred)
+}
+
+fn execute_sparql_rule(
+    rule: &Rule,
+    query: Option<&str>,
+    declarations: &[crate::algebra::PrefixDeclaration],
+    focus: &Term,
+    state: &mut ExecutionState<'_>,
+) -> Result<usize, String> {
+    let Some(query) = query else {
+        record_unsupported(
+            rule.owner,
+            None,
+            Some(focus),
+            "rule",
+            format!("SPARQL rule {} is missing sh:construct", rule.id.0),
+            state,
+        );
+        return Ok(0);
+    };
+    let owner_shape = state
+        .program
+        .shapes
+        .iter()
+        .find(|shape| shape.id == rule.owner)
+        .ok_or_else(|| format!("unknown rule owner shape {}", rule.owner.0))?;
+    let query = substitute_path_placeholder(query, owner_shape.path.as_ref())?;
+    let full_query = with_prefixes(declarations, &query);
+    reject_unsupported_query_variables(&full_query)?;
+    let bindings = query_bindings(
+        full_query.as_str(),
+        focus,
+        Some(&owner_shape.source),
+        None,
+        &[],
+    );
+    let graph_triples = match execute_prepared_query(state, &full_query, &bindings)? {
+        QueryResults::Graph(triples) => Some(
+            triples
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?,
+        ),
+        QueryResults::Boolean(_) | QueryResults::Solutions(_) => None,
+    };
+    match graph_triples {
+        Some(triples) => {
+            let mut inferred = 0usize;
+            for triple in triples {
+                inferred += insert_inferred_quad(
+                    Quad::new(
+                        triple.subject,
+                        triple.predicate,
+                        triple.object,
+                        oxrdf::GraphName::DefaultGraph,
+                    ),
+                    state,
+                )?;
+            }
+            Ok(inferred)
+        }
+        None => {
+            record_unsupported(
+                rule.owner,
+                None,
+                Some(focus),
+                "rule",
+                format!("SPARQL rule {} did not return a graph result", rule.id.0),
+                state,
+            );
+            Ok(0)
+        }
+    }
+}
+
+fn eval_triple_pattern_term(
+    term: &TriplePatternTerm,
+    focus: &Term,
+    state: &mut ExecutionState<'_>,
+) -> Result<Vec<Term>, String> {
+    match term {
+        TriplePatternTerm::This => Ok(vec![focus.clone()]),
+        TriplePatternTerm::Constant(term) => Ok(vec![term.clone()]),
+        TriplePatternTerm::Path(path) => {
+            if !path_is_executable(path) {
+                return Err(format!(
+                    "rule path {} is not executable in the in-memory backend",
+                    path_label(path)
+                ));
+            }
+            Ok(eval_path(&state.index, focus, path))
+        }
+    }
+}
+
+fn term_to_subject(term: &Term) -> Option<NamedOrBlankNode> {
+    match term {
+        Term::NamedNode(node) => Some(NamedOrBlankNode::NamedNode(node.clone())),
+        Term::BlankNode(node) => Some(NamedOrBlankNode::BlankNode(node.clone())),
+        _ => None,
+    }
+}
+
+fn insert_inferred_quad(quad: Quad, state: &mut ExecutionState<'_>) -> Result<usize, String> {
+    if state
+        .store
+        .contains(&quad)
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(0);
+    }
+    state
+        .store
+        .insert(&quad)
+        .map_err(|error| error.to_string())?;
+    state.index.insert_quad(&quad);
+    state.coverage.inferred_triples += 1;
+    Ok(1)
 }
 
 fn eval_shape(

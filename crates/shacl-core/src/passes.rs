@@ -977,6 +977,25 @@ fn lower_prefix_declarations(
         .collect()
 }
 
+fn lower_prefix_declarations_from_terms(
+    declarations: &[Term],
+    quads: &QuadIndex,
+) -> Vec<PrefixDeclaration> {
+    declarations
+        .iter()
+        .map(|declaration| PrefixDeclaration {
+            node: declaration.clone(),
+            prefix: first_literal_from_quads(
+                &quads.objects_for_subject_predicate(declaration, SH_PREFIX),
+            ),
+            namespace: quads
+                .objects_for_subject_predicate(declaration, SH_NAMESPACE)
+                .into_iter()
+                .next(),
+        })
+        .collect()
+}
+
 fn constraint_is_auxiliary(constraint: &ConstraintSyntax) -> bool {
     matches!(
         constraint.predicate.as_str(),
@@ -1090,6 +1109,11 @@ fn lower_rule(
             RuleExpr::Sparql {
                 node: rule.subject.clone(),
                 query: first_literal(rule_property(rule, SH_CONSTRUCT)),
+                prefixes: rule_property(rule, SH_PREFIXES),
+                declarations: merge_prefix_declarations(
+                    lower_prefix_declarations_from_terms(&rule_property(rule, SH_DECLARE), quads),
+                    resolve_prefix_reference_declarations(&rule_property(rule, SH_PREFIXES), quads),
+                ),
                 conditions,
                 order,
             }
