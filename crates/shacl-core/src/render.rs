@@ -115,7 +115,15 @@ fn constraint_label(expr: &ConstraintExpr) -> String {
         }
         ConstraintExpr::HasValue(term) => format!("hasValue {}", term),
         ConstraintExpr::In(values) => format!("in {:?}", values),
-        ConstraintExpr::Sparql { node } => format!("sparql {}", node),
+        ConstraintExpr::Sparql(constraint) => format!(
+            "sparql {}\nselect={}\nask={}\nmessages={}\nprefixes={}\ndeclare={}",
+            constraint.node,
+            format_optional_text(constraint.select.as_deref()),
+            format_optional_text(constraint.ask.as_deref()),
+            format_terms(&constraint.messages),
+            format_terms(&constraint.prefixes),
+            format_prefix_declarations(&constraint.declarations),
+        ),
         ConstraintExpr::CustomComponent {
             predicate,
             component,

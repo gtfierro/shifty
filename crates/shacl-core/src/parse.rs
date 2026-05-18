@@ -3,7 +3,8 @@ use crate::source::{ResolvedShapeSet, ShapeSource, SourceLoadOptions, load_with_
 use crate::syntax::{
     AdvancedTargetSyntax, ConstraintComponentSyntax, ConstraintSyntax, ParameterSyntax,
     PredicateObjects, PrefixDeclarationSyntax, RuleSyntax, RuleSyntaxKind, ShapeSyntax,
-    ShapeSyntaxDocument, ShapeSyntaxKind, SparqlValidatorSyntax, TargetSyntax,
+    ShapeSyntaxDocument, ShapeSyntaxKind, SparqlConstraintSyntax, SparqlValidatorSyntax,
+    TargetSyntax,
 };
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{HashMap, HashSet};
@@ -31,6 +32,7 @@ const SH_OR: &str = "http://www.w3.org/ns/shacl#or";
 const SH_XONE: &str = "http://www.w3.org/ns/shacl#xone";
 const SH_QUALIFIED_VALUE_SHAPE: &str = "http://www.w3.org/ns/shacl#qualifiedValueShape";
 const SH_CONSTRAINT_COMPONENT: &str = "http://www.w3.org/ns/shacl#ConstraintComponent";
+const SH_SPARQL: &str = "http://www.w3.org/ns/shacl#sparql";
 const SH_RULE: &str = "http://www.w3.org/ns/shacl#rule";
 const SH_CONDITION: &str = "http://www.w3.org/ns/shacl#condition";
 const SH_SEVERITY: &str = "http://www.w3.org/ns/shacl#severity";
@@ -56,6 +58,7 @@ const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
 const SH_ASK: &str = "http://www.w3.org/ns/shacl#ask";
 const SH_PREFIX: &str = "http://www.w3.org/ns/shacl#prefix";
 const SH_NAMESPACE: &str = "http://www.w3.org/ns/shacl#namespace";
+const SH_LABEL_TEMPLATE: &str = "http://www.w3.org/ns/shacl#labelTemplate";
 
 pub fn load_and_parse_with_ontoenv(
     sources: &[ShapeSource],
@@ -116,6 +119,7 @@ pub fn parse_resolved(resolved: &ResolvedShapeSet) -> ShapeSyntaxDocument {
                 | SH_TARGET_OBJECTS_OF
                 | SH_PATH
                 | SH_PROPERTY
+                | SH_SPARQL
                 | SH_RULE
         ) {
             candidate_shapes.insert(subject_term);
@@ -189,8 +193,10 @@ fn build_constraint_component(
     let mut validators = Vec::new();
     let mut messages = Vec::new();
     let mut prefixes = Vec::new();
+    let mut declarations = Vec::new();
     let mut extras = Vec::new();
     let mut label = None;
+    let mut label_template = None;
     let mut comment = None;
 
     for (predicate, objects) in grouped {
@@ -206,8 +212,14 @@ fn build_constraint_component(
                 }
             }
             SH_MESSAGE => messages.extend(objects),
-            SH_PREFIXES | SH_DECLARE => prefixes.extend(objects),
+            SH_PREFIXES => prefixes.extend(objects),
+            SH_DECLARE => {
+                for object in objects {
+                    declarations.push(build_prefix_declaration(&object, by_subject));
+                }
+            }
             RDFS_LABEL => label = first_literal_owned(&objects),
+            SH_LABEL_TEMPLATE => label_template = first_literal_owned(&objects),
             RDFS_COMMENT => comment = first_literal_owned(&objects),
             RDF_TYPE => {}
             _ => extras.push(PredicateObjects { predicate, objects }),
@@ -220,7 +232,9 @@ fn build_constraint_component(
         validators,
         messages,
         prefixes,
+        declarations,
         label,
+        label_template,
         comment,
         extras,
         provenance: provenance_for_quads(&quads, provenance_by_graph),
@@ -272,6 +286,7 @@ fn build_validator(
     let mut ask = None;
     let mut messages = Vec::new();
     let mut prefixes = Vec::new();
+    let mut declarations = Vec::new();
     let mut extras = Vec::new();
     for (predicate, objects) in grouped {
         match predicate.as_str() {
@@ -279,7 +294,12 @@ fn build_validator(
             SH_SELECT => select = first_literal_owned(&objects),
             SH_ASK => ask = first_literal_owned(&objects),
             SH_MESSAGE => messages.extend(objects),
-            SH_PREFIXES | SH_DECLARE => prefixes.extend(objects),
+            SH_PREFIXES => prefixes.extend(objects),
+            SH_DECLARE => {
+                for object in objects {
+                    declarations.push(build_prefix_declaration(&object, by_subject));
+                }
+            }
             _ => extras.push(PredicateObjects { predicate, objects }),
         }
     }
@@ -290,7 +310,51 @@ fn build_validator(
         ask,
         messages,
         prefixes,
+        declarations,
         extras,
+    }
+}
+
+fn build_sparql_constraint(
+    constraint: &Term,
+    by_subject: &HashMap<Term, Vec<Quad>>,
+    provenance_by_graph: &HashMap<Option<String>, SourceRef>,
+) -> SparqlConstraintSyntax {
+    let quads = by_subject.get(constraint).cloned().unwrap_or_default();
+    let grouped = group_predicates(&quads);
+    let mut kind = None;
+    let mut select = None;
+    let mut ask = None;
+    let mut messages = Vec::new();
+    let mut prefixes = Vec::new();
+    let mut declarations = Vec::new();
+    let mut extras = Vec::new();
+    for (predicate, objects) in grouped {
+        match predicate.as_str() {
+            RDF_TYPE => kind = objects.first().cloned(),
+            SH_SELECT => select = first_literal_owned(&objects),
+            SH_ASK => ask = first_literal_owned(&objects),
+            SH_MESSAGE => messages.extend(objects),
+            SH_PREFIXES => prefixes.extend(objects),
+            SH_DECLARE => {
+                for object in objects {
+                    declarations.push(build_prefix_declaration(&object, by_subject));
+                }
+            }
+            _ => extras.push(PredicateObjects { predicate, objects }),
+        }
+    }
+
+    SparqlConstraintSyntax {
+        node: constraint.clone(),
+        kind,
+        select,
+        ask,
+        messages,
+        prefixes,
+        declarations,
+        extras,
+        provenance: provenance_for_quads(&quads, provenance_by_graph),
     }
 }
 
@@ -389,6 +453,7 @@ fn build_shape(
     let mut severity = None;
     let mut deactivated = false;
     let mut constraints = Vec::new();
+    let mut sparql_constraints = Vec::new();
     let mut extras = Vec::new();
     let mut rule_nodes = Vec::new();
 
@@ -418,6 +483,15 @@ fn build_shape(
             SH_DEACTIVATED => {
                 deactivated = objects.iter().any(is_true_literal);
             }
+            SH_SPARQL => {
+                for object in objects {
+                    sparql_constraints.push(build_sparql_constraint(
+                        &object,
+                        by_subject,
+                        provenance_by_graph,
+                    ));
+                }
+            }
             SH_RULE => rule_nodes.extend(objects),
             RDF_TYPE => {}
             _ => {
@@ -441,6 +515,7 @@ fn build_shape(
         severity,
         deactivated,
         constraints,
+        sparql_constraints,
         rule_nodes,
         extras,
         provenance: provenance_for_quads(&quads, provenance_by_graph),

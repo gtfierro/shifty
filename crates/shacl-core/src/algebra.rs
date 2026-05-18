@@ -131,9 +131,7 @@ pub enum ConstraintExpr {
     },
     HasValue(Term),
     In(Vec<Term>),
-    Sparql {
-        node: Term,
-    },
+    Sparql(SparqlConstraint),
     CustomComponent {
         predicate: NamedNode,
         component: Option<ComponentDefId>,
@@ -204,6 +202,19 @@ pub struct SparqlValidator {
     pub ask: Option<String>,
     pub messages: Vec<Term>,
     pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclaration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparqlConstraint {
+    pub node: Term,
+    pub kind: Option<Term>,
+    pub select: Option<String>,
+    pub ask: Option<String>,
+    pub messages: Vec<Term>,
+    pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclaration>,
+    pub provenance: Vec<SourceRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,7 +225,9 @@ pub struct ConstraintComponent {
     pub validators: Vec<SparqlValidator>,
     pub messages: Vec<Term>,
     pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclaration>,
     pub label: Option<String>,
+    pub label_template: Option<String>,
     pub comment: Option<String>,
     pub provenance: Vec<SourceRef>,
 }

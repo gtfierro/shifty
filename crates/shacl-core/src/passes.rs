@@ -2,7 +2,7 @@ use crate::algebra::{
     AdvancedTarget, ComponentDefId, Constraint, ConstraintComponent, ConstraintExpr,
     ConstraintId, DependencyEdge, FeatureUse, LogicalKind, ParameterDefinition, PrefixDeclaration,
     PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind, ShapeProgram,
-    SparqlValidator, Target, TargetExpr, TargetId, TriplePatternTerm,
+    SparqlConstraint, SparqlValidator, Target, TargetExpr, TargetId, TriplePatternTerm,
 };
 use crate::diagnostics::{
     Diagnostic, DiagnosticSeverity, InspectionEdge, InspectionGraph, InspectionNode,
@@ -41,7 +41,6 @@ const SH_CLOSED: &str = "http://www.w3.org/ns/shacl#closed";
 const SH_IGNORED_PROPERTIES: &str = "http://www.w3.org/ns/shacl#ignoredProperties";
 const SH_HAS_VALUE: &str = "http://www.w3.org/ns/shacl#hasValue";
 const SH_IN: &str = "http://www.w3.org/ns/shacl#in";
-const SH_SPARQL: &str = "http://www.w3.org/ns/shacl#sparql";
 const SH_CLASS: &str = "http://www.w3.org/ns/shacl#class";
 const SH_DATATYPE: &str = "http://www.w3.org/ns/shacl#datatype";
 const SH_NODE_KIND: &str = "http://www.w3.org/ns/shacl#nodeKind";
@@ -114,6 +113,21 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
     let mut dependencies = Vec::new();
     let mut features = HashSet::new();
     features.insert(FeatureUse::Core);
+    if lowered_components.iter().any(|component| {
+        component.label_template.is_some()
+            || component
+                .validators
+                .iter()
+                .any(|validator| validator.select.is_some() || validator.ask.is_some())
+    }) {
+        features.insert(FeatureUse::Sparql);
+    }
+    if lowered_components
+        .iter()
+        .any(|component| component.label_template.is_some())
+    {
+        features.insert(FeatureUse::Templates);
+    }
     let mut diagnostics = document.diagnostics.clone();
     let mut rule_map: HashMap<String, RuleSyntax> = document
         .rules
@@ -169,6 +183,17 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
                 owner: shape_id,
                 expr,
                 provenance: shape.provenance.clone(),
+            });
+            constraint_ids.push(constraint_id);
+        }
+        for sparql in &shape.sparql_constraints {
+            features.insert(FeatureUse::Sparql);
+            let constraint_id = ConstraintId((lowered_constraints.len() + 1) as u64);
+            lowered_constraints.push(Constraint {
+                id: constraint_id,
+                owner: shape_id,
+                expr: ConstraintExpr::Sparql(lower_sparql_constraint(sparql)),
+                provenance: sparql.provenance.clone(),
             });
             constraint_ids.push(constraint_id);
         }
@@ -514,15 +539,6 @@ fn lower_constraint(
                 .flat_map(|term| quad_list_terms(quads, term))
                 .collect(),
         ),
-        SH_SPARQL => {
-            features.insert(FeatureUse::Sparql);
-            constraint
-                .objects
-                .first()
-                .cloned()
-                .map(|node| ConstraintExpr::Sparql { node })
-                .unwrap_or_else(|| generic_expr(constraint))
-        }
         _ => {
             if !constraint
                 .predicate
@@ -586,13 +602,44 @@ fn lower_constraint_components(
                     ask: validator.ask.clone(),
                     messages: validator.messages.clone(),
                     prefixes: validator.prefixes.clone(),
+                    declarations: lower_prefix_declarations(&validator.declarations),
                 })
                 .collect(),
             messages: component.messages.clone(),
             prefixes: component.prefixes.clone(),
+            declarations: lower_prefix_declarations(&component.declarations),
             label: component.label.clone(),
+            label_template: component.label_template.clone(),
             comment: component.comment.clone(),
             provenance: component.provenance.clone(),
+        })
+        .collect()
+}
+
+fn lower_sparql_constraint(
+    constraint: &crate::syntax::SparqlConstraintSyntax,
+) -> SparqlConstraint {
+    SparqlConstraint {
+        node: constraint.node.clone(),
+        kind: constraint.kind.clone(),
+        select: constraint.select.clone(),
+        ask: constraint.ask.clone(),
+        messages: constraint.messages.clone(),
+        prefixes: constraint.prefixes.clone(),
+        declarations: lower_prefix_declarations(&constraint.declarations),
+        provenance: constraint.provenance.clone(),
+    }
+}
+
+fn lower_prefix_declarations(
+    declarations: &[crate::syntax::PrefixDeclarationSyntax],
+) -> Vec<PrefixDeclaration> {
+    declarations
+        .iter()
+        .map(|declaration| PrefixDeclaration {
+            node: declaration.node.clone(),
+            prefix: declaration.prefix.clone(),
+            namespace: declaration.namespace.clone(),
         })
         .collect()
 }

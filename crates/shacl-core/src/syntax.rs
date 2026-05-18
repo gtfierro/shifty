@@ -70,6 +70,7 @@ pub struct SparqlValidatorSyntax {
     pub ask: Option<String>,
     pub messages: Vec<Term>,
     pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclarationSyntax>,
     pub extras: Vec<PredicateObjects>,
 }
 
@@ -80,8 +81,23 @@ pub struct ConstraintComponentSyntax {
     pub validators: Vec<SparqlValidatorSyntax>,
     pub messages: Vec<Term>,
     pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclarationSyntax>,
     pub label: Option<String>,
+    pub label_template: Option<String>,
     pub comment: Option<String>,
+    pub extras: Vec<PredicateObjects>,
+    pub provenance: Vec<SourceRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparqlConstraintSyntax {
+    pub node: Term,
+    pub kind: Option<Term>,
+    pub select: Option<String>,
+    pub ask: Option<String>,
+    pub messages: Vec<Term>,
+    pub prefixes: Vec<Term>,
+    pub declarations: Vec<PrefixDeclarationSyntax>,
     pub extras: Vec<PredicateObjects>,
     pub provenance: Vec<SourceRef>,
 }
@@ -113,6 +129,7 @@ pub struct ShapeSyntax {
     pub severity: Option<Term>,
     pub deactivated: bool,
     pub constraints: Vec<ConstraintSyntax>,
+    pub sparql_constraints: Vec<SparqlConstraintSyntax>,
     pub rule_nodes: Vec<Term>,
     pub extras: Vec<PredicateObjects>,
     pub provenance: Vec<SourceRef>,

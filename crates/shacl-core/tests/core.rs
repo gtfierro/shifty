@@ -686,6 +686,8 @@ fn parses_constraint_component_definitions() {
     assert_eq!(component.parameters.len(), 2);
     assert_eq!(component.validators.len(), 1);
     assert!(component.validators[0].select.is_some());
+    assert_eq!(component.declarations.len(), 0);
+    assert_eq!(component.label_template, None);
 }
 
 #[test]
@@ -715,4 +717,84 @@ fn lowers_custom_component_attachments() {
             } if predicate.as_str() == "http://example.org/activate"
         )
     }));
+}
+
+#[test]
+fn parses_first_class_sparql_constraints() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(
+            fixture_path("../test-suite/sparql/node/sparql-001.ttl"),
+        )],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let shape = syntax
+        .shapes
+        .iter()
+        .find(|shape| shape.subject.to_string().contains("TestShape"))
+        .expect("test fixture should include the shape");
+    assert_eq!(shape.sparql_constraints.len(), 1);
+    let sparql = &shape.sparql_constraints[0];
+    assert!(sparql.select.is_some());
+    assert_eq!(sparql.messages.len(), 1);
+    assert_eq!(sparql.prefixes.len(), 1);
+
+    let program = lower_to_program(&syntax);
+    assert!(program.constraints.iter().any(|constraint| {
+        matches!(
+            &constraint.expr,
+            shifty_shacl_core::algebra::ConstraintExpr::Sparql(sparql)
+            if sparql.select.is_some() && sparql.messages.len() == 1 && sparql.prefixes.len() == 1
+        )
+    }));
+}
+
+#[test]
+fn lowers_label_templates_on_constraint_components() {
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(fixture_path(
+            "../test-suite/sparql/component/propertyValidator-select-001.ttl",
+        ))],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let component = syntax
+        .constraint_components
+        .iter()
+        .find(|component| component.subject.to_string().contains("LanguageConstraintComponentUsingSELECT"))
+        .expect("fixture should include the language component");
+    assert!(component.label_template.is_some());
+    assert_eq!(component.validators.len(), 1);
+    assert_eq!(component.validators[0].prefixes.len(), 1);
+
+    let program = lower_to_program(&syntax);
+    let component = program
+        .constraint_components
+        .iter()
+        .find(|component| component.subject.to_string().contains("LanguageConstraintComponentUsingSELECT"))
+        .expect("component should lower");
+    assert!(component.label_template.is_some());
+    assert_eq!(component.validators[0].prefixes.len(), 1);
+    assert!(program
+        .features
+        .iter()
+        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Templates)));
+    assert!(program
+        .features
+        .iter()
+        .any(|feature| matches!(feature, shifty_shacl_core::algebra::FeatureUse::Sparql)));
 }
