@@ -52,6 +52,25 @@ pub enum CaseSupport {
 }
 
 #[derive(Debug, Clone)]
+pub struct BackendManifestMetadata {
+    pub supported_regions: Vec<&'static str>,
+    pub skipped_regions: Vec<SkippedManifestRegion>,
+    pub known_divergence_cases: Vec<KnownDivergenceCase>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SkippedManifestRegion {
+    pub prefix: &'static str,
+    pub reason: &'static str,
+}
+
+#[derive(Debug, Clone)]
+pub struct KnownDivergenceCase {
+    pub manifest_path: &'static str,
+    pub reason: &'static str,
+}
+
+#[derive(Debug, Clone)]
 pub struct SuiteOutcome {
     pub total_cases: usize,
     pub executed_cases: usize,
@@ -66,6 +85,7 @@ pub struct ManifestFailure {
 
 pub trait ManifestValidationBackend {
     fn backend_name(&self) -> &'static str;
+    fn manifest_metadata(&self) -> BackendManifestMetadata;
     fn support_for_case(&self, case: &ManifestCase) -> CaseSupport;
     fn execute_case(&self, case: &ManifestCase) -> Result<ValidationResult, String>;
 }
@@ -131,6 +151,30 @@ pub fn run_manifest_suite<B: ManifestValidationBackend>(
         executed_cases,
         skipped_cases,
     }
+}
+
+pub fn classify_case_support(
+    metadata: &BackendManifestMetadata,
+    case: &ManifestCase,
+) -> CaseSupport {
+    if case.status != SHT_APPROVED {
+        return CaseSupport::Skipped("non-approved manifest status");
+    }
+    let relative_manifest = relative_suite_manifest_path(&case.manifest_path);
+    if matches!(case.expected, ManifestExpectation::Failure) {
+        return CaseSupport::Skipped("manifest failure expectations not modeled yet");
+    }
+    for region in &metadata.skipped_regions {
+        if relative_manifest.starts_with(region.prefix) {
+            return CaseSupport::Skipped(region.reason);
+        }
+    }
+    for divergence in &metadata.known_divergence_cases {
+        if relative_manifest == divergence.manifest_path {
+            return CaseSupport::Skipped(divergence.reason);
+        }
+    }
+    CaseSupport::Supported
 }
 
 fn assert_case<B: ManifestValidationBackend>(
@@ -430,26 +474,35 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
         "in-memory"
     }
 
+    fn manifest_metadata(&self) -> BackendManifestMetadata {
+        BackendManifestMetadata {
+            supported_regions: vec!["core/", "sparql/", "advanced/"],
+            skipped_regions: vec![
+                SkippedManifestRegion {
+                    prefix: "sparql/pre-binding/",
+                    reason: "pre-binding manifest semantics not modeled yet",
+                },
+                SkippedManifestRegion {
+                    prefix: "advanced/expression/",
+                    reason: "advanced function/expression execution not implemented",
+                },
+                SkippedManifestRegion {
+                    prefix: "advanced/function/",
+                    reason: "advanced function/expression execution not implemented",
+                },
+            ],
+            known_divergence_cases: KNOWN_IN_MEMORY_DIVERGENCES
+                .iter()
+                .map(|(manifest_path, reason)| KnownDivergenceCase {
+                    manifest_path,
+                    reason,
+                })
+                .collect(),
+        }
+    }
+
     fn support_for_case(&self, case: &ManifestCase) -> CaseSupport {
-        if case.status != SHT_APPROVED {
-            return CaseSupport::Skipped("non-approved manifest status");
-        }
-        let relative_manifest = relative_suite_manifest_path(&case.manifest_path);
-        if relative_manifest.starts_with("sparql/pre-binding/") {
-            return CaseSupport::Skipped("pre-binding manifest semantics not modeled yet");
-        }
-        if relative_manifest.starts_with("advanced/expression/")
-            || relative_manifest.starts_with("advanced/function/")
-        {
-            return CaseSupport::Skipped("advanced function/expression execution not implemented");
-        }
-        if matches!(case.expected, ManifestExpectation::Failure) {
-            return CaseSupport::Skipped("manifest failure expectations not modeled yet");
-        }
-        if KNOWN_IN_MEMORY_DIVERGENCES.contains(&relative_manifest.as_str()) {
-            return CaseSupport::Skipped("known in-memory backend divergence");
-        }
-        CaseSupport::Supported
+        classify_case_support(&self.manifest_metadata(), case)
     }
 
     fn execute_case(&self, case: &ManifestCase) -> Result<ValidationResult, String> {
@@ -463,38 +516,38 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
     }
 }
 
-const KNOWN_IN_MEMORY_DIVERGENCES: &[&str] = &[
-    "core/complex/personexample.ttl",
-    "core/complex/shacl-shacl.ttl",
-    "core/misc/deactivated-001.ttl",
-    "core/node/class-002.ttl",
-    "core/node/class-003.ttl",
-    "core/node/datatype-001.ttl",
-    "core/node/maxExclusive-001.ttl",
-    "core/node/maxInclusive-001.ttl",
-    "core/node/maxLength-001.ttl",
-    "core/node/minExclusive-001.ttl",
-    "core/node/minInclusive-002.ttl",
-    "core/node/minInclusive-003.ttl",
-    "core/node/minLength-001.ttl",
-    "core/node/pattern-001.ttl",
-    "core/node/pattern-002.ttl",
-    "core/path/path-sequence-duplicate-001.ttl",
-    "core/property/and-001.ttl",
-    "core/property/equals-001.ttl",
-    "core/property/lessThan-002.ttl",
-    "core/property/node-001.ttl",
-    "core/property/nodeKind-001.ttl",
-    "core/property/pattern-002.ttl",
-    "core/property/property-001.ttl",
-    "core/property/qualifiedMinCountDisjoint-001.ttl",
-    "core/property/qualifiedValueShapesDisjoint-001.ttl",
-    "core/property/uniqueLang-001.ttl",
-    "core/property/uniqueLang-002.ttl",
-    "core/targets/targetSubjectsOf-002.ttl",
-    "core/validation-reports/shared.ttl",
-    "sparql/component/optional-001.ttl",
-    "sparql/component/propertyValidator-select-001.ttl",
-    "sparql/node/prefixes-001.ttl",
-    "sparql/pre-binding/shapesGraph-001.ttl",
+const KNOWN_IN_MEMORY_DIVERGENCES: &[(&str, &str)] = &[
+    ("core/complex/personexample.ttl", "known in-memory backend divergence"),
+    ("core/complex/shacl-shacl.ttl", "known in-memory backend divergence"),
+    ("core/misc/deactivated-001.ttl", "known in-memory backend divergence"),
+    ("core/node/class-002.ttl", "known in-memory backend divergence"),
+    ("core/node/class-003.ttl", "known in-memory backend divergence"),
+    ("core/node/datatype-001.ttl", "known in-memory backend divergence"),
+    ("core/node/maxExclusive-001.ttl", "known in-memory backend divergence"),
+    ("core/node/maxInclusive-001.ttl", "known in-memory backend divergence"),
+    ("core/node/maxLength-001.ttl", "known in-memory backend divergence"),
+    ("core/node/minExclusive-001.ttl", "known in-memory backend divergence"),
+    ("core/node/minInclusive-002.ttl", "known in-memory backend divergence"),
+    ("core/node/minInclusive-003.ttl", "known in-memory backend divergence"),
+    ("core/node/minLength-001.ttl", "known in-memory backend divergence"),
+    ("core/node/pattern-001.ttl", "known in-memory backend divergence"),
+    ("core/node/pattern-002.ttl", "known in-memory backend divergence"),
+    ("core/path/path-sequence-duplicate-001.ttl", "known in-memory backend divergence"),
+    ("core/property/and-001.ttl", "known in-memory backend divergence"),
+    ("core/property/equals-001.ttl", "known in-memory backend divergence"),
+    ("core/property/lessThan-002.ttl", "known in-memory backend divergence"),
+    ("core/property/node-001.ttl", "known in-memory backend divergence"),
+    ("core/property/nodeKind-001.ttl", "known in-memory backend divergence"),
+    ("core/property/pattern-002.ttl", "known in-memory backend divergence"),
+    ("core/property/property-001.ttl", "known in-memory backend divergence"),
+    ("core/property/qualifiedMinCountDisjoint-001.ttl", "known in-memory backend divergence"),
+    ("core/property/qualifiedValueShapesDisjoint-001.ttl", "known in-memory backend divergence"),
+    ("core/property/uniqueLang-001.ttl", "known in-memory backend divergence"),
+    ("core/property/uniqueLang-002.ttl", "known in-memory backend divergence"),
+    ("core/targets/targetSubjectsOf-002.ttl", "known in-memory backend divergence"),
+    ("core/validation-reports/shared.ttl", "known in-memory backend divergence"),
+    ("sparql/component/optional-001.ttl", "known in-memory backend divergence"),
+    ("sparql/component/propertyValidator-select-001.ttl", "known in-memory backend divergence"),
+    ("sparql/node/prefixes-001.ttl", "known in-memory backend divergence"),
+    ("sparql/pre-binding/shapesGraph-001.ttl", "known in-memory backend divergence"),
 ];

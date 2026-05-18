@@ -235,6 +235,14 @@ Build backend-agnostic static analysis over `ShapeProgram` that can:
 - [x] Add explicit backend skip reasons for manifest regions whose semantics are not modeled yet
 - [x] Keep report-count assertions on manifest-backed validation runs
 
+## Phase 15 Checklist
+
+- [x] Add explicit backend manifest-conformance metadata
+- [x] Separate supported manifest regions from skipped regions and known divergence cases
+- [x] Derive case support from backend metadata instead of ad hoc skip logic
+- [x] Assert backend conformance metadata in manifest integration tests
+- [x] Keep per-skip reasons visible in suite outcomes for future backend comparisons
+
 ## Data Types / APIs
 
 - `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
