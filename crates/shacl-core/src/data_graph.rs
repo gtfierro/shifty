@@ -2,7 +2,8 @@ use crate::algebra::{ConstraintExpr, ConstraintId, ShapeId, ShapeProgram, Target
 use crate::source::ResolvedShapeSet;
 use oxrdf::{NamedNode, NamedOrBlankNode, Term};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -102,6 +103,7 @@ impl Default for DataSummaryOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DataSummaryMetadata {
     pub estimation_mode: PlanningEstimationMode,
+    pub sample_subject_budget: Option<usize>,
     pub sampled_subjects: Option<usize>,
     pub sampled_quads: Option<usize>,
     pub exact_target_estimates: usize,
@@ -157,8 +159,7 @@ impl PlanningIndex {
             if let Some(path) = &shape.path
                 && let Some(predicate) = direct_path_predicate(path)
             {
-                direct_path_predicate_by_shape
-                    .insert(shape.id, predicate.as_str().to_string());
+                direct_path_predicate_by_shape.insert(shape.id, predicate.as_str().to_string());
             }
         }
         Self {
@@ -171,7 +172,7 @@ impl PlanningIndex {
     }
 }
 
-pub const DEFAULT_SUBJECT_SAMPLE_BUDGET: usize = 10_000;
+pub const DEFAULT_SUBJECT_SAMPLE_BUDGET: usize = 1_000;
 
 #[derive(Debug, Default)]
 struct PredicateAccumulator {
@@ -195,13 +196,41 @@ pub(crate) struct DataIndex {
     superclasses: HashMap<String, BTreeSet<String>>,
     subjects_of: HashMap<String, BTreeSet<String>>,
     objects_of: HashMap<String, BTreeSet<String>>,
+    sample_subject_budget: Option<usize>,
     sampled_subjects: Option<usize>,
     sampled_quads: Option<usize>,
 }
 
+#[derive(Debug)]
+struct SubjectSampleSelection {
+    members: Option<HashSet<String>>,
+    sample_subject_budget: Option<usize>,
+    sampled_subjects: Option<usize>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct SampleEntry {
+    hash: u64,
+    key: String,
+}
+
+impl Ord for SampleEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.hash
+            .cmp(&other.hash)
+            .then_with(|| self.key.cmp(&other.key))
+    }
+}
+
+impl PartialOrd for SampleEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl DataIndex {
     fn build(data: &ResolvedShapeSet, options: &DataSummaryOptions) -> Self {
-        let sampled_subjects = sampled_subject_keys(data, options);
+        let sample_selection = sampled_subject_keys(data, options);
         let mut subjects = BTreeSet::new();
         let mut predicates = BTreeSet::new();
         let mut objects = BTreeSet::new();
@@ -215,7 +244,8 @@ impl DataIndex {
         for quad in &data.quads {
             let subject_term = subject_to_term(&quad.subject);
             let subject_key = subject_term.to_string();
-            if sampled_subjects
+            if sample_selection
+                .members
                 .as_ref()
                 .is_some_and(|subjects| !subjects.contains(&subject_key))
             {
@@ -284,8 +314,9 @@ impl DataIndex {
             superclasses,
             subjects_of,
             objects_of,
-            sampled_subjects: sampled_subjects.as_ref().map(BTreeSet::len),
-            sampled_quads: sampled_subjects.as_ref().map(|_| sampled_quads),
+            sample_subject_budget: sample_selection.sample_subject_budget,
+            sampled_subjects: sample_selection.sampled_subjects,
+            sampled_quads: sample_selection.members.as_ref().map(|_| sampled_quads),
         }
     }
 }
@@ -331,7 +362,8 @@ pub(crate) fn summarize_data_graph_from_index(
         Vec::new()
     };
     let target_estimates = build_target_estimates(program, &index);
-    let shape_summaries = build_shape_data_summaries(program, planning_index, &index, &target_estimates);
+    let shape_summaries =
+        build_shape_data_summaries(program, planning_index, &index, &target_estimates);
     let exact_target_estimates = target_estimates
         .iter()
         .filter(|estimate| !estimate.sampled)
@@ -348,6 +380,7 @@ pub(crate) fn summarize_data_graph_from_index(
         distinct_objects: index.objects.len(),
         metadata: DataSummaryMetadata {
             estimation_mode: options.estimation_mode,
+            sample_subject_budget: index.sample_subject_budget,
             sampled_subjects: index.sampled_subjects,
             sampled_quads: index.sampled_quads,
             exact_target_estimates,
@@ -407,7 +440,8 @@ fn build_class_stats(index: &DataIndex) -> Vec<ClassDataStats> {
     }
     all_classes.extend(index.superclasses.keys().cloned());
     all_classes.extend(
-        index.superclasses
+        index
+            .superclasses
             .values()
             .flat_map(|parents| parents.iter().cloned()),
     );
@@ -564,7 +598,8 @@ fn expanded_class_count(index: &DataIndex, class: &str) -> usize {
         .types
         .values()
         .filter(|types| {
-            types.iter()
+            types
+                .iter()
                 .any(|candidate| class_is_or_subclass_of(candidate, class, &index.superclasses))
         })
         .count()
@@ -660,31 +695,62 @@ fn estimate_target_focuses(target: &TargetExpr, index: &DataIndex) -> Option<Tar
 fn sampled_subject_keys(
     data: &ResolvedShapeSet,
     options: &DataSummaryOptions,
-) -> Option<BTreeSet<String>> {
+) -> SubjectSampleSelection {
     if options.estimation_mode == PlanningEstimationMode::Exact {
-        return None;
+        return SubjectSampleSelection {
+            members: None,
+            sample_subject_budget: None,
+            sampled_subjects: None,
+        };
     }
-    let mut subjects = data
-        .quads
-        .iter()
-        .map(|quad| subject_to_term(&quad.subject).to_string())
-        .collect::<Vec<_>>();
-    subjects.sort();
-    subjects.dedup();
-    if subjects.len() <= options.subject_sample_budget {
-        return None;
-    }
+
     let budget = options.subject_sample_budget.max(1);
-    let step = ((subjects.len() as f64) / (budget as f64)).ceil() as usize;
-    Some(
-        subjects
-            .into_iter()
-            .enumerate()
-            .filter(|(index, _)| index % step == 0)
-            .map(|(_, subject)| subject)
-            .take(budget)
-            .collect(),
-    )
+    let mut seen = HashSet::new();
+    let mut heap = BinaryHeap::new();
+
+    for quad in &data.quads {
+        let subject_key = subject_to_term(&quad.subject).to_string();
+        if !seen.insert(subject_key.clone()) {
+            continue;
+        }
+        let entry = SampleEntry {
+            hash: stable_subject_hash(&subject_key),
+            key: subject_key,
+        };
+        if heap.len() < budget {
+            heap.push(entry);
+            continue;
+        }
+        if heap.peek().is_some_and(|largest| entry < *largest) {
+            heap.pop();
+            heap.push(entry);
+        }
+    }
+    if seen.len() <= budget {
+        return SubjectSampleSelection {
+            members: None,
+            sample_subject_budget: None,
+            sampled_subjects: None,
+        };
+    }
+
+    SubjectSampleSelection {
+        members: Some(heap.into_iter().map(|entry| entry.key).collect()),
+        sample_subject_budget: Some(budget),
+        sampled_subjects: Some(budget),
+    }
+}
+
+fn stable_subject_hash(value: &str) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
 }
 
 fn target_kind_name(target: &TargetExpr) -> &'static str {

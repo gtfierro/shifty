@@ -1,15 +1,15 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
     BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
-    NormalizeOptions, PlanningEstimationMode, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots,
-    StaticCostHint, ValidationBackend, analyze_program, analyze_static, analyze_static_with_roots,
-    build_validation_report, canonicalize_program, context_requirements,
-    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
-    derive_inference_view, derive_validation_logical_plan, derive_validation_logical_plan_with_data,
-    derive_validation_logical_plan_with_options, derive_validation_view,
-    fingerprint_program, lower_to_program, normalize_program, parse_quads,
+    NormalizeOptions, PlanningEstimationMode, RewriteOptions, SharedWorkUnitKind, SliceReason,
+    SliceRoots, StaticCostHint, ValidationBackend, ValidationPlanningOptions, analyze_program,
+    analyze_static, analyze_static_with_roots, build_validation_report, canonicalize_program,
+    context_requirements, derive_backend_logical_plans, derive_backend_views,
+    derive_inference_logical_plan, derive_inference_view, derive_validation_logical_plan,
+    derive_validation_logical_plan_with_data, derive_validation_logical_plan_with_options,
+    derive_validation_view, fingerprint_program, lower_to_program, normalize_program, parse_quads,
     prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
-    slice_program, ValidationPlanningOptions,
+    slice_program,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
@@ -1373,7 +1373,8 @@ fn data_aware_plan_marks_empty_target_scans() {
     )
     .expect("data graph loads");
 
-    let plan = derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let plan =
+        derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
     let summary = plan.data_summary.expect("data summary present");
     let shape_id = summary
         .shape_summaries
@@ -1471,7 +1472,8 @@ fn data_aware_plan_orders_target_scans_by_selectivity() {
     )
     .expect("data graph loads");
 
-    let plan = derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let plan =
+        derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
     let shape_labels = plan
         .view
         .program
@@ -1531,7 +1533,9 @@ fn data_aware_plan_preserves_validation_conformance() {
         derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
     let backend = InMemoryValidationBackend;
     let plain_result = backend.execute(&plain, &data).expect("plain executes");
-    let data_result = backend.execute(&data_aware, &data).expect("data-aware executes");
+    let data_result = backend
+        .execute(&data_aware, &data)
+        .expect("data-aware executes");
     assert_eq!(plain_result.conforms, data_result.conforms);
     let plain_keys = plain_result
         .violations
@@ -1623,10 +1627,15 @@ fn sampled_data_aware_plan_reports_sampled_metadata_without_empty_scan_proof() {
             subject_sample_budget: 5,
         },
     );
-    assert_eq!(plan.planning.estimation_mode, PlanningEstimationMode::Sampled);
+    assert_eq!(
+        plan.planning.estimation_mode,
+        PlanningEstimationMode::Sampled
+    );
+    assert_eq!(plan.planning.sample_subject_budget, Some(5));
     assert_eq!(plan.planning.sampled_subjects, Some(5));
     assert_eq!(plan.planning.sampled_target_estimates, 1);
     let summary = plan.data_summary.expect("data summary present");
+    assert_eq!(summary.metadata.sample_subject_budget, Some(5));
     let shape_summary = summary
         .shape_summaries
         .iter()
@@ -1681,12 +1690,126 @@ fn sampled_data_aware_plan_preserves_validation_conformance() {
             subject_sample_budget: 5,
         },
     );
-    let exact = derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let exact =
+        derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
     let backend = InMemoryValidationBackend;
     let sampled_result = backend.execute(&sampled, &data).expect("sampled executes");
     let exact_result = backend.execute(&exact, &data).expect("exact executes");
     assert_eq!(sampled_result.conforms, exact_result.conforms);
-    assert_eq!(sampled_result.violations.len(), exact_result.violations.len());
+    assert_eq!(
+        sampled_result.violations.len(),
+        exact_result.violations.len()
+    );
+}
+
+#[test]
+fn sampled_data_aware_plan_is_deterministic_for_fixed_budget() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdfs_class = NamedNode::new("http://www.w3.org/2000/01/rdf-schema#Class").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_class = NamedNode::new("http://www.w3.org/ns/shacl#targetClass").unwrap();
+    let shape = NamedNode::new("urn:deterministic-shape").unwrap();
+    let target_class = NamedNode::new("urn:DeterministicClass").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            sh_target_class,
+            Term::NamedNode(target_class.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            target_class,
+            rdf_type,
+            Term::NamedNode(rdfs_class),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let data_quads = (0..50)
+        .map(|index| {
+            Quad::new(
+                NamedNode::new(format!("urn:deterministic-{index}")).unwrap(),
+                NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+                Term::NamedNode(NamedNode::new("urn:DeterministicClass").unwrap()),
+                oxrdf::GraphName::DefaultGraph,
+            )
+        })
+        .collect::<Vec<_>>();
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-deterministic").unwrap(),
+            quads: data_quads,
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let options = ValidationPlanningOptions {
+        estimation_mode: PlanningEstimationMode::Sampled,
+        subject_sample_budget: 7,
+    };
+    let first = derive_validation_logical_plan_with_options(
+        &program,
+        BackendViewOptions::default(),
+        &data,
+        options.clone(),
+    );
+    let second = derive_validation_logical_plan_with_options(
+        &program,
+        BackendViewOptions::default(),
+        &data,
+        options,
+    );
+
+    assert_eq!(first.planning.sample_subject_budget, Some(7));
+    assert_eq!(first.planning.sampled_subjects, Some(7));
+    assert_eq!(first.planning.sampled_quads, second.planning.sampled_quads);
+    assert_eq!(
+        first
+            .data_summary
+            .as_ref()
+            .map(|summary| summary.metadata.sampled_quads),
+        second
+            .data_summary
+            .as_ref()
+            .map(|summary| summary.metadata.sampled_quads),
+    );
+    assert_eq!(
+        first
+            .data_summary
+            .as_ref()
+            .and_then(|summary| summary.target_estimates.first())
+            .map(|estimate| estimate.estimated_focus_nodes),
+        second
+            .data_summary
+            .as_ref()
+            .and_then(|summary| summary.target_estimates.first())
+            .map(|estimate| estimate.estimated_focus_nodes),
+    );
+    assert_eq!(
+        first
+            .data_summary
+            .as_ref()
+            .and_then(|summary| summary.shape_summaries.first())
+            .map(|shape| (shape.estimated_focus_nodes, shape.sampled_estimate)),
+        second
+            .data_summary
+            .as_ref()
+            .and_then(|summary| summary.shape_summaries.first())
+            .map(|shape| (shape.estimated_focus_nodes, shape.sampled_estimate)),
+    );
 }
 
 #[test]
@@ -2595,9 +2718,7 @@ fn validation_backend_only_enables_unique_lang_for_true_literal() {
         Quad::new(
             property_shape,
             sh_unique_lang,
-            Term::Literal(
-                Literal::new_typed_literal("1", xsd_boolean)
-            ),
+            Term::Literal(Literal::new_typed_literal("1", xsd_boolean)),
             oxrdf::GraphName::DefaultGraph,
         ),
     ]);

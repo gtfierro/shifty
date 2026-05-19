@@ -4,16 +4,17 @@ use serde::Serialize;
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
-    InferencePlan, InferenceView, NormalizeOptions, PlanningEstimationMode, RewriteOptions, RewriteSummary,
-    SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
-    ValidationBackend, ValidationPlan, ValidationPlanningOptions, ValidationResult, ValidationView, analyze_program,
-    analyze_static_with_roots, build_validation_report, derive_backend_logical_plans,
-    derive_backend_views, derive_inference_logical_plan, derive_inference_view,
-    derive_validation_logical_plan, derive_validation_logical_plan_with_options_detailed,
-    derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
-    parse_resolved, render_shape_program_dot, rewrite_program,
+    InferencePlan, InferenceView, NormalizeOptions, PlanningEstimationMode, RewriteOptions,
+    RewriteSummary, SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary,
+    StaticCostHint, ValidationBackend, ValidationPlan, ValidationPlanningOptions, ValidationResult,
+    ValidationView, analyze_program, analyze_static_with_roots, build_validation_report,
+    derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
+    derive_inference_view, derive_validation_logical_plan,
+    derive_validation_logical_plan_with_options_detailed, derive_validation_view,
+    load_and_parse_with_ontoenv, lower_to_program, normalize_program, parse_resolved,
+    render_shape_program_dot, rewrite_program,
 };
-use shifty_shacl_core_inmemory::{compile_validation_plan, InMemoryValidationBackend};
+use shifty_shacl_core_inmemory::{InMemoryValidationBackend, compile_validation_plan};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -323,6 +324,10 @@ struct ValidateArgs {
     #[arg(long = "planning", value_enum, default_value_t = PlanningModeArg::Exact)]
     planning: PlanningModeArg,
 
+    /// Subject budget used when --planning sampled is selected
+    #[arg(long = "planning-sample-subjects")]
+    planning_sample_subjects: Option<usize>,
+
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -361,6 +366,10 @@ struct DataPlanArgs {
     #[arg(long = "planning", value_enum, default_value_t = PlanningModeArg::Exact)]
     planning: PlanningModeArg,
 
+    /// Subject budget used when --planning sampled is selected
+    #[arg(long = "planning-sample-subjects")]
+    planning_sample_subjects: Option<usize>,
+
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -398,6 +407,10 @@ struct PhysicalPlanArgs {
     /// Data-aware planning estimation mode
     #[arg(long = "planning", value_enum, default_value_t = PlanningModeArg::Exact)]
     planning: PlanningModeArg,
+
+    /// Subject budget used when --planning sampled is selected
+    #[arg(long = "planning-sample-subjects")]
+    planning_sample_subjects: Option<usize>,
 
     /// Write output to a file instead of stdout
     #[arg(short, long)]
@@ -832,7 +845,10 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
                 )
             })?
         } else {
-            shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+            shifty_shacl_core::source::load_with_ontoenv(
+                &data_sources,
+                &load_options(&args.shared),
+            )?
         }
     };
     let execution_data = if let Some(recorder) = benchmark.as_mut() {
@@ -840,7 +856,7 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         resolved.merged_with(&data)
     };
-    let planning_options = planning_options(args.planning);
+    let planning_options = planning_options(args.planning, args.planning_sample_subjects);
     let plan = if let Some(recorder) = benchmark.as_mut() {
         let planning = derive_validation_logical_plan_with_options_detailed(
             &program,
@@ -848,16 +864,12 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
             &execution_data,
             planning_options,
         );
-        recorder.extend_stages(
-            planning
-                .benchmark
-                .stages
-                .into_iter()
-                .map(|stage| BenchmarkStageRecord {
-                    name: stage.name,
-                    elapsed_ms: stage.elapsed_ms,
-                }),
-        );
+        recorder.extend_stages(planning.benchmark.stages.into_iter().map(|stage| {
+            BenchmarkStageRecord {
+                name: stage.name,
+                elapsed_ms: stage.elapsed_ms,
+            }
+        }));
         planning.plan
     } else {
         derive_validation_logical_plan_with_options_detailed(
@@ -1015,7 +1027,10 @@ fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
                 )
             })?
         } else {
-            shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
+            shifty_shacl_core::source::load_with_ontoenv(
+                &data_sources,
+                &load_options(&args.shared),
+            )?
         }
     };
     let execution_data = if let Some(recorder) = benchmark.as_mut() {
@@ -1023,7 +1038,7 @@ fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         resolved.merged_with(&data)
     };
-    let planning_options = planning_options(args.planning);
+    let planning_options = planning_options(args.planning, args.planning_sample_subjects);
     let plan = if let Some(recorder) = benchmark.as_mut() {
         let planning = derive_validation_logical_plan_with_options_detailed(
             &program,
@@ -1031,16 +1046,12 @@ fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
             &execution_data,
             planning_options,
         );
-        recorder.extend_stages(
-            planning
-                .benchmark
-                .stages
-                .into_iter()
-                .map(|stage| BenchmarkStageRecord {
-                    name: stage.name,
-                    elapsed_ms: stage.elapsed_ms,
-                }),
-        );
+        recorder.extend_stages(planning.benchmark.stages.into_iter().map(|stage| {
+            BenchmarkStageRecord {
+                name: stage.name,
+                elapsed_ms: stage.elapsed_ms,
+            }
+        }));
         planning.plan
     } else {
         derive_validation_logical_plan_with_options_detailed(
@@ -1133,7 +1144,7 @@ fn run_physical_plan(args: PhysicalPlanArgs) -> Result<(), Box<dyn std::error::E
         &program,
         options,
         &execution_data,
-        planning_options(args.planning),
+        planning_options(args.planning, args.planning_sample_subjects),
     )
     .plan;
     let physical = compile_validation_plan(&plan).inspect();
@@ -1153,14 +1164,21 @@ fn run_physical_plan(args: PhysicalPlanArgs) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-fn planning_options(mode: PlanningModeArg) -> ValidationPlanningOptions {
-    ValidationPlanningOptions {
+fn planning_options(
+    mode: PlanningModeArg,
+    sample_subject_budget: Option<usize>,
+) -> ValidationPlanningOptions {
+    let mut options = ValidationPlanningOptions {
         estimation_mode: match mode {
             PlanningModeArg::Exact => PlanningEstimationMode::Exact,
             PlanningModeArg::Sampled => PlanningEstimationMode::Sampled,
         },
         ..ValidationPlanningOptions::default()
+    };
+    if let Some(sample_subject_budget) = sample_subject_budget {
+        options.subject_sample_budget = sample_subject_budget.max(1);
     }
+    options
 }
 
 fn load_shapes(
@@ -1178,21 +1196,24 @@ fn shape_sources(args: &SharedArgs) -> Vec<ShapeSource> {
 
 fn same_shape_and_data_sources(shapes: &[ShapeSource], data: &[ShapeSource]) -> bool {
     shapes.len() == data.len()
-        && shapes.iter().zip(data).all(|(left, right)| match (left, right) {
-            (ShapeSource::File(left), ShapeSource::File(right)) => left == right,
-            (ShapeSource::Url(left), ShapeSource::Url(right)) => left == right,
-            (
-                ShapeSource::Quads {
-                    graph_iri: left_graph,
-                    quads: left_quads,
-                },
-                ShapeSource::Quads {
-                    graph_iri: right_graph,
-                    quads: right_quads,
-                },
-            ) => left_graph == right_graph && left_quads == right_quads,
-            _ => false,
-        })
+        && shapes
+            .iter()
+            .zip(data)
+            .all(|(left, right)| match (left, right) {
+                (ShapeSource::File(left), ShapeSource::File(right)) => left == right,
+                (ShapeSource::Url(left), ShapeSource::Url(right)) => left == right,
+                (
+                    ShapeSource::Quads {
+                        graph_iri: left_graph,
+                        quads: left_quads,
+                    },
+                    ShapeSource::Quads {
+                        graph_iri: right_graph,
+                        quads: right_quads,
+                    },
+                ) => left_graph == right_graph && left_quads == right_quads,
+                _ => false,
+            })
 }
 
 fn load_options(args: &SharedArgs) -> SourceLoadOptions {
@@ -2207,18 +2228,30 @@ fn render_validation_plan_text(plan: &ValidationPlan) -> String {
         "  sampled_target_estimates: {}\n",
         plan.planning.sampled_target_estimates
     ));
+    if let Some(sample_subject_budget) = plan.planning.sample_subject_budget {
+        out.push_str(&format!(
+            "  sample_subject_budget: {}\n",
+            sample_subject_budget
+        ));
+    }
     if let Some(sampled_subjects) = plan.planning.sampled_subjects {
         out.push_str(&format!("  sampled_subjects: {}\n", sampled_subjects));
     }
     if let Some(sampled_quads) = plan.planning.sampled_quads {
         out.push_str(&format!("  sampled_quads: {}\n", sampled_quads));
     }
-    out.push_str(&format!("  indexed_shapes: {}\n", plan.planning.indexed_shapes));
+    out.push_str(&format!(
+        "  indexed_shapes: {}\n",
+        plan.planning.indexed_shapes
+    ));
     out.push_str(&format!(
         "  indexed_constraints: {}\n",
         plan.planning.indexed_constraints
     ));
-    out.push_str(&format!("  indexed_targets: {}\n", plan.planning.indexed_targets));
+    out.push_str(&format!(
+        "  indexed_targets: {}\n",
+        plan.planning.indexed_targets
+    ));
     out.push_str(&format!(
         "  indexed_direct_path_shapes: {}\n",
         plan.planning.indexed_direct_path_shapes
@@ -2330,13 +2363,22 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
             "  sampled_target_estimates: {}\n",
             summary.metadata.sampled_target_estimates
         ));
+        if let Some(sample_subject_budget) = summary.metadata.sample_subject_budget {
+            out.push_str(&format!(
+                "  sample_subject_budget: {}\n",
+                sample_subject_budget
+            ));
+        }
         if let Some(sampled_subjects) = summary.metadata.sampled_subjects {
             out.push_str(&format!("  sampled_subjects: {}\n", sampled_subjects));
         }
         if let Some(sampled_quads) = summary.metadata.sampled_quads {
             out.push_str(&format!("  sampled_quads: {}\n", sampled_quads));
         }
-        out.push_str(&format!("  target_estimates: {}\n", summary.target_estimates.len()));
+        out.push_str(&format!(
+            "  target_estimates: {}\n",
+            summary.target_estimates.len()
+        ));
         let empty_scans = summary
             .shape_summaries
             .iter()
@@ -2349,10 +2391,12 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
             out.push_str(&format!(
                 "  {} focus={} empty={}\n",
                 shape.label,
-                shape.estimated_focus_nodes
+                shape
+                    .estimated_focus_nodes
                     .map(|count| count.to_string())
                     .unwrap_or_else(|| "?".to_string()),
-                shape.empty_target_scan
+                shape
+                    .empty_target_scan
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "?".to_string())
             ));
@@ -2366,7 +2410,10 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
                     shape
                         .fanout_hints
                         .iter()
-                        .map(|(predicate, class)| format!("{predicate}={}", render_fanout_class(class)))
+                        .map(|(predicate, class)| format!(
+                            "{predicate}={}",
+                            render_fanout_class(class)
+                        ))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
@@ -2392,9 +2439,7 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
     out
 }
 
-fn render_physical_plan_text(
-    plan: &shifty_shacl_core_inmemory::InspectablePhysicalPlan,
-) -> String {
+fn render_physical_plan_text(plan: &shifty_shacl_core_inmemory::InspectablePhysicalPlan) -> String {
     let mut out = String::new();
     out.push_str("Physical Plan\n");
     out.push_str(&format!("  shapes: {}\n", plan.shape_count));
@@ -2455,7 +2500,10 @@ fn render_physical_plan_text(
             rule.condition_dependencies_global
         ));
         if !rule.dependency_predicates.is_empty() {
-            out.push_str(&format!(" deps=[{}]", rule.dependency_predicates.join(", ")));
+            out.push_str(&format!(
+                " deps=[{}]",
+                rule.dependency_predicates.join(", ")
+            ));
         }
         if !rule.condition_dependencies.is_empty() {
             out.push_str(&format!(

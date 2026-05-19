@@ -123,6 +123,7 @@ impl Default for ValidationPlanningOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationPlanningMetadata {
     pub estimation_mode: PlanningEstimationMode,
+    pub sample_subject_budget: Option<usize>,
     pub sampled_subjects: Option<usize>,
     pub sampled_quads: Option<usize>,
     pub exact_target_estimates: usize,
@@ -137,6 +138,7 @@ impl Default for ValidationPlanningMetadata {
     fn default() -> Self {
         Self {
             estimation_mode: PlanningEstimationMode::Exact,
+            sample_subject_budget: None,
             sampled_subjects: None,
             sampled_quads: None,
             exact_target_estimates: 0,
@@ -188,7 +190,12 @@ pub fn derive_validation_logical_plan_with_data(
     options: BackendViewOptions,
     data: &ResolvedShapeSet,
 ) -> ValidationPlan {
-    derive_validation_logical_plan_with_options(program, options, data, ValidationPlanningOptions::default())
+    derive_validation_logical_plan_with_options(
+        program,
+        options,
+        data,
+        ValidationPlanningOptions::default(),
+    )
 }
 
 pub fn derive_validation_logical_plan_with_options(
@@ -197,7 +204,8 @@ pub fn derive_validation_logical_plan_with_options(
     data: &ResolvedShapeSet,
     planning_options: ValidationPlanningOptions,
 ) -> ValidationPlan {
-    derive_validation_logical_plan_with_options_detailed(program, options, data, planning_options).plan
+    derive_validation_logical_plan_with_options_detailed(program, options, data, planning_options)
+        .plan
 }
 
 pub fn derive_validation_logical_plan_detailed(
@@ -294,13 +302,8 @@ pub fn derive_validation_logical_plan_with_options_detailed(
     });
 
     let stage_started = Instant::now();
-    let data_summary = summarize_data_graph_from_index(
-        &view.program,
-        &index,
-        data,
-        &summary_options,
-        &data_index,
-    );
+    let data_summary =
+        summarize_data_graph_from_index(&view.program, &index, data, &summary_options, &data_index);
     stages.push(PlanningStageTiming {
         name: "plan.data_summary".to_string(),
         elapsed_ms: elapsed_ms(stage_started.elapsed()),
@@ -637,6 +640,7 @@ fn merge_planning_metadata(
     planning.estimation_mode = summary.estimation_mode;
     planning.sampled_subjects = summary.sampled_subjects;
     planning.sampled_quads = summary.sampled_quads;
+    planning.sample_subject_budget = summary.sample_subject_budget;
     planning.exact_target_estimates = summary.exact_target_estimates;
     planning.sampled_target_estimates = summary.sampled_target_estimates;
     planning
