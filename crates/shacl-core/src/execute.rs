@@ -73,6 +73,20 @@ pub struct ValidationHeatmap {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationRuleProfile {
+    pub rule_id: u64,
+    pub owner_shape: ShapeId,
+    pub kind: String,
+    pub scheduled_runs: usize,
+    pub executed_runs: usize,
+    pub candidate_focuses: usize,
+    pub frontier_focuses: usize,
+    pub condition_rejections: usize,
+    pub inferred_triples: usize,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationResult {
     pub conforms: bool,
     pub focus_nodes_evaluated: usize,
@@ -81,4 +95,5 @@ pub struct ValidationResult {
     pub coverage: ValidationCoverage,
     pub trace: Vec<ValidationTraceEvent>,
     pub heatmap: ValidationHeatmap,
+    pub rule_profiles: Vec<ValidationRuleProfile>,
 }

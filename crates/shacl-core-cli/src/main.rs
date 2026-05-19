@@ -335,6 +335,10 @@ struct ValidateArgs {
     /// Write stage timing benchmarks to a JSON file
     #[arg(long)]
     benchmark_json: Option<PathBuf>,
+
+    /// Write per-rule inference profiling to a JSON file
+    #[arg(long)]
+    inference_profile_json: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -948,6 +952,9 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(recorder) = benchmark {
             write_json(&recorder.finish(), Some(path))?;
         }
+    }
+    if let Some(path) = args.inference_profile_json.as_deref() {
+        write_json(&result.rule_profiles, Some(path))?;
     }
     Ok(())
 }
@@ -2641,6 +2648,24 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
         "  rules_evaluated: {}\n",
         result.heatmap.rule_hits.len()
     ));
+    if !result.rule_profiles.is_empty() {
+        out.push_str("\nInference Rules\n");
+        for profile in &result.rule_profiles {
+            out.push_str(&format!(
+                "  rule={} owner={} kind={} scheduled={} executed={} candidate_focuses={} frontier_focuses={} condition_rejections={} inferred_triples={} elapsed_ms={:.3}\n",
+                profile.rule_id,
+                profile.owner_shape.0,
+                profile.kind,
+                profile.scheduled_runs,
+                profile.executed_runs,
+                profile.candidate_focuses,
+                profile.frontier_focuses,
+                profile.condition_rejections,
+                profile.inferred_triples,
+                profile.elapsed_ms,
+            ));
+        }
+    }
     if !result.violations.is_empty() {
         out.push_str("\nViolations\n");
         for violation in &result.violations {

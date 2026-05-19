@@ -31,7 +31,7 @@ pub use data_graph::{
 };
 pub use execute::{
     ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
-    ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
+    ValidationRuleProfile, ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
 };
 pub use parse::{load_and_parse_with_ontoenv, parse_quads, parse_resolved};
 pub use passes::{

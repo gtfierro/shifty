@@ -17,7 +17,7 @@ use shifty_shacl_core::plan::ValidationPlan;
 use shifty_shacl_core::source::ResolvedShapeSet;
 use shifty_shacl_core::{
     ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
-    ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
+    ValidationRuleProfile, ValidationTraceEvent, ValidationUnsupported, ValidationViolation,
 };
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -113,6 +113,7 @@ impl InMemoryValidationBackend {
             });
         }
 
+        let rule_profiles = collect_rule_profiles(&state);
         let result = ValidationResult {
             conforms: state.violations.is_empty(),
             focus_nodes_evaluated: state.focus_nodes_evaluated,
@@ -121,6 +122,7 @@ impl InMemoryValidationBackend {
             coverage: state.coverage,
             trace: state.trace,
             heatmap: state.heatmap,
+            rule_profiles,
         };
         let benchmark = InMemoryValidationBenchmark {
             backend: "inmemory".to_string(),
@@ -150,6 +152,7 @@ struct ExecutionState<'a> {
     condition_cache: HashMap<(ShapeId, String), ProbeOutcome>,
     rule_known_focuses: HashMap<RuleId, BTreeSet<String>>,
     rule_executed_focuses: HashMap<RuleId, BTreeSet<String>>,
+    rule_profiles: HashMap<RuleId, RuleProfileAccumulator>,
     inferred_quads: Vec<Quad>,
     iteration_dirty_predicates: BTreeSet<String>,
     last_iteration_dirty_predicates: Option<BTreeSet<String>>,
@@ -183,6 +186,7 @@ impl<'a> ExecutionState<'a> {
             condition_cache: HashMap::new(),
             rule_known_focuses: HashMap::new(),
             rule_executed_focuses: HashMap::new(),
+            rule_profiles: HashMap::new(),
             inferred_quads: Vec::new(),
             iteration_dirty_predicates: BTreeSet::new(),
             last_iteration_dirty_predicates: None,
@@ -190,6 +194,19 @@ impl<'a> ExecutionState<'a> {
             last_iteration_dirty_focuses: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default)]
+struct RuleProfileAccumulator {
+    owner_shape: Option<ShapeId>,
+    kind: String,
+    scheduled_runs: usize,
+    executed_runs: usize,
+    candidate_focuses: usize,
+    frontier_focuses: usize,
+    condition_rejections: usize,
+    inferred_triples: usize,
+    elapsed_ms: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,6 +433,7 @@ fn execute_rule(
     _first_iteration: bool,
     state: &mut ExecutionState<'_>,
 ) -> Result<usize, String> {
+    let scheduled_started = Instant::now();
     let owner_targets = get_shape(state, rule.owner)?.targets.clone();
     let mut focuses = Vec::new();
     for target_id in &owner_targets {
@@ -429,8 +447,28 @@ fn execute_rule(
         )?);
     }
     let focuses = dedup_terms(focuses);
+    let candidate_focuses = focuses.len();
     let focuses = rule_focus_frontier(rule, focuses, state)?;
+    let frontier_focuses = focuses.len();
+    {
+        let profile = state.rule_profiles.entry(rule.id).or_default();
+        profile.owner_shape = Some(rule.owner);
+        profile.kind = match &rule.expr {
+            RuleExpr::Triple { .. } => "triple",
+            RuleExpr::Sparql { .. } => "sparql",
+            RuleExpr::Generic { .. } => "generic",
+        }
+        .to_string();
+        profile.scheduled_runs += 1;
+        profile.candidate_focuses += candidate_focuses;
+        profile.frontier_focuses += frontier_focuses;
+    }
     if focuses.is_empty() {
+        state
+            .rule_profiles
+            .entry(rule.id)
+            .or_default()
+            .elapsed_ms += elapsed_ms(scheduled_started.elapsed());
         state.trace.push(ValidationTraceEvent {
             event: TraceEventSchema::ExitRule,
             shape: Some(rule.owner),
@@ -454,10 +492,12 @@ fn execute_rule(
         .entry(rule.id.0.to_string())
         .or_insert(0) += 1;
     state.coverage.executed_rules += 1;
+    state.rule_profiles.entry(rule.id).or_default().executed_runs += 1;
 
     let mut inferred = 0usize;
     for focus in focuses {
         if !rule_conditions_hold(rule, &focus, state)? {
+            state.rule_profiles.entry(rule.id).or_default().condition_rejections += 1;
             continue;
         }
         state
@@ -492,6 +532,11 @@ fn execute_rule(
                 0
             }
         };
+    }
+    {
+        let profile = state.rule_profiles.entry(rule.id).or_default();
+        profile.inferred_triples += inferred;
+        profile.elapsed_ms += elapsed_ms(scheduled_started.elapsed());
     }
 
     state.trace.push(ValidationTraceEvent {
@@ -859,6 +904,27 @@ fn insert_inferred_quad(quad: Quad, state: &mut ExecutionState<'_>) -> Result<us
     state.target_cache.clear();
     state.coverage.inferred_triples += 1;
     Ok(1)
+}
+
+fn collect_rule_profiles(state: &ExecutionState<'_>) -> Vec<ValidationRuleProfile> {
+    let mut profiles = state
+        .rule_profiles
+        .iter()
+        .map(|(rule_id, profile)| ValidationRuleProfile {
+            rule_id: rule_id.0,
+            owner_shape: profile.owner_shape.unwrap_or(ShapeId(0)),
+            kind: profile.kind.clone(),
+            scheduled_runs: profile.scheduled_runs,
+            executed_runs: profile.executed_runs,
+            candidate_focuses: profile.candidate_focuses,
+            frontier_focuses: profile.frontier_focuses,
+            condition_rejections: profile.condition_rejections,
+            inferred_triples: profile.inferred_triples,
+            elapsed_ms: profile.elapsed_ms,
+        })
+        .collect::<Vec<_>>();
+    profiles.sort_by_key(|profile| profile.rule_id);
+    profiles
 }
 
 fn quad_exists(index: &DataIndex, quad: &Quad) -> bool {

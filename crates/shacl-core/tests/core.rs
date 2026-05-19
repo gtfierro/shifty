@@ -3893,6 +3893,13 @@ fn validation_backend_executes_sparql_rules_before_validation() {
     assert_eq!(result.coverage.executed_rules, 2);
     assert_eq!(result.coverage.inferred_triples, 1);
     assert_eq!(result.coverage.inference_iterations, 2);
+    assert_eq!(result.rule_profiles.len(), 1);
+    let profile = &result.rule_profiles[0];
+    assert_eq!(profile.kind, "sparql");
+    assert_eq!(profile.inferred_triples, 1);
+    assert!(profile.scheduled_runs >= 1);
+    assert!(profile.executed_runs >= 1);
+    assert!(profile.frontier_focuses >= 1);
 }
 
 #[test]
