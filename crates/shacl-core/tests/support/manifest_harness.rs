@@ -91,7 +91,7 @@ pub trait ManifestValidationBackend {
 
 pub fn suite_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../lib/tests/test-suite")
+        .join("../../testdata/test-suite")
         .join(name)
 }
 

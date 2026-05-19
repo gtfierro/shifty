@@ -11,7 +11,7 @@ Usage:
     python scripts/expand_relative_uris.py [--root PATH] [--dry-run]
 
 By default the script rewrites files in-place under
-`lib/tests/test-suite/advanced`. Pass `--dry-run` to preview the changes
+`testdata/test-suite/advanced`. Pass `--dry-run` to preview the changes
 without modifying anything.
 """
 
@@ -90,8 +90,8 @@ def main() -> None:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("lib/tests/test-suite/advanced"),
-        help="Root directory to scan (default: lib/tests/test-suite/advanced)",
+        default=Path("testdata/test-suite/advanced"),
+        help="Root directory to scan (default: testdata/test-suite/advanced)",
     )
     parser.add_argument(
         "--dry-run",

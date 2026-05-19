@@ -17,13 +17,13 @@ use shifty_shacl_core_inmemory::{InMemoryValidationBackend, compile_validation_p
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../lib/tests/fixtures")
+        .join("../../testdata/fixtures")
         .join(name)
 }
 
 fn suite_path(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../lib/tests/test-suite")
+        .join("../../testdata/test-suite")
         .join(name)
 }
 

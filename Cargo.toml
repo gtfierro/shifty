@@ -1,9 +1,5 @@
 [workspace]
 members = [
-    "lib",
-    "cli",
-    "python",
-    "crates/shacl-srcgen-compiler",
     "crates/shacl-core",
     "crates/shacl-core-inmemory",
     "crates/shacl-core-cli"
@@ -15,7 +11,7 @@ version = "0.0.13"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
-description = "A Shapes Constraint Language (SHACL) validator written in Rust"
+description = "Clean-room SHACL/SHACL-AF core, analysis, and in-memory backend in Rust"
 readme = "README.md"
 repository = "https://github.com/gtfierro/shifty"
 homepage = "https://github.com/gtfierro/shifty"
@@ -24,7 +20,6 @@ documentation = "https://github.com/gtfierro/shifty#readme"
 [workspace.dependencies]
 oxigraph = { version = "0.5.5", default-features = false }
 petgraph = "0.6"
-shifty = { version = "0.0.13", path = "lib", package = "shifty-shacl" }
 clap = { version = "4.5.39", features = ["derive"] }
 graphviz-rust = "0.9.5"
 regex = "1"
