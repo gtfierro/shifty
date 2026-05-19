@@ -3898,7 +3898,7 @@ fn validation_backend_executes_sparql_rules_before_validation() {
     assert_eq!(profile.rule_node, "<urn:rule-sparql>");
     assert_eq!(profile.kind, "sparql");
     assert!(profile.description.starts_with("CONSTRUCT"));
-    assert!(profile.description.len() <= 120);
+    assert!(profile.description.contains("$this"));
     assert_eq!(profile.inferred_triples, 1);
     assert!(profile.scheduled_runs >= 1);
     assert!(profile.executed_runs >= 1);

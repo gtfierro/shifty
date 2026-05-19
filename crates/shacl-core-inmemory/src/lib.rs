@@ -955,33 +955,27 @@ fn rule_node_label(rule: &Rule) -> String {
 }
 
 fn rule_profile_description(rule: &Rule) -> String {
-    let raw = match &rule.expr {
+    match &rule.expr {
         RuleExpr::Triple {
             subject,
             predicate,
             object,
             ..
-        } => format!(
-            "triple {} {} {}",
-            triple_term_summary(subject.as_ref()),
-            predicate
-                .as_ref()
-                .map(|value| value.as_str().to_string())
-                .unwrap_or_else(|| "?predicate".to_string()),
-            triple_term_summary(object.as_ref()),
+        } => bound_rule_description(
+            &format!(
+                "triple {} {} {}",
+                triple_term_summary(subject.as_ref()),
+                predicate
+                    .as_ref()
+                    .map(|value| value.as_str().to_string())
+                    .unwrap_or_else(|| "?predicate".to_string()),
+                triple_term_summary(object.as_ref()),
+            ),
+            120,
         ),
-        RuleExpr::Sparql { query, .. } => {
-            let query = query.as_deref().unwrap_or("SPARQL rule");
-            query
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-                .unwrap_or("SPARQL rule")
-                .to_string()
-        }
+        RuleExpr::Sparql { query, .. } => query.as_deref().unwrap_or("SPARQL rule").to_string(),
         RuleExpr::Generic { .. } => "generic rule".to_string(),
-    };
-    bound_rule_description(&raw, 120)
+    }
 }
 
 fn triple_term_summary(term: Option<&TriplePatternTerm>) -> String {
