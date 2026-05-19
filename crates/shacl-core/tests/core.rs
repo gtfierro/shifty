@@ -3895,7 +3895,10 @@ fn validation_backend_executes_sparql_rules_before_validation() {
     assert_eq!(result.coverage.inference_iterations, 2);
     assert_eq!(result.rule_profiles.len(), 1);
     let profile = &result.rule_profiles[0];
+    assert_eq!(profile.rule_node, "<urn:rule-sparql>");
     assert_eq!(profile.kind, "sparql");
+    assert!(profile.description.starts_with("CONSTRUCT"));
+    assert!(profile.description.len() <= 120);
     assert_eq!(profile.inferred_triples, 1);
     assert!(profile.scheduled_runs >= 1);
     assert!(profile.executed_runs >= 1);

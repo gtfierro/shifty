@@ -198,8 +198,10 @@ impl<'a> ExecutionState<'a> {
 
 #[derive(Debug, Clone, Default)]
 struct RuleProfileAccumulator {
+    rule_node: String,
     owner_shape: Option<ShapeId>,
     kind: String,
+    description: String,
     scheduled_runs: usize,
     executed_runs: usize,
     candidate_focuses: usize,
@@ -452,6 +454,7 @@ fn execute_rule(
     let frontier_focuses = focuses.len();
     {
         let profile = state.rule_profiles.entry(rule.id).or_default();
+        profile.rule_node = rule_node_label(rule);
         profile.owner_shape = Some(rule.owner);
         profile.kind = match &rule.expr {
             RuleExpr::Triple { .. } => "triple",
@@ -459,16 +462,14 @@ fn execute_rule(
             RuleExpr::Generic { .. } => "generic",
         }
         .to_string();
+        profile.description = rule_profile_description(rule);
         profile.scheduled_runs += 1;
         profile.candidate_focuses += candidate_focuses;
         profile.frontier_focuses += frontier_focuses;
     }
     if focuses.is_empty() {
-        state
-            .rule_profiles
-            .entry(rule.id)
-            .or_default()
-            .elapsed_ms += elapsed_ms(scheduled_started.elapsed());
+        state.rule_profiles.entry(rule.id).or_default().elapsed_ms +=
+            elapsed_ms(scheduled_started.elapsed());
         state.trace.push(ValidationTraceEvent {
             event: TraceEventSchema::ExitRule,
             shape: Some(rule.owner),
@@ -492,12 +493,20 @@ fn execute_rule(
         .entry(rule.id.0.to_string())
         .or_insert(0) += 1;
     state.coverage.executed_rules += 1;
-    state.rule_profiles.entry(rule.id).or_default().executed_runs += 1;
+    state
+        .rule_profiles
+        .entry(rule.id)
+        .or_default()
+        .executed_runs += 1;
 
     let mut inferred = 0usize;
     for focus in focuses {
         if !rule_conditions_hold(rule, &focus, state)? {
-            state.rule_profiles.entry(rule.id).or_default().condition_rejections += 1;
+            state
+                .rule_profiles
+                .entry(rule.id)
+                .or_default()
+                .condition_rejections += 1;
             continue;
         }
         state
@@ -912,8 +921,18 @@ fn collect_rule_profiles(state: &ExecutionState<'_>) -> Vec<ValidationRuleProfil
         .iter()
         .map(|(rule_id, profile)| ValidationRuleProfile {
             rule_id: rule_id.0,
+            rule_node: if profile.rule_node.is_empty() {
+                format!("rule:{}", rule_id.0)
+            } else {
+                profile.rule_node.clone()
+            },
             owner_shape: profile.owner_shape.unwrap_or(ShapeId(0)),
             kind: profile.kind.clone(),
+            description: if profile.description.is_empty() {
+                "unknown rule".to_string()
+            } else {
+                profile.description.clone()
+            },
             scheduled_runs: profile.scheduled_runs,
             executed_runs: profile.executed_runs,
             candidate_focuses: profile.candidate_focuses,
@@ -925,6 +944,67 @@ fn collect_rule_profiles(state: &ExecutionState<'_>) -> Vec<ValidationRuleProfil
         .collect::<Vec<_>>();
     profiles.sort_by_key(|profile| profile.rule_id);
     profiles
+}
+
+fn rule_node_label(rule: &Rule) -> String {
+    match &rule.expr {
+        RuleExpr::Triple { node, .. }
+        | RuleExpr::Sparql { node, .. }
+        | RuleExpr::Generic { node, .. } => node.to_string(),
+    }
+}
+
+fn rule_profile_description(rule: &Rule) -> String {
+    let raw = match &rule.expr {
+        RuleExpr::Triple {
+            subject,
+            predicate,
+            object,
+            ..
+        } => format!(
+            "triple {} {} {}",
+            triple_term_summary(subject.as_ref()),
+            predicate
+                .as_ref()
+                .map(|value| value.as_str().to_string())
+                .unwrap_or_else(|| "?predicate".to_string()),
+            triple_term_summary(object.as_ref()),
+        ),
+        RuleExpr::Sparql { query, .. } => {
+            let query = query.as_deref().unwrap_or("SPARQL rule");
+            query
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or("SPARQL rule")
+                .to_string()
+        }
+        RuleExpr::Generic { .. } => "generic rule".to_string(),
+    };
+    bound_rule_description(&raw, 120)
+}
+
+fn triple_term_summary(term: Option<&TriplePatternTerm>) -> String {
+    match term {
+        Some(TriplePatternTerm::This) => "$this".to_string(),
+        Some(TriplePatternTerm::Constant(term)) => term.to_string(),
+        Some(TriplePatternTerm::Path(path)) => path_label(path).to_string(),
+        None => "?".to_string(),
+    }
+}
+
+fn bound_rule_description(value: &str, max_len: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.len() <= max_len {
+        compact
+    } else {
+        let mut bounded = compact
+            .chars()
+            .take(max_len.saturating_sub(3))
+            .collect::<String>();
+        bounded.push_str("...");
+        bounded
+    }
 }
 
 fn quad_exists(index: &DataIndex, quad: &Quad) -> bool {

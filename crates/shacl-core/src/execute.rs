@@ -75,8 +75,10 @@ pub struct ValidationHeatmap {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationRuleProfile {
     pub rule_id: u64,
+    pub rule_node: String,
     pub owner_shape: ShapeId,
     pub kind: String,
+    pub description: String,
     pub scheduled_runs: usize,
     pub executed_runs: usize,
     pub candidate_focuses: usize,

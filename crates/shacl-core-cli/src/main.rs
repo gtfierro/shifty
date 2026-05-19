@@ -2652,8 +2652,9 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
         out.push_str("\nInference Rules\n");
         for profile in &result.rule_profiles {
             out.push_str(&format!(
-                "  rule={} owner={} kind={} scheduled={} executed={} candidate_focuses={} frontier_focuses={} condition_rejections={} inferred_triples={} elapsed_ms={:.3}\n",
+                "  rule={} node={} owner={} kind={} scheduled={} executed={} candidate_focuses={} frontier_focuses={} condition_rejections={} inferred_triples={} elapsed_ms={:.3}\n",
                 profile.rule_id,
+                profile.rule_node,
                 profile.owner_shape.0,
                 profile.kind,
                 profile.scheduled_runs,
@@ -2664,6 +2665,7 @@ fn render_validation_result_text(result: &ValidationResult) -> String {
                 profile.inferred_triples,
                 profile.elapsed_ms,
             ));
+            out.push_str(&format!("    {}\n", profile.description));
         }
     }
     if !result.violations.is_empty() {
