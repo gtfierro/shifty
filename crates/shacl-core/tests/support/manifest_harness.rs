@@ -1,5 +1,5 @@
 use oxigraph::io::{RdfFormat, RdfParser};
-use oxrdf::{NamedOrBlankNode, NamedNode, Term, Triple};
+use oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
 use shifty_shacl_core::source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv};
 use shifty_shacl_core::{
     BackendViewOptions, ValidationBackend, ValidationResult, build_validation_report,
@@ -39,10 +39,7 @@ pub struct ManifestCase {
 
 #[derive(Debug, Clone)]
 pub enum ManifestExpectation {
-    Report {
-        conforms: bool,
-        result_count: usize,
-    },
+    Report { conforms: bool, result_count: usize },
     Failure,
 }
 
@@ -132,10 +129,7 @@ pub fn run_manifest_suite<B: ManifestValidationBackend>(
                 let case_key = case_key(&case);
                 executed_case_keys.push(case_key.clone());
                 if let Err(message) = assert_case(backend, &case) {
-                    failures.push(ManifestFailure {
-                        case_key,
-                        message,
-                    });
+                    failures.push(ManifestFailure { case_key, message });
                 }
             }
         }
@@ -281,7 +275,11 @@ fn parse_manifest_case(path: &Path, triples: &[Triple], entry: &Term) -> Option<
         .unwrap_or_default();
     let action_node = triples
         .iter()
-        .find(|triple| triple.subject == subject && triple.predicate.as_str() == "http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#action")
+        .find(|triple| {
+            triple.subject == subject
+                && triple.predicate.as_str()
+                    == "http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#action"
+        })
         .map(|triple| triple.object.clone())?;
     let data_path = triples
         .iter()
@@ -332,14 +330,19 @@ fn parse_manifest_expectation(triples: &[Triple], object: &Term) -> Option<Manif
     }
     let conforms = triples
         .iter()
-        .find(|triple| subject_matches_term(&triple.subject, object) && triple.predicate.as_str() == SH_CONFORMS)
+        .find(|triple| {
+            subject_matches_term(&triple.subject, object)
+                && triple.predicate.as_str() == SH_CONFORMS
+        })
         .and_then(|triple| match &triple.object {
             Term::Literal(literal) => Some(literal.value() == "true"),
             _ => None,
         })?;
     let result_count = triples
         .iter()
-        .filter(|triple| subject_matches_term(&triple.subject, object) && triple.predicate.as_str() == SH_RESULT)
+        .filter(|triple| {
+            subject_matches_term(&triple.subject, object) && triple.predicate.as_str() == SH_RESULT
+        })
         .count();
     Some(ManifestExpectation::Report {
         conforms,
@@ -385,11 +388,17 @@ fn rdf_list_members(triples: &[Triple], head: &Term) -> Vec<Term> {
     while current.to_string() != format!("<{}>", RDF_NIL) {
         let first = triples
             .iter()
-            .find(|triple| subject_matches_term(&triple.subject, &current) && triple.predicate.as_str() == RDF_FIRST)
+            .find(|triple| {
+                subject_matches_term(&triple.subject, &current)
+                    && triple.predicate.as_str() == RDF_FIRST
+            })
             .map(|triple| triple.object.clone());
         let rest = triples
             .iter()
-            .find(|triple| subject_matches_term(&triple.subject, &current) && triple.predicate.as_str() == RDF_REST)
+            .find(|triple| {
+                subject_matches_term(&triple.subject, &current)
+                    && triple.predicate.as_str() == RDF_REST
+            })
             .map(|triple| triple.object.clone());
         match (first, rest) {
             (Some(first), Some(rest)) => {
@@ -454,7 +463,10 @@ fn case_key(case: &ManifestCase) -> String {
         .unwrap_or(&case.manifest_path)
         .display()
         .to_string();
-    let label = case.label.clone().unwrap_or_else(|| case.case_subject.clone());
+    let label = case
+        .label
+        .clone()
+        .unwrap_or_else(|| case.case_subject.clone());
     format!("{manifest} :: {label}")
 }
 
@@ -527,12 +539,36 @@ impl ManifestValidationBackend for InMemoryManifestBackend {
 }
 
 const KNOWN_IN_MEMORY_DIVERGENCES: &[(&str, &str)] = &[
-    ("core/complex/personexample.ttl", "known in-memory backend divergence"),
-    ("core/complex/shacl-shacl.ttl", "known in-memory backend divergence"),
-    ("core/property/uniqueLang-002.ttl", "known in-memory backend divergence"),
-    ("core/validation-reports/shared.ttl", "known in-memory backend divergence"),
-    ("sparql/component/optional-001.ttl", "known in-memory backend divergence"),
-    ("sparql/component/propertyValidator-select-001.ttl", "known in-memory backend divergence"),
-    ("sparql/node/prefixes-001.ttl", "known in-memory backend divergence"),
-    ("sparql/pre-binding/shapesGraph-001.ttl", "known in-memory backend divergence"),
+    (
+        "core/complex/personexample.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "core/complex/shacl-shacl.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "core/property/uniqueLang-002.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "core/validation-reports/shared.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "sparql/component/optional-001.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "sparql/component/propertyValidator-select-001.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "sparql/node/prefixes-001.ttl",
+        "known in-memory backend divergence",
+    ),
+    (
+        "sparql/pre-binding/shapesGraph-001.ttl",
+        "known in-memory backend divergence",
+    ),
 ];

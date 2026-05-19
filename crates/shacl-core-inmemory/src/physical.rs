@@ -359,7 +359,10 @@ impl CompiledValidationProgram {
     }
 }
 
-fn compile_rule_plan(program: &ShapeProgram, rule: &shifty_shacl_core::algebra::Rule) -> CompiledRulePlan {
+fn compile_rule_plan(
+    program: &ShapeProgram,
+    rule: &shifty_shacl_core::algebra::Rule,
+) -> CompiledRulePlan {
     let uses_conditions = match &rule.expr {
         RuleExpr::Triple { conditions, .. }
         | RuleExpr::Sparql { conditions, .. }
@@ -442,7 +445,13 @@ fn rule_execution_mode(
             collect_term_dependencies(subject.as_ref(), &mut deps, &mut global);
             collect_term_dependencies(object.as_ref(), &mut deps, &mut global);
             for condition in conditions {
-                collect_shape_dependencies(program, *condition, &mut deps, &mut global, &mut Vec::new());
+                collect_shape_dependencies(
+                    program,
+                    *condition,
+                    &mut deps,
+                    &mut global,
+                    &mut Vec::new(),
+                );
             }
             deps.sort();
             deps.dedup();
@@ -467,7 +476,11 @@ fn collect_owner_target_dependencies(
         return;
     };
     for target_id in &shape.targets {
-        let Some(target) = program.targets.iter().find(|target| target.id == *target_id) else {
+        let Some(target) = program
+            .targets
+            .iter()
+            .find(|target| target.id == *target_id)
+        else {
             continue;
         };
         match &target.expr {
@@ -537,7 +550,11 @@ fn collect_shape_dependencies(
         collect_shape_dependencies(program, *property_shape_id, deps, global, active);
     }
     for constraint_id in &shape.constraints {
-        let Some(constraint) = program.constraints.iter().find(|constraint| constraint.id == *constraint_id) else {
+        let Some(constraint) = program
+            .constraints
+            .iter()
+            .find(|constraint| constraint.id == *constraint_id)
+        else {
             continue;
         };
         match &constraint.expr {
@@ -548,10 +565,18 @@ fn collect_shape_dependencies(
                     }
                 }
             }
-            ConstraintExpr::NodeRef { shape: Some(inner), .. }
-            | ConstraintExpr::PropertyRef { shape: Some(inner), .. }
-            | ConstraintExpr::QualifiedValueShape { shape: Some(inner), .. }
-            | ConstraintExpr::Not { shape: Some(inner), .. } => {
+            ConstraintExpr::NodeRef {
+                shape: Some(inner), ..
+            }
+            | ConstraintExpr::PropertyRef {
+                shape: Some(inner), ..
+            }
+            | ConstraintExpr::QualifiedValueShape {
+                shape: Some(inner), ..
+            }
+            | ConstraintExpr::Not {
+                shape: Some(inner), ..
+            } => {
                 collect_shape_dependencies(program, *inner, deps, global, active);
             }
             ConstraintExpr::Logical { shapes, .. } => {

@@ -197,21 +197,20 @@ pub fn lower_to_program(document: &ShapeSyntaxDocument) -> ShapeProgram {
             if constraint_is_auxiliary(constraint) {
                 continue;
             }
-            let per_object_constraints = if constraint.predicate.as_str() == SH_CLASS
-                && constraint.objects.len() > 1
-            {
-                constraint
-                    .objects
-                    .iter()
-                    .cloned()
-                    .map(|object| crate::syntax::ConstraintSyntax {
-                        predicate: constraint.predicate.clone(),
-                        objects: vec![object],
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vec![constraint.clone()]
-            };
+            let per_object_constraints =
+                if constraint.predicate.as_str() == SH_CLASS && constraint.objects.len() > 1 {
+                    constraint
+                        .objects
+                        .iter()
+                        .cloned()
+                        .map(|object| crate::syntax::ConstraintSyntax {
+                            predicate: constraint.predicate.clone(),
+                            objects: vec![object],
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![constraint.clone()]
+                };
             for lowered in per_object_constraints {
                 let constraint_id = ConstraintId((lowered_constraints.len() + 1) as u64);
                 let expr = lower_constraint(

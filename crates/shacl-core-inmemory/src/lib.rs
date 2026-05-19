@@ -5,11 +5,12 @@ use oxigraph::store::Store;
 use oxrdf::{NamedNode, NamedOrBlankNode, Quad, Term};
 use oxsdatatypes::{Boolean, Date, DateTime, Decimal, Double, Float, Integer, Time};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use shifty_shacl_core::algebra::{
     AdvancedTarget, ComponentDefId, Constraint, ConstraintExpr, ConstraintId, LogicalKind,
-    PrefixDeclaration, PropertyPath, Rule, RuleExpr, Severity, Shape, ShapeId, ShapeKind,
-    ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, Template, TemplateBinding,
-    TemplatePart, TemplateSlotKind, TriplePatternTerm, TargetId, RuleId,
+    PrefixDeclaration, PropertyPath, Rule, RuleExpr, RuleId, Severity, Shape, ShapeId, ShapeKind,
+    ShapeProgram, SparqlConstraint, SparqlValidator, TargetExpr, TargetId, Template,
+    TemplateBinding, TemplatePart, TemplateSlotKind, TriplePatternTerm,
 };
 use shifty_shacl_core::diagnostics::{SourceRef, TraceEventSchema};
 use shifty_shacl_core::plan::ValidationPlan;
@@ -22,13 +23,12 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Instant;
-use serde::{Deserialize, Serialize};
 
 pub use physical::{
-    compile_validation_plan, CompiledConstraintBatch, CompiledTargetScan,
-    CompiledValidationProgram, InspectablePhysicalPlan,
+    CompiledConstraintBatch, CompiledTargetScan, CompiledValidationProgram,
+    InspectablePhysicalPlan, compile_validation_plan,
 };
-use physical::{target_expr_cacheable, CompiledConstraintOp, CompiledPattern, RuleExecutionMode};
+use physical::{CompiledConstraintOp, CompiledPattern, RuleExecutionMode, target_expr_cacheable};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -88,12 +88,7 @@ impl InMemoryValidationBackend {
             elapsed_ms: elapsed_ms(stage_started.elapsed()),
         });
 
-        let mut state = ExecutionState::new(
-            &plan.view.program,
-            compiled,
-            index,
-            data,
-        );
+        let mut state = ExecutionState::new(&plan.view.program, compiled, index, data);
 
         let stage_started = Instant::now();
         execute_rules_to_fixed_point(&plan.executable_rules, &mut state)?;
@@ -347,22 +342,21 @@ fn execute_validation_plan(
     for scan in scans {
         let shape = scan.shape;
         if scan.empty_scan {
-                state.trace.push(ValidationTraceEvent {
-                    event: TraceEventSchema::TargetResolutionStart,
-                    shape: Some(shape),
-                    constraint: None,
-                    focus_node: None,
-                    message:
-                        "skipping target resolution due to empty data-aware target estimate"
-                            .to_string(),
-                });
-                state.trace.push(ValidationTraceEvent {
-                    event: TraceEventSchema::TargetResolutionEnd,
-                    shape: Some(shape),
-                    constraint: None,
-                    focus_node: None,
-                    message: "skipped empty target resolution".to_string(),
-                });
+            state.trace.push(ValidationTraceEvent {
+                event: TraceEventSchema::TargetResolutionStart,
+                shape: Some(shape),
+                constraint: None,
+                focus_node: None,
+                message: "skipping target resolution due to empty data-aware target estimate"
+                    .to_string(),
+            });
+            state.trace.push(ValidationTraceEvent {
+                event: TraceEventSchema::TargetResolutionEnd,
+                shape: Some(shape),
+                constraint: None,
+                focus_node: None,
+                message: "skipped empty target resolution".to_string(),
+            });
             continue;
         }
         if get_shape(state, shape)?.deactivated {
@@ -373,21 +367,26 @@ fn execute_validation_plan(
             let target = get_target(state, *target_id)?;
             let resolved_target_id = target.id;
             let target_expr = target.expr.clone();
-                state.trace.push(ValidationTraceEvent {
-                    event: TraceEventSchema::TargetResolutionStart,
-                    shape: Some(shape),
-                    constraint: None,
-                    focus_node: None,
-                    message: format!("resolving target {}", resolved_target_id.0),
-                });
-                focuses.extend(resolve_target_cached(shape, resolved_target_id, &target_expr, state)?);
-                state.trace.push(ValidationTraceEvent {
-                    event: TraceEventSchema::TargetResolutionEnd,
-                    shape: Some(shape),
-                    constraint: None,
-                    focus_node: None,
-                    message: format!("resolved target {}", resolved_target_id.0),
-                });
+            state.trace.push(ValidationTraceEvent {
+                event: TraceEventSchema::TargetResolutionStart,
+                shape: Some(shape),
+                constraint: None,
+                focus_node: None,
+                message: format!("resolving target {}", resolved_target_id.0),
+            });
+            focuses.extend(resolve_target_cached(
+                shape,
+                resolved_target_id,
+                &target_expr,
+                state,
+            )?);
+            state.trace.push(ValidationTraceEvent {
+                event: TraceEventSchema::TargetResolutionEnd,
+                shape: Some(shape),
+                constraint: None,
+                focus_node: None,
+                message: format!("resolved target {}", resolved_target_id.0),
+            });
         }
         for focus in dedup_terms(focuses) {
             state.focus_nodes_evaluated += 1;
@@ -401,7 +400,6 @@ fn elapsed_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
-
 fn execute_rule(
     rule: &Rule,
     _first_iteration: bool,
@@ -412,7 +410,12 @@ fn execute_rule(
     for target_id in &owner_targets {
         let target = get_target(state, *target_id)?;
         let target_expr = target.expr.clone();
-        focuses.extend(resolve_target_cached(rule.owner, target.id, &target_expr, state)?);
+        focuses.extend(resolve_target_cached(
+            rule.owner,
+            target.id,
+            &target_expr,
+            state,
+        )?);
     }
     let focuses = dedup_terms(focuses);
     let focuses = rule_focus_frontier(rule, focuses, state)?;
@@ -527,8 +530,9 @@ fn rule_focus_frontier(
     let mut seen_keys = Vec::new();
     for (focus_key, focus) in all_pairs {
         let is_new_focus = !known_snapshot.contains(&focus_key);
-        let needs_condition_recheck =
-            uses_conditions && condition_dependencies_dirty && !executed_snapshot.contains(&focus_key);
+        let needs_condition_recheck = uses_conditions
+            && condition_dependencies_dirty
+            && !executed_snapshot.contains(&focus_key);
         if is_new_focus || needs_condition_recheck {
             frontier.push(focus.clone());
         }
@@ -623,13 +627,9 @@ fn rule_conditions_hold(
     if conditions.is_empty() {
         return Ok(true);
     }
-    let condition_reprobe = state
-        .compiled
-        .rule_plans
-        .get(&rule.id)
-        .is_some_and(|plan| {
-            condition_dependencies_dirty(plan, state.last_iteration_dirty_predicates.as_ref())
-        });
+    let condition_reprobe = state.compiled.rule_plans.get(&rule.id).is_some_and(|plan| {
+        condition_dependencies_dirty(plan, state.last_iteration_dirty_predicates.as_ref())
+    });
     for condition in conditions {
         let focus_key = focus.to_string();
         let cache_key = (*condition, focus_key.clone());
@@ -886,10 +886,7 @@ fn eval_shape(
         ShapeKind::Property => {
             let Some(path) = shape_path.as_ref() else {
                 state.active.remove(&key);
-                return Err(format!(
-                    "property shape {} is missing sh:path",
-                    shape_key
-                ));
+                return Err(format!("property shape {} is missing sh:path", shape_key));
             };
             if !path_is_executable(path) {
                 record_unsupported(
@@ -1761,7 +1758,11 @@ fn resolve_target_cached(
     Ok(resolved)
 }
 
-fn eval_path_cached(state: &mut ExecutionState<'_>, focus: &Term, path: &PropertyPath) -> Vec<Term> {
+fn eval_path_cached(
+    state: &mut ExecutionState<'_>,
+    focus: &Term,
+    path: &PropertyPath,
+) -> Vec<Term> {
     let key = (focus.to_string(), path_label(path).to_string());
     if let Some(cached) = state.path_cache.get(&key) {
         return cached.clone();
@@ -1832,7 +1833,12 @@ fn resolve_shape_targets(
     for target_id in targets {
         let target = get_target(state, target_id)?;
         let target_expr = target.expr.clone();
-        out.extend(resolve_target_cached(shape_id, target.id, &target_expr, state)?);
+        out.extend(resolve_target_cached(
+            shape_id,
+            target.id,
+            &target_expr,
+            state,
+        )?);
     }
     active.remove(&shape_id);
     Ok(dedup_terms(out))
@@ -2999,7 +3005,12 @@ fn check_string_constraint(
                 return Err("pattern is missing a string literal".to_string());
             };
             let mut builder = regex::RegexBuilder::new(&needle);
-            if params.iter().skip(1).filter_map(term_string).any(|flags| flags.contains('i')) {
+            if params
+                .iter()
+                .skip(1)
+                .filter_map(term_string)
+                .any(|flags| flags.contains('i'))
+            {
                 builder.case_insensitive(true);
             }
             let regex = builder
@@ -3008,8 +3019,10 @@ fn check_string_constraint(
             let Some(text) = string_constraint_text(value) else {
                 return Ok(Some("value is a blank node".to_string()));
             };
-            Ok((!regex.is_match(&text))
-                .then(|| format!("literal does not match pattern {needle}")))
+            Ok(
+                (!regex.is_match(&text))
+                    .then(|| format!("literal does not match pattern {needle}")),
+            )
         }
         "http://www.w3.org/ns/shacl#languageIn" => {
             let ranges = params.iter().filter_map(term_string).collect::<Vec<_>>();
@@ -3276,7 +3289,9 @@ fn collect_disjoint_sibling_qualified_shapes(
                     .constraints
                     .iter()
                     .find(|constraint| constraint.id == *sibling_constraint_id)
-                    .ok_or_else(|| format!("unknown sibling constraint {}", sibling_constraint_id.0))?;
+                    .ok_or_else(|| {
+                        format!("unknown sibling constraint {}", sibling_constraint_id.0)
+                    })?;
                 if let ConstraintExpr::QualifiedValueShape {
                     shape: Some(sibling_target),
                     disjoint: Some(true),
