@@ -24,8 +24,10 @@ pub use backend_views::{
     derive_inference_view, derive_validation_view,
 };
 pub use data_graph::{
-    ClassDataStats, DataGraphSummary, FanoutClass, PredicateDataStats, SelectivityClass,
-    ShapeDataSummary, TargetEstimate, summarize_data_graph,
+    ClassDataStats, DataGraphSummary, DataSummaryMetadata, DataSummaryOptions, FanoutClass,
+    PlanningEstimationMode, PlanningIndex, PredicateDataStats, SelectivityClass,
+    ShapeDataSummary, TargetEstimate, DEFAULT_SUBJECT_SAMPLE_BUDGET, summarize_data_graph,
+    summarize_data_graph_with_options,
 };
 pub use execute::{
     ValidationBackend, ValidationCoverage, ValidationHeatmap, ValidationResult,
@@ -39,10 +41,13 @@ pub use passes::{
 pub use plan::{
     BackendPlans, ConstraintBatchAnnotation as ValidationConstraintBatchAnnotation, InferencePlan,
     InferencePlanNode, LogicalPlanSummary, TargetScanAnnotation as ValidationTargetScanAnnotation,
-    ValidationPlan, ValidationPlanAnnotations, ValidationPlanNode, derive_backend_logical_plans,
-    derive_inference_logical_plan, derive_inference_logical_plan_from_view,
-    derive_validation_logical_plan, derive_validation_logical_plan_from_view,
-    derive_validation_logical_plan_with_data,
+    PlanningStageTiming, ValidationPlan, ValidationPlanAnnotations, ValidationPlanNode,
+    ValidationPlanningBenchmark, ValidationPlanningMetadata, ValidationPlanningOptions,
+    ValidationPlanningResult, derive_backend_logical_plans, derive_inference_logical_plan,
+    derive_inference_logical_plan_from_view, derive_validation_logical_plan,
+    derive_validation_logical_plan_detailed, derive_validation_logical_plan_from_view,
+    derive_validation_logical_plan_with_data, derive_validation_logical_plan_with_options,
+    derive_validation_logical_plan_with_options_detailed,
 };
 pub use render::render_shape_program_dot;
 pub use report::{ValidationReportGraph, build_validation_report};

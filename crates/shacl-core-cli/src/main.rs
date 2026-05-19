@@ -4,12 +4,12 @@ use serde::Serialize;
 use shifty_shacl_core::source::{ShapeSource, SourceLoadOptions, source_from_str};
 use shifty_shacl_core::{
     AnalysisSummary, BackendClosureMode, BackendViewOptions, BackendViews, DependencyClass,
-    InferencePlan, InferenceView, NormalizeOptions, RewriteOptions, RewriteSummary,
+    InferencePlan, InferenceView, NormalizeOptions, PlanningEstimationMode, RewriteOptions, RewriteSummary,
     SharedWorkUnitKind, SliceReason, SliceRoots, StaticAnalysisSummary, StaticCostHint,
-    ValidationBackend, ValidationPlan, ValidationResult, ValidationView, analyze_program,
+    ValidationBackend, ValidationPlan, ValidationPlanningOptions, ValidationResult, ValidationView, analyze_program,
     analyze_static_with_roots, build_validation_report, derive_backend_logical_plans,
     derive_backend_views, derive_inference_logical_plan, derive_inference_view,
-    derive_validation_logical_plan, derive_validation_logical_plan_with_data,
+    derive_validation_logical_plan, derive_validation_logical_plan_with_options_detailed,
     derive_validation_view, load_and_parse_with_ontoenv, lower_to_program, normalize_program,
     parse_resolved, render_shape_program_dot, rewrite_program,
 };
@@ -67,6 +67,12 @@ enum ValidateFormat {
     Json,
     Turtle,
     NTriples,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum PlanningModeArg {
+    Exact,
+    Sampled,
 }
 
 #[derive(Parser, Debug)]
@@ -313,6 +319,10 @@ struct ValidateArgs {
     #[arg(long, value_enum, default_value_t = ValidateFormat::Text)]
     format: ValidateFormat,
 
+    /// Data-aware planning estimation mode
+    #[arg(long = "planning", value_enum, default_value_t = PlanningModeArg::Exact)]
+    planning: PlanningModeArg,
+
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -347,6 +357,10 @@ struct DataPlanArgs {
     #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
     format: AnalyzeFormat,
 
+    /// Data-aware planning estimation mode
+    #[arg(long = "planning", value_enum, default_value_t = PlanningModeArg::Exact)]
+    planning: PlanningModeArg,
+
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -380,6 +394,10 @@ struct PhysicalPlanArgs {
     /// Output format
     #[arg(long, value_enum, default_value_t = AnalyzeFormat::Text)]
     format: AnalyzeFormat,
+
+    /// Data-aware planning estimation mode
+    #[arg(long = "planning", value_enum, default_value_t = PlanningModeArg::Exact)]
+    planning: PlanningModeArg,
 
     /// Write output to a file instead of stdout
     #[arg(short, long)]
@@ -822,12 +840,33 @@ fn run_validate(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         resolved.merged_with(&data)
     };
+    let planning_options = planning_options(args.planning);
     let plan = if let Some(recorder) = benchmark.as_mut() {
-        recorder.measure_value("plan.validation", || {
-            derive_validation_logical_plan_with_data(&program, options, &execution_data)
-        })
+        let planning = derive_validation_logical_plan_with_options_detailed(
+            &program,
+            options,
+            &execution_data,
+            planning_options,
+        );
+        recorder.extend_stages(
+            planning
+                .benchmark
+                .stages
+                .into_iter()
+                .map(|stage| BenchmarkStageRecord {
+                    name: stage.name,
+                    elapsed_ms: stage.elapsed_ms,
+                }),
+        );
+        planning.plan
     } else {
-        derive_validation_logical_plan_with_data(&program, options, &execution_data)
+        derive_validation_logical_plan_with_options_detailed(
+            &program,
+            options,
+            &execution_data,
+            planning_options,
+        )
+        .plan
     };
     let backend = InMemoryValidationBackend;
     let (result, backend_benchmark) = if benchmark.is_some() {
@@ -984,12 +1023,33 @@ fn run_data_plan(args: DataPlanArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         resolved.merged_with(&data)
     };
+    let planning_options = planning_options(args.planning);
     let plan = if let Some(recorder) = benchmark.as_mut() {
-        recorder.measure_value("plan.validation", || {
-            derive_validation_logical_plan_with_data(&program, options, &execution_data)
-        })
+        let planning = derive_validation_logical_plan_with_options_detailed(
+            &program,
+            options,
+            &execution_data,
+            planning_options,
+        );
+        recorder.extend_stages(
+            planning
+                .benchmark
+                .stages
+                .into_iter()
+                .map(|stage| BenchmarkStageRecord {
+                    name: stage.name,
+                    elapsed_ms: stage.elapsed_ms,
+                }),
+        );
+        planning.plan
     } else {
-        derive_validation_logical_plan_with_data(&program, options, &execution_data)
+        derive_validation_logical_plan_with_options_detailed(
+            &program,
+            options,
+            &execution_data,
+            planning_options,
+        )
+        .plan
     };
     if let Some(recorder) = benchmark.as_mut() {
         recorder.measure("output.render_write", || {
@@ -1069,7 +1129,13 @@ fn run_physical_plan(args: PhysicalPlanArgs) -> Result<(), Box<dyn std::error::E
         shifty_shacl_core::source::load_with_ontoenv(&data_sources, &load_options(&args.shared))?
     };
     let execution_data = resolved.merged_with(&data);
-    let plan = derive_validation_logical_plan_with_data(&program, options, &execution_data);
+    let plan = derive_validation_logical_plan_with_options_detailed(
+        &program,
+        options,
+        &execution_data,
+        planning_options(args.planning),
+    )
+    .plan;
     let physical = compile_validation_plan(&plan).inspect();
     match args.format {
         AnalyzeFormat::Json => write_json(
@@ -1085,6 +1151,16 @@ fn run_physical_plan(args: PhysicalPlanArgs) -> Result<(), Box<dyn std::error::E
         }
     }
     Ok(())
+}
+
+fn planning_options(mode: PlanningModeArg) -> ValidationPlanningOptions {
+    ValidationPlanningOptions {
+        estimation_mode: match mode {
+            PlanningModeArg::Exact => PlanningEstimationMode::Exact,
+            PlanningModeArg::Sampled => PlanningEstimationMode::Sampled,
+        },
+        ..ValidationPlanningOptions::default()
+    }
 }
 
 fn load_shapes(
@@ -2120,6 +2196,34 @@ fn render_validation_plan_text(plan: &ValidationPlan) -> String {
     let mut out = String::new();
     out.push_str("Validation Plan\n");
     out.push_str(&format!(
+        "  planning_mode: {}\n",
+        render_planning_mode(&plan.planning.estimation_mode)
+    ));
+    out.push_str(&format!(
+        "  exact_target_estimates: {}\n",
+        plan.planning.exact_target_estimates
+    ));
+    out.push_str(&format!(
+        "  sampled_target_estimates: {}\n",
+        plan.planning.sampled_target_estimates
+    ));
+    if let Some(sampled_subjects) = plan.planning.sampled_subjects {
+        out.push_str(&format!("  sampled_subjects: {}\n", sampled_subjects));
+    }
+    if let Some(sampled_quads) = plan.planning.sampled_quads {
+        out.push_str(&format!("  sampled_quads: {}\n", sampled_quads));
+    }
+    out.push_str(&format!("  indexed_shapes: {}\n", plan.planning.indexed_shapes));
+    out.push_str(&format!(
+        "  indexed_constraints: {}\n",
+        plan.planning.indexed_constraints
+    ));
+    out.push_str(&format!("  indexed_targets: {}\n", plan.planning.indexed_targets));
+    out.push_str(&format!(
+        "  indexed_direct_path_shapes: {}\n",
+        plan.planning.indexed_direct_path_shapes
+    ));
+    out.push_str(&format!(
         "  closure_mode: {}\n",
         render_backend_closure_mode(&plan.view.closure_mode)
     ));
@@ -2214,6 +2318,24 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
         out.push_str(&format!("  subjects: {}\n", summary.distinct_subjects));
         out.push_str(&format!("  predicates: {}\n", summary.distinct_predicates));
         out.push_str(&format!("  objects: {}\n", summary.distinct_objects));
+        out.push_str(&format!(
+            "  estimation_mode: {}\n",
+            render_planning_mode(&summary.metadata.estimation_mode)
+        ));
+        out.push_str(&format!(
+            "  exact_target_estimates: {}\n",
+            summary.metadata.exact_target_estimates
+        ));
+        out.push_str(&format!(
+            "  sampled_target_estimates: {}\n",
+            summary.metadata.sampled_target_estimates
+        ));
+        if let Some(sampled_subjects) = summary.metadata.sampled_subjects {
+            out.push_str(&format!("  sampled_subjects: {}\n", sampled_subjects));
+        }
+        if let Some(sampled_quads) = summary.metadata.sampled_quads {
+            out.push_str(&format!("  sampled_quads: {}\n", sampled_quads));
+        }
         out.push_str(&format!("  target_estimates: {}\n", summary.target_estimates.len()));
         let empty_scans = summary
             .shape_summaries
@@ -2234,6 +2356,10 @@ fn render_data_plan_text(plan: &ValidationPlan) -> String {
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "?".to_string())
             ));
+            if shape.sampled_estimate {
+                out.push_str(" sampled=true");
+            }
+            out.push('\n');
             if !shape.fanout_hints.is_empty() {
                 out.push_str(&format!(
                     "    fanout: {}\n",
@@ -2349,6 +2475,13 @@ fn render_fanout_class(class: &shifty_shacl_core::FanoutClass) -> &'static str {
         shifty_shacl_core::FanoutClass::Bounded => "bounded",
         shifty_shacl_core::FanoutClass::Broad => "broad",
         shifty_shacl_core::FanoutClass::Unknown => "unknown",
+    }
+}
+
+fn render_planning_mode(mode: &PlanningEstimationMode) -> &'static str {
+    match mode {
+        PlanningEstimationMode::Exact => "exact",
+        PlanningEstimationMode::Sampled => "sampled",
     }
 }
 

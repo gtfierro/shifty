@@ -1,4 +1,4 @@
-use crate::algebra::{ConstraintExpr, ShapeId, ShapeProgram, TargetExpr, TargetId};
+use crate::algebra::{ConstraintExpr, ConstraintId, ShapeId, ShapeProgram, TargetExpr, TargetId};
 use crate::source::ResolvedShapeSet;
 use oxrdf::{NamedNode, NamedOrBlankNode, Term};
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,7 @@ pub struct TargetEstimate {
     pub kind: String,
     pub estimated_focus_nodes: Option<usize>,
     pub empty: Option<bool>,
+    pub sampled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,9 +64,48 @@ pub struct ShapeDataSummary {
     pub label: String,
     pub estimated_focus_nodes: Option<usize>,
     pub empty_target_scan: Option<bool>,
+    pub sampled_estimate: bool,
     pub dead_constraint_candidates: Vec<u64>,
     pub vacuous_constraint_candidates: Vec<u64>,
     pub fanout_hints: BTreeMap<String, FanoutClass>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlanningEstimationMode {
+    Exact,
+    Sampled,
+}
+
+impl Default for PlanningEstimationMode {
+    fn default() -> Self {
+        Self::Exact
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataSummaryOptions {
+    pub estimation_mode: PlanningEstimationMode,
+    pub full_statistics: bool,
+    pub subject_sample_budget: usize,
+}
+
+impl Default for DataSummaryOptions {
+    fn default() -> Self {
+        Self {
+            estimation_mode: PlanningEstimationMode::Exact,
+            full_statistics: true,
+            subject_sample_budget: DEFAULT_SUBJECT_SAMPLE_BUDGET,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DataSummaryMetadata {
+    pub estimation_mode: PlanningEstimationMode,
+    pub sampled_subjects: Option<usize>,
+    pub sampled_quads: Option<usize>,
+    pub exact_target_estimates: usize,
+    pub sampled_target_estimates: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,11 +114,64 @@ pub struct DataGraphSummary {
     pub distinct_subjects: usize,
     pub distinct_predicates: usize,
     pub distinct_objects: usize,
+    pub metadata: DataSummaryMetadata,
     pub predicate_stats: Vec<PredicateDataStats>,
     pub class_stats: Vec<ClassDataStats>,
     pub target_estimates: Vec<TargetEstimate>,
     pub shape_summaries: Vec<ShapeDataSummary>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningIndex {
+    pub shape_positions: BTreeMap<ShapeId, usize>,
+    pub constraint_positions: BTreeMap<ConstraintId, usize>,
+    pub targets_by_owner: BTreeMap<ShapeId, Vec<TargetId>>,
+    pub constraints_by_owner: BTreeMap<ShapeId, Vec<ConstraintId>>,
+    pub direct_path_predicate_by_shape: BTreeMap<ShapeId, String>,
+}
+
+impl PlanningIndex {
+    pub fn build(program: &ShapeProgram) -> Self {
+        let shape_positions = program
+            .shapes
+            .iter()
+            .enumerate()
+            .map(|(index, shape)| (shape.id, index))
+            .collect::<BTreeMap<_, _>>();
+        let constraint_positions = program
+            .constraints
+            .iter()
+            .enumerate()
+            .map(|(index, constraint)| (constraint.id, index))
+            .collect::<BTreeMap<_, _>>();
+        let mut targets_by_owner = BTreeMap::new();
+        let mut constraints_by_owner = BTreeMap::new();
+        let mut direct_path_predicate_by_shape = BTreeMap::new();
+        for shape in &program.shapes {
+            if !shape.targets.is_empty() {
+                targets_by_owner.insert(shape.id, shape.targets.clone());
+            }
+            if !shape.constraints.is_empty() {
+                constraints_by_owner.insert(shape.id, shape.constraints.clone());
+            }
+            if let Some(path) = &shape.path
+                && let Some(predicate) = direct_path_predicate(path)
+            {
+                direct_path_predicate_by_shape
+                    .insert(shape.id, predicate.as_str().to_string());
+            }
+        }
+        Self {
+            shape_positions,
+            constraint_positions,
+            targets_by_owner,
+            constraints_by_owner,
+            direct_path_predicate_by_shape,
+        }
+    }
+}
+
+pub const DEFAULT_SUBJECT_SAMPLE_BUDGET: usize = 10_000;
 
 #[derive(Debug, Default)]
 struct PredicateAccumulator {
@@ -93,7 +186,7 @@ struct PredicateAccumulator {
 }
 
 #[derive(Debug)]
-struct DataIndex {
+pub(crate) struct DataIndex {
     subjects: BTreeSet<String>,
     predicates: BTreeSet<String>,
     objects: BTreeSet<String>,
@@ -102,10 +195,13 @@ struct DataIndex {
     superclasses: HashMap<String, BTreeSet<String>>,
     subjects_of: HashMap<String, BTreeSet<String>>,
     objects_of: HashMap<String, BTreeSet<String>>,
+    sampled_subjects: Option<usize>,
+    sampled_quads: Option<usize>,
 }
 
 impl DataIndex {
-    fn build(data: &ResolvedShapeSet) -> Self {
+    fn build(data: &ResolvedShapeSet, options: &DataSummaryOptions) -> Self {
+        let sampled_subjects = sampled_subject_keys(data, options);
         let mut subjects = BTreeSet::new();
         let mut predicates = BTreeSet::new();
         let mut objects = BTreeSet::new();
@@ -114,10 +210,18 @@ impl DataIndex {
         let mut superclasses: HashMap<String, BTreeSet<String>> = HashMap::new();
         let mut subjects_of: HashMap<String, BTreeSet<String>> = HashMap::new();
         let mut objects_of: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut sampled_quads = 0usize;
 
         for quad in &data.quads {
             let subject_term = subject_to_term(&quad.subject);
             let subject_key = subject_term.to_string();
+            if sampled_subjects
+                .as_ref()
+                .is_some_and(|subjects| !subjects.contains(&subject_key))
+            {
+                continue;
+            }
+            sampled_quads += 1;
             let predicate_key = quad.predicate.as_str().to_string();
             let object_key = quad.object.to_string();
             subjects.insert(subject_key.clone());
@@ -180,13 +284,92 @@ impl DataIndex {
             superclasses,
             subjects_of,
             objects_of,
+            sampled_subjects: sampled_subjects.as_ref().map(BTreeSet::len),
+            sampled_quads: sampled_subjects.as_ref().map(|_| sampled_quads),
         }
     }
 }
 
+pub(crate) fn build_data_index(data: &ResolvedShapeSet, options: &DataSummaryOptions) -> DataIndex {
+    DataIndex::build(data, options)
+}
+
 pub fn summarize_data_graph(program: &ShapeProgram, data: &ResolvedShapeSet) -> DataGraphSummary {
-    let index = DataIndex::build(data);
-    let predicate_stats = index
+    summarize_data_graph_with_options(
+        program,
+        &PlanningIndex::build(program),
+        data,
+        &DataSummaryOptions::default(),
+    )
+}
+
+pub fn summarize_data_graph_with_options(
+    program: &ShapeProgram,
+    planning_index: &PlanningIndex,
+    data: &ResolvedShapeSet,
+    options: &DataSummaryOptions,
+) -> DataGraphSummary {
+    let index = DataIndex::build(data, options);
+    summarize_data_graph_from_index(program, planning_index, data, options, &index)
+}
+
+pub(crate) fn summarize_data_graph_from_index(
+    program: &ShapeProgram,
+    planning_index: &PlanningIndex,
+    data: &ResolvedShapeSet,
+    options: &DataSummaryOptions,
+    index: &DataIndex,
+) -> DataGraphSummary {
+    let predicate_stats = if options.full_statistics {
+        build_predicate_stats(&index)
+    } else {
+        Vec::new()
+    };
+    let class_stats = if options.full_statistics {
+        build_class_stats(&index)
+    } else {
+        Vec::new()
+    };
+    let target_estimates = build_target_estimates(program, &index);
+    let shape_summaries = build_shape_data_summaries(program, planning_index, &index, &target_estimates);
+    let exact_target_estimates = target_estimates
+        .iter()
+        .filter(|estimate| !estimate.sampled)
+        .count();
+    let sampled_target_estimates = target_estimates
+        .iter()
+        .filter(|estimate| estimate.sampled)
+        .count();
+
+    DataGraphSummary {
+        total_quads: data.quads.len(),
+        distinct_subjects: index.subjects.len(),
+        distinct_predicates: index.predicates.len(),
+        distinct_objects: index.objects.len(),
+        metadata: DataSummaryMetadata {
+            estimation_mode: options.estimation_mode,
+            sampled_subjects: index.sampled_subjects,
+            sampled_quads: index.sampled_quads,
+            exact_target_estimates,
+            sampled_target_estimates,
+        },
+        predicate_stats,
+        class_stats,
+        target_estimates,
+        shape_summaries,
+    }
+}
+
+fn direct_class_count(index: &DataIndex, class: &str) -> usize {
+    index
+        .types
+        .values()
+        .filter(|types| types.contains(class))
+        .count()
+}
+
+fn build_predicate_stats(index: &DataIndex) -> Vec<PredicateDataStats> {
+    index
         .predicate_stats
         .iter()
         .map(|(predicate, stats)| {
@@ -210,12 +393,14 @@ pub fn summarize_data_graph(program: &ShapeProgram, data: &ResolvedShapeSet) -> 
                 datatype_counts: stats.datatype_counts.clone(),
                 language_tagged_literals: stats.language_tagged_literals,
                 avg_fanout_per_subject: avg,
-                selectivity_class: classify_selectivity(stats.subjects.len()),
                 fanout_class,
+                selectivity_class: classify_selectivity(stats.subjects.len()),
             }
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
+fn build_class_stats(index: &DataIndex) -> Vec<ClassDataStats> {
     let mut all_classes = BTreeSet::new();
     for values in index.types.values() {
         all_classes.extend(values.iter().cloned());
@@ -226,83 +411,125 @@ pub fn summarize_data_graph(program: &ShapeProgram, data: &ResolvedShapeSet) -> 
             .values()
             .flat_map(|parents| parents.iter().cloned()),
     );
-    let class_stats = all_classes
+    all_classes
         .into_iter()
         .map(|class| ClassDataStats {
-            direct_instances: direct_class_count(&index, &class),
-            expanded_instances: expanded_class_count(&index, &class),
+            direct_instances: direct_class_count(index, &class),
+            expanded_instances: expanded_class_count(index, &class),
             class,
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
-    let target_estimates = program
+fn build_target_estimates(program: &ShapeProgram, index: &DataIndex) -> Vec<TargetEstimate> {
+    program
         .targets
         .iter()
         .map(|target| {
-            let focuses = estimate_target_focuses(&target.expr, &index);
+            let estimate = estimate_target_focuses(&target.expr, index);
             TargetEstimate {
                 target_id: target.id,
                 owner_shape: target.owner,
                 kind: target_kind_name(&target.expr).to_string(),
-                estimated_focus_nodes: focuses.as_ref().map(BTreeSet::len),
-                empty: focuses.as_ref().map(BTreeSet::is_empty),
+                estimated_focus_nodes: estimate.as_ref().and_then(|value| value.focus_count),
+                empty: estimate.as_ref().and_then(|value| value.empty),
+                sampled: estimate.as_ref().is_some_and(|value| value.sampled),
             }
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
-    let shape_summaries = program
+fn build_shape_data_summaries(
+    program: &ShapeProgram,
+    planning_index: &PlanningIndex,
+    index: &DataIndex,
+    target_estimates: &[TargetEstimate],
+) -> Vec<ShapeDataSummary> {
+    let target_estimate_by_id = target_estimates
+        .iter()
+        .map(|estimate| (estimate.target_id, estimate))
+        .collect::<HashMap<_, _>>();
+
+    program
         .shapes
         .iter()
         .map(|shape| {
-            let shape_targets = program
-                .targets
-                .iter()
-                .filter(|target| target.owner == shape.id)
-                .collect::<Vec<_>>();
-            let mut known_sets = Vec::new();
+            let shape_target_ids = planning_index
+                .targets_by_owner
+                .get(&shape.id)
+                .cloned()
+                .unwrap_or_default();
+            let mut known_counts = Vec::new();
+            let mut sampled_estimate = false;
             let mut unknown_target = false;
-            for target in &shape_targets {
-                if let Some(focuses) = estimate_target_focuses(&target.expr, &index) {
-                    known_sets.push(focuses);
-                } else {
+            let mut can_prove_empty = !shape_target_ids.is_empty();
+            for target_id in &shape_target_ids {
+                let Some(estimate) = target_estimate_by_id.get(target_id) else {
                     unknown_target = true;
+                    can_prove_empty = false;
+                    continue;
+                };
+                if estimate.sampled {
+                    sampled_estimate = true;
+                }
+                match estimate.estimated_focus_nodes {
+                    Some(count) => known_counts.push(count),
+                    None => unknown_target = true,
+                }
+                if estimate.empty != Some(true) {
+                    can_prove_empty = false;
                 }
             }
-            let estimated_focus_nodes = if unknown_target {
+            let estimated_focus_nodes = if shape_target_ids.is_empty() {
+                Some(0)
+            } else if unknown_target {
                 None
             } else {
-                let mut merged = BTreeSet::new();
-                for set in known_sets {
-                    merged.extend(set);
-                }
-                Some(merged.len())
+                Some(known_counts.into_iter().sum())
             };
-            let empty_target_scan = estimated_focus_nodes.map(|count| count == 0);
+            let empty_target_scan = if sampled_estimate {
+                None
+            } else if shape_target_ids.is_empty() {
+                Some(false)
+            } else if can_prove_empty {
+                Some(true)
+            } else {
+                estimated_focus_nodes.map(|count| count == 0)
+            };
 
             let dead_constraint_candidates = if empty_target_scan == Some(true) {
-                shape.constraints.iter().map(|id| id.0).collect()
+                planning_index
+                    .constraints_by_owner
+                    .get(&shape.id)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|id| id.0)
+                    .collect()
             } else {
                 Vec::new()
             };
 
             let mut vacuous_constraint_candidates = Vec::new();
             let mut fanout_hints = BTreeMap::new();
-            if let Some(path) = &shape.path
-                && let Some(predicate) = direct_path_predicate(path)
-            {
+            if let Some(predicate) = planning_index.direct_path_predicate_by_shape.get(&shape.id) {
                 let fanout = index
                     .predicate_stats
                     .get(predicate.as_str())
                     .map(|stats| classify_fanout(stats.triple_count, stats.subjects.len()))
                     .unwrap_or(FanoutClass::Empty);
-                fanout_hints.insert(predicate.as_str().to_string(), fanout);
+                fanout_hints.insert(predicate.clone(), fanout);
                 let predicate_absent = !index.predicate_stats.contains_key(predicate.as_str());
-                if predicate_absent {
-                    for constraint_id in &shape.constraints {
-                        if let Some(constraint) = program
-                            .constraints
-                            .iter()
-                            .find(|candidate| candidate.id == *constraint_id)
+                let safe_vacuous_absence = predicate_absent && index.sampled_subjects.is_none();
+                if safe_vacuous_absence {
+                    for constraint_id in planning_index
+                        .constraints_by_owner
+                        .get(&shape.id)
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(index) = planning_index.constraint_positions.get(constraint_id)
+                            && let Some(constraint) = program.constraints.get(*index)
                             && constraint_is_vacuous_on_empty_values(&constraint.expr)
                         {
                             vacuous_constraint_candidates.push(constraint.id.0);
@@ -316,31 +543,20 @@ pub fn summarize_data_graph(program: &ShapeProgram, data: &ResolvedShapeSet) -> 
                 label: shape.normalized_key.clone(),
                 estimated_focus_nodes,
                 empty_target_scan,
+                sampled_estimate,
                 dead_constraint_candidates,
                 vacuous_constraint_candidates,
                 fanout_hints,
             }
         })
-        .collect::<Vec<_>>();
-
-    DataGraphSummary {
-        total_quads: data.quads.len(),
-        distinct_subjects: index.subjects.len(),
-        distinct_predicates: index.predicates.len(),
-        distinct_objects: index.objects.len(),
-        predicate_stats,
-        class_stats,
-        target_estimates,
-        shape_summaries,
-    }
+        .collect()
 }
 
-fn direct_class_count(index: &DataIndex, class: &str) -> usize {
-    index
-        .types
-        .values()
-        .filter(|types| types.contains(class))
-        .count()
+#[derive(Debug, Clone)]
+struct TargetEstimateValue {
+    focus_count: Option<usize>,
+    empty: Option<bool>,
+    sampled: bool,
 }
 
 fn expanded_class_count(index: &DataIndex, class: &str) -> usize {
@@ -378,45 +594,97 @@ fn class_is_or_subclass_of(
     false
 }
 
-fn estimate_target_focuses(target: &TargetExpr, index: &DataIndex) -> Option<BTreeSet<String>> {
+fn estimate_target_focuses(target: &TargetExpr, index: &DataIndex) -> Option<TargetEstimateValue> {
     match target {
-        TargetExpr::Node(term) => Some(BTreeSet::from([term.to_string()])),
-        TargetExpr::Class(term) => Some(
-            named_target_class(term).map_or_else(BTreeSet::new, |class| {
-                index
-                    .types
-                    .iter()
-                    .filter(|(_, classes)| {
-                        classes.iter().any(|candidate| {
-                            class_is_or_subclass_of(candidate, class.as_str(), &index.superclasses)
-                        })
+        TargetExpr::Node(_term) => Some(TargetEstimateValue {
+            focus_count: Some(1),
+            empty: Some(false),
+            sampled: false,
+        }),
+        TargetExpr::Class(term) => named_target_class(term).map(|class| {
+            let count = index
+                .types
+                .iter()
+                .filter(|(_, classes)| {
+                    classes.iter().any(|candidate| {
+                        class_is_or_subclass_of(candidate, class.as_str(), &index.superclasses)
                     })
-                    .map(|(subject, _)| subject.clone())
-                    .collect()
-            }),
-        ),
+                })
+                .count();
+            TargetEstimateValue {
+                focus_count: Some(count),
+                empty: if index.sampled_subjects.is_none() {
+                    Some(count == 0)
+                } else {
+                    None
+                },
+                sampled: index.sampled_subjects.is_some(),
+            }
+        }),
         TargetExpr::SubjectsOf(predicate) => named_target_predicate(predicate).map(|predicate| {
-            index
+            let count = index
                 .subjects_of
                 .get(predicate.as_str())
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|term| term.to_string())
-                .collect()
+                .map(BTreeSet::len)
+                .unwrap_or(0);
+            TargetEstimateValue {
+                focus_count: Some(count),
+                empty: if index.sampled_subjects.is_none() {
+                    Some(count == 0)
+                } else {
+                    None
+                },
+                sampled: index.sampled_subjects.is_some(),
+            }
         }),
         TargetExpr::ObjectsOf(predicate) => named_target_predicate(predicate).map(|predicate| {
-            index
+            let count = index
                 .objects_of
                 .get(predicate.as_str())
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|term| term.to_string())
-                .collect()
+                .map(BTreeSet::len)
+                .unwrap_or(0);
+            TargetEstimateValue {
+                focus_count: Some(count),
+                empty: if index.sampled_subjects.is_none() {
+                    Some(count == 0)
+                } else {
+                    None
+                },
+                sampled: index.sampled_subjects.is_some(),
+            }
         }),
         TargetExpr::Advanced(_) => None,
     }
+}
+
+fn sampled_subject_keys(
+    data: &ResolvedShapeSet,
+    options: &DataSummaryOptions,
+) -> Option<BTreeSet<String>> {
+    if options.estimation_mode == PlanningEstimationMode::Exact {
+        return None;
+    }
+    let mut subjects = data
+        .quads
+        .iter()
+        .map(|quad| subject_to_term(&quad.subject).to_string())
+        .collect::<Vec<_>>();
+    subjects.sort();
+    subjects.dedup();
+    if subjects.len() <= options.subject_sample_budget {
+        return None;
+    }
+    let budget = options.subject_sample_budget.max(1);
+    let step = ((subjects.len() as f64) / (budget as f64)).ceil() as usize;
+    Some(
+        subjects
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| index % step == 0)
+            .map(|(_, subject)| subject)
+            .take(budget)
+            .collect(),
+    )
 }
 
 fn target_kind_name(target: &TargetExpr) -> &'static str {

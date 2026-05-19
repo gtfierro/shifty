@@ -1,15 +1,15 @@
 use oxrdf::{Literal, NamedNode, Quad, Term};
 use shifty_shacl_core::{
     BackendBucket, BackendClosureMode, BackendViewOptions, ContextFootprint, DependencyClass,
-    NormalizeOptions, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots,
+    NormalizeOptions, PlanningEstimationMode, RewriteOptions, SharedWorkUnitKind, SliceReason, SliceRoots,
     StaticCostHint, ValidationBackend, analyze_program, analyze_static, analyze_static_with_roots,
     build_validation_report, canonicalize_program, context_requirements,
     derive_backend_logical_plans, derive_backend_views, derive_inference_logical_plan,
     derive_inference_view, derive_validation_logical_plan, derive_validation_logical_plan_with_data,
-    derive_validation_view,
+    derive_validation_logical_plan_with_options, derive_validation_view,
     fingerprint_program, lower_to_program, normalize_program, parse_quads,
     prune_deactivated_program, render_shape_program_dot, rewrite_program, shared_work_candidates,
-    slice_program,
+    slice_program, ValidationPlanningOptions,
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
@@ -1558,6 +1558,135 @@ fn data_aware_plan_preserves_validation_conformance() {
         })
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(plain_keys, data_keys);
+}
+
+#[test]
+fn sampled_data_aware_plan_reports_sampled_metadata_without_empty_scan_proof() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let rdfs_class = NamedNode::new("http://www.w3.org/2000/01/rdf-schema#Class").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_class = NamedNode::new("http://www.w3.org/ns/shacl#targetClass").unwrap();
+    let shape = NamedNode::new("urn:sampled-shape").unwrap();
+    let target_class = NamedNode::new("urn:SampledClass").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape,
+            sh_target_class,
+            Term::NamedNode(target_class.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            target_class,
+            rdf_type,
+            Term::NamedNode(rdfs_class),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let data_quads = (0..20)
+        .map(|index| {
+            Quad::new(
+                NamedNode::new(format!("urn:sampled-{index}")).unwrap(),
+                NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap(),
+                Term::NamedNode(NamedNode::new("urn:SampledClass").unwrap()),
+                oxrdf::GraphName::DefaultGraph,
+            )
+        })
+        .collect::<Vec<_>>();
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-sampled").unwrap(),
+            quads: data_quads,
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+
+    let plan = derive_validation_logical_plan_with_options(
+        &program,
+        BackendViewOptions::default(),
+        &data,
+        ValidationPlanningOptions {
+            estimation_mode: PlanningEstimationMode::Sampled,
+            subject_sample_budget: 5,
+        },
+    );
+    assert_eq!(plan.planning.estimation_mode, PlanningEstimationMode::Sampled);
+    assert_eq!(plan.planning.sampled_subjects, Some(5));
+    assert_eq!(plan.planning.sampled_target_estimates, 1);
+    let summary = plan.data_summary.expect("data summary present");
+    let shape_summary = summary
+        .shape_summaries
+        .iter()
+        .find(|shape| shape.label == "<urn:sampled-shape>")
+        .expect("shape summary exists");
+    assert!(shape_summary.sampled_estimate);
+    assert_eq!(shape_summary.empty_target_scan, None);
+    assert_eq!(
+        plan.annotations
+            .target_scans
+            .values()
+            .find(|annotation| annotation.shape == shape_summary.shape)
+            .and_then(|annotation| annotation.empty_scan),
+        None
+    );
+}
+
+#[test]
+fn sampled_data_aware_plan_preserves_validation_conformance() {
+    let shapes = fixture_path("af_default_shapes.ttl");
+    let resolved = load_with_ontoenv(
+        &[ShapeSource::File(shapes)],
+        &SourceLoadOptions {
+            include_imports: true,
+            import_depth: -1,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("fixture should load");
+    let syntax = shifty_shacl_core::parse_resolved(&resolved);
+    let program = lower_to_program(&syntax);
+    let data = load_with_ontoenv(
+        &[ShapeSource::Quads {
+            graph_iri: NamedNode::new("urn:data-sampled-conformance").unwrap(),
+            quads: vec![],
+        }],
+        &SourceLoadOptions {
+            include_imports: false,
+            import_depth: 0,
+            temporary_env: true,
+            refresh_mode: RefreshMode::UseCache,
+        },
+    )
+    .expect("data graph loads");
+    let sampled = derive_validation_logical_plan_with_options(
+        &program,
+        BackendViewOptions::default(),
+        &data,
+        ValidationPlanningOptions {
+            estimation_mode: PlanningEstimationMode::Sampled,
+            subject_sample_budget: 5,
+        },
+    );
+    let exact = derive_validation_logical_plan_with_data(&program, BackendViewOptions::default(), &data);
+    let backend = InMemoryValidationBackend;
+    let sampled_result = backend.execute(&sampled, &data).expect("sampled executes");
+    let exact_result = backend.execute(&exact, &data).expect("exact executes");
+    assert_eq!(sampled_result.conforms, exact_result.conforms);
+    assert_eq!(sampled_result.violations.len(), exact_result.violations.len());
 }
 
 #[test]
