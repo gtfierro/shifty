@@ -3705,6 +3705,65 @@ fn compiled_triple_rule_tracks_focus_stability_and_condition_dependencies() {
 }
 
 #[test]
+fn compiled_simple_sparql_rule_tracks_direct_focus_invalidation() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_sparql_rule = NamedNode::new("http://www.w3.org/ns/shacl#SPARQLRule").unwrap();
+    let sh_construct = NamedNode::new("http://www.w3.org/ns/shacl#construct").unwrap();
+    let shape = NamedNode::new("urn:simple-sparql-shape").unwrap();
+    let rule = NamedNode::new("urn:simple-sparql-rule").unwrap();
+    let focus = NamedNode::new("urn:simple-sparql-focus").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            rdf_type,
+            Term::NamedNode(sh_sparql_rule),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_construct,
+            Term::Literal(Literal::new_simple_literal(
+                "CONSTRUCT { $this <urn:copied> ?value } WHERE { $this <urn:source> ?value . }",
+            )),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let compiled = compile_validation_plan(&plan);
+    let inspectable = compiled.inspect();
+    let rule = inspectable
+        .rule_plans
+        .iter()
+        .find(|candidate| candidate.kind == "sparql")
+        .expect("simple sparql rule should be compiled");
+    assert!(rule.focus_stable);
+    assert_eq!(rule.focus_invalidation, "direct_focus_delta");
+}
+
+#[test]
 fn validation_backend_executes_sparql_rules_before_validation() {
     let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
     let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();

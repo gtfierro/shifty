@@ -2490,13 +2490,14 @@ fn render_physical_plan_text(plan: &shifty_shacl_core_inmemory::InspectablePhysi
     out.push_str("  Compiled Rules\n");
     for rule in &plan.rule_plans {
         out.push_str(&format!(
-            "    rule={} owner={} kind={} mode={} uses_conditions={} focus_stable={} condition_global={}",
+            "    rule={} owner={} kind={} mode={} uses_conditions={} focus_stable={} focus_invalidation={} condition_global={}",
             rule.rule_id.0,
             rule.owner_shape.0,
             rule.kind,
             rule.mode,
             rule.uses_conditions,
             rule.focus_stable,
+            rule.focus_invalidation,
             rule.condition_dependencies_global
         ));
         if !rule.dependency_predicates.is_empty() {

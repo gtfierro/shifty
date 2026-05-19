@@ -52,6 +52,7 @@ pub struct CompiledRulePlan {
     pub uses_conditions: bool,
     pub kind: String,
     pub focus_stable: bool,
+    pub focus_invalidation: RuleFocusInvalidation,
     pub condition_dependencies: Vec<String>,
     pub condition_dependencies_global: bool,
 }
@@ -60,6 +61,12 @@ pub struct CompiledRulePlan {
 pub enum RuleExecutionMode {
     PredicateDriven(Vec<String>),
     Global,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuleFocusInvalidation {
+    None,
+    DirectFocusDelta,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +172,7 @@ pub struct InspectableRulePlan {
     pub dependency_predicates: Vec<String>,
     pub uses_conditions: bool,
     pub focus_stable: bool,
+    pub focus_invalidation: String,
     pub condition_dependencies: Vec<String>,
     pub condition_dependencies_global: bool,
 }
@@ -340,6 +348,8 @@ impl CompiledValidationProgram {
                 },
                 uses_conditions: rule.uses_conditions,
                 focus_stable: rule.focus_stable,
+                focus_invalidation: rule_focus_invalidation_name(rule.focus_invalidation)
+                    .to_string(),
                 condition_dependencies: rule.condition_dependencies.clone(),
                 condition_dependencies_global: rule.condition_dependencies_global,
             })
@@ -378,6 +388,7 @@ fn compile_rule_plan(
     let (condition_dependencies, condition_dependencies_global) =
         compile_condition_dependencies(program, rule);
     let focus_stable = rule_focus_stable(rule);
+    let focus_invalidation = rule_focus_invalidation(rule);
     CompiledRulePlan {
         rule_id: rule.id,
         owner_shape: rule.owner,
@@ -385,6 +396,7 @@ fn compile_rule_plan(
         uses_conditions,
         kind,
         focus_stable,
+        focus_invalidation,
         condition_dependencies,
         condition_dependencies_global,
     }
@@ -416,7 +428,17 @@ fn rule_focus_stable(rule: &shifty_shacl_core::algebra::Rule) -> bool {
         } => {
             triple_term_focus_stable(subject.as_ref()) && triple_term_focus_stable(object.as_ref())
         }
-        RuleExpr::Sparql { .. } | RuleExpr::Generic { .. } => false,
+        RuleExpr::Sparql { query, .. } => sparql_rule_direct_focus_delta_safe(query.as_deref()),
+        RuleExpr::Generic { .. } => false,
+    }
+}
+
+fn rule_focus_invalidation(rule: &shifty_shacl_core::algebra::Rule) -> RuleFocusInvalidation {
+    match &rule.expr {
+        RuleExpr::Sparql { query, .. } if sparql_rule_direct_focus_delta_safe(query.as_deref()) => {
+            RuleFocusInvalidation::DirectFocusDelta
+        }
+        _ => RuleFocusInvalidation::None,
     }
 }
 
@@ -425,6 +447,50 @@ fn triple_term_focus_stable(term: Option<&TriplePatternTerm>) -> bool {
         term,
         Some(TriplePatternTerm::This | TriplePatternTerm::Constant(_))
     )
+}
+
+fn sparql_rule_direct_focus_delta_safe(query: Option<&str>) -> bool {
+    let Some(query) = query else {
+        return false;
+    };
+    let uppercase = query.to_ascii_uppercase();
+    if !query.contains("$this") {
+        return false;
+    }
+    if [
+        "UNION", "MINUS", "OPTIONAL", "BIND(", "FILTER", "VALUES", "GRAPH", "SERVICE",
+    ]
+    .iter()
+    .any(|needle| uppercase.contains(needle))
+    {
+        return false;
+    }
+    let Some(where_start) = uppercase.find("WHERE") else {
+        return false;
+    };
+    let Some(open_brace) = query[where_start..].find('{') else {
+        return false;
+    };
+    let where_body = &query[(where_start + open_brace + 1)..];
+    let Some(close_brace) = where_body.rfind('}') else {
+        return false;
+    };
+    let where_body = &where_body[..close_brace];
+    let mut saw_triple = false;
+    for fragment in where_body.split('.') {
+        let fragment = fragment.trim();
+        if fragment.is_empty() {
+            continue;
+        }
+        if fragment.starts_with('#') {
+            continue;
+        }
+        saw_triple = true;
+        if !fragment.contains("$this") {
+            return false;
+        }
+    }
+    saw_triple
 }
 
 fn rule_execution_mode(
@@ -609,6 +675,13 @@ fn rule_mode_name(mode: &RuleExecutionMode) -> &'static str {
     match mode {
         RuleExecutionMode::PredicateDriven(_) => "predicate_driven",
         RuleExecutionMode::Global => "global",
+    }
+}
+
+fn rule_focus_invalidation_name(mode: RuleFocusInvalidation) -> &'static str {
+    match mode {
+        RuleFocusInvalidation::None => "none",
+        RuleFocusInvalidation::DirectFocusDelta => "direct_focus_delta",
     }
 }
 

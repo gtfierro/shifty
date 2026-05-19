@@ -28,7 +28,10 @@ pub use physical::{
     CompiledConstraintBatch, CompiledTargetScan, CompiledValidationProgram,
     InspectablePhysicalPlan, compile_validation_plan,
 };
-use physical::{CompiledConstraintOp, CompiledPattern, RuleExecutionMode, target_expr_cacheable};
+use physical::{
+    CompiledConstraintOp, CompiledPattern, RuleExecutionMode, RuleFocusInvalidation,
+    target_expr_cacheable,
+};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -150,6 +153,8 @@ struct ExecutionState<'a> {
     inferred_quads: Vec<Quad>,
     iteration_dirty_predicates: BTreeSet<String>,
     last_iteration_dirty_predicates: Option<BTreeSet<String>>,
+    iteration_dirty_focuses: BTreeSet<String>,
+    last_iteration_dirty_focuses: Option<BTreeSet<String>>,
 }
 
 impl<'a> ExecutionState<'a> {
@@ -181,6 +186,8 @@ impl<'a> ExecutionState<'a> {
             inferred_quads: Vec::new(),
             iteration_dirty_predicates: BTreeSet::new(),
             last_iteration_dirty_predicates: None,
+            iteration_dirty_focuses: BTreeSet::new(),
+            last_iteration_dirty_focuses: None,
         }
     }
 }
@@ -276,10 +283,13 @@ fn execute_rules_to_fixed_point(
     }
     let max_iterations = 32;
     let mut dirty_predicates: Option<BTreeSet<String>> = None;
+    let mut dirty_focuses: Option<BTreeSet<String>> = None;
     for iteration in 0..max_iterations {
         state.coverage.inference_iterations += 1;
         state.iteration_dirty_predicates.clear();
+        state.iteration_dirty_focuses.clear();
         state.last_iteration_dirty_predicates = dirty_predicates.clone();
+        state.last_iteration_dirty_focuses = dirty_focuses.clone();
         state.trace.push(ValidationTraceEvent {
             event: TraceEventSchema::InferenceIterationStart,
             shape: None,
@@ -309,6 +319,7 @@ fn execute_rules_to_fixed_point(
             return Ok(());
         }
         dirty_predicates = Some(state.iteration_dirty_predicates.clone());
+        dirty_focuses = Some(state.iteration_dirty_focuses.clone());
     }
     Ok(())
 }
@@ -508,6 +519,7 @@ fn rule_focus_frontier(
     let uses_conditions = plan.uses_conditions;
     let condition_dependencies_dirty =
         condition_dependencies_dirty(plan, state.last_iteration_dirty_predicates.as_ref());
+    let last_dirty_focuses = state.last_iteration_dirty_focuses.clone();
     if !focus_stable {
         return Ok(all_focuses);
     }
@@ -533,7 +545,13 @@ fn rule_focus_frontier(
         let needs_condition_recheck = uses_conditions
             && condition_dependencies_dirty
             && !executed_snapshot.contains(&focus_key);
-        if is_new_focus || needs_condition_recheck {
+        let needs_focus_delta_recheck = matches!(
+            plan.focus_invalidation,
+            RuleFocusInvalidation::DirectFocusDelta
+        ) && last_dirty_focuses
+            .as_ref()
+            .is_some_and(|dirty| dirty.contains(&focus_key));
+        if is_new_focus || needs_condition_recheck || needs_focus_delta_recheck {
             frontier.push(focus.clone());
         }
         seen_keys.push(focus_key);
@@ -826,6 +844,15 @@ fn insert_inferred_quad(quad: Quad, state: &mut ExecutionState<'_>) -> Result<us
     state.index.insert_quad(&quad);
     state
         .iteration_dirty_predicates
+        .insert(quad.predicate.as_str().to_string());
+    state
+        .iteration_dirty_focuses
+        .insert(subject_to_term(&quad.subject).to_string());
+    state
+        .iteration_dirty_focuses
+        .insert(quad.object.to_string());
+    state
+        .iteration_dirty_focuses
         .insert(quad.predicate.as_str().to_string());
     state.inferred_quads.push(quad);
     state.path_cache.clear();
