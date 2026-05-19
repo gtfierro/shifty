@@ -51,6 +51,9 @@ pub struct CompiledRulePlan {
     pub mode: RuleExecutionMode,
     pub uses_conditions: bool,
     pub kind: String,
+    pub focus_stable: bool,
+    pub condition_dependencies: Vec<String>,
+    pub condition_dependencies_global: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +164,9 @@ pub struct InspectableRulePlan {
     pub mode: String,
     pub dependency_predicates: Vec<String>,
     pub uses_conditions: bool,
+    pub focus_stable: bool,
+    pub condition_dependencies: Vec<String>,
+    pub condition_dependencies_global: bool,
 }
 
 pub fn compile_validation_plan(plan: &ValidationPlan) -> CompiledValidationProgram {
@@ -333,6 +339,9 @@ impl CompiledValidationProgram {
                     RuleExecutionMode::Global => Vec::new(),
                 },
                 uses_conditions: rule.uses_conditions,
+                focus_stable: rule.focus_stable,
+                condition_dependencies: rule.condition_dependencies.clone(),
+                condition_dependencies_global: rule.condition_dependencies_global,
             })
             .collect::<Vec<_>>();
         rule_plans.sort_by_key(|entry| entry.rule_id.0);
@@ -363,13 +372,56 @@ fn compile_rule_plan(program: &ShapeProgram, rule: &shifty_shacl_core::algebra::
     }
     .to_string();
     let mode = rule_execution_mode(program, rule);
+    let (condition_dependencies, condition_dependencies_global) =
+        compile_condition_dependencies(program, rule);
+    let focus_stable = rule_focus_stable(rule);
     CompiledRulePlan {
         rule_id: rule.id,
         owner_shape: rule.owner,
         mode,
         uses_conditions,
         kind,
+        focus_stable,
+        condition_dependencies,
+        condition_dependencies_global,
     }
+}
+
+fn compile_condition_dependencies(
+    program: &ShapeProgram,
+    rule: &shifty_shacl_core::algebra::Rule,
+) -> (Vec<String>, bool) {
+    let conditions = match &rule.expr {
+        RuleExpr::Triple { conditions, .. }
+        | RuleExpr::Sparql { conditions, .. }
+        | RuleExpr::Generic { conditions, .. } => conditions,
+    };
+    let mut deps = Vec::new();
+    let mut global = false;
+    for condition in conditions {
+        collect_shape_dependencies(program, *condition, &mut deps, &mut global, &mut Vec::new());
+    }
+    deps.sort();
+    deps.dedup();
+    (deps, global)
+}
+
+fn rule_focus_stable(rule: &shifty_shacl_core::algebra::Rule) -> bool {
+    match &rule.expr {
+        RuleExpr::Triple {
+            subject, object, ..
+        } => {
+            triple_term_focus_stable(subject.as_ref()) && triple_term_focus_stable(object.as_ref())
+        }
+        RuleExpr::Sparql { .. } | RuleExpr::Generic { .. } => false,
+    }
+}
+
+fn triple_term_focus_stable(term: Option<&TriplePatternTerm>) -> bool {
+    matches!(
+        term,
+        Some(TriplePatternTerm::This | TriplePatternTerm::Constant(_))
+    )
 }
 
 fn rule_execution_mode(

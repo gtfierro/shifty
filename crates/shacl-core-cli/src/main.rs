@@ -2319,11 +2319,23 @@ fn render_physical_plan_text(
     out.push_str("  Compiled Rules\n");
     for rule in &plan.rule_plans {
         out.push_str(&format!(
-            "    rule={} owner={} kind={} mode={} uses_conditions={}",
-            rule.rule_id.0, rule.owner_shape.0, rule.kind, rule.mode, rule.uses_conditions
+            "    rule={} owner={} kind={} mode={} uses_conditions={} focus_stable={} condition_global={}",
+            rule.rule_id.0,
+            rule.owner_shape.0,
+            rule.kind,
+            rule.mode,
+            rule.uses_conditions,
+            rule.focus_stable,
+            rule.condition_dependencies_global
         ));
         if !rule.dependency_predicates.is_empty() {
             out.push_str(&format!(" deps=[{}]", rule.dependency_predicates.join(", ")));
+        }
+        if !rule.condition_dependencies.is_empty() {
+            out.push_str(&format!(
+                " condition_deps=[{}]",
+                rule.condition_dependencies.join(", ")
+            ));
         }
         out.push('\n');
     }

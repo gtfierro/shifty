@@ -13,7 +13,7 @@ use shifty_shacl_core::{
     source::{RefreshMode, ShapeSource, SourceLoadOptions, load_with_ontoenv},
     static_cost_hints,
 };
-use shifty_shacl_core_inmemory::InMemoryValidationBackend;
+use shifty_shacl_core_inmemory::{InMemoryValidationBackend, compile_validation_plan};
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -3329,9 +3329,129 @@ fn validation_backend_executes_triple_rules_before_validation() {
     let result = backend.execute(&plan, &data).expect("validation executes");
     assert!(result.conforms);
     assert!(result.unsupported.is_empty());
-    assert_eq!(result.coverage.executed_rules, 2);
+    assert_eq!(result.coverage.executed_rules, 1);
     assert_eq!(result.coverage.inferred_triples, 1);
     assert_eq!(result.coverage.inference_iterations, 2);
+}
+
+#[test]
+fn compiled_triple_rule_tracks_focus_stability_and_condition_dependencies() {
+    let rdf_type = NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type").unwrap();
+    let sh_node_shape = NamedNode::new("http://www.w3.org/ns/shacl#NodeShape").unwrap();
+    let sh_property_shape = NamedNode::new("http://www.w3.org/ns/shacl#PropertyShape").unwrap();
+    let sh_target_node = NamedNode::new("http://www.w3.org/ns/shacl#targetNode").unwrap();
+    let sh_rule = NamedNode::new("http://www.w3.org/ns/shacl#rule").unwrap();
+    let sh_triple_rule = NamedNode::new("http://www.w3.org/ns/shacl#TripleRule").unwrap();
+    let sh_subject = NamedNode::new("http://www.w3.org/ns/shacl#subject").unwrap();
+    let sh_predicate = NamedNode::new("http://www.w3.org/ns/shacl#predicate").unwrap();
+    let sh_object = NamedNode::new("http://www.w3.org/ns/shacl#object").unwrap();
+    let sh_this = NamedNode::new("http://www.w3.org/ns/shacl#this").unwrap();
+    let sh_condition = NamedNode::new("http://www.w3.org/ns/shacl#condition").unwrap();
+    let sh_property = NamedNode::new("http://www.w3.org/ns/shacl#property").unwrap();
+    let sh_path = NamedNode::new("http://www.w3.org/ns/shacl#path").unwrap();
+    let sh_has_value = NamedNode::new("http://www.w3.org/ns/shacl#hasValue").unwrap();
+    let shape = NamedNode::new("urn:conditional-rule-shape").unwrap();
+    let condition_shape = NamedNode::new("urn:condition-shape").unwrap();
+    let property_shape = NamedNode::new("urn:condition-property-shape").unwrap();
+    let rule = NamedNode::new("urn:conditional-rule").unwrap();
+    let focus = NamedNode::new("urn:conditional-focus").unwrap();
+    let enabled = NamedNode::new("urn:enabled").unwrap();
+    let inferred_predicate = NamedNode::new("urn:inferred").unwrap();
+    let inferred_object = NamedNode::new("urn:done").unwrap();
+
+    let shapes = parse_quads(vec![
+        Quad::new(
+            shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_target_node,
+            Term::NamedNode(focus),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            shape.clone(),
+            sh_rule,
+            Term::NamedNode(rule.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_triple_rule),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_subject,
+            Term::NamedNode(sh_this),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_predicate,
+            Term::NamedNode(inferred_predicate),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule.clone(),
+            sh_object,
+            Term::NamedNode(inferred_object),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            rule,
+            sh_condition,
+            Term::NamedNode(condition_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            condition_shape.clone(),
+            rdf_type.clone(),
+            Term::NamedNode(sh_node_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            condition_shape,
+            sh_property,
+            Term::NamedNode(property_shape.clone()),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            rdf_type,
+            Term::NamedNode(sh_property_shape),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape.clone(),
+            sh_path,
+            Term::NamedNode(enabled),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+        Quad::new(
+            property_shape,
+            sh_has_value,
+            Term::Literal(Literal::new_simple_literal("true")),
+            oxrdf::GraphName::DefaultGraph,
+        ),
+    ]);
+    let program = lower_to_program(&shapes);
+    let plan = derive_validation_logical_plan(&program, BackendViewOptions::default());
+    let compiled = compile_validation_plan(&plan);
+    let inspectable = compiled.inspect();
+    let rule = inspectable
+        .rule_plans
+        .iter()
+        .find(|candidate| candidate.uses_conditions)
+        .expect("conditional rule should be compiled");
+    assert_eq!(rule.kind, "triple");
+    assert!(rule.focus_stable);
+    assert!(!rule.condition_dependencies_global);
+    assert_eq!(rule.condition_dependencies, vec!["urn:enabled".to_string()]);
 }
 
 #[test]

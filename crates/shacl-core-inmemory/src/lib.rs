@@ -149,8 +149,12 @@ struct ExecutionState<'a> {
     focus_nodes_evaluated: usize,
     path_cache: HashMap<(String, String), Vec<Term>>,
     target_cache: HashMap<TargetId, Vec<Term>>,
+    condition_cache: HashMap<(ShapeId, String), ProbeOutcome>,
+    rule_known_focuses: HashMap<RuleId, BTreeSet<String>>,
+    rule_executed_focuses: HashMap<RuleId, BTreeSet<String>>,
     inferred_quads: Vec<Quad>,
     iteration_dirty_predicates: BTreeSet<String>,
+    last_iteration_dirty_predicates: Option<BTreeSet<String>>,
 }
 
 impl<'a> ExecutionState<'a> {
@@ -176,8 +180,12 @@ impl<'a> ExecutionState<'a> {
             focus_nodes_evaluated: 0,
             path_cache: HashMap::new(),
             target_cache: HashMap::new(),
+            condition_cache: HashMap::new(),
+            rule_known_focuses: HashMap::new(),
+            rule_executed_focuses: HashMap::new(),
             inferred_quads: Vec::new(),
             iteration_dirty_predicates: BTreeSet::new(),
+            last_iteration_dirty_predicates: None,
         }
     }
 }
@@ -276,6 +284,7 @@ fn execute_rules_to_fixed_point(
     for iteration in 0..max_iterations {
         state.coverage.inference_iterations += 1;
         state.iteration_dirty_predicates.clear();
+        state.last_iteration_dirty_predicates = dirty_predicates.clone();
         state.trace.push(ValidationTraceEvent {
             event: TraceEventSchema::InferenceIterationStart,
             shape: None,
@@ -288,7 +297,7 @@ fn execute_rules_to_fixed_point(
             if !should_run_rule(rule.id, dirty_predicates.as_ref(), state) {
                 continue;
             }
-            new_triples += execute_rule(rule, state)?;
+            new_triples += execute_rule(rule, iteration == 0, state)?;
         }
         state.trace.push(ValidationTraceEvent {
             event: TraceEventSchema::InferenceIterationEnd,
@@ -393,7 +402,31 @@ fn elapsed_ms(duration: std::time::Duration) -> f64 {
 }
 
 
-fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, String> {
+fn execute_rule(
+    rule: &Rule,
+    _first_iteration: bool,
+    state: &mut ExecutionState<'_>,
+) -> Result<usize, String> {
+    let owner_targets = get_shape(state, rule.owner)?.targets.clone();
+    let mut focuses = Vec::new();
+    for target_id in &owner_targets {
+        let target = get_target(state, *target_id)?;
+        let target_expr = target.expr.clone();
+        focuses.extend(resolve_target_cached(rule.owner, target.id, &target_expr, state)?);
+    }
+    let focuses = dedup_terms(focuses);
+    let focuses = rule_focus_frontier(rule, focuses, state)?;
+    if focuses.is_empty() {
+        state.trace.push(ValidationTraceEvent {
+            event: TraceEventSchema::ExitRule,
+            shape: Some(rule.owner),
+            constraint: None,
+            focus_node: None,
+            message: format!("exit rule {} without candidate focuses", rule.id.0),
+        });
+        return Ok(0);
+    }
+
     state.trace.push(ValidationTraceEvent {
         event: TraceEventSchema::EnterRule,
         shape: Some(rule.owner),
@@ -408,20 +441,16 @@ fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, St
         .or_insert(0) += 1;
     state.coverage.executed_rules += 1;
 
-    let owner_targets = get_shape(state, rule.owner)?.targets.clone();
-    let mut focuses = Vec::new();
-    for target_id in &owner_targets {
-        let target = get_target(state, *target_id)?;
-        let target_expr = target.expr.clone();
-        focuses.extend(resolve_target_cached(rule.owner, target.id, &target_expr, state)?);
-    }
-    let focuses = dedup_terms(focuses);
-
     let mut inferred = 0usize;
     for focus in focuses {
         if !rule_conditions_hold(rule, &focus, state)? {
             continue;
         }
+        state
+            .rule_executed_focuses
+            .entry(rule.id)
+            .or_default()
+            .insert(focus.to_string());
         inferred += match &rule.expr {
             RuleExpr::Triple {
                 subject,
@@ -462,6 +491,76 @@ fn execute_rule(rule: &Rule, state: &mut ExecutionState<'_>) -> Result<usize, St
         ),
     });
     Ok(inferred)
+}
+
+fn rule_focus_frontier(
+    rule: &Rule,
+    all_focuses: Vec<Term>,
+    state: &mut ExecutionState<'_>,
+) -> Result<Vec<Term>, String> {
+    let Some(plan) = state.compiled.rule_plans.get(&rule.id) else {
+        return Ok(all_focuses);
+    };
+    let focus_stable = plan.focus_stable;
+    let uses_conditions = plan.uses_conditions;
+    let condition_dependencies_dirty =
+        condition_dependencies_dirty(plan, state.last_iteration_dirty_predicates.as_ref());
+    if !focus_stable {
+        return Ok(all_focuses);
+    }
+    let all_pairs = all_focuses
+        .into_iter()
+        .map(|focus| (focus.to_string(), focus))
+        .collect::<Vec<_>>();
+    let known_snapshot = state
+        .rule_known_focuses
+        .get(&rule.id)
+        .cloned()
+        .unwrap_or_default();
+    let executed_snapshot = state
+        .rule_executed_focuses
+        .get(&rule.id)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut frontier = Vec::new();
+    let mut seen_keys = Vec::new();
+    for (focus_key, focus) in all_pairs {
+        let is_new_focus = !known_snapshot.contains(&focus_key);
+        let needs_condition_recheck =
+            uses_conditions && condition_dependencies_dirty && !executed_snapshot.contains(&focus_key);
+        if is_new_focus || needs_condition_recheck {
+            frontier.push(focus.clone());
+        }
+        seen_keys.push(focus_key);
+    }
+    state
+        .rule_known_focuses
+        .entry(rule.id)
+        .or_default()
+        .extend(seen_keys);
+    Ok(frontier)
+}
+
+fn condition_dependencies_dirty(
+    plan: &physical::CompiledRulePlan,
+    dirty_predicates: Option<&BTreeSet<String>>,
+) -> bool {
+    if !plan.uses_conditions {
+        return false;
+    }
+    if plan.condition_dependencies_global {
+        return true;
+    }
+    let Some(dirty_predicates) = dirty_predicates else {
+        return true;
+    };
+    if plan.condition_dependencies.is_empty() {
+        return true;
+    }
+    plan.condition_dependencies
+        .iter()
+        .any(|predicate| dirty_predicates.contains(predicate))
 }
 
 fn ordered_constraint_ids(shape: &Shape, state: &ExecutionState<'_>) -> Vec<ConstraintId> {
@@ -514,7 +613,7 @@ fn get_target<'a>(
 fn rule_conditions_hold(
     rule: &Rule,
     focus: &Term,
-    state: &ExecutionState<'_>,
+    state: &mut ExecutionState<'_>,
 ) -> Result<bool, String> {
     let conditions = match &rule.expr {
         RuleExpr::Triple { conditions, .. }
@@ -524,9 +623,26 @@ fn rule_conditions_hold(
     if conditions.is_empty() {
         return Ok(true);
     }
-    let mut active = state.active.clone();
+    let condition_reprobe = state
+        .compiled
+        .rule_plans
+        .get(&rule.id)
+        .is_some_and(|plan| {
+            condition_dependencies_dirty(plan, state.last_iteration_dirty_predicates.as_ref())
+        });
     for condition in conditions {
-        match probe_shape_conforms_inner(*condition, focus, state, &mut active)? {
+        let focus_key = focus.to_string();
+        let cache_key = (*condition, focus_key.clone());
+        let cached = state.condition_cache.get(&cache_key).cloned();
+        let outcome = if condition_reprobe || cached.is_none() {
+            let mut active = state.active.clone();
+            let outcome = probe_shape_conforms_inner(*condition, focus, state, &mut active)?;
+            state.condition_cache.insert(cache_key, outcome.clone());
+            outcome
+        } else {
+            cached.expect("cached condition outcome present")
+        };
+        match outcome {
             ProbeOutcome::Conformant => {}
             ProbeOutcome::NonConformant
             | ProbeOutcome::Unsupported(_)
