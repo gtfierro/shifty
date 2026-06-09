@@ -12,7 +12,9 @@
 //! ≡ validate(S)` on every core test.
 
 use crate::strata::analyze;
-use shacl_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId, Statement};
+use shacl_algebra::{
+    NodeExpr, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId, Statement,
+};
 use std::collections::{HashMap, HashSet};
 
 /// Normalize a schema: CSE + compaction + Boolean/count simplification.
@@ -24,7 +26,29 @@ pub fn normalize(schema: &Schema) -> Schema {
         .map(|st| Statement { selector: z.selector(&st.selector), shape: z.intern(st.shape) })
         .collect();
     let rules = schema.rules.iter().map(|r| z.rule(r)).collect();
-    Schema { arena: z.dst, statements, rules }
+    // remap shape names through the CSE memo (CSE may collapse two named shapes)
+    let names = schema
+        .names
+        .iter()
+        .filter_map(|(old, name)| z.memo.get(old).map(|new| (*new, name.clone())))
+        .collect();
+    Schema { arena: z.dst, statements, rules, names }
+}
+
+/// The tighter lower bound (larger min), treating `None` as no bound.
+fn tighter_lower(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (s, None) | (None, s) => s,
+    }
+}
+
+/// The tighter upper bound (smaller max), treating `None` as no bound.
+fn tighter_upper(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (s, None) | (None, s) => s,
+    }
 }
 
 struct Interner<'a> {
@@ -36,6 +60,8 @@ struct Interner<'a> {
     cons: HashMap<Shape, ShapeId>,
     /// src ids inside a recursive SCC (rebuilt, not CSE'd/collapsed)
     cyclic: HashSet<ShapeId>,
+    /// dst ids that are recursive; NNF must not push negation into these
+    cyclic_dst: HashSet<ShapeId>,
 }
 
 impl<'a> Interner<'a> {
@@ -47,7 +73,14 @@ impl<'a> Interner<'a> {
             .filter(|s| s.recursive)
             .flat_map(|s| s.shapes.iter().copied())
             .collect();
-        Self { src, dst: ShapeArena::new(), memo: HashMap::new(), cons: HashMap::new(), cyclic }
+        Self {
+            src,
+            dst: ShapeArena::new(),
+            memo: HashMap::new(),
+            cons: HashMap::new(),
+            cyclic,
+            cyclic_dst: HashSet::new(),
+        }
     }
 
     fn cons(&mut self, shape: Shape) -> ShapeId {
@@ -83,6 +116,7 @@ impl<'a> Interner<'a> {
         if self.cyclic.contains(&id) {
             let d = self.dst.reserve();
             self.memo.insert(id, d);
+            self.cyclic_dst.insert(d);
             let shape = self.rebuild_cyclic(id);
             self.dst.set(d, shape);
             d
@@ -140,35 +174,111 @@ impl<'a> Interner<'a> {
         v
     }
 
+    /// `¬c`, pushed inward to negation normal form. `¬` only ever ends up on a
+    /// leaf atom or on a recursive node (which we don't unfold).
     fn mk_not(&mut self, c: ShapeId) -> ShapeId {
         if let Shape::Not(x) = self.dst.get(c) {
-            return *x; // ¬¬φ = φ
+            return *x; // ¬¬φ = φ (always safe, just an id lookup)
         }
-        self.cons(Shape::Not(c))
+        if self.cyclic_dst.contains(&c) {
+            return self.cons(Shape::Not(c)); // don't push negation into a cycle
+        }
+        match self.dst.get(c).clone() {
+            // De Morgan
+            Shape::And(cs) => {
+                let neg = cs.iter().map(|c| self.mk_not(*c)).collect();
+                self.mk_or(neg)
+            }
+            Shape::Or(cs) => {
+                let neg = cs.iter().map(|c| self.mk_not(*c)).collect();
+                self.mk_and(neg)
+            }
+            // ¬(∃[min..max] π.q) = ∃≤(min-1) π.q ∨ ∃≥(max+1) π.q (qualifier stays positive)
+            Shape::Count { path, min, max, qualifier } => {
+                let mut alts = Vec::new();
+                if let Some(a) = min
+                    && a > 0
+                {
+                    alts.push(self.mk_count(path.clone(), None, Some(a - 1), qualifier));
+                }
+                if let Some(b) = max {
+                    alts.push(self.mk_count(path, Some(b + 1), None, qualifier));
+                }
+                self.mk_or(alts)
+            }
+            // leaf atom (and ⊤, which becomes ⊥ = ¬⊤)
+            _ => self.cons(Shape::Not(c)),
+        }
     }
 
     fn mk_and(&mut self, ids: Vec<ShapeId>) -> ShapeId {
+        // flatten nested And
         let mut flat = Vec::new();
         for id in ids {
-            if self.is_bottom(id) {
-                return id; // φ ∧ ⊥ = ⊥
-            }
             match self.dst.get(id) {
-                Shape::Top => {}                                        // drop ⊤
-                Shape::And(inner) => flat.extend(inner.iter().copied()), // flatten
+                Shape::And(inner) => flat.extend(inner.iter().copied()),
                 _ => flat.push(id),
             }
         }
-        flat.sort();
-        flat.dedup();
-        if self.has_complement(&flat) {
+        // merge counts on the same (path, qualifier) into one tightened bound
+        let flat = self.merge_counts(flat);
+        // absorption (merging may have produced ⊤/⊥) + dedup + complement
+        let mut acc = Vec::new();
+        for id in flat {
+            if self.is_bottom(id) {
+                return id; // φ ∧ ⊥ = ⊥
+            }
+            if self.is_top(id) {
+                continue; // φ ∧ ⊤ = φ
+            }
+            acc.push(id);
+        }
+        acc.sort();
+        acc.dedup();
+        if self.has_complement(&acc) {
             return self.bottom(); // φ ∧ ¬φ = ⊥
         }
-        match flat.len() {
+        match acc.len() {
             0 => self.top(),
-            1 => flat[0],
-            _ => self.cons(Shape::And(flat)),
+            1 => acc[0],
+            _ => self.cons(Shape::And(acc)),
         }
+    }
+
+    /// Fuse conjoined counts over the same `(path, qualifier)`: the lower bounds
+    /// take their max, the upper bounds their min (`∃≥a ∧ ∃≥b = ∃≥max`,
+    /// `∃≤a ∧ ∃≤b = ∃≤min`, and a separate min/max count become one node).
+    fn merge_counts(&mut self, flat: Vec<ShapeId>) -> Vec<ShapeId> {
+        let mut keys: Vec<(Path, ShapeId)> = Vec::new();
+        let mut bounds: Vec<(Option<u64>, Option<u64>)> = Vec::new();
+        let mut index: HashMap<(Path, ShapeId), usize> = HashMap::new();
+        let mut others = Vec::new();
+
+        for id in flat {
+            if let Shape::Count { path, min, max, qualifier } = self.dst.get(id).clone() {
+                let key = (path, qualifier);
+                match index.get(&key) {
+                    Some(&i) => {
+                        bounds[i].0 = tighter_lower(bounds[i].0, min);
+                        bounds[i].1 = tighter_upper(bounds[i].1, max);
+                    }
+                    None => {
+                        index.insert(key.clone(), keys.len());
+                        keys.push(key);
+                        bounds.push((min, max));
+                    }
+                }
+            } else {
+                others.push(id);
+            }
+        }
+
+        let mut result = others;
+        for ((path, q), (min, max)) in keys.into_iter().zip(bounds) {
+            let merged = self.mk_count(path, min, max, q);
+            result.push(merged);
+        }
+        result
     }
 
     fn mk_or(&mut self, ids: Vec<ShapeId>) -> ShapeId {
@@ -277,14 +387,17 @@ mod tests {
     use shacl_algebra::{NodeKindSet, Path, Selector};
 
     fn schema_with(arena: ShapeArena, root: ShapeId) -> Schema {
-        let mut s = Schema { arena, statements: Vec::new(), rules: Vec::new() };
-        s.statements.push(Statement {
-            selector: Selector::IsConst(shacl_algebra::Term::NamedNode(
-                shacl_algebra::NamedNode::new("http://ex/x").unwrap(),
-            )),
-            shape: root,
-        });
-        s
+        Schema {
+            arena,
+            statements: vec![Statement {
+                selector: Selector::IsConst(shacl_algebra::Term::NamedNode(
+                    shacl_algebra::NamedNode::new("http://ex/x").unwrap(),
+                )),
+                shape: root,
+            }],
+            rules: Vec::new(),
+            names: Default::default(),
+        }
     }
 
     #[test]
@@ -331,6 +444,97 @@ mod tests {
         let root = a.insert(Shape::And(vec![k, nk]));
         let n = normalize(&schema_with(a, root));
         assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn nnf_pushes_negation_through_and() {
+        // ¬(IRI ∧ Literal) → ¬IRI ∨ ¬Literal
+        let mut a = ShapeArena::new();
+        let iri = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let lit = a.insert(Shape::TestKind(NodeKindSet::LITERAL));
+        let and = a.insert(Shape::And(vec![iri, lit]));
+        let root = a.insert(Shape::Not(and));
+        let n = normalize(&schema_with(a, root));
+        match n.arena.get(n.statements[0].shape) {
+            Shape::Or(cs) => {
+                assert_eq!(cs.len(), 2);
+                for c in cs {
+                    assert!(matches!(n.arena.get(*c), Shape::Not(_)));
+                }
+            }
+            other => panic!("expected Or of Nots, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nnf_flips_count_bound() {
+        // ¬(∃≥2 p.⊤) → ∃≤1 p.⊤  (qualifier stays positive)
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let count = a.insert(Shape::Count {
+            path: Path::Pred(shacl_algebra::NamedNode::new("http://ex/p").unwrap()),
+            min: Some(2),
+            max: None,
+            qualifier: top,
+        });
+        let root = a.insert(Shape::Not(count));
+        let n = normalize(&schema_with(a, root));
+        match n.arena.get(n.statements[0].shape) {
+            Shape::Count { min, max, .. } => {
+                assert_eq!((*min, *max), (None, Some(1)));
+            }
+            other => panic!("expected ∃≤1, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn merges_min_and_max_counts() {
+        // (∃≥1 p.⊤) ∧ (∃≤1 p.⊤) → ∃[1..1] p.⊤
+        let mut a = ShapeArena::new();
+        let p = Path::Pred(shacl_algebra::NamedNode::new("http://ex/p").unwrap());
+        let t1 = a.insert(Shape::Top);
+        let t2 = a.insert(Shape::Top);
+        let lo = a.insert(Shape::Count { path: p.clone(), min: Some(1), max: None, qualifier: t1 });
+        let hi = a.insert(Shape::Count { path: p, min: None, max: Some(1), qualifier: t2 });
+        let root = a.insert(Shape::And(vec![lo, hi]));
+        let n = normalize(&schema_with(a, root));
+        match n.arena.get(n.statements[0].shape) {
+            Shape::Count { min, max, .. } => assert_eq!((*min, *max), (Some(1), Some(1))),
+            other => panic!("expected one fused ∃[1..1], got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn merged_counts_can_be_unsat() {
+        // (∃≥2 p.⊤) ∧ (∃≤1 p.⊤) → ⊥
+        let mut a = ShapeArena::new();
+        let p = Path::Pred(shacl_algebra::NamedNode::new("http://ex/p").unwrap());
+        let t1 = a.insert(Shape::Top);
+        let t2 = a.insert(Shape::Top);
+        let lo = a.insert(Shape::Count { path: p.clone(), min: Some(2), max: None, qualifier: t1 });
+        let hi = a.insert(Shape::Count { path: p, min: None, max: Some(1), qualifier: t2 });
+        let root = a.insert(Shape::And(vec![lo, hi]));
+        let n = normalize(&schema_with(a, root));
+        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn negating_recursive_shape_terminates() {
+        // T := ¬S where S := ∃≥1 p.S — must not loop; ¬ stays outside the cycle
+        let mut a = ShapeArena::new();
+        let s = a.reserve();
+        a.set(
+            s,
+            Shape::Count {
+                path: Path::Pred(shacl_algebra::NamedNode::new("http://ex/p").unwrap()),
+                min: Some(1),
+                max: None,
+                qualifier: s,
+            },
+        );
+        let root = a.insert(Shape::Not(s));
+        let n = normalize(&schema_with(a, root));
+        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(_)));
     }
 
     #[test]

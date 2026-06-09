@@ -12,6 +12,7 @@ use crate::rule::Rule;
 use crate::selector::Selector;
 use crate::shape::{ShapeArena, ShapeId};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// One `(selector, shape)` pair. A shape with several targets yields several
 /// statements sharing the same `shape` id.
@@ -26,6 +27,10 @@ pub struct Schema {
     pub arena: ShapeArena,
     pub statements: Vec<Statement>,
     pub rules: Vec<Rule>,
+    /// IRI names for arena slots that came from named (non-blank) RDF nodes.
+    /// Blank-node shapes have no entry here.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub names: HashMap<ShapeId, String>,
 }
 
 impl Schema {

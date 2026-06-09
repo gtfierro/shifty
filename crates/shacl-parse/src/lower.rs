@@ -37,11 +37,20 @@ pub fn lower(g: &Loaded) -> Lowered {
     for s in &shapes {
         l.add_statements(s);
     }
+    let names = l
+        .cache
+        .iter()
+        .filter_map(|(node, id)| match node {
+            NamedOrBlankNode::NamedNode(n) => Some((*id, n.as_str().to_string())),
+            NamedOrBlankNode::BlankNode(_) => None,
+        })
+        .collect();
     Lowered {
         schema: Schema {
             arena: l.arena,
             statements: l.statements,
             rules: Vec::new(),
+            names,
         },
         diagnostics: l.diags,
     }

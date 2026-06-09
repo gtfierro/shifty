@@ -30,7 +30,17 @@ pub fn schema_to_text(schema: &Schema) -> String {
 
     out.push_str("shapes:\n");
     for id in &reachable {
-        out.push_str(&format!("  @{} = {}\n", id.0, shape_def(&schema.arena, *id)));
+        let name_suffix = schema
+            .names
+            .get(id)
+            .map(|iri| format!("  # {}", compact(iri)))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "  @{} = {}{}\n",
+            id.0,
+            shape_def(&schema.arena, *id),
+            name_suffix
+        ));
     }
 
     if !schema.statements.is_empty() {
@@ -299,7 +309,12 @@ pub fn schema_to_dot(schema: &Schema) -> String {
     // Shape nodes
     for id in &reachable {
         let def = shape_def_dot(&schema.arena, *id);
-        let label = dot_escape(&format!("@{}\n{}", id.0, def));
+        let name_line = schema
+            .names
+            .get(id)
+            .map(|iri| format!("\n{}", compact(iri)))
+            .unwrap_or_default();
+        let label = dot_escape(&format!("@{}{}\n{}", id.0, name_line, def));
         let node_attrs = match schema.arena.get(*id) {
             Shape::Top => format!("shape=ellipse, style=\"rounded,filled\", fillcolor=lightgray, label=\"{label}\""),
             Shape::Not(_) => format!("shape=ellipse, style=\"rounded,filled\", fillcolor=lightsalmon, label=\"{label}\""),

@@ -23,7 +23,8 @@ here are per-node truth-functional / relational, hence gfp-safe.
 - Complementation `φ∧¬φ=⊥`, `φ∨¬φ=⊤` (via CSE ids). **[done]**
 - Canonical child ordering (sort by id) so equal And/Or dedup. **[done]**
 - NNF — push `¬` inward; `¬(∃≥n π.φ)=∃≤(n−1) π.φ`, `¬(∃≤m π.φ)=∃≥(m+1) π.φ`
-  (flip bounds, keep qualifier positive). **[do]**
+  (flip bounds, keep qualifier positive). **[done]** (negation is not pushed
+  into recursive nodes, which stay as `¬`-literals).
 - Absorption `φ∧(φ∨ψ)=φ`. **[todo]**
 - Complementary atoms `¬nodeKind(IRI)=nodeKind(Blank|Literal)`. **[todo]**
 
@@ -32,7 +33,8 @@ here are per-node truth-functional / relational, hence gfp-safe.
 - Unsat bounds `min > max ⇒ ⊥`. **[done]**
 - Qualifier collapse `∃≥1 π.⊥=⊥`, `∃≤m π.⊥=⊤`. **[do]**
 - Merge counts on same `(π,φ)`: `∃≥a ∧ ∃≥b = ∃≥max`, `∃≤a ∧ ∃≤b = ∃≤min`;
-  fuse a separate min/max count into one node (one path eval). **[do]**
+  fuse a separate min/max count into one node (one path eval). **[done]**
+  (conjunction context only)
 - `id`-path collapse `∃≥1 id.φ=φ`, `∃≤0 id.φ=¬φ`. **[do]**
 - Empty-path `∃≥1 Alt([]).φ=⊥`. **[todo]**
 
