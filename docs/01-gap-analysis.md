@@ -89,24 +89,21 @@ heart of the "inference + validation" goal.
 
 ---
 
-## D. Recursion (cross-cutting design decision)
+## D. Recursion (**decided** — see [`03-recursion-semantics.md`](03-recursion-semantics.md))
 
-The paper assumes **non-recursive** shapes. Real SHACL permits cyclic references
-through `sh:node` / `sh:property` / `sh:qualifiedValueShape`, and the W3C spec
-leaves recursive semantics **undefined**. The literature offers
-well-founded / stable / supported-model semantics (paper refs [1,5,12,13]).
+The paper assumes **non-recursive** shapes; the W3C spec leaves recursion
+**undefined**. We extend with a pinned semantics:
 
-This interacts with inference: **rules already require a fixpoint**, so we need a
-fixpoint engine regardless. Decision deferred to roadmap **Layer 4** with a
-proposed default:
+- **Stratified** over the polarity-aware shape/rule dependency graph;
+  non-stratifiable schemas (a cycle through a negative edge) are **diagnosed**,
+  not guessed.
+- Within a stratum: **validation = greatest fixpoint** (coinductive; a clean
+  cycle conforms), **inference = least fixpoint** (only finitely-justified
+  triples). Separate phases, so the directions don't conflict.
 
-- **Stratified-where-possible**: compute the shape dependency graph; if
-  reference cycles cross negation in a way that isn't stratifiable, fall back to
-  a chosen 3-valued / well-founded semantics with an explicit diagnostic. Pure
-  (negation-free) cycles get least-fixpoint semantics.
-
-This must be pinned down *before* Layer 5 optimization, since optimization is
-only sound w.r.t. a fixed semantics.
+Polarity is computed *semantically* (the `∃≤0 π.¬φ` encoding of `∀π.φ` is
+positive overall); `Count{min,max}` is un-fused for analysis. Full rationale and
+worked examples in doc 03. This replaces the Layer 3 provisional stack guard.
 
 ---
 

@@ -11,6 +11,8 @@ Read in order:
 2. [`01-gap-analysis.md`](01-gap-analysis.md) — where W3C SHACL / SHACL-AF
    diverge from the paper, every hole, and the fix (stable ids `D0`, `C1`, …).
 3. [`02-roadmap.md`](02-roadmap.md) — the layered build, Layer 0 → 7.
+4. [`03-recursion-semantics.md`](03-recursion-semantics.md) — the pinned
+   recursion semantics (stratified; gfp validation / lfp inference).
 
 > `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
 > approach) and is kept only as historical reference.

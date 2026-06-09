@@ -67,9 +67,11 @@ Guiding principles:
 
 ## Layer 4 — Static analysis, recursion semantics & normalization  (`shacl-opt`)
 
-- Shape dependency graph; SCC / stratification analysis (**D**). **Pin the
-  recursion semantics** (stratified-where-possible + well-founded fallback) and
-  fixpoint framework shared with rules.
+- Shape dependency graph with **polarity-aware** edges (un-fuse `Count` min/max);
+  SCC + **stratification** per the *decided* semantics in
+  [`03-recursion-semantics.md`](03-recursion-semantics.md) — stratified, gfp
+  validation / lfp inference, diagnose non-stratifiable. Build the shared
+  fixpoint framework and **replace the Layer 3 stack guard**.
 - Normal forms: NNF/CNF-ish for `φ`; canonicalize `Path` via Kleene-with-converse
   laws (`(π·π′)⁻ = π′⁻·π⁻`, `id` units, `∪` ACI, `*` idempotence).
 - Sound simplifications: constant folding, `test`-type intersection, dead-branch
