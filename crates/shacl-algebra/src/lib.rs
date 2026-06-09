@@ -22,6 +22,7 @@
 
 pub mod expr;
 pub mod path;
+pub mod render;
 pub mod rule;
 pub mod schema;
 pub mod selector;

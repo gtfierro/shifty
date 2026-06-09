@@ -31,4 +31,13 @@ Start with [`docs/`](docs/):
 ```sh
 cargo build --workspace
 cargo test --workspace
+
+# Inspect how a shapes graph evolves through the layers:
+cargo run -p shacl-cli -- inspect --stage rdf     examples/person.ttl   # raw triples
+cargo run -p shacl-cli -- inspect --stage algebra examples/person.ttl   # lowered IR (φ/π notation)
+cargo run -p shacl-cli -- inspect --stage algebra --format json examples/person.ttl
 ```
+
+The `algebra` text view is a cycle-safe flat dump of the shape graph: each arena
+slot prints as `@i = <φ>` with child shapes referenced as `@j`, so recursion and
+sharing are visible at a glance.

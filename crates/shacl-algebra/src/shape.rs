@@ -29,6 +29,11 @@ pub struct ShapeId(pub u32);
 pub enum Shape {
     /// `⊤` — trivially satisfied.
     Top,
+    /// A reserved-but-unfilled arena slot, transient during construction of
+    /// cyclic shapes. Kept distinct from [`Shape::Top`] so the smart
+    /// constructors never absorb a forward/back reference that is still being
+    /// built. A finalized schema contains no `Pending`.
+    Pending,
     /// `test(c)` — equality with a constant. Widened from values to any `Term`
     /// (gap-analysis **V1**: node-valued `sh:hasValue` / `sh:in`).
     TestConst(Term),
@@ -103,11 +108,11 @@ impl ShapeArena {
         id
     }
 
-    /// Reserve a slot (initialized to `⊤`) whose id can be referenced before its
-    /// body is known, then filled with [`set`](Self::set). This is how cyclic
-    /// shapes are constructed.
+    /// Reserve a slot (initialized to [`Shape::Pending`]) whose id can be
+    /// referenced before its body is known, then filled with [`set`](Self::set).
+    /// This is how cyclic shapes are constructed.
     pub fn reserve(&mut self) -> ShapeId {
-        self.insert(Shape::Top)
+        self.insert(Shape::Pending)
     }
 
     /// Overwrite a (typically reserved) slot. Bypasses normalization by design.

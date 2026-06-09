@@ -10,4 +10,8 @@ repository.workspace = true
 [dependencies]
 shacl-algebra.workspace = true
 oxrdf.workspace = true
+oxttl.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

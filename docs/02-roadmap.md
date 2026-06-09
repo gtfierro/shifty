@@ -118,8 +118,9 @@ Guiding principles:
 | Docs 00–02 | ✅ |
 | 0 Scaffolding | ✅ workspace builds; old crates retired; 5 crates stubbed |
 | 1 Core algebra IR | ✅ IR types, smart constructors, cyclic arena, serde round-trip |
-| 2 Parser & lowering | ⏳ next |
-| 3–7 | ⬜ not started |
+| 2 Parser & lowering | ✅ Turtle → IR for Core + targets + paths; AF/SPARQL diagnosed; `shacl inspect` stage viewer |
+| 3 Reference semantics | ⏳ next |
+| 4–7 | ⬜ not started |
 
 Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
 `ValueType` facets, the `Shape` grammar over a cyclic-capable `ShapeArena`,
@@ -127,7 +128,19 @@ Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
 — with light always-sound smart constructors and serde round-trip (cycles
 encoded as indices).
 
-Next: Layer 2 — `shacl-parse`: read an RDF shapes graph and lower all Core + AF
-vocabulary into this IR, applying every sugar rule from the gap analysis. The
-recursion-semantics decision (Layer 4) remains the load-bearing open question
-before any optimization work.
+Layer 2 landed in `shacl-parse`: Turtle loading (`oxttl`/`oxrdf`), shape
+discovery, full path parsing (incl. inverse/alt/seq lists and the `*`/`+`/`?`
+operators), and lowering of Core constraints, targets, qualified counts,
+property pairs, and `closed` into the IR — with per-value constraints encoded as
+`∀π = ∃≤0 π.¬φ` and recursive `sh:node` references preserved through the cyclic
+arena. Unsupported AF/SPARQL constructs emit diagnostics. Debug tooling: `shacl
+inspect --stage rdf|algebra --format text|json` shows each layer's view (the
+text dump is a cycle-safe, reachability-filtered notation rendering).
+
+Not yet lowered (tracked for later in Layer 2 / Layer 6): SHACL-AF rules and
+node expressions, SPARQL constraints/targets, and custom constraint components —
+all currently diagnosed rather than dropped.
+
+Next: Layer 3 — the reference denotational evaluator (`G ⊨ S`) and the W3C test
+suite as a conformance oracle. The recursion-semantics decision (Layer 4)
+remains the load-bearing open question before any optimization work.

@@ -747,6 +747,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "serde_json",
  "shacl-algebra",
  "shacl-engine",
  "shacl-opt",
@@ -780,7 +781,9 @@ name = "shacl-parse"
 version = "0.1.0"
 dependencies = [
  "oxrdf",
+ "oxttl",
  "serde",
+ "serde_json",
  "shacl-algebra",
 ]
 
