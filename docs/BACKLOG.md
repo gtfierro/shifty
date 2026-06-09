@@ -15,8 +15,10 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 - **[todo]** `sh:qualifiedValueShapesDisjoint` flag (currently skipped in the suite).
 
 ## Engine / semantics (Layers 3, 6)
-- **[next]** Rule **execution**: lfp semi-naive fixpoint, `sh:order` strata,
-  recursion via the stratified framework (Layer 6).
+- **[done]** Rule **execution** (Layer 6): lfp forward chaining, `sh:order`
+  strata, naive fixpoint (`shacl_engine::infer`, `shacl infer` CLI). Still to do:
+  **[do]** semi-naive (delta) evaluation; **[do]** `sh:SPARQLRule` via oxigraph
+  CONSTRUCT; **[do]** function node expressions; **[do]** `validate --infer`.
 - **[do]** Wire `Schema.names` provenance into validation **reports** (real
   `sh:sourceShape`; reports are focus-node + `@id` level today).
 - **[do]** Term ordering beyond numeric + `xsd:string` (dates, etc.) for

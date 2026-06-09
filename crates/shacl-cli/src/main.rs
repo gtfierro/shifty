@@ -22,6 +22,24 @@ enum Command {
     Inspect(InspectArgs),
     /// Validate a data graph against a shapes graph (reference evaluator).
     Validate(ValidateArgs),
+    /// Run SHACL-AF rule inference (forward chaining to a fixpoint).
+    Infer(InferArgs),
+}
+
+#[derive(Args)]
+struct InferArgs {
+    /// Turtle shapes file (with `sh:rule`s).
+    #[arg(long)]
+    shapes: PathBuf,
+    /// Turtle data file (defaults to the shapes file).
+    #[arg(long)]
+    data: Option<PathBuf>,
+    /// Base IRI for parsing.
+    #[arg(long)]
+    base: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
 }
 
 #[derive(Args)]
@@ -92,7 +110,56 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Command::Inspect(args) => inspect(args),
         Command::Validate(args) => validate(args),
+        Command::Infer(args) => infer(args),
     }
+}
+
+fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
+    let base = args.base.as_deref();
+    let shapes_bytes = std::fs::read(&args.shapes)?;
+    let parsed = shacl_parse::parse_turtle(&shapes_bytes, base)?;
+    for d in &parsed.diagnostics {
+        eprintln!("{d}");
+    }
+
+    let data_path = args.data.as_ref().unwrap_or(&args.shapes);
+    let data_bytes = std::fs::read(data_path)?;
+    let data = shacl_parse::load_turtle(&data_bytes, base)?;
+
+    let outcome = match shacl_engine::infer(&data.graph, &parsed.schema) {
+        Ok(o) => o,
+        Err(e) => return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into()),
+    };
+    for d in &outcome.diagnostics {
+        eprintln!("warning: {d}");
+    }
+
+    match args.format {
+        Format::Dot => return Err("--format dot is not supported for infer".into()),
+        Format::Json => {
+            let triples: Vec<_> = outcome
+                .inferred
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "subject": t.subject.to_string(),
+                        "predicate": t.predicate.to_string(),
+                        "object": t.object.to_string(),
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&triples)?);
+        }
+        Format::Text => {
+            println!("inferred {} triple(s):", outcome.inferred.len());
+            let mut lines: Vec<String> = outcome.inferred.iter().map(|t| t.to_string()).collect();
+            lines.sort();
+            for line in lines {
+                println!("  {line}");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {

@@ -183,8 +183,9 @@ pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term
     }
 }
 
-/// `G, v ⊨ φ` (bare bool). Used for target selection and qualifier counting.
-fn holds(
+/// `G, v ⊨ φ` (bare bool). Used for target selection, qualifier counting, and
+/// rule conditions (`crate::infer`).
+pub(crate) fn holds(
     g: &Graph,
     arena: &ShapeArena,
     v: &Term,

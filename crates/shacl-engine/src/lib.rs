@@ -6,10 +6,12 @@
 //! inference engine (Layer 6) and compiled executors (Layer 7) come later; every
 //! execution mode must agree with this oracle.
 
+pub mod infer;
 pub mod path;
 pub mod validate;
 pub mod value;
 
+pub use infer::{infer, InferenceOutcome};
 pub use validate::{
     focus_nodes, validate, validate_plan, NonStratifiable, Reason, ValidationOutcome, Violation,
 };
@@ -154,5 +156,57 @@ mod tests {
         let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
         assert!(validate(&loaded.graph, &out.schema).is_err());
+    }
+
+    fn triple(s: &str, p: &str, o: &str) -> oxrdf::Triple {
+        use oxrdf::NamedNode;
+        oxrdf::Triple::new(
+            NamedNode::new(s).unwrap(),
+            NamedNode::new(p).unwrap(),
+            NamedNode::new(o).unwrap(),
+        )
+    }
+
+    #[test]
+    fn triple_rule_infers_from_path() {
+        // copy each ex:knows value to ex:knows2
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetClass ex:Person ;
+                sh:rule [ a sh:TripleRule ;
+                    sh:subject sh:this ; sh:predicate ex:knows2 ;
+                    sh:object [ sh:path ex:knows ] ] .
+            ex:a a ex:Person ; ex:knows ex:b .
+            "
+        );
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+        assert_eq!(outcome.inferred.len(), 1);
+        assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/knows2", "http://ex/b")));
+    }
+
+    #[test]
+    fn inference_reaches_a_fixpoint() {
+        // ex:reaches := ex:knows ∪ (ex:knows / ex:reaches) — transitive closure
+        // a→b→c, so a reaches c is derivable only after b reaches c.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetClass ex:Person ;
+                sh:rule [ a sh:TripleRule ;
+                    sh:subject sh:this ; sh:predicate ex:reaches ;
+                    sh:object [ sh:path [ sh:alternativePath ( ex:knows ( ex:knows ex:reaches ) ) ] ] ] .
+            ex:a a ex:Person ; ex:knows ex:b .
+            ex:b a ex:Person ; ex:knows ex:c .
+            ex:c a ex:Person .
+            "
+        );
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+        assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/b")));
+        assert!(outcome.graph.contains(&triple("http://ex/b", "http://ex/reaches", "http://ex/c")));
+        // the fixpoint result: a reaches c (only via b reaches c)
+        assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/c")));
     }
 }

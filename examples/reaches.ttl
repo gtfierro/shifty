@@ -1,0 +1,12 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+
+ex:ReachShape a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:rule [ a sh:TripleRule ;
+        sh:subject sh:this ; sh:predicate ex:reaches ;
+        sh:object [ sh:path [ sh:alternativePath ( ex:knows ( ex:knows ex:reaches ) ) ] ] ] .
+
+ex:a a ex:Person ; ex:knows ex:b .
+ex:b a ex:Person ; ex:knows ex:c .
+ex:c a ex:Person .
