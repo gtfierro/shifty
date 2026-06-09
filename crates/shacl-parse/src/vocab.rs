@@ -110,6 +110,41 @@ iri!(SH_CONDITION, "http://www.w3.org/ns/shacl#condition");
 iri!(SH_ORDER, "http://www.w3.org/ns/shacl#order");
 iri!(SH_CONSTRUCT, "http://www.w3.org/ns/shacl#construct");
 
+// validation report vocabulary
+iri!(SH_VALIDATION_REPORT, "http://www.w3.org/ns/shacl#ValidationReport");
+iri!(SH_VALIDATION_RESULT, "http://www.w3.org/ns/shacl#ValidationResult");
+iri!(SH_CONFORMS, "http://www.w3.org/ns/shacl#conforms");
+iri!(SH_RESULT, "http://www.w3.org/ns/shacl#result");
+iri!(SH_FOCUS_NODE, "http://www.w3.org/ns/shacl#focusNode");
+iri!(SH_RESULT_PATH, "http://www.w3.org/ns/shacl#resultPath");
+iri!(SH_VALUE, "http://www.w3.org/ns/shacl#value");
+iri!(SH_RESULT_SEVERITY, "http://www.w3.org/ns/shacl#resultSeverity");
+iri!(SH_SOURCE_CONSTRAINT_COMPONENT, "http://www.w3.org/ns/shacl#sourceConstraintComponent");
+iri!(SH_SOURCE_SHAPE, "http://www.w3.org/ns/shacl#sourceShape");
+iri!(SH_VIOLATION, "http://www.w3.org/ns/shacl#Violation");
+iri!(SH_SEVERITY, "http://www.w3.org/ns/shacl#severity");
+
+// constraint components
+iri!(SH_CC_CLASS, "http://www.w3.org/ns/shacl#ClassConstraintComponent");
+iri!(SH_CC_DATATYPE, "http://www.w3.org/ns/shacl#DatatypeConstraintComponent");
+iri!(SH_CC_NODE_KIND, "http://www.w3.org/ns/shacl#NodeKindConstraintComponent");
+iri!(SH_CC_MIN_COUNT, "http://www.w3.org/ns/shacl#MinCountConstraintComponent");
+iri!(SH_CC_MAX_COUNT, "http://www.w3.org/ns/shacl#MaxCountConstraintComponent");
+iri!(SH_CC_MIN_EXCLUSIVE, "http://www.w3.org/ns/shacl#MinExclusiveConstraintComponent");
+iri!(SH_CC_MIN_INCLUSIVE, "http://www.w3.org/ns/shacl#MinInclusiveConstraintComponent");
+iri!(SH_CC_MAX_EXCLUSIVE, "http://www.w3.org/ns/shacl#MaxExclusiveConstraintComponent");
+iri!(SH_CC_MAX_INCLUSIVE, "http://www.w3.org/ns/shacl#MaxInclusiveConstraintComponent");
+iri!(SH_CC_MIN_LENGTH, "http://www.w3.org/ns/shacl#MinLengthConstraintComponent");
+iri!(SH_CC_MAX_LENGTH, "http://www.w3.org/ns/shacl#MaxLengthConstraintComponent");
+iri!(SH_CC_PATTERN, "http://www.w3.org/ns/shacl#PatternConstraintComponent");
+iri!(SH_CC_AND, "http://www.w3.org/ns/shacl#AndConstraintComponent");
+iri!(SH_CC_OR, "http://www.w3.org/ns/shacl#OrConstraintComponent");
+iri!(SH_CC_NOT, "http://www.w3.org/ns/shacl#NotConstraintComponent");
+iri!(SH_CC_XONE, "http://www.w3.org/ns/shacl#XoneConstraintComponent");
+iri!(SH_CC_NODE, "http://www.w3.org/ns/shacl#NodeConstraintComponent");
+iri!(SH_CC_HAS_VALUE, "http://www.w3.org/ns/shacl#HasValueConstraintComponent");
+iri!(SH_CC_IN, "http://www.w3.org/ns/shacl#InConstraintComponent");
+
 /// `rdf:type` as an owned node (for path construction).
 pub fn rdf_type() -> NamedNode {
     NamedNode::new_unchecked(format!("{RDF}type"))

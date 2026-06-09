@@ -56,6 +56,9 @@ struct ValidateArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
+    /// Emit a W3C `sh:ValidationReport` graph (N-Triples) instead of a summary.
+    #[arg(long)]
+    report: bool,
 }
 
 #[derive(Args)]
@@ -173,6 +176,19 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let data_path = args.data.as_ref().unwrap_or(&args.shapes);
     let data_bytes = std::fs::read(data_path)?;
     let data = shacl_parse::load_turtle(&data_bytes, base)?;
+
+    // W3C report mode: component-granular validator + RDF report output
+    if args.report {
+        let shapes_loaded = shacl_parse::load_turtle(&shapes_bytes, base)?;
+        let report = shacl_engine::validate_report(&shapes_loaded, &data.graph);
+        let graph = shacl_engine::report_to_graph(&report);
+        let mut lines: Vec<String> = graph.iter().map(|t| t.to_string()).collect();
+        lines.sort();
+        for line in lines {
+            println!("{line}");
+        }
+        return Ok(());
+    }
 
     let outcome = match shacl_engine::validate(&data.graph, &parsed.schema) {
         Ok(o) => o,

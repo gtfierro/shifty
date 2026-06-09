@@ -8,10 +8,12 @@
 
 pub mod infer;
 pub mod path;
+pub mod report;
 pub mod validate;
 pub mod value;
 
 pub use infer::{infer, InferenceOutcome};
+pub use report::{report_to_graph, validate_report, ValidationReport, ValidationResult};
 pub use validate::{
     focus_nodes, validate, validate_plan, NonStratifiable, Reason, ValidationOutcome, Violation,
 };

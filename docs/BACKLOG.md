@@ -19,8 +19,15 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   strata, naive fixpoint (`shacl_engine::infer`, `shacl infer` CLI). Still to do:
   **[do]** semi-naive (delta) evaluation; **[do]** `sh:SPARQLRule` via oxigraph
   CONSTRUCT; **[do]** function node expressions; **[do]** `validate --infer`.
-- **[do]** Wire `Schema.names` provenance into validation **reports** (real
-  `sh:sourceShape`; reports are focus-node + `@id` level today).
+- **[done]** W3C `sh:ValidationReport` output: component-granular, RDF-driven
+  validator (`shacl_engine::validate_report`, `validate --report` CLI) +
+  `report_to_graph`. data-shapes core: **75/113 pass, 23 fail, 15 skip**.
+  Remaining report components **[do]**: `closed`, `equals`/`disjoint`,
+  `lessThan(OrEquals)`, `languageIn`, `uniqueLang`, `qualifiedValueShape`(+counts);
+  ill-formed-literal datatype validation; full blank-node graph isomorphism in
+  the harness (wildcarded today).
+- the algebra path's `Violation`/`Reason` reports stay focus-node + `@id` level
+  (the report validator is the W3C-faithful path).
 - **[do]** Term ordering beyond numeric + `xsd:string` (dates, etc.) for
   ranges / `sh:lessThan`.
 - **[todo]** Well-founded fallback for non-stratifiable schemas (we diagnose &
