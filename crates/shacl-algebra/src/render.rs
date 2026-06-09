@@ -153,6 +153,12 @@ fn join_children(arena: &ShapeArena, cs: &[ShapeId], sep: &str) -> String {
         .join(sep)
 }
 
+/// Render a single shape (its top-level form; children as `@id`). Useful for
+/// constraint messages in validation reports.
+pub fn shape_to_string(arena: &ShapeArena, id: ShapeId) -> String {
+    shape_def(arena, id)
+}
+
 pub fn selector_to_string(sel: &Selector) -> String {
     match sel {
         Selector::HasOut(q) => format!("∃ {} .⊤", compact(q.as_str())),

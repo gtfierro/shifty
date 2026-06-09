@@ -10,7 +10,7 @@ pub mod path;
 pub mod validate;
 pub mod value;
 
-pub use validate::{focus_nodes, validate, ResultEntry, ValidationOutcome};
+pub use validate::{focus_nodes, validate, Reason, ValidationOutcome, Violation};
 
 #[cfg(test)]
 mod tests {
@@ -27,9 +27,45 @@ mod tests {
 
     const PREFIXES: &str = r#"
         @prefix sh:  <http://www.w3.org/ns/shacl#> .
+        @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
         @prefix ex:  <http://ex/> .
         @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
     "#;
+
+    #[test]
+    fn reports_specific_failing_constraints() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:closed true ;
+                sh:ignoredProperties ( rdf:type ) ;
+                sh:property [ sh:path ex:age ; sh:datatype xsd:integer ; sh:maxCount 1 ] .
+            ex:x ex:age \"foo\" , 5 ; ex:extra 1 .
+            "
+        );
+        let outcome = run(&ttl);
+        assert!(!outcome.conforms);
+        assert_eq!(outcome.violations.len(), 1);
+        let msgs: Vec<&str> = outcome.violations[0]
+            .reasons
+            .iter()
+            .map(|r| r.message.as_str())
+            .collect();
+        // each distinct constraint is reported, not just "the node failed"
+        assert!(
+            msgs.iter().any(|m| m.contains("datatype(xsd:integer)")),
+            "missing datatype reason: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("at most 1")),
+            "missing maxCount reason: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("closed") && m.contains("extra")),
+            "missing closed reason: {msgs:?}"
+        );
+    }
 
     #[test]
     fn cardinality_and_datatype() {
@@ -45,7 +81,7 @@ mod tests {
         let outcome = run(&ttl);
         assert!(!outcome.conforms);
         // only ex:bob violates maxCount 1
-        let bad: Vec<_> = outcome.results.iter().map(|r| r.focus.to_string()).collect();
+        let bad: Vec<_> = outcome.violations.iter().map(|r| r.focus.to_string()).collect();
         assert_eq!(bad, vec!["<http://ex/bob>".to_string()]);
     }
 
@@ -75,7 +111,7 @@ mod tests {
         );
         let outcome = run(&ttl);
         assert!(!outcome.conforms);
-        let bad: Vec<_> = outcome.results.iter().map(|r| r.focus.to_string()).collect();
+        let bad: Vec<_> = outcome.violations.iter().map(|r| r.focus.to_string()).collect();
         assert_eq!(bad, vec!["<http://ex/carol>".to_string()]);
     }
 

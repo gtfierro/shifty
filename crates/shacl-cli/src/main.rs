@@ -106,22 +106,28 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         Format::Text => {
             println!("conforms: {}", outcome.conforms);
             if !outcome.conforms {
-                println!("violations: {}", outcome.results.len());
-                let mut lines: Vec<String> = outcome
-                    .results
-                    .iter()
-                    .map(|r| {
-                        let st = &parsed.schema.statements[r.statement];
-                        format!(
-                            "  - {}  [{}]",
-                            r.focus,
-                            shacl_algebra::render::selector_to_string(&st.selector)
-                        )
-                    })
-                    .collect();
-                lines.sort();
-                for line in lines {
-                    println!("{line}");
+                println!("violations: {}", outcome.violations.len());
+                let mut violations = outcome.violations.clone();
+                violations.sort_by_key(|v| v.focus.to_string());
+                for v in &violations {
+                    let st = &parsed.schema.statements[v.statement];
+                    println!(
+                        "  {}  [target: {}]",
+                        v.focus,
+                        shacl_algebra::render::selector_to_string(&st.selector)
+                    );
+                    let mut reasons: Vec<String> = v
+                        .reasons
+                        .iter()
+                        .map(|r| match &r.path {
+                            Some(p) => format!("      - ({p}) {} → {}", r.value, r.message),
+                            None => format!("      - {}", r.message),
+                        })
+                        .collect();
+                    reasons.sort();
+                    for line in reasons {
+                        println!("{line}");
+                    }
                 }
             }
         }

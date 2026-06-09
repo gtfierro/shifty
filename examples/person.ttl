@@ -9,7 +9,6 @@ ex:Person a owl:Class .
 
 ex:PersonShape a sh:NodeShape ;
     sh:targetClass ex:Person ;
-    sh:closed true ;
     sh:property [
         sh:path ex:name ;
         sh:minCount 1 ;
