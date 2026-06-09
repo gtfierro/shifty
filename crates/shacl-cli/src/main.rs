@@ -71,6 +71,8 @@ enum Stage {
 enum Format {
     Text,
     Json,
+    /// Graphviz DOT (algebra-ast stage only).
+    Dot,
 }
 
 fn main() -> ExitCode {
@@ -111,6 +113,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     };
 
     match args.format {
+        Format::Dot => return Err("--format dot is not supported for validate".into()),
         Format::Json => println!("{}", serde_json::to_string_pretty(&outcome)?),
         Format::Text => {
             println!("conforms: {}", outcome.conforms);
@@ -174,6 +177,7 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
                         .collect();
                     println!("{}", serde_json::to_string_pretty(&triples)?);
                 }
+                Format::Dot => return Err("--format dot is only supported for --stage algebra or --stage normalized".into()),
             }
         }
         Stage::Algebra => {
@@ -181,6 +185,7 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             match args.format {
                 Format::Text => print!("{}", shacl_algebra::render::schema_to_text(&out.schema)),
                 Format::Json => println!("{}", serde_json::to_string_pretty(&out.schema)?),
+                Format::Dot => print!("{}", shacl_algebra::render::schema_to_dot(&out.schema)),
             }
             for d in &out.diagnostics {
                 eprintln!("{d}");
@@ -192,6 +197,7 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             match args.format {
                 Format::Text => print!("{}", shacl_algebra::render::schema_to_text(&schema)),
                 Format::Json => println!("{}", serde_json::to_string_pretty(&schema)?),
+                Format::Dot => print!("{}", shacl_algebra::render::schema_to_dot(&schema)),
             }
             for d in &out.diagnostics {
                 eprintln!("{d}");
@@ -203,6 +209,7 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             match args.format {
                 Format::Json => println!("{}", serde_json::to_string_pretty(&strat)?),
                 Format::Text => print_strata(&strat),
+                Format::Dot => return Err("--format dot is only supported for --stage algebra or --stage normalized".into()),
             }
             for d in &out.diagnostics {
                 eprintln!("{d}");

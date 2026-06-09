@@ -284,6 +284,135 @@ fn compact(iri: &str) -> String {
     format!("<{iri}>")
 }
 
+/// Render the algebra AST as a Graphviz DOT digraph.
+///
+/// Each reachable arena slot becomes a node labeled `@id\n<φ-form>`. Structural
+/// edges (Not→child, And/Or→children, Count→qualifier) are drawn as solid arcs.
+/// Statements appear as diamond entry nodes; rules as hexagon entry nodes with
+/// dashed condition edges.
+pub fn schema_to_dot(schema: &Schema) -> String {
+    let reachable = reachable_shapes(schema);
+    let mut out = String::from("digraph shacl_algebra_ast {\n");
+    out.push_str("  rankdir=TB;\n");
+    out.push_str("  node [shape=box, style=rounded, fontname=monospace];\n\n");
+
+    // Shape nodes
+    for id in &reachable {
+        let def = shape_def_dot(&schema.arena, *id);
+        let label = dot_escape(&format!("@{}\n{}", id.0, def));
+        let node_attrs = match schema.arena.get(*id) {
+            Shape::Top => format!("shape=ellipse, style=\"rounded,filled\", fillcolor=lightgray, label=\"{label}\""),
+            Shape::Not(_) => format!("shape=ellipse, style=\"rounded,filled\", fillcolor=lightsalmon, label=\"{label}\""),
+            Shape::And(_) => format!("shape=box, style=\"rounded,filled\", fillcolor=lightblue, label=\"{label}\""),
+            Shape::Or(_) => format!("shape=box, style=\"rounded,filled\", fillcolor=lightyellow, label=\"{label}\""),
+            Shape::Count { .. } => format!("shape=box, style=\"rounded,filled\", fillcolor=lightgreen, label=\"{label}\""),
+            _ => format!("label=\"{label}\""),
+        };
+        out.push_str(&format!("  shape_{} [{}];\n", id.0, node_attrs));
+    }
+    out.push('\n');
+
+    // Structural edges between shapes
+    for id in &reachable {
+        match schema.arena.get(*id) {
+            Shape::Not(c) => {
+                out.push_str(&format!("  shape_{} -> shape_{} [label=\"¬\"];\n", id.0, c.0));
+            }
+            Shape::And(cs) => {
+                for (i, c) in cs.iter().enumerate() {
+                    out.push_str(&format!("  shape_{} -> shape_{} [label=\"{}\"];\n", id.0, c.0, i));
+                }
+            }
+            Shape::Or(cs) => {
+                for (i, c) in cs.iter().enumerate() {
+                    out.push_str(&format!("  shape_{} -> shape_{} [label=\"{}\"];\n", id.0, c.0, i));
+                }
+            }
+            Shape::Count { qualifier, .. } => {
+                out.push_str(&format!(
+                    "  shape_{} -> shape_{} [label=\"qualifier\", style=dashed, color=darkgreen];\n",
+                    id.0, qualifier.0
+                ));
+            }
+            _ => {}
+        }
+    }
+    out.push('\n');
+
+    // Statement entry nodes
+    for (i, st) in schema.statements.iter().enumerate() {
+        let sel_label = dot_escape(&selector_to_string(&st.selector));
+        out.push_str(&format!(
+            "  stmt_{i} [shape=diamond, style=filled, fillcolor=lightyellow, label=\"stmt:{i}\\n{sel_label}\"];\n"
+        ));
+        out.push_str(&format!("  stmt_{i} -> shape_{};\n", st.shape.0));
+        if let Selector::HasPath(_, shape_id) = &st.selector {
+            out.push_str(&format!(
+                "  stmt_{i} -> shape_{} [style=dashed, color=gray50, label=\"path-shape\"];\n",
+                shape_id.0
+            ));
+        }
+    }
+    out.push('\n');
+
+    // Rule entry nodes
+    for (i, r) in schema.rules.iter().enumerate() {
+        let sel_label = dot_escape(&selector_to_string(&r.selector));
+        let order_label = r.order.map(|o| format!(" ord={o}")).unwrap_or_default();
+        let deact = if r.deactivated { " (off)" } else { "" };
+        out.push_str(&format!(
+            "  rule_{i} [shape=hexagon, style=filled, fillcolor=plum, label=\"rule:{i}\\n{sel_label}{}{}\"];\n",
+            dot_escape(&order_label),
+            dot_escape(deact)
+        ));
+        for (j, c) in r.conditions.iter().enumerate() {
+            out.push_str(&format!(
+                "  rule_{i} -> shape_{} [style=dashed, color=purple4, label=\"cond:{j}\"];\n",
+                c.0
+            ));
+        }
+    }
+
+    out.push_str("}\n");
+    out
+}
+
+/// Shape label for the DOT rendering: leaf shapes show their full definition,
+/// composite shapes show only their combinator (children are shown via edges).
+fn shape_def_dot(arena: &ShapeArena, id: ShapeId) -> String {
+    match arena.get(id) {
+        Shape::Top => "⊤".to_string(),
+        Shape::Pending => "⟨pending⟩".to_string(),
+        Shape::TestConst(t) => format!("test({})", term_to_string(t)),
+        Shape::TestType(vt) => format!("test({})", value_type_to_string(vt)),
+        Shape::TestKind(k) => format!("nodeKind({})", node_kinds_to_string(k)),
+        Shape::Closed(q) => {
+            let preds: Vec<String> = q.iter().map(|n| compact(n.as_str())).collect();
+            format!("closed{{{}}}", preds.join(", "))
+        }
+        Shape::Eq(p, pred) => format!("eq({}, {})", path_to_string(p), compact(pred.as_str())),
+        Shape::Disj(p, pred) => format!("disj({}, {})", path_to_string(p), compact(pred.as_str())),
+        Shape::Lt(p, pred) => format!("lt({}, {})", path_to_string(p), compact(pred.as_str())),
+        Shape::Le(p, pred) => format!("le({}, {})", path_to_string(p), compact(pred.as_str())),
+        Shape::UniqueLang(p) => format!("uniqueLang({})", path_to_string(p)),
+        Shape::Not(_) => "¬".to_string(),
+        Shape::And(cs) => format!("∧ ({})", cs.len()),
+        Shape::Or(cs) => format!("∨ ({})", cs.len()),
+        Shape::Count { path, min, max, .. } => {
+            let lo = min.map(|n| n.to_string()).unwrap_or_default();
+            let hi = max.map(|n| n.to_string()).unwrap_or_default();
+            format!("∃[{lo}..{hi}] {}", path_to_string(path))
+        }
+        Shape::Sparql(c) => format!("sparql({:?})", c.kind),
+    }
+}
+
+fn dot_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
