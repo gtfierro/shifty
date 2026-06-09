@@ -78,6 +78,53 @@ mod tests {
     }
 
     #[test]
+    fn lowers_triple_rule() {
+        let ttl = r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:Rectangle ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ;
+                    sh:predicate ex:area ;
+                    sh:object [ sh:path ex:width ] ;
+                    sh:condition ex:S ;
+                    sh:order 1 ;
+                ] .
+        "#;
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(out.diagnostics.is_empty(), "diags: {:?}", out.diagnostics);
+        assert_eq!(out.schema.rules.len(), 1);
+        let r = &out.schema.rules[0];
+        assert_eq!(r.order, Some(1));
+        assert_eq!(r.conditions.len(), 1);
+        use shacl_algebra::{NodeExpr, RuleHead};
+        match &r.head {
+            RuleHead::Triple { subject, predicate, object } => {
+                assert!(matches!(subject, NodeExpr::This));
+                assert!(matches!(predicate, NodeExpr::Constant(_)));
+                assert!(matches!(object, NodeExpr::Path(_)));
+            }
+            other => panic!("expected TripleRule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lowers_sparql_rule_opaque() {
+        let ttl = r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:rule [ a sh:SPARQLRule ; sh:construct "CONSTRUCT { ?this ex:p ?this } WHERE {}" ] .
+        "#;
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert_eq!(out.schema.rules.len(), 1);
+        assert!(matches!(out.schema.rules[0].head, shacl_algebra::RuleHead::Sparql(_)));
+    }
+
+    #[test]
     fn diagnoses_sparql_constraint() {
         let ttl = r#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .

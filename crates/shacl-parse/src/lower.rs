@@ -12,7 +12,8 @@ use crate::path::parse_path;
 use crate::vocab;
 use oxrdf::{Literal, NamedOrBlankNode, Term};
 use shacl_algebra::{
-    Bound, NodeKindSet, Path, Schema, Selector, Shape, ShapeArena, ShapeId, Statement, ValueType,
+    Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena,
+    ShapeId, SparqlConstruct, Statement, ValueType,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -28,6 +29,7 @@ pub fn lower(g: &Loaded) -> Lowered {
         arena: ShapeArena::new(),
         cache: HashMap::new(),
         statements: Vec::new(),
+        rules: Vec::new(),
         diags: Vec::new(),
     };
     let shapes = l.discover_shapes();
@@ -35,7 +37,14 @@ pub fn lower(g: &Loaded) -> Lowered {
         l.lower_shape(s);
     }
     for s in &shapes {
-        l.add_statements(s);
+        // selectors are shared by the shape's statements and its rules
+        let selectors = l.target_selectors(s);
+        if let Some(shape) = l.cache.get(s).copied() {
+            for sel in &selectors {
+                l.statements.push(Statement { selector: sel.clone(), shape });
+            }
+        }
+        l.parse_rules(s, &selectors);
     }
     let names = l
         .cache
@@ -49,7 +58,7 @@ pub fn lower(g: &Loaded) -> Lowered {
         schema: Schema {
             arena: l.arena,
             statements: l.statements,
-            rules: Vec::new(),
+            rules: l.rules,
             names,
         },
         diagnostics: l.diags,
@@ -61,6 +70,7 @@ struct Lowerer<'a> {
     arena: ShapeArena,
     cache: HashMap<NamedOrBlankNode, ShapeId>,
     statements: Vec<Statement>,
+    rules: Vec<Rule>,
     diags: Vec<Diagnostic>,
 }
 
@@ -137,9 +147,6 @@ impl Lowerer<'_> {
 
         if self.g.object(s, vocab::SH_SPARQL).is_some() {
             self.diag(DiagLevel::Unsupported, "sh:sparql constraint not yet lowered", s);
-        }
-        if self.g.object(s, vocab::SH_RULE).is_some() {
-            self.diag(DiagLevel::Unsupported, "sh:rule not yet lowered (Layer 6)", s);
         }
 
         let shape = if conjuncts.is_empty() {
@@ -405,33 +412,24 @@ impl Lowerer<'_> {
         }
     }
 
-    fn add_statements(&mut self, s: &NamedOrBlankNode) {
-        let Some(&shape) = self.cache.get(s) else { return };
+    /// The target selectors of a shape (used by both its statements and rules).
+    fn target_selectors(&mut self, s: &NamedOrBlankNode) -> Vec<Selector> {
+        let mut sels = Vec::new();
 
         for c in self.g.objects(s, vocab::SH_TARGET_NODE) {
-            self.statements.push(Statement {
-                selector: Selector::IsConst(c),
-                shape,
-            });
+            sels.push(Selector::IsConst(c));
         }
         for c in self.g.objects(s, vocab::SH_TARGET_CLASS) {
-            let sel = self.class_selector(c);
-            self.statements.push(Statement { selector: sel, shape });
+            sels.push(self.class_selector(c));
         }
         for p in self.g.objects(s, vocab::SH_TARGET_SUBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                self.statements.push(Statement {
-                    selector: Selector::HasOut(n),
-                    shape,
-                });
+                sels.push(Selector::HasOut(n));
             }
         }
         for p in self.g.objects(s, vocab::SH_TARGET_OBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                self.statements.push(Statement {
-                    selector: Selector::HasIn(n),
-                    shape,
-                });
+                sels.push(Selector::HasIn(n));
             }
         }
 
@@ -439,8 +437,7 @@ impl Lowerer<'_> {
         if (self.g.has_type(s, vocab::RDFS_CLASS) || self.g.has_type(s, vocab::OWL_CLASS))
             && let NamedOrBlankNode::NamedNode(n) = s
         {
-            let sel = self.class_selector(Term::NamedNode(n.clone()));
-            self.statements.push(Statement { selector: sel, shape });
+            sels.push(self.class_selector(Term::NamedNode(n.clone())));
         }
 
         if self.g.object(s, vocab::SH_TARGET).is_some() {
@@ -449,6 +446,94 @@ impl Lowerer<'_> {
                 "sh:target (SPARQL/custom target) not yet lowered",
                 s,
             );
+        }
+
+        sels
+    }
+
+    /// Lower the `sh:rule`s of a shape (SHACL-AF). A rule fires on the shape's
+    /// targets, so we emit one [`Rule`] per selector.
+    fn parse_rules(&mut self, s: &NamedOrBlankNode, selectors: &[Selector]) {
+        for rule_term in self.g.objects(s, vocab::SH_RULE) {
+            let Some(rn) = term_to_node(&rule_term) else { continue };
+            let Some(head) = self.parse_rule_head(&rn) else { continue };
+
+            let conditions: Vec<ShapeId> = self
+                .g
+                .objects(&rn, vocab::SH_CONDITION)
+                .iter()
+                .filter_map(term_to_node)
+                .map(|c| self.lower_shape(&c))
+                .collect();
+            let order = self.order(&rn);
+            let deactivated = self.bool_prop(&rn, vocab::SH_DEACTIVATED);
+
+            for sel in selectors {
+                self.rules.push(Rule {
+                    selector: sel.clone(),
+                    conditions: conditions.clone(),
+                    head: head.clone(),
+                    order,
+                    deactivated,
+                });
+            }
+        }
+    }
+
+    fn parse_rule_head(&mut self, rn: &NamedOrBlankNode) -> Option<RuleHead> {
+        // sh:SPARQLRule — keep the CONSTRUCT opaque
+        if let Some(Term::Literal(q)) = self.g.object(rn, vocab::SH_CONSTRUCT) {
+            return Some(RuleHead::Sparql(SparqlConstruct { query: q.value().to_string() }));
+        }
+        // sh:TripleRule — subject/predicate/object node expressions
+        let (subj, pred, obj) = (
+            self.g.object(rn, vocab::SH_SUBJECT),
+            self.g.object(rn, vocab::SH_PREDICATE),
+            self.g.object(rn, vocab::SH_OBJECT),
+        );
+        if subj.is_none() && pred.is_none() && obj.is_none() {
+            self.diag(DiagLevel::Unsupported, "unrecognized sh:rule head", rn);
+            return None;
+        }
+        let (Some(subj), Some(pred), Some(obj)) = (subj, pred, obj) else {
+            self.diag(DiagLevel::Error, "sh:TripleRule missing subject/predicate/object", rn);
+            return None;
+        };
+        Some(RuleHead::Triple {
+            subject: self.parse_node_expr(subj, rn)?,
+            predicate: self.parse_node_expr(pred, rn)?,
+            object: self.parse_node_expr(obj, rn)?,
+        })
+    }
+
+    /// Parse a node expression (SHACL-AF §5). Currently handles `sh:this`,
+    /// constants, and path expressions; richer expressions are diagnosed.
+    fn parse_node_expr(&mut self, term: Term, owner: &NamedOrBlankNode) -> Option<NodeExpr> {
+        match &term {
+            Term::NamedNode(n) if n.as_ref() == vocab::SH_THIS => Some(NodeExpr::This),
+            Term::NamedNode(_) | Term::Literal(_) => Some(NodeExpr::Constant(term)),
+            Term::BlankNode(_) => {
+                let node = term_to_node(&term).expect("blank node");
+                if let Some(path_term) = self.g.object(&node, vocab::SH_PATH) {
+                    match parse_path(self.g, &path_term) {
+                        Ok(path) => Some(NodeExpr::Path(path)),
+                        Err(e) => {
+                            self.diag(DiagLevel::Error, format!("invalid node-expression path: {e}"), owner);
+                            None
+                        }
+                    }
+                } else {
+                    self.diag(DiagLevel::Unsupported, "complex node expression not yet lowered", owner);
+                    None
+                }
+            }
+        }
+    }
+
+    fn order(&self, s: &NamedOrBlankNode) -> Option<i64> {
+        match self.g.object(s, vocab::SH_ORDER) {
+            Some(Term::Literal(l)) => l.value().parse().ok(),
+            _ => None,
         }
     }
 

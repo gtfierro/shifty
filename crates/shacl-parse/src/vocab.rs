@@ -101,6 +101,15 @@ iri!(SH_IRI_OR_LITERAL, "http://www.w3.org/ns/shacl#IRIOrLiteral");
 iri!(SH_SPARQL, "http://www.w3.org/ns/shacl#sparql");
 iri!(SH_RULE, "http://www.w3.org/ns/shacl#rule");
 
+// AF rules (SHACL-AF §4)
+iri!(SH_THIS, "http://www.w3.org/ns/shacl#this");
+iri!(SH_SUBJECT, "http://www.w3.org/ns/shacl#subject");
+iri!(SH_PREDICATE, "http://www.w3.org/ns/shacl#predicate");
+iri!(SH_OBJECT, "http://www.w3.org/ns/shacl#object");
+iri!(SH_CONDITION, "http://www.w3.org/ns/shacl#condition");
+iri!(SH_ORDER, "http://www.w3.org/ns/shacl#order");
+iri!(SH_CONSTRUCT, "http://www.w3.org/ns/shacl#construct");
+
 /// `rdf:type` as an owned node (for path construction).
 pub fn rdf_type() -> NamedNode {
     NamedNode::new_unchecked(format!("{RDF}type"))

@@ -63,16 +63,51 @@ pub fn schema_to_text(schema: &Schema) -> String {
                 .map(|c| child(&schema.arena, *c))
                 .collect();
             out.push_str(&format!(
-                "  on {} [if {}] order={} {}\n",
+                "  on {} [if {}] order={} {} ⟹ {}\n",
                 selector_to_string(&r.selector),
                 if conds.is_empty() { "·".into() } else { conds.join(", ") },
                 r.order.unwrap_or(0),
                 if r.deactivated { "(deactivated)" } else { "" },
+                rule_head_to_string(&r.head),
             ));
         }
     }
 
     out
+}
+
+fn rule_head_to_string(head: &crate::rule::RuleHead) -> String {
+    use crate::rule::RuleHead;
+    match head {
+        RuleHead::Triple { subject, predicate, object } => format!(
+            "+({}, {}, {})",
+            node_expr_to_string(subject),
+            node_expr_to_string(predicate),
+            node_expr_to_string(object),
+        ),
+        RuleHead::Sparql(_) => "construct{…}".to_string(),
+    }
+}
+
+fn node_expr_to_string(e: &crate::expr::NodeExpr) -> String {
+    use crate::expr::NodeExpr;
+    match e {
+        NodeExpr::This => "this".to_string(),
+        NodeExpr::Constant(t) => term_to_string(t),
+        NodeExpr::Path(p) => path_to_string(p),
+        NodeExpr::Filter { input, shape } => {
+            format!("filter({}, @{})", node_expr_to_string(input), shape.0)
+        }
+        NodeExpr::Intersection(es) => {
+            es.iter().map(node_expr_to_string).collect::<Vec<_>>().join(" ∩ ")
+        }
+        NodeExpr::Union(es) => es.iter().map(node_expr_to_string).collect::<Vec<_>>().join(" ∪ "),
+        NodeExpr::Function { iri, args } => format!(
+            "{}({})",
+            compact(iri.as_str()),
+            args.iter().map(node_expr_to_string).collect::<Vec<_>>().join(", ")
+        ),
+    }
 }
 
 /// A reference to a child shape: `⊤` is inlined (it carries no information),
