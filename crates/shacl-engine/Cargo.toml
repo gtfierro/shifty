@@ -15,3 +15,7 @@ oxrdf.workspace = true
 oxigraph.workspace = true
 serde.workspace = true
 log.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

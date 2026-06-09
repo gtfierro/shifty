@@ -153,7 +153,7 @@ fn join_children(arena: &ShapeArena, cs: &[ShapeId], sep: &str) -> String {
         .join(sep)
 }
 
-fn selector_to_string(sel: &Selector) -> String {
+pub fn selector_to_string(sel: &Selector) -> String {
     match sel {
         Selector::HasOut(q) => format!("∃ {} .⊤", compact(q.as_str())),
         Selector::HasIn(q) => format!("∃ {}⁻ .⊤", compact(q.as_str())),

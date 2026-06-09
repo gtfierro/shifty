@@ -36,6 +36,9 @@ cargo test --workspace
 cargo run -p shacl-cli -- inspect --stage rdf     examples/person.ttl   # raw triples
 cargo run -p shacl-cli -- inspect --stage algebra examples/person.ttl   # lowered IR (φ/π notation)
 cargo run -p shacl-cli -- inspect --stage algebra --format json examples/person.ttl
+
+# Validate a data graph against shapes (reference evaluator):
+cargo run -p shacl-cli -- validate --shapes examples/person.ttl --data examples/person-data.ttl
 ```
 
 The `algebra` text view is a cycle-safe flat dump of the shape graph: each arena

@@ -20,6 +20,24 @@ struct Cli {
 enum Command {
     /// Show a layer's view of a shapes graph.
     Inspect(InspectArgs),
+    /// Validate a data graph against a shapes graph (reference evaluator).
+    Validate(ValidateArgs),
+}
+
+#[derive(Args)]
+struct ValidateArgs {
+    /// Turtle shapes file.
+    #[arg(long)]
+    shapes: PathBuf,
+    /// Turtle data file (defaults to the shapes file, as in the W3C suite).
+    #[arg(long)]
+    data: Option<PathBuf>,
+    /// Base IRI for parsing.
+    #[arg(long)]
+    base: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
 }
 
 #[derive(Args)]
@@ -65,7 +83,50 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Command::Inspect(args) => inspect(args),
+        Command::Validate(args) => validate(args),
     }
+}
+
+fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
+    let base = args.base.as_deref();
+    let shapes_bytes = std::fs::read(&args.shapes)?;
+    let parsed = shacl_parse::parse_turtle(&shapes_bytes, base)?;
+    for d in &parsed.diagnostics {
+        eprintln!("{d}");
+    }
+
+    let data_path = args.data.as_ref().unwrap_or(&args.shapes);
+    let data_bytes = std::fs::read(data_path)?;
+    let data = shacl_parse::load_turtle(&data_bytes, base)?;
+
+    let outcome = shacl_engine::validate(&data.graph, &parsed.schema);
+
+    match args.format {
+        Format::Json => println!("{}", serde_json::to_string_pretty(&outcome)?),
+        Format::Text => {
+            println!("conforms: {}", outcome.conforms);
+            if !outcome.conforms {
+                println!("violations: {}", outcome.results.len());
+                let mut lines: Vec<String> = outcome
+                    .results
+                    .iter()
+                    .map(|r| {
+                        let st = &parsed.schema.statements[r.statement];
+                        format!(
+                            "  - {}  [{}]",
+                            r.focus,
+                            shacl_algebra::render::selector_to_string(&st.selector)
+                        )
+                    })
+                    .collect();
+                lines.sort();
+                for line in lines {
+                    println!("{line}");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {

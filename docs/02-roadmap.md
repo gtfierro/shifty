@@ -119,8 +119,9 @@ Guiding principles:
 | 0 Scaffolding | ✅ workspace builds; old crates retired; 5 crates stubbed |
 | 1 Core algebra IR | ✅ IR types, smart constructors, cyclic arena, serde round-trip |
 | 2 Parser & lowering | ✅ Turtle → IR for Core + targets + paths; AF/SPARQL diagnosed; `shacl inspect` stage viewer |
-| 3 Reference semantics | ⏳ next |
-| 4–7 | ⬜ not started |
+| 3 Reference semantics | ✅ denotational evaluator (`G ⊨ S`); `shacl validate`; W3C core 89/113 pass, 0 fail, 24 skip |
+| 4 Static analysis & recursion | ⏳ next |
+| 5–7 | ⬜ not started |
 
 Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
 `ValueType` facets, the `Shape` grammar over a cyclic-capable `ShapeArena`,
@@ -141,6 +142,20 @@ Not yet lowered (tracked for later in Layer 2 / Layer 6): SHACL-AF rules and
 node expressions, SPARQL constraints/targets, and custom constraint components —
 all currently diagnosed rather than dropped.
 
-Next: Layer 3 — the reference denotational evaluator (`G ⊨ S`) and the W3C test
-suite as a conformance oracle. The recursion-semantics decision (Layer 4)
-remains the load-bearing open question before any optimization work.
+Layer 3 landed in `shacl-engine`: a naive denotational evaluator — relational
+path evaluation (`succ`/`pred` with `Inverse` swapping direction), value-type /
+ordering checks, and shape/schema satisfaction `G ⊨ S` with a cycle-breaking
+stack guard for recursive schemas (provisional pending Layer 4). `shacl validate
+--shapes … --data …` runs it. The vendored **W3C core suite** is wired as a
+conformance gate (`tests/w3c_core.rs`): 89 pass, 0 fail, 24 skip — skips are
+tests using features we diagnose as unsupported (SPARQL/rules/custom
+components/JS) or the `qualifiedValueShapesDisjoint` flag. A bug surfaced and was
+fixed: nested `sh:property` is value-scoped (under `∀path`), not focus-scoped.
+
+Known oracle limitations (deferred): validation *reports* are focus-node level,
+not full `sh:ValidationResult` provenance (needs a provenance side-table, since
+the IR is pure); term ordering covers numeric + xsd:string only.
+
+Next: Layer 4 — static analysis (shape dependency graph, stratification), the
+**recursion-semantics decision** (the load-bearing open question), and
+semantics-preserving normalization — all validated against this oracle.

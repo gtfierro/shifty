@@ -120,14 +120,6 @@ impl Lowerer<'_> {
 
         self.collect_path_constraints(s, path.as_ref(), &mut conjuncts);
 
-        // Nested property shapes compose by conjunction (same focus node).
-        for prop in self.g.objects(s, vocab::SH_PROPERTY) {
-            if let Some(pn) = term_to_node(&prop) {
-                let pid = self.lower_shape(&pn);
-                conjuncts.push(pid);
-            }
-        }
-
         if self.bool_prop(s, vocab::SH_CLOSED) {
             let q = self.closed_allowed(s);
             let c = self.arena.insert(Shape::Closed(q));
@@ -262,10 +254,20 @@ impl Lowerer<'_> {
             value.push(or);
         }
 
-        // sh:node — value must conform to the referenced shape
+        // sh:node — each value node must conform to the referenced shape
         for n in self.g.objects(s, vocab::SH_NODE) {
             if let Some(nn) = term_to_node(&n) {
                 let id = self.lower_shape(&nn);
+                value.push(id);
+            }
+        }
+
+        // sh:property — like sh:node, each *value node* must conform to the
+        // referenced property shape (so on a property shape it is scoped under
+        // ∀path, not applied to the focus node directly).
+        for prop in self.g.objects(s, vocab::SH_PROPERTY) {
+            if let Some(pn) = term_to_node(&prop) {
+                let id = self.lower_shape(&pn);
                 value.push(id);
             }
         }
