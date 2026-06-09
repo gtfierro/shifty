@@ -15,8 +15,10 @@ use oxrdf::{Graph, NamedNode, Term};
 use serde::{Deserialize, Serialize};
 use shacl_algebra::render::{path_to_string, shape_to_string};
 use shacl_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId};
+use shacl_opt::analyze;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
+use std::fmt;
 
 /// A single failed atomic constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,8 +49,50 @@ pub struct ValidationOutcome {
     pub violations: Vec<Violation>,
 }
 
+/// The schema is not stratifiable: it recurses through genuine negation, so it
+/// has no defined 2-valued semantics (`docs/03-recursion-semantics.md`). We
+/// diagnose rather than guess. Carries the offending shape components.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NonStratifiable {
+    pub components: Vec<Vec<ShapeId>>,
+}
+
+impl fmt::Display for NonStratifiable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "non-stratifiable schema (recursion through negation): ")?;
+        for (i, c) in self.components.iter().enumerate() {
+            if i > 0 {
+                write!(f, "; ")?;
+            }
+            let ids: Vec<String> = c.iter().map(|s| format!("@{}", s.0)).collect();
+            write!(f, "{{{}}}", ids.join(" "))?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for NonStratifiable {}
+
 /// Validate `data` against `schema`.
-pub fn validate(data: &Graph, schema: &Schema) -> ValidationOutcome {
+///
+/// Honors the decided recursion semantics (`docs/03-recursion-semantics.md`):
+/// the schema must be **stratifiable** (no recursion through net negation), else
+/// we return [`NonStratifiable`]. For a stratifiable schema all recursion is
+/// net-positive (monotone), and [`explain`]/[`holds`]'s "assume conforming on a
+/// back-edge" cycle guard computes exactly the **greatest fixpoint** — the
+/// coinductive validation reading we chose.
+pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonStratifiable> {
+    let strat = analyze(&schema.arena);
+    if !strat.stratifiable {
+        let components = strat
+            .strata
+            .iter()
+            .filter(|s| !s.stratifiable)
+            .map(|s| s.shapes.clone())
+            .collect();
+        return Err(NonStratifiable { components });
+    }
+
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
         for v in focus_nodes(data, &st.selector, &schema.arena) {
@@ -60,7 +104,7 @@ pub fn validate(data: &Graph, schema: &Schema) -> ValidationOutcome {
             }
         }
     }
-    ValidationOutcome { conforms: violations.is_empty(), violations }
+    Ok(ValidationOutcome { conforms: violations.is_empty(), violations })
 }
 
 /// The focus nodes selected by a selector.
@@ -108,7 +152,7 @@ fn holds(
 ) -> bool {
     let key = (id, v.clone());
     if !stack.insert(key.clone()) {
-        return true; // cycle: assume holds (provisional, see Layer 4)
+        return true; // back-edge ⇒ assume conforming: the gfp choice (doc 03)
     }
     let result = match arena.get(id) {
         Shape::Top | Shape::Pending | Shape::Sparql(_) => true,
@@ -148,7 +192,7 @@ fn explain(
 ) -> Vec<Reason> {
     let key = (id, node.clone());
     if !stack.insert(key.clone()) {
-        return Vec::new(); // cycle: assume holds
+        return Vec::new(); // back-edge ⇒ assume conforming (gfp, doc 03)
     }
     let reasons = match arena.get(id) {
         Shape::Top | Shape::Pending | Shape::Sparql(_) => Vec::new(),

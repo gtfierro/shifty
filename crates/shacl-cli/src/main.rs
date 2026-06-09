@@ -101,7 +101,12 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let data_bytes = std::fs::read(data_path)?;
     let data = shacl_parse::load_turtle(&data_bytes, base)?;
 
-    let outcome = shacl_engine::validate(&data.graph, &parsed.schema);
+    let outcome = match shacl_engine::validate(&data.graph, &parsed.schema) {
+        Ok(o) => o,
+        Err(e) => {
+            return Err(format!("{e}; cannot validate (see `inspect --stage strata`)").into());
+        }
+    };
 
     match args.format {
         Format::Json => println!("{}", serde_json::to_string_pretty(&outcome)?),

@@ -10,7 +10,9 @@ pub mod path;
 pub mod validate;
 pub mod value;
 
-pub use validate::{focus_nodes, validate, Reason, ValidationOutcome, Violation};
+pub use validate::{
+    focus_nodes, validate, NonStratifiable, Reason, ValidationOutcome, Violation,
+};
 
 #[cfg(test)]
 mod tests {
@@ -22,7 +24,7 @@ mod tests {
         let out = parse_turtle(shapes_and_data.as_bytes(), None).unwrap();
         // data graph = the same graph (shapes + data coexist), as in the suite.
         let loaded = shacl_parse::load_turtle(shapes_and_data.as_bytes(), None).unwrap();
-        validate(&loaded.graph, &out.schema)
+        validate(&loaded.graph, &out.schema).expect("stratifiable schema")
     }
 
     const PREFIXES: &str = r#"
@@ -134,7 +136,23 @@ mod tests {
 
     #[test]
     fn empty_graph_conforms() {
-        let outcome = validate(&Graph::new(), &shacl_algebra::Schema::new());
+        let outcome = validate(&Graph::new(), &shacl_algebra::Schema::new()).unwrap();
         assert!(outcome.conforms);
+    }
+
+    #[test]
+    fn non_stratifiable_schema_is_diagnosed() {
+        // S := ¬∃p.S — recursion through negation; no defined 2-valued semantics.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:not [ sh:path ex:p ; sh:qualifiedValueShape ex:S ; sh:qualifiedMinCount 1 ] .
+            ex:x ex:p ex:y .
+            "
+        );
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(validate(&loaded.graph, &out.schema).is_err());
     }
 }
