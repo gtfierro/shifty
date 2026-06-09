@@ -6,7 +6,9 @@
 //! Normalization and logical→physical planning follow.
 
 pub mod deps;
+pub mod normalize;
 pub mod strata;
 
 pub use deps::{dependency_edges, DepEdge, Polarity};
+pub use normalize::normalize;
 pub use strata::{analyze, Stratification, Stratum};

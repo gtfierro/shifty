@@ -122,7 +122,7 @@ Guiding principles:
 | 1 Core algebra IR | ✅ IR types, smart constructors, cyclic arena, serde round-trip |
 | 2 Parser & lowering | ✅ Turtle → IR for Core + targets + paths; AF/SPARQL diagnosed; `shacl inspect` stage viewer |
 | 3 Reference semantics | ✅ denotational evaluator (`G ⊨ S`); `shacl validate`; W3C core 89/113 pass, 0 fail, 24 skip |
-| 4 Static analysis & recursion | 🔨 stratification + semantics wired (gfp gate, diagnose non-stratifiable); normalization next |
+| 4 Static analysis & recursion | 🔨 stratification + gfp semantics wired; normalization Tier-1 started (CSE, compaction, Boolean simplification — see [`04-normalization.md`](04-normalization.md)) |
 | 5–7 | ⬜ not started |
 
 Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,

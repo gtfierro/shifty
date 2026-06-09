@@ -107,11 +107,24 @@ fn w3c_core_conformance() {
                 continue;
             }
         };
+        let name = file.strip_prefix(suite_dir()).unwrap_or(file);
+
+        // normalization must preserve conformance (oracle cross-check)
+        let normalized = shacl_opt::normalize(&parsed.schema);
+        let norm_conforms = shacl_engine::validate(&loaded.graph, &normalized)
+            .expect("normalized schema stays stratifiable")
+            .conforms;
+        assert_eq!(
+            norm_conforms,
+            outcome.conforms,
+            "normalize changed conformance for {}",
+            name.display()
+        );
+
         if outcome.conforms == expected {
             passed += 1;
         } else {
             failed += 1;
-            let name = file.strip_prefix(suite_dir()).unwrap_or(file);
             failures.push(format!(
                 "{}: expected conforms={expected}, got {}",
                 name.display(),

@@ -61,6 +61,8 @@ enum Stage {
     Rdf,
     /// The lowered formalism IR (Layer 2 output).
     Algebra,
+    /// The normalized IR (Layer 4: CSE + simplification).
+    Normalized,
     /// The recursion/stratification analysis (Layer 4).
     Strata,
 }
@@ -179,6 +181,17 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             match args.format {
                 Format::Text => print!("{}", shacl_algebra::render::schema_to_text(&out.schema)),
                 Format::Json => println!("{}", serde_json::to_string_pretty(&out.schema)?),
+            }
+            for d in &out.diagnostics {
+                eprintln!("{d}");
+            }
+        }
+        Stage::Normalized => {
+            let out = shacl_parse::parse_turtle(&bytes, base)?;
+            let schema = shacl_opt::normalize(&out.schema);
+            match args.format {
+                Format::Text => print!("{}", shacl_algebra::render::schema_to_text(&schema)),
+                Format::Json => println!("{}", serde_json::to_string_pretty(&schema)?),
             }
             for d in &out.diagnostics {
                 eprintln!("{d}");
