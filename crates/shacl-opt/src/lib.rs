@@ -7,8 +7,10 @@
 
 pub mod deps;
 pub mod normalize;
+pub mod plan;
 pub mod strata;
 
 pub use deps::{dependency_edges, DepEdge, Polarity};
 pub use normalize::normalize;
+pub use plan::{plan, FocusSource, PhysicalPlan, StatementPlan};
 pub use strata::{analyze, Stratification, Stratum};

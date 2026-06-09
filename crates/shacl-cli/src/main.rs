@@ -65,6 +65,8 @@ enum Stage {
     Normalized,
     /// The recursion/stratification analysis (Layer 4).
     Strata,
+    /// The physical plan (Layer 5: focus sources + cost-ordered checks).
+    Plan,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -210,6 +212,19 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
                 Format::Json => println!("{}", serde_json::to_string_pretty(&strat)?),
                 Format::Text => print_strata(&strat),
                 Format::Dot => return Err("--format dot is only supported for --stage algebra or --stage normalized".into()),
+            }
+            for d in &out.diagnostics {
+                eprintln!("{d}");
+            }
+        }
+        Stage::Plan => {
+            let out = shacl_parse::parse_turtle(&bytes, base)?;
+            let normalized = shacl_opt::normalize(&out.schema);
+            let physical = shacl_opt::plan(&normalized);
+            match args.format {
+                Format::Text => print!("{}", shacl_opt::plan::plan_to_text(&physical)),
+                Format::Json => println!("{}", serde_json::to_string_pretty(&physical)?),
+                Format::Dot => return Err("--format dot is not supported for --stage plan".into()),
             }
             for d in &out.diagnostics {
                 eprintln!("{d}");
