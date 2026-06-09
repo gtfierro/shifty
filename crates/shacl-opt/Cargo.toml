@@ -1,0 +1,13 @@
+[package]
+name = "shacl-opt"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Static analysis, normalization, and logical/physical planning over the SHACL IR"
+repository.workspace = true
+
+[dependencies]
+shacl-algebra.workspace = true
+petgraph.workspace = true
+serde.workspace = true

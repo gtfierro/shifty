@@ -1,0 +1,13 @@
+[package]
+name = "shacl-algebra"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Core SHACL formalism IR: path algebra, shape grammar, selectors, schema, and reference semantics"
+repository.workspace = true
+
+[dependencies]
+oxrdf.workspace = true
+serde.workspace = true
+regex.workspace = true

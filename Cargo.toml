@@ -1,37 +1,41 @@
 [workspace]
 members = [
-    "crates/shacl-core",
-    "crates/shacl-core-inmemory",
-    "crates/shacl-core-cli"
+    "crates/shacl-algebra",
+    "crates/shacl-parse",
+    "crates/shacl-opt",
+    "crates/shacl-engine",
+    "crates/shacl-cli",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.13"
+version = "0.1.0"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
-description = "Clean-room SHACL/SHACL-AF core, analysis, and in-memory backend in Rust"
+description = "Formalism-first SHACL + SHACL-AF engine (inference + validation) in Rust"
 readme = "README.md"
 repository = "https://github.com/gtfierro/shifty"
 homepage = "https://github.com/gtfierro/shifty"
 documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
+# internal crates
+shacl-algebra = { path = "crates/shacl-algebra" }
+shacl-parse = { path = "crates/shacl-parse" }
+shacl-opt = { path = "crates/shacl-opt" }
+shacl-engine = { path = "crates/shacl-engine" }
+
+# external
+oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 oxigraph = { version = "0.5.5", default-features = false }
 petgraph = "0.6"
 clap = { version = "4.5.39", features = ["derive"] }
-graphviz-rust = "0.9.5"
 regex = "1"
 log = "0.4"
 env_logger = "0.11"
-url = "2"
-sha2 = "0.10.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-bincode = { version = "2.0.1", features = ["serde"] }
-tempfile = "3"
-oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 
 [profile.release]
 debug = true

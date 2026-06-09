@@ -115,9 +115,12 @@ Guiding principles:
 
 | Layer | state |
 |-------|-------|
-| Docs 00–02 | ✅ this pass |
-| 0 Scaffolding | ⏳ awaiting go-ahead |
-| 1–7 | ⬜ not started |
+| Docs 00–02 | ✅ |
+| 0 Scaffolding | ✅ workspace builds; old crates retired; 5 crates stubbed |
+| 1 Core algebra IR | ⏳ next |
+| 2–7 | ⬜ not started |
 
-Next decision point after docs review: approve Layer 0 scaffolding (incl.
-retiring the old crates) and the crate boundaries above.
+Next: Layer 1 — implement the core IR types (`Term`, `Path`, `ValueType`,
+`Shape`, `Selector`, `Schema`, `NodeExpr`, `Rule`) in `shacl-algebra`, with
+smart constructors and serde round-trip tests. The recursion-semantics decision
+(Layer 4) remains the load-bearing open question before any optimization work.
