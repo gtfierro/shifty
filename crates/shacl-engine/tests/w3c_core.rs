@@ -121,6 +121,18 @@ fn w3c_core_conformance() {
             name.display()
         );
 
+        // the planned executor must agree with the reference evaluator
+        let physical = shacl_opt::plan(&normalized);
+        let plan_conforms = shacl_engine::validate_plan(&loaded.graph, &physical)
+            .expect("planned schema stays stratifiable")
+            .conforms;
+        assert_eq!(
+            plan_conforms,
+            outcome.conforms,
+            "plan changed conformance for {}",
+            name.display()
+        );
+
         if outcome.conforms == expected {
             passed += 1;
         } else {

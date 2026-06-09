@@ -15,7 +15,7 @@ use oxrdf::{Graph, NamedNode, Term};
 use serde::{Deserialize, Serialize};
 use shacl_algebra::render::{path_to_string, shape_to_string};
 use shacl_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId};
-use shacl_opt::analyze;
+use shacl_opt::{analyze, FocusSource, PhysicalPlan};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
@@ -107,27 +107,68 @@ pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonS
     Ok(ValidationOutcome { conforms: violations.is_empty(), violations })
 }
 
+/// Validate using a [`PhysicalPlan`] (Layer 5): focus nodes come from compiled
+/// [`FocusSource`]s (so class targets seed backward from the constant instead of
+/// scanning every node) and checks run over the plan's cost-ordered arena. The
+/// result is identical to [`validate`] on the same schema — the W3C harness
+/// cross-checks this.
+pub fn validate_plan(
+    data: &Graph,
+    plan: &PhysicalPlan,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    let strat = analyze(&plan.arena);
+    if !strat.stratifiable {
+        let components = strat
+            .strata
+            .iter()
+            .filter(|s| !s.stratifiable)
+            .map(|s| s.shapes.clone())
+            .collect();
+        return Err(NonStratifiable { components });
+    }
+
+    let mut violations = Vec::new();
+    for (i, sp) in plan.statements.iter().enumerate() {
+        for v in focus_for_source(data, &sp.source, &plan.arena) {
+            let mut stack = HashSet::new();
+            let mut reasons = explain(data, &plan.arena, &v, sp.shape, None, &mut stack);
+            dedup_reasons(&mut reasons);
+            if !reasons.is_empty() {
+                violations.push(Violation { focus: v, statement: i, reasons });
+            }
+        }
+    }
+    Ok(ValidationOutcome { conforms: violations.is_empty(), violations })
+}
+
+/// Focus nodes for a compiled [`FocusSource`].
+fn focus_for_source(data: &Graph, source: &FocusSource, arena: &ShapeArena) -> Vec<Term> {
+    match source {
+        FocusSource::SubjectsOf(p) => subjects_of(data, p),
+        FocusSource::ObjectsOf(p) => objects_of(data, p),
+        FocusSource::Node(c) => vec![c.clone()],
+        // the optimization: seed backward from the constant, no full scan
+        FocusSource::PathToConst { path, target } => {
+            crate::path::pred(data, target, path).into_iter().collect()
+        }
+        FocusSource::ScanFilter { path, qualifier } => all_nodes(data)
+            .into_iter()
+            .filter(|v| {
+                let mut stack = HashSet::new();
+                succ(data, v, path)
+                    .iter()
+                    .any(|u| holds(data, arena, u, *qualifier, &mut stack))
+            })
+            .collect(),
+        FocusSource::Sparql => Vec::new(),
+    }
+}
+
 /// The focus nodes selected by a selector.
 pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term> {
     match sel {
-        Selector::HasOut(q) => {
-            let mut seen = HashSet::new();
-            data.triples_for_predicate(q.as_ref())
-                .filter_map(|t| {
-                    let term = subject_term(t.subject);
-                    seen.insert(term.clone()).then_some(term)
-                })
-                .collect()
-        }
-        Selector::HasIn(q) => {
-            let mut seen = HashSet::new();
-            data.triples_for_predicate(q.as_ref())
-                .filter_map(|t| {
-                    let term = t.object.into_owned();
-                    seen.insert(term.clone()).then_some(term)
-                })
-                .collect()
-        }
+        Selector::HasOut(q) => subjects_of(data, q),
+        Selector::HasIn(q) => objects_of(data, q),
         Selector::IsConst(c) => vec![c.clone()],
         Selector::HasPath(path, qual) => all_nodes(data)
             .into_iter()
@@ -398,6 +439,28 @@ fn dedup_reasons(reasons: &mut Vec<Reason>) {
 
 fn subject_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {
     crate::path::term_of(s.into_owned())
+}
+
+/// Distinct subjects of triples with predicate `p`.
+fn subjects_of(data: &Graph, p: &NamedNode) -> Vec<Term> {
+    let mut seen = HashSet::new();
+    data.triples_for_predicate(p.as_ref())
+        .filter_map(|t| {
+            let term = subject_term(t.subject);
+            seen.insert(term.clone()).then_some(term)
+        })
+        .collect()
+}
+
+/// Distinct objects of triples with predicate `p`.
+fn objects_of(data: &Graph, p: &NamedNode) -> Vec<Term> {
+    let mut seen = HashSet::new();
+    data.triples_for_predicate(p.as_ref())
+        .filter_map(|t| {
+            let term = t.object.into_owned();
+            seen.insert(term.clone()).then_some(term)
+        })
+        .collect()
 }
 
 /// All distinct terms appearing as a subject or object in the graph.

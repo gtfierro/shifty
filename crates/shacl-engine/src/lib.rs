@@ -11,7 +11,7 @@ pub mod validate;
 pub mod value;
 
 pub use validate::{
-    focus_nodes, validate, NonStratifiable, Reason, ValidationOutcome, Violation,
+    focus_nodes, validate, validate_plan, NonStratifiable, Reason, ValidationOutcome, Violation,
 };
 
 #[cfg(test)]

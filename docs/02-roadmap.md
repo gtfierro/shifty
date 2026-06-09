@@ -123,7 +123,7 @@ Guiding principles:
 | 2 Parser & lowering | ✅ Turtle → IR for Core + targets + paths; AF/SPARQL diagnosed; `shacl inspect` stage viewer |
 | 3 Reference semantics | ✅ denotational evaluator (`G ⊨ S`); `shacl validate`; W3C core 89/113 pass, 0 fail, 24 skip |
 | 4 Static analysis & recursion | 🔨 stratification + gfp semantics wired; normalization Tier-1 (CSE, compaction, Boolean, NNF, count-merge — see [`04-normalization.md`](04-normalization.md)) |
-| 5 Planning | 🔨 plan IR + planner (focus-source seeding, cost-ordered And/Or); `inspect --stage plan`. Executor + benchmark next |
+| 5 Planning | 🔨 plan IR + planner + executor (`validate_plan`); class-target seeding ≈23× vs scan on a synthetic graph; W3C cross-checked. Path compilation / data-aware stats next |
 | 6–7 | ⬜ not started |
 
 Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
