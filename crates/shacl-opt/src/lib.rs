@@ -1,14 +1,12 @@
 //! Static analysis, normalization, and planning (Layers 4-5).
 //!
-//! Shape dependency analysis and the recursion/fixpoint semantics decision
-//! (Layer 4), algebraic normalization and semantics-preserving simplification of
-//! `π`/`φ`, then logical -> physical planning (Layer 5). Every rewrite must agree
-//! with the `shacl-engine` reference oracle.
-//!
-//! Status: Layer 0 scaffold.
+//! Layer 4 starts here: the polarity-aware shape [`deps`]endency graph and
+//! [`strata`]ification analysis that realize the recursion semantics decided in
+//! `docs/03-recursion-semantics.md` (stratified; diagnose non-stratifiable).
+//! Normalization and logical→physical planning follow.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn scaffold_builds() {}
-}
+pub mod deps;
+pub mod strata;
+
+pub use deps::{dependency_edges, DepEdge, Polarity};
+pub use strata::{analyze, Stratification, Stratum};

@@ -61,6 +61,8 @@ enum Stage {
     Rdf,
     /// The lowered formalism IR (Layer 2 output).
     Algebra,
+    /// The recursion/stratification analysis (Layer 4).
+    Strata,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -177,6 +179,45 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
                 eprintln!("{d}");
             }
         }
+        Stage::Strata => {
+            let out = shacl_parse::parse_turtle(&bytes, base)?;
+            let strat = shacl_opt::analyze(&out.schema.arena);
+            match args.format {
+                Format::Json => println!("{}", serde_json::to_string_pretty(&strat)?),
+                Format::Text => print_strata(&strat),
+            }
+            for d in &out.diagnostics {
+                eprintln!("{d}");
+            }
+        }
     }
     Ok(())
+}
+
+fn print_strata(strat: &shacl_opt::Stratification) {
+    let recursive = strat.recursive().count();
+    println!(
+        "strata: stratifiable = {}; {} shape(s) in {} stratum(strata); {} recursive component(s)",
+        strat.stratifiable,
+        strat.shape_count(),
+        strat.strata.len(),
+        recursive,
+    );
+    let fmt = |shapes: &[shacl_algebra::ShapeId]| {
+        shapes.iter().map(|s| format!("@{}", s.0)).collect::<Vec<_>>().join(" ")
+    };
+    if recursive > 0 {
+        println!("recursive components (in dependency order):");
+        for (level, s) in strat.strata.iter().enumerate() {
+            if !s.recursive {
+                continue;
+            }
+            let tag = if s.stratifiable {
+                "positive recursion, ok"
+            } else {
+                "NON-STRATIFIABLE: recursion through negation"
+            };
+            println!("  stratum {level}: {}  ({tag})", fmt(&s.shapes));
+        }
+    }
 }
