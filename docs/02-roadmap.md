@@ -1,0 +1,123 @@
+# 02 — Layered Roadmap
+
+Build order for a formalism-first SHACL + SHACL-AF engine (inference +
+validation) that is *correct first, then highly optimized*. Each layer is
+independently testable and leaves the tree green. References to **D0/C1/AF-R/…**
+point at [`01-gap-analysis.md`](01-gap-analysis.md); the IR is
+[`00-formalism.md`](00-formalism.md).
+
+Guiding principles:
+1. **One reference semantics, many engines.** The naive denotational evaluator
+   (Layer 3) is the oracle. Every optimization (Layers 5–7) must produce
+   identical conformance results.
+2. **Lower early, optimize late.** All vocabulary sugar collapses into the small
+   core IR at parse time (Layer 2); optimizers never see W3C vocabulary.
+3. **Fix semantics before optimizing.** Recursion/fixpoint (Layer 4) is pinned
+   down before any rewrite that depends on it.
+
+---
+
+## Layer 0 — Clean-room scaffolding  *(next step; needs go-ahead)*
+
+- New Cargo workspace; **retire** the old spec-shaped crates (`shacl-core`,
+  `shacl-core-inmemory`, `shacl-core-cli`, `shacl-core-oxigraph`) — kept on the
+  `bluesky-shacl-core` branch as reference, removed here.
+- Crate skeleton:
+  - `shacl-algebra` — the core IR + reference semantics (Layers 1, 3).
+  - `shacl-parse` — RDF shapes graph → IR lowering (Layer 2).
+  - `shacl-opt` — static analysis, normalization, planning (Layers 4–5).
+  - `shacl-engine` — validation + AF inference execution (Layers 3, 6, 7).
+  - `shacl-cli` — inspection / validate / infer commands.
+- Pull in the W3C test-suite manifests as a git submodule or vendored corpus.
+- **Deliverable:** workspace builds empty; CI runs `cargo test` (no tests yet).
+
+## Layer 1 — Core algebra IR  (`shacl-algebra`)
+
+- Implement `Term`, `Path`, `ValueType`, `Shape`, `Selector`, `Schema`,
+  `NodeExpr`, and the `Rule` skeleton from doc 00 §2–§4 and gap **AF-E/AF-R**.
+- Shape arena with interned references (cyclic-ref capable; semantics later).
+- Smart constructors that maintain light invariants (flattened `And`/`Or`,
+  `Seq`/`Alt` normalization).
+- **Deliverable:** IR types + builders + unit tests; `serde` round-trip.
+
+## Layer 2 — Parser & lowering  (`shacl-parse`)
+
+- Read shapes graph with `oxrdf` (Turtle/N-Triples first).
+- Shape discovery (explicit `sh:NodeShape`/`sh:PropertyShape` + implicit-by-usage).
+- Lower **all** Core + AF vocabulary into the IR, applying every sugar rule:
+  `minCount/maxCount → Count`, `xone → ∧∨¬`, `class → path` (**C1**),
+  `zeroOrOne/oneOrMore → ∪id / ·*` (**P1**), `node/property` nesting, qualified
+  cardinality → `Count`, closed-set computation, etc.
+- Implement the extensions: `TestKind` (**K1**), widened consts (**V1**),
+  `Lt`/`Le` (**O1**), `LangIn`/`UniqueLang` (**L1**).
+- Parse AF rules + node expressions (**AF-R/AF-E**); mark SPARQL/JS leaves opaque
+  (**AF-C/AF-T/AF-CC/AF-F**) with diagnostics, never silent.
+- **Deliverable:** shapes-graph → `Schema`; diagnostics for unsupported; golden
+  round-trip tests on hand-written shapes covering each gap-analysis row.
+
+## Layer 3 — Reference semantics & conformance oracle  (`shacl-algebra` + `shacl-engine`)
+
+- Naive denotational evaluator: relational `⟦π⟧` over an in-memory triple store,
+  structural `G,v ⊨ φ`, schema validation `G ⊨ S` producing a SHACL
+  validation report (`sh:ValidationReport`/`sh:ValidationResult`).
+- Wire the **W3C SHACL Core + SPARQL + AF test suite**; track pass/fail per
+  gap-analysis id (§E).
+- **Deliverable:** correctness oracle; documented conformance matrix. Speed does
+  not matter yet.
+
+## Layer 4 — Static analysis, recursion semantics & normalization  (`shacl-opt`)
+
+- Shape dependency graph; SCC / stratification analysis (**D**). **Pin the
+  recursion semantics** (stratified-where-possible + well-founded fallback) and
+  fixpoint framework shared with rules.
+- Normal forms: NNF/CNF-ish for `φ`; canonicalize `Path` via Kleene-with-converse
+  laws (`(π·π′)⁻ = π′⁻·π⁻`, `id` units, `∪` ACI, `*` idempotence).
+- Sound simplifications: constant folding, `test`-type intersection, dead-branch
+  elimination, `closed` set tightening, unsat detection (`φ ∧ ¬φ`,
+  incompatible `test(τ)` facets).
+- **Deliverable:** normalizer + analyzer; rewrites proven semantics-preserving
+  against the Layer 3 oracle (property tests: optimize-then-validate ≡ validate).
+
+## Layer 5 — Logical → physical planning  (`shacl-opt`)
+
+- Per `(selector, φ)`: choose evaluation strategy. Target-driven seeding (pull
+  focus nodes from selectors) vs. graph scan.
+- Path compilation: BGP/reachability plans for `Seq/Alt/Star/Inverse`; pick index
+  orders (SPO/POS/OSP) from a predicate-statistics model.
+- Common-subexpression sharing across shapes; push `test`/`closed` filters down;
+  short-circuit Boolean evaluation ordered by selectivity.
+- Incremental / focus-delta scheduling (only re-check affected focus nodes).
+- **Deliverable:** physical plan IR + plan-inspection CLI; benchmarked speedups
+  with identical conformance results.
+
+## Layer 6 — SHACL-AF inference  (`shacl-engine`)  **(AF-R / AF-E)**
+
+- Node-expression evaluator (reuses `Path` + functions).
+- Rule engine: evaluate body (selector + condition shapes), materialize head
+  triples; **semi-naive fixpoint** over the rule set with `sh:order` strata and
+  recursion semantics from Layer 4.
+- Interaction model: inference-then-validation, with provenance for inferred
+  triples.
+- **Deliverable:** AF rule conformance; fixpoint termination guarantees
+  documented.
+
+## Layer 7 — Compilation / JIT  (`shacl-engine`)
+
+- Compile shapes/plans to specialized executors: staged closures first, then
+  optional codegen (Cranelift JIT) for hot validators; batch/vectorized
+  evaluation over focus sets; parallel strata.
+- **Deliverable:** compiled-mode engine selectable via CLI; benchmark vs. naive
+  and planned modes; conformance unchanged.
+
+---
+
+## Status
+
+| Layer | state |
+|-------|-------|
+| Docs 00–02 | ✅ this pass |
+| 0 Scaffolding | ⏳ awaiting go-ahead |
+| 1–7 | ⬜ not started |
+
+Next decision point after docs review: approve Layer 0 scaffolding (incl.
+retiring the old crates) and the crate boundaries above.

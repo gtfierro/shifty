@@ -1,0 +1,16 @@
+# shacl-formalism — design docs
+
+A clean-room SHACL + SHACL-AF engine (inference + validation) grounded in the
+SHACL fragment of *Common Foundations for SHACL, ShEx, and PG-Schema*
+(arXiv:2502.01295), specialized to RDF and built to be heavily optimized.
+
+Read in order:
+
+1. [`00-formalism.md`](00-formalism.md) — the formal core: path algebra `π`,
+   shape grammar `φ`, selectors, schema, and their Rust IR sketch.
+2. [`01-gap-analysis.md`](01-gap-analysis.md) — where W3C SHACL / SHACL-AF
+   diverge from the paper, every hole, and the fix (stable ids `D0`, `C1`, …).
+3. [`02-roadmap.md`](02-roadmap.md) — the layered build, Layer 0 → 7.
+
+> `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
+> approach) and is kept only as historical reference.
