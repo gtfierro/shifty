@@ -117,10 +117,17 @@ Guiding principles:
 |-------|-------|
 | Docs 00–02 | ✅ |
 | 0 Scaffolding | ✅ workspace builds; old crates retired; 5 crates stubbed |
-| 1 Core algebra IR | ⏳ next |
-| 2–7 | ⬜ not started |
+| 1 Core algebra IR | ✅ IR types, smart constructors, cyclic arena, serde round-trip |
+| 2 Parser & lowering | ⏳ next |
+| 3–7 | ⬜ not started |
 
-Next: Layer 1 — implement the core IR types (`Term`, `Path`, `ValueType`,
-`Shape`, `Selector`, `Schema`, `NodeExpr`, `Rule`) in `shacl-algebra`, with
-smart constructors and serde round-trip tests. The recursion-semantics decision
-(Layer 4) remains the load-bearing open question before any optimization work.
+Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
+`ValueType` facets, the `Shape` grammar over a cyclic-capable `ShapeArena`,
+`Selector`, `NodeExpr`, the `Rule` skeleton, opaque SPARQL leaves, and `Schema`
+— with light always-sound smart constructors and serde round-trip (cycles
+encoded as indices).
+
+Next: Layer 2 — `shacl-parse`: read an RDF shapes graph and lower all Core + AF
+vocabulary into this IR, applying every sugar rule from the gap analysis. The
+recursion-semantics decision (Layer 4) remains the load-bearing open question
+before any optimization work.
