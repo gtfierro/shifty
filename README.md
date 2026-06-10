@@ -37,7 +37,7 @@ cargo run -p shacl-cli -- inspect --stage rdf     examples/person.ttl   # raw tr
 cargo run -p shacl-cli -- inspect --stage algebra examples/person.ttl   # lowered IR (φ/π notation)
 cargo run -p shacl-cli -- inspect --stage algebra --format json examples/person.ttl
 
-# Validate a data graph against shapes (reference evaluator):
+# Validate a data graph against shapes (normalized + physically planned):
 cargo run -p shacl-cli -- validate --shapes examples/person.ttl --data examples/person-data.ttl
 
 # Validation graph scope defaults to `union`: focus nodes from data, with

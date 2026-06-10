@@ -9,7 +9,7 @@
 //! lets a failed universal drill straight into the offending value node's inner
 //! constraint.
 
-use crate::path::{node_of, succ};
+use crate::path::{node_of, pred, succ};
 use crate::sparql::SparqlExecutor;
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
@@ -288,12 +288,10 @@ fn focus_for_source(
         FocusSource::ObjectsOf(p) => objects_of(data, p),
         FocusSource::Node(c) => vec![c.clone()],
         // the optimization: seed backward from the constant, no full scan
-        FocusSource::PathToConst { path, target } => {
-            all_nodes(data)
-                .into_iter()
-                .filter(|node| succ(context, node, path).contains(target))
-                .collect()
-        }
+        FocusSource::PathToConst { path, target } => pred(context, target, path)
+            .into_iter()
+            .filter(|node| graph_contains_term(data, node))
+            .collect(),
         FocusSource::ScanFilter { path, qualifier } => all_nodes(data)
             .into_iter()
             .filter(|v| {
@@ -680,4 +678,10 @@ fn all_nodes(g: &Graph) -> HashSet<Term> {
         nodes.insert(t.object.into_owned());
     }
     nodes
+}
+
+/// Whether `term` appears in the graph's node domain.
+fn graph_contains_term(g: &Graph, term: &Term) -> bool {
+    node_of(term).is_some_and(|node| g.triples_for_subject(&node).next().is_some())
+        || g.triples_for_object(term).next().is_some()
 }

@@ -20,7 +20,7 @@ struct Cli {
 enum Command {
     /// Show a layer's view of a shapes graph.
     Inspect(InspectArgs),
-    /// Validate a data graph against a shapes graph (reference evaluator).
+    /// Validate a data graph against a shapes graph (normalized planned evaluator).
     Validate(ValidateArgs),
     /// Run SHACL-AF rule inference (forward chaining to a fixpoint).
     Infer(InferArgs),
@@ -168,15 +168,16 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
     let shapes = load_sources(&args.shapes, base)?;
     let parsed = shacl_parse::parse_loaded(&shapes);
+    let normalized = shacl_opt::normalize(&parsed.schema);
     for d in &parsed.diagnostics {
         eprintln!("{d}");
     }
 
     let outcome = if args.data.is_empty() {
-        shacl_engine::infer(&shapes.graph, &parsed.schema)
+        shacl_engine::infer(&shapes.graph, &normalized)
     } else {
         let data = load_sources(&args.data, base)?;
-        shacl_engine::infer_graphs(&data.graph, &shapes.graph, &parsed.schema)
+        shacl_engine::infer_graphs(&data.graph, &shapes.graph, &normalized)
     };
     let outcome = match outcome {
         Ok(o) => o,
@@ -218,6 +219,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
     let shapes_loaded = load_sources(&args.shapes, base)?;
     let parsed = shacl_parse::parse_loaded(&shapes_loaded);
+    let normalized = shacl_opt::normalize(&parsed.schema);
     for d in &parsed.diagnostics {
         eprintln!("{d}");
     }
@@ -230,9 +232,9 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     };
     let inference = match data_loaded.as_ref() {
         Some(data) => {
-            shacl_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &parsed.schema)
+            shacl_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized)
         }
-        None => shacl_engine::infer(&shapes_loaded.graph, &parsed.schema),
+        None => shacl_engine::infer(&shapes_loaded.graph, &normalized),
     };
     let inference = match inference {
         Ok(outcome) => outcome,
@@ -287,10 +289,11 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let outcome = match shacl_engine::validate_graphs_with_mode(
+    let physical = shacl_opt::plan(&normalized);
+    let outcome = match shacl_engine::validate_plan_graphs_with_mode(
         data_graph,
         &shapes_loaded.graph,
-        &parsed.schema,
+        &physical,
         graph_mode,
     ) {
         Ok(o) => o,
