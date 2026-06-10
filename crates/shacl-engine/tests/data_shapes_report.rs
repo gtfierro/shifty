@@ -3,9 +3,8 @@
 //! For each test we compare our `sh:ValidationReport` to the expected one,
 //! matching result-sets on (focusNode, resultPath, value, component,
 //! sourceShape). Blank nodes are wildcarded (we don't do full graph
-//! isomorphism yet) and severity/message are ignored. Tests using features we
-//! don't produce yet are expected to FAIL here — this harness measures
-//! report-level coverage as it grows.
+//! isomorphism yet) and severity/message are ignored. Unsupported feature
+//! regions are skipped; every executed report case must match.
 
 use oxrdf::{NamedNodeRef, Term};
 use shacl_engine::ValidationResult;
@@ -143,6 +142,6 @@ fn data_shapes_core_reports() {
     for f in failures.iter().take(30) {
         eprintln!("  FAIL {f}");
     }
-    // regression floor; raise as more components land (closed, pairs, qualified…)
-    assert!(pass >= 73, "report coverage regressed: only {pass} passed");
+    assert_eq!(fail, 0, "report coverage has {fail} failing cases");
+    assert!(pass >= 98, "report coverage regressed: only {pass} passed");
 }
