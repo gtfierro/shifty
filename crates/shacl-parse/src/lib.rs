@@ -2,8 +2,9 @@
 //!
 //! [`parse_turtle`] reads a SHACL shapes graph and lowers all supported Core +
 //! AF vocabulary into the [`shacl_algebra::Schema`] IR, applying every sugar
-//! rule from `docs/01-gap-analysis.md`. Unsupported SPARQL/JS/rule constructs
-//! produce [`Diagnostic`]s rather than silent wrong answers.
+//! rule from `docs/01-gap-analysis.md`. Unsupported custom components, JS, and
+//! richer AF constructs produce [`Diagnostic`]s rather than silent wrong
+//! answers.
 
 pub mod diagnostics;
 pub mod graph;
@@ -35,6 +36,15 @@ pub fn parse_turtle(data: &[u8], base: Option<&str>) -> Result<ParseOutput, Pars
         schema: lowered.schema,
         diagnostics: lowered.diagnostics,
     })
+}
+
+/// Lower an already-loaded graph into the algebra IR.
+pub fn parse_loaded(loaded: &Loaded) -> ParseOutput {
+    let lowered = lower::lower(loaded);
+    ParseOutput {
+        schema: lowered.schema,
+        diagnostics: lowered.diagnostics,
+    }
 }
 
 #[cfg(test)]
@@ -125,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnoses_sparql_constraint() {
+    fn lowers_sparql_constraint() {
         let ttl = r#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .
             @prefix ex: <http://ex/> .
@@ -134,9 +144,24 @@ mod tests {
                 sh:sparql [ sh:select "SELECT $this WHERE {}" ] .
         "#;
         let out = parse_turtle(ttl.as_bytes(), None).unwrap();
-        assert!(out
-            .diagnostics
-            .iter()
-            .any(|d| d.message.contains("sh:sparql")));
+        assert!(out.diagnostics.is_empty(), "diags: {:?}", out.diagnostics);
+        let root = out.schema.statements[0].shape;
+        assert!(matches!(out.schema.arena.get(root), shacl_algebra::Shape::Sparql(_)));
+    }
+
+    #[test]
+    fn lowers_sparql_target() {
+        let ttl = r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ;
+                sh:target [ sh:select "SELECT ?this WHERE { ?this a ex:Person }" ] .
+        "#;
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(out.diagnostics.is_empty(), "diags: {:?}", out.diagnostics);
+        assert!(matches!(
+            out.schema.statements[0].selector,
+            shacl_algebra::Selector::Sparql(_)
+        ));
     }
 }

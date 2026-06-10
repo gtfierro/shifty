@@ -10,12 +10,13 @@
 //! constraint.
 
 use crate::path::{node_of, succ};
+use crate::sparql::SparqlExecutor;
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
 use serde::{Deserialize, Serialize};
 use shacl_algebra::render::{path_to_string, shape_to_string};
 use shacl_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId};
-use shacl_opt::{analyze, FocusSource, PhysicalPlan};
+use shacl_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
@@ -47,6 +48,19 @@ pub struct Violation {
 pub struct ValidationOutcome {
     pub conforms: bool,
     pub violations: Vec<Violation>,
+}
+
+/// Which RDF graph(s) validation uses for focus discovery and evaluation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ValidationGraphMode {
+    /// Focus nodes and evaluation both use only the data graph.
+    Data,
+    /// Focus nodes come from data; paths, class hierarchy, and SPARQL use the
+    /// union of data and shapes. This is the default for split graphs.
+    #[default]
+    Union,
+    /// Focus discovery and evaluation both use the full data/shapes union.
+    UnionAll,
 }
 
 /// The schema is not stratifiable: it recurses through genuine negation, so it
@@ -82,6 +96,46 @@ impl std::error::Error for NonStratifiable {}
 /// back-edge" cycle guard computes exactly the **greatest fixpoint** — the
 /// coinductive validation reading we chose.
 pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_with_context(data, data, schema)
+}
+
+/// Validate split data and shapes graphs using the selected graph mode.
+pub fn validate_graphs(
+    data: &Graph,
+    shapes: &Graph,
+    schema: &Schema,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_graphs_with_mode(data, shapes, schema, ValidationGraphMode::default())
+}
+
+/// Validate split data and shapes graphs using an explicit graph mode.
+pub fn validate_graphs_with_mode(
+    data: &Graph,
+    shapes: &Graph,
+    schema: &Schema,
+    mode: ValidationGraphMode,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    match mode {
+        ValidationGraphMode::Data => validate_with_context(data, data, schema),
+        ValidationGraphMode::Union => {
+            let union = graph_union(data, shapes);
+            validate_with_context(data, &union, schema)
+        }
+        ValidationGraphMode::UnionAll => {
+            let union = graph_union(data, shapes);
+            validate_with_context(&union, &union, schema)
+        }
+    }
+}
+
+/// Validate focus nodes from `data` while evaluating paths, class hierarchy,
+/// and SPARQL against `context`. For split data/shapes inputs, `context` should
+/// be their RDF union.
+pub fn validate_with_context(
+    data: &Graph,
+    context: &Graph,
+    schema: &Schema,
+) -> Result<ValidationOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -93,18 +147,50 @@ pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonS
         return Err(NonStratifiable { components });
     }
 
+    // Mirror the context into a named shapes graph only when a `sh:sparql`
+    // query references `$shapesGraph` (rare), so the common path stays cheap.
+    let sparql = if uses_shapes_graph(&schema.arena) {
+        SparqlExecutor::new_with_shapes(context, context)
+    } else {
+        SparqlExecutor::new(context)
+    }
+    .expect("building an in-memory Oxigraph store should succeed");
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
-        for v in focus_nodes(data, &st.selector, &schema.arena) {
+        for v in focus_nodes_with(data, context, &st.selector, &schema.arena, &sparql) {
             let mut stack = HashSet::new();
-            let mut reasons = explain(data, &schema.arena, &v, st.shape, None, &mut stack);
+            let mut reasons =
+                explain(context, &schema.arena, &v, st.shape, None, &mut stack, &sparql);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
-                violations.push(Violation { focus: v, statement: i, reasons });
+                violations.push(Violation {
+                    focus: v,
+                    statement: i,
+                    reasons,
+                });
             }
         }
     }
-    Ok(ValidationOutcome { conforms: violations.is_empty(), violations })
+    Ok(ValidationOutcome {
+        conforms: violations.is_empty(),
+        violations,
+    })
+}
+
+/// Whether any `sh:sparql` constraint references `$shapesGraph`, requiring the
+/// shapes graph to be mirrored into a named graph for evaluation.
+fn uses_shapes_graph(arena: &ShapeArena) -> bool {
+    (0..arena.len()).any(|i| {
+        matches!(arena.get(ShapeId(i as u32)), Shape::Sparql(c) if c.query.contains("shapesGraph"))
+    })
+}
+
+pub(crate) fn graph_union(left: &Graph, right: &Graph) -> Graph {
+    let mut union = left.clone();
+    for triple in right.iter() {
+        union.insert(triple);
+    }
+    union
 }
 
 /// Validate using a [`PhysicalPlan`] (Layer 5): focus nodes come from compiled
@@ -114,6 +200,44 @@ pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonS
 /// cross-checks this.
 pub fn validate_plan(
     data: &Graph,
+    plan: &PhysicalPlan,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_plan_with_context(data, data, plan)
+}
+
+/// Validate a physical plan over split graphs using the default graph mode.
+pub fn validate_plan_graphs(
+    data: &Graph,
+    shapes: &Graph,
+    plan: &PhysicalPlan,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_plan_graphs_with_mode(data, shapes, plan, ValidationGraphMode::default())
+}
+
+/// Validate a physical plan over split graphs using an explicit graph mode.
+pub fn validate_plan_graphs_with_mode(
+    data: &Graph,
+    shapes: &Graph,
+    plan: &PhysicalPlan,
+    mode: ValidationGraphMode,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    match mode {
+        ValidationGraphMode::Data => validate_plan_with_context(data, data, plan),
+        ValidationGraphMode::Union => {
+            let union = graph_union(data, shapes);
+            validate_plan_with_context(data, &union, plan)
+        }
+        ValidationGraphMode::UnionAll => {
+            let union = graph_union(data, shapes);
+            validate_plan_with_context(&union, &union, plan)
+        }
+    }
+}
+
+/// Validate plan focus nodes from `data` against the supplied execution context.
+pub fn validate_plan_with_context(
+    data: &Graph,
+    context: &Graph,
     plan: &PhysicalPlan,
 ) -> Result<ValidationOutcome, NonStratifiable> {
     let strat = analyze(&plan.arena);
@@ -127,45 +251,84 @@ pub fn validate_plan(
         return Err(NonStratifiable { components });
     }
 
+    let sparql =
+        SparqlExecutor::new(context).expect("building an in-memory Oxigraph store should succeed");
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
-        for v in focus_for_source(data, &sp.source, &plan.arena) {
+        for v in focus_for_source(data, context, &sp.source, &plan.arena, &sparql) {
             let mut stack = HashSet::new();
-            let mut reasons = explain(data, &plan.arena, &v, sp.shape, None, &mut stack);
+            let mut reasons =
+                explain(context, &plan.arena, &v, sp.shape, None, &mut stack, &sparql);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
-                violations.push(Violation { focus: v, statement: i, reasons });
+                violations.push(Violation {
+                    focus: v,
+                    statement: i,
+                    reasons,
+                });
             }
         }
     }
-    Ok(ValidationOutcome { conforms: violations.is_empty(), violations })
+    Ok(ValidationOutcome {
+        conforms: violations.is_empty(),
+        violations,
+    })
 }
 
 /// Focus nodes for a compiled [`FocusSource`].
-fn focus_for_source(data: &Graph, source: &FocusSource, arena: &ShapeArena) -> Vec<Term> {
+fn focus_for_source(
+    data: &Graph,
+    context: &Graph,
+    source: &FocusSource,
+    arena: &ShapeArena,
+    sparql: &SparqlExecutor,
+) -> Vec<Term> {
     match source {
         FocusSource::SubjectsOf(p) => subjects_of(data, p),
         FocusSource::ObjectsOf(p) => objects_of(data, p),
         FocusSource::Node(c) => vec![c.clone()],
         // the optimization: seed backward from the constant, no full scan
         FocusSource::PathToConst { path, target } => {
-            crate::path::pred(data, target, path).into_iter().collect()
+            all_nodes(data)
+                .into_iter()
+                .filter(|node| succ(context, node, path).contains(target))
+                .collect()
         }
         FocusSource::ScanFilter { path, qualifier } => all_nodes(data)
             .into_iter()
             .filter(|v| {
                 let mut stack = HashSet::new();
-                succ(data, v, path)
+                succ(context, v, path)
                     .iter()
-                    .any(|u| holds(data, arena, u, *qualifier, &mut stack))
+                    .any(|u| holds(context, arena, u, *qualifier, &mut stack, sparql))
             })
             .collect(),
-        FocusSource::Sparql => Vec::new(),
+        FocusSource::Sparql(target) => {
+            let candidates = all_nodes(data);
+            sparql
+                .target_nodes(&target.query)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|node| candidates.contains(node))
+                .collect()
+        }
     }
 }
 
 /// The focus nodes selected by a selector.
 pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term> {
+    let sparql =
+        SparqlExecutor::new(data).expect("building an in-memory Oxigraph store should succeed");
+    focus_nodes_with(data, data, sel, arena, &sparql)
+}
+
+pub(crate) fn focus_nodes_with(
+    data: &Graph,
+    context: &Graph,
+    sel: &Selector,
+    arena: &ShapeArena,
+    sparql: &SparqlExecutor,
+) -> Vec<Term> {
     match sel {
         Selector::HasOut(q) => subjects_of(data, q),
         Selector::HasIn(q) => objects_of(data, q),
@@ -174,12 +337,20 @@ pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term
             .into_iter()
             .filter(|v| {
                 let mut stack = HashSet::new();
-                succ(data, v, path)
+                succ(context, v, path)
                     .iter()
-                    .any(|u| holds(data, arena, u, *qual, &mut stack))
+                    .any(|u| holds(context, arena, u, *qual, &mut stack, sparql))
             })
             .collect(),
-        Selector::Sparql(_) => Vec::new(),
+        Selector::Sparql(target) => {
+            let candidates = all_nodes(data);
+            sparql
+                .target_nodes(&target.query)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|node| candidates.contains(node))
+                .collect()
+        }
     }
 }
 
@@ -191,13 +362,17 @@ pub(crate) fn holds(
     v: &Term,
     id: ShapeId,
     stack: &mut HashSet<(ShapeId, Term)>,
+    sparql: &SparqlExecutor,
 ) -> bool {
     let key = (id, v.clone());
     if !stack.insert(key.clone()) {
         return true; // back-edge ⇒ assume conforming: the gfp choice (doc 03)
     }
     let result = match arena.get(id) {
-        Shape::Top | Shape::Pending | Shape::Sparql(_) => true,
+        Shape::Top | Shape::Pending => true,
+        Shape::Sparql(constraint) => sparql
+            .constraint_violations(constraint, v)
+            .is_ok_and(|violations| violations.is_empty()),
         Shape::TestConst(c) => v == c,
         Shape::TestType(t) => value_type_holds(t, v),
         Shape::TestKind(k) => k.matches(v),
@@ -207,13 +382,18 @@ pub(crate) fn holds(
         Shape::Lt(path, p) => all_pairs_ordered(g, v, path, p, false),
         Shape::Le(path, p) => all_pairs_ordered(g, v, path, p, true),
         Shape::UniqueLang(path) => unique_lang(&succ(g, v, path)),
-        Shape::Not(c) => !holds(g, arena, v, *c, stack),
-        Shape::And(cs) => cs.iter().all(|c| holds(g, arena, v, *c, stack)),
-        Shape::Or(cs) => cs.iter().any(|c| holds(g, arena, v, *c, stack)),
-        Shape::Count { path, min, max, qualifier } => {
+        Shape::Not(c) => !holds(g, arena, v, *c, stack, sparql),
+        Shape::And(cs) => cs.iter().all(|c| holds(g, arena, v, *c, stack, sparql)),
+        Shape::Or(cs) => cs.iter().any(|c| holds(g, arena, v, *c, stack, sparql)),
+        Shape::Count {
+            path,
+            min,
+            max,
+            qualifier,
+        } => {
             let n = succ(g, v, path)
                 .iter()
-                .filter(|u| holds(g, arena, u, *qualifier, stack))
+                .filter(|u| holds(g, arena, u, *qualifier, stack, sparql))
                 .count() as u64;
             min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m)
         }
@@ -231,13 +411,35 @@ fn explain(
     id: ShapeId,
     path_ctx: Option<&str>,
     stack: &mut HashSet<(ShapeId, Term)>,
+    sparql: &SparqlExecutor,
 ) -> Vec<Reason> {
     let key = (id, node.clone());
     if !stack.insert(key.clone()) {
         return Vec::new(); // back-edge ⇒ assume conforming (gfp, doc 03)
     }
     let reasons = match arena.get(id) {
-        Shape::Top | Shape::Pending | Shape::Sparql(_) => Vec::new(),
+        Shape::Top | Shape::Pending => Vec::new(),
+        Shape::Sparql(constraint) => match sparql.constraint_violations(constraint, node) {
+            Ok(violations) => violations
+                .into_iter()
+                .map(|violation| Reason {
+                    value: violation.value.unwrap_or_else(|| node.clone()),
+                    path: violation
+                        .path
+                        .map(|path| path.to_string())
+                        .or_else(|| path_ctx.map(str::to_string))
+                        .or_else(|| constraint.path.as_ref().map(path_to_string)),
+                    shape: id,
+                    message: "SPARQL constraint produced a violation".to_string(),
+                })
+                .collect(),
+            Err(error) => vec![Reason {
+                value: node.clone(),
+                path: path_ctx.map(str::to_string),
+                shape: id,
+                message: format!("SPARQL constraint evaluation failed: {error}"),
+            }],
+        },
         Shape::TestConst(_)
         | Shape::TestType(_)
         | Shape::TestKind(_)
@@ -248,7 +450,7 @@ fn explain(
         | Shape::UniqueLang(_) => {
             let mut s = HashSet::new();
             leaf(
-                holds(g, arena, node, id, &mut s),
+                holds(g, arena, node, id, &mut s, sparql),
                 node,
                 id,
                 path_ctx,
@@ -270,7 +472,7 @@ fn explain(
             }
         }
         Shape::Not(c) => {
-            if explain(g, arena, node, *c, path_ctx, stack).is_empty() {
+            if explain(g, arena, node, *c, path_ctx, stack, sparql).is_empty() {
                 vec![Reason {
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
@@ -283,13 +485,13 @@ fn explain(
         }
         Shape::And(cs) => cs
             .iter()
-            .flat_map(|c| explain(g, arena, node, *c, path_ctx, stack))
+            .flat_map(|c| explain(g, arena, node, *c, path_ctx, stack, sparql))
             .collect(),
         Shape::Or(cs) => {
             let mut acc = Vec::new();
             let mut satisfied = false;
             for c in cs {
-                let sub = explain(g, arena, node, *c, path_ctx, stack);
+                let sub = explain(g, arena, node, *c, path_ctx, stack, sparql);
                 if sub.is_empty() {
                     satisfied = true;
                     break;
@@ -307,9 +509,14 @@ fn explain(
                 }]
             }
         }
-        Shape::Count { path, min, max, qualifier } => {
-            explain_count(g, arena, node, id, path, *min, *max, *qualifier, stack)
-        }
+        Shape::Count {
+            path,
+            min,
+            max,
+            qualifier,
+        } => explain_count(
+            g, arena, node, id, path, *min, *max, *qualifier, stack, sparql,
+        ),
     };
     stack.remove(&key);
     reasons
@@ -326,11 +533,12 @@ fn explain_count(
     max: Option<u64>,
     qualifier: ShapeId,
     stack: &mut HashSet<(ShapeId, Term)>,
+    sparql: &SparqlExecutor,
 ) -> Vec<Reason> {
     let path_str = path_to_string(path);
     let matched: Vec<Term> = succ(g, node, path)
         .into_iter()
-        .filter(|u| holds(g, arena, u, qualifier, stack))
+        .filter(|u| holds(g, arena, u, qualifier, stack, sparql))
         .collect();
     let n = matched.len() as u64;
     let mut reasons = Vec::new();
@@ -342,7 +550,7 @@ fn explain_count(
             // ∀path.inner encoded as ∃≤0 path.¬inner: drill into the offenders.
             Shape::Not(inner) if mx == 0 => {
                 for u in &matched {
-                    reasons.extend(explain(g, arena, u, *inner, Some(&path_str), stack));
+                    reasons.extend(explain(g, arena, u, *inner, Some(&path_str), stack, sparql));
                 }
             }
             _ => reasons.push(Reason {

@@ -1,9 +1,12 @@
 //! Opaque SPARQL escape-hatch leaves (gap-analysis **AF-C / AF-T / AF-R**).
 //!
-//! These carry raw query text the algebra does not reason about. The parser is
-//! expected to inline prefixes so the stored query is self-contained; a later
-//! pass may recognize simple shapes/BGPs and lift them back into the algebra.
+//! These carry parsed-and-canonicalized query text the algebra does not yet
+//! reason about. Prefixes are resolved so the stored query is self-contained;
+//! later passes may rewrite its Spargebra AST or recognize simple BGPs and lift
+//! them back into the algebra.
 
+use crate::path::Path;
+use oxrdf::Term;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -17,6 +20,12 @@ pub enum SparqlQueryKind {
 pub struct SparqlConstraint {
     pub kind: SparqlQueryKind,
     pub query: String,
+    /// The owning property shape's path. Simple predicate paths are prebound
+    /// to `$PATH`; complex paths require an AST rewrite before execution.
+    pub path: Option<Path>,
+    /// The RDF node of the shape that declares this constraint, pre-bound to
+    /// `$currentShape`. `None` when provenance is unavailable.
+    pub shape: Option<Term>,
 }
 
 /// `sh:target` + `sh:select` — a SPARQL-based target.

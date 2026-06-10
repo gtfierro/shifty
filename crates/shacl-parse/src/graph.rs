@@ -57,6 +57,13 @@ impl Loaded {
             .any(|t| matches!(t, Term::NamedNode(n) if n.as_ref() == ty))
     }
 
+    /// Merge all triples from `other` into this graph.
+    pub fn merge_from(&mut self, other: &Loaded) {
+        for triple in other.graph.iter() {
+            self.graph.insert(triple);
+        }
+    }
+
     /// Read an `rdf:List` starting at `head` into its member terms.
     pub fn read_list(&self, head: &Term) -> Vec<Term> {
         let mut out = Vec::new();

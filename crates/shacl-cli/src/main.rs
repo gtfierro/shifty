@@ -28,12 +28,12 @@ enum Command {
 
 #[derive(Args)]
 struct InferArgs {
-    /// Turtle shapes file (with `sh:rule`s).
-    #[arg(long)]
-    shapes: PathBuf,
-    /// Turtle data file (defaults to the shapes file).
-    #[arg(long)]
-    data: Option<PathBuf>,
+    /// Turtle shapes file(s) or URL(s) (repeatable).
+    #[arg(long, value_name = "SHAPES", required = true, action = clap::ArgAction::Append)]
+    shapes: Vec<String>,
+    /// Turtle data file(s) or URL(s) (repeatable; defaults to shapes).
+    #[arg(long, value_name = "DATA", action = clap::ArgAction::Append)]
+    data: Vec<String>,
     /// Base IRI for parsing.
     #[arg(long)]
     base: Option<String>,
@@ -44,12 +44,12 @@ struct InferArgs {
 
 #[derive(Args)]
 struct ValidateArgs {
-    /// Turtle shapes file.
-    #[arg(long)]
-    shapes: PathBuf,
-    /// Turtle data file (defaults to the shapes file, as in the W3C suite).
-    #[arg(long)]
-    data: Option<PathBuf>,
+    /// Turtle shapes file(s) or URL(s) (repeatable).
+    #[arg(long, value_name = "SHAPES", required = true, action = clap::ArgAction::Append)]
+    shapes: Vec<String>,
+    /// Turtle data file(s) or URL(s) (repeatable; defaults to shapes).
+    #[arg(long, value_name = "DATA", action = clap::ArgAction::Append)]
+    data: Vec<String>,
     /// Base IRI for parsing.
     #[arg(long)]
     base: Option<String>,
@@ -59,6 +59,9 @@ struct ValidateArgs {
     /// Emit a W3C `sh:ValidationReport` graph (N-Triples) instead of a summary.
     #[arg(long)]
     report: bool,
+    /// RDF graph scope used during validation.
+    #[arg(long, visible_alias = "graph-scope", value_enum, default_value_t = GraphMode::Union)]
+    graph_mode: GraphMode,
 }
 
 #[derive(Args)]
@@ -98,6 +101,26 @@ enum Format {
     Dot,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum GraphMode {
+    /// Focus nodes and evaluation use only the data graph.
+    Data,
+    /// Focus nodes come from data; evaluation uses data + shapes.
+    Union,
+    /// Focus nodes and evaluation both use data + shapes.
+    UnionAll,
+}
+
+impl From<GraphMode> for shacl_engine::ValidationGraphMode {
+    fn from(mode: GraphMode) -> Self {
+        match mode {
+            GraphMode::Data => Self::Data,
+            GraphMode::Union => Self::Union,
+            GraphMode::UnionAll => Self::UnionAll,
+        }
+    }
+}
+
 fn main() -> ExitCode {
     env_logger::init();
     match run(Cli::parse()) {
@@ -117,17 +140,43 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     }
 }
 
+fn fetch_bytes(src: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    if src.starts_with("http://") || src.starts_with("https://") {
+        let response = ureq::get(src).call()?;
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)?;
+        Ok(bytes)
+    } else {
+        Ok(std::fs::read(src)?)
+    }
+}
+
+fn load_sources(sources: &[String], base: Option<&str>) -> Result<shacl_parse::Loaded, Box<dyn Error>> {
+    let mut merged: Option<shacl_parse::Loaded> = None;
+    for src in sources {
+        let bytes = fetch_bytes(src)?;
+        let loaded = shacl_parse::load_turtle(&bytes, base)?;
+        match merged.as_mut() {
+            None => merged = Some(loaded),
+            Some(m) => m.merge_from(&loaded),
+        }
+    }
+    merged.ok_or_else(|| "no sources provided".into())
+}
+
 fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
-    let shapes_bytes = std::fs::read(&args.shapes)?;
-    let parsed = shacl_parse::parse_turtle(&shapes_bytes, base)?;
+    let shapes = load_sources(&args.shapes, base)?;
+    let parsed = shacl_parse::parse_loaded(&shapes);
     for d in &parsed.diagnostics {
         eprintln!("{d}");
     }
 
-    let data_path = args.data.as_ref().unwrap_or(&args.shapes);
-    let data_bytes = std::fs::read(data_path)?;
-    let data = shacl_parse::load_turtle(&data_bytes, base)?;
+    let data = if args.data.is_empty() {
+        shapes
+    } else {
+        load_sources(&args.data, base)?
+    };
 
     let outcome = match shacl_engine::infer(&data.graph, &parsed.schema) {
         Ok(o) => o,
@@ -167,30 +216,67 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
 
 fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
-    let shapes_bytes = std::fs::read(&args.shapes)?;
-    let parsed = shacl_parse::parse_turtle(&shapes_bytes, base)?;
+    let shapes_loaded = load_sources(&args.shapes, base)?;
+    let graph_mode = args.graph_mode.into();
+
+    let data_loaded = if args.data.is_empty() {
+        None
+    } else {
+        Some(load_sources(&args.data, base)?)
+    };
+    let data_graph = data_loaded.as_ref().map(|d| &d.graph).unwrap_or(&shapes_loaded.graph);
+
+    // W3C report mode: component-granular validator + RDF report output.
+    // Uses only the raw loaded graph, so lowering is skipped entirely.
+    if args.report {
+        let report = shacl_engine::validate_report_graphs_with_mode(
+            &shapes_loaded,
+            data_graph,
+            graph_mode,
+        );
+        let graph = shacl_engine::report_to_graph(&report);
+        // Collect prefixes from shapes + data, deduplicating by name.
+        // Fall back to standard entries for sh:/rdf:/xsd: if not declared.
+        let mut prefixes: Vec<(&str, &str)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (name, iri) in shapes_loaded.prefixes.iter()
+            .chain(data_loaded.as_ref().map(|d| d.prefixes.iter()).into_iter().flatten())
+        {
+            if seen.insert(name.as_str()) {
+                prefixes.push((name.as_str(), iri.as_str()));
+            }
+        }
+        for (name, iri) in [
+            ("sh",   "http://www.w3.org/ns/shacl#"),
+            ("rdf",  "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+            ("xsd",  "http://www.w3.org/2001/XMLSchema#"),
+        ] {
+            if seen.insert(name) {
+                prefixes.push((name, iri));
+            }
+        }
+        let mut ser = oxttl::TurtleSerializer::new();
+        for (name, iri) in &prefixes {
+            ser = ser.with_prefix(*name, *iri).unwrap();
+        }
+        let bytes = graph.iter().try_fold(ser.for_writer(Vec::new()), |mut s, triple| {
+            s.serialize_triple(triple).map(|()| s)
+        })?.finish()?;
+        print!("{}", String::from_utf8_lossy(&bytes));
+        return Ok(());
+    }
+
+    let parsed = shacl_parse::parse_loaded(&shapes_loaded);
     for d in &parsed.diagnostics {
         eprintln!("{d}");
     }
 
-    let data_path = args.data.as_ref().unwrap_or(&args.shapes);
-    let data_bytes = std::fs::read(data_path)?;
-    let data = shacl_parse::load_turtle(&data_bytes, base)?;
-
-    // W3C report mode: component-granular validator + RDF report output
-    if args.report {
-        let shapes_loaded = shacl_parse::load_turtle(&shapes_bytes, base)?;
-        let report = shacl_engine::validate_report(&shapes_loaded, &data.graph);
-        let graph = shacl_engine::report_to_graph(&report);
-        let mut lines: Vec<String> = graph.iter().map(|t| t.to_string()).collect();
-        lines.sort();
-        for line in lines {
-            println!("{line}");
-        }
-        return Ok(());
-    }
-
-    let outcome = match shacl_engine::validate(&data.graph, &parsed.schema) {
+    let outcome = match shacl_engine::validate_graphs_with_mode(
+        data_graph,
+        &shapes_loaded.graph,
+        &parsed.schema,
+        graph_mode,
+    ) {
         Ok(o) => o,
         Err(e) => {
             return Err(format!("{e}; cannot validate (see `inspect --stage strata`)").into());

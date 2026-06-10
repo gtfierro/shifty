@@ -16,7 +16,9 @@
 
 use serde::{Deserialize, Serialize};
 use shacl_algebra::render::{path_to_string, shape_to_string};
-use shacl_algebra::{NamedNode, Path, Schema, Selector, Shape, ShapeArena, ShapeId, Term};
+use shacl_algebra::{
+    NamedNode, Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlTarget, Term,
+};
 use std::collections::BTreeSet;
 
 /// How to enumerate the focus nodes of a statement.
@@ -34,8 +36,8 @@ pub enum FocusSource {
     /// General path selector: scan candidate nodes, keep those with a
     /// path-successor satisfying `qualifier`.
     ScanFilter { path: Path, qualifier: ShapeId },
-    /// Opaque SPARQL target.
-    Sparql,
+    /// Parsed and canonicalized SPARQL target.
+    Sparql(SparqlTarget),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,7 +96,7 @@ fn plan_selector(arena: &ShapeArena, sel: &Selector) -> FocusSource {
             }
             _ => FocusSource::ScanFilter { path: path.clone(), qualifier: *qual },
         },
-        Selector::Sparql(_) => FocusSource::Sparql,
+        Selector::Sparql(target) => FocusSource::Sparql(target.clone()),
     }
 }
 
@@ -200,7 +202,7 @@ fn focus_to_string(source: &FocusSource) -> String {
         FocusSource::ScanFilter { path, qualifier } => {
             format!("scan ∃ {} . @{}", path_to_string(path), qualifier.0)
         }
-        FocusSource::Sparql => "sparql{…}".to_string(),
+        FocusSource::Sparql(_) => "sparql{…}".to_string(),
     }
 }
 

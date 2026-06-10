@@ -39,7 +39,15 @@ cargo run -p shacl-cli -- inspect --stage algebra --format json examples/person.
 
 # Validate a data graph against shapes (reference evaluator):
 cargo run -p shacl-cli -- validate --shapes examples/person.ttl --data examples/person-data.ttl
+
+# Validation graph scope defaults to `union`: focus nodes from data, with
+# paths/class hierarchy/SPARQL evaluated over data + shapes.
+cargo run -p shacl-cli -- validate --graph-mode data --shapes shapes.ttl --data data.ttl
+cargo run -p shacl-cli -- validate --graph-mode union-all --shapes shapes.ttl --data data.ttl
 ```
+
+The Rust API mirrors these modes: `validate_graphs` defaults to union
+evaluation, while `validate_graphs_with_mode` accepts `ValidationGraphMode`.
 
 The `algebra` text view is a cycle-safe flat dump of the shape graph: each arena
 slot prints as `@i = <φ>` with child shapes referenced as `@j`, so recursion and

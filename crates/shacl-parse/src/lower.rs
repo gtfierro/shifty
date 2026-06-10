@@ -11,9 +11,11 @@ use crate::graph::{term_to_node, Loaded};
 use crate::path::parse_path;
 use crate::vocab;
 use oxrdf::{Literal, NamedOrBlankNode, Term};
+use spargebra::{Query, SparqlParser};
 use shacl_algebra::{
     Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena,
-    ShapeId, SparqlConstruct, Statement, ValueType,
+    ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget, Statement,
+    ValueType,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -90,8 +92,9 @@ impl Lowerer<'_> {
             let is_target = p == vocab::SH_TARGET_NODE
                 || p == vocab::SH_TARGET_CLASS
                 || p == vocab::SH_TARGET_SUBJECTS_OF
-                || p == vocab::SH_TARGET_OBJECTS_OF;
-            if p == vocab::SH_PATH || is_target {
+                || p == vocab::SH_TARGET_OBJECTS_OF
+                || p == vocab::SH_TARGET;
+            if p == vocab::SH_PATH || p == vocab::SH_SPARQL || p == vocab::SH_RULE || is_target {
                 found.insert(triple.subject.into_owned());
             }
             if p == vocab::RDF_TYPE
@@ -145,8 +148,42 @@ impl Lowerer<'_> {
             conjuncts.push(c);
         }
 
-        if self.g.object(s, vocab::SH_SPARQL).is_some() {
-            self.diag(DiagLevel::Unsupported, "sh:sparql constraint not yet lowered", s);
+        for constraint_term in self.g.objects(s, vocab::SH_SPARQL) {
+            let Some(constraint_node) = term_to_node(&constraint_term) else {
+                self.diag(DiagLevel::Error, "sh:sparql must reference a resource", s);
+                continue;
+            };
+            let parsed = if let Some(Term::Literal(query)) =
+                self.g.object(&constraint_node, vocab::SH_SELECT)
+            {
+                self.canonical_sparql(&constraint_node, query.value(), ExpectedQuery::Select)
+                    .map(|query| (SparqlQueryKind::Select, query))
+            } else if let Some(Term::Literal(query)) =
+                self.g.object(&constraint_node, vocab::SH_ASK)
+            {
+                self.canonical_sparql(&constraint_node, query.value(), ExpectedQuery::Ask)
+                    .map(|query| (SparqlQueryKind::Ask, query))
+            } else {
+                self.diag(
+                    DiagLevel::Error,
+                    "sh:sparql constraint requires sh:select or sh:ask",
+                    &constraint_node,
+                );
+                None
+            };
+            if let Some((kind, query)) = parsed {
+                let shape = Some(match s {
+                    NamedOrBlankNode::NamedNode(n) => Term::NamedNode(n.clone()),
+                    NamedOrBlankNode::BlankNode(b) => Term::BlankNode(b.clone()),
+                });
+                let constraint = SparqlConstraint {
+                    kind,
+                    query,
+                    path: path.clone(),
+                    shape,
+                };
+                conjuncts.push(self.arena.insert(Shape::Sparql(constraint)));
+            }
         }
 
         let shape = if conjuncts.is_empty() {
@@ -440,12 +477,25 @@ impl Lowerer<'_> {
             sels.push(self.class_selector(Term::NamedNode(n.clone())));
         }
 
-        if self.g.object(s, vocab::SH_TARGET).is_some() {
-            self.diag(
-                DiagLevel::Unsupported,
-                "sh:target (SPARQL/custom target) not yet lowered",
-                s,
-            );
+        for target_term in self.g.objects(s, vocab::SH_TARGET) {
+            let Some(target_node) = term_to_node(&target_term) else {
+                self.diag(DiagLevel::Error, "sh:target must reference a resource", s);
+                continue;
+            };
+            match self.g.object(&target_node, vocab::SH_SELECT) {
+                Some(Term::Literal(query)) => {
+                    if let Some(query) =
+                        self.canonical_sparql(&target_node, query.value(), ExpectedQuery::Select)
+                    {
+                        sels.push(Selector::Sparql(SparqlTarget { query }));
+                    }
+                }
+                _ => self.diag(
+                    DiagLevel::Unsupported,
+                    "custom sh:target without sh:select is not yet lowered",
+                    &target_node,
+                ),
+            }
         }
 
         sels
@@ -481,9 +531,11 @@ impl Lowerer<'_> {
     }
 
     fn parse_rule_head(&mut self, rn: &NamedOrBlankNode) -> Option<RuleHead> {
-        // sh:SPARQLRule — keep the CONSTRUCT opaque
+        // sh:SPARQLRule — parse and canonicalize the CONSTRUCT while retaining
+        // an opaque algebra leaf for later query rewriting.
         if let Some(Term::Literal(q)) = self.g.object(rn, vocab::SH_CONSTRUCT) {
-            return Some(RuleHead::Sparql(SparqlConstruct { query: q.value().to_string() }));
+            let query = self.canonical_sparql(rn, q.value(), ExpectedQuery::Construct)?;
+            return Some(RuleHead::Sparql(SparqlConstruct { query }));
         }
         // sh:TripleRule — subject/predicate/object node expressions
         let (subj, pred, obj) = (
@@ -598,6 +650,120 @@ impl Lowerer<'_> {
             Some(Term::Literal(l)) => Some(l),
             _ => None,
         }
+    }
+
+    /// Parse a SHACL SPARQL query once, resolving both document prefixes and
+    /// `sh:prefixes` declarations. `Query::to_string` expands prefix names, so
+    /// the IR remains self-contained and can be reparsed or rewritten later.
+    fn canonical_sparql(
+        &mut self,
+        owner: &NamedOrBlankNode,
+        raw: &str,
+        expected: ExpectedQuery,
+    ) -> Option<String> {
+        let (query, canonical) = match canonical_sparql_query(self.g, owner, raw) {
+            Ok(result) => result,
+            Err(message) => {
+                self.diag(DiagLevel::Error, message, owner);
+                return None;
+            }
+        };
+        let actual = match &query {
+            Query::Select { .. } => ExpectedQuery::Select,
+            Query::Ask { .. } => ExpectedQuery::Ask,
+            Query::Construct { .. } => ExpectedQuery::Construct,
+            Query::Describe { .. } => ExpectedQuery::Describe,
+        };
+        if actual != expected {
+            self.diag(
+                DiagLevel::Error,
+                format!("expected SPARQL {expected}, found {actual}"),
+                owner,
+            );
+            return None;
+        }
+        Some(canonical)
+    }
+}
+
+/// Build the canonical, prefix-expanded form of a SHACL SPARQL query string.
+///
+/// Resolves the document base IRI, document-level prefixes, and the
+/// `sh:prefixes` / `sh:declare` chains (following `owl:imports`) declared on
+/// `owner`, parses `raw`, and returns the parsed query together with its
+/// canonical string form. `Query::to_string` expands prefix names, so the
+/// result is self-contained and can be reparsed without external declarations.
+///
+/// Errors are returned as messages so callers can decide how to surface them:
+/// the lowerer routes them to diagnostics; the report validator drops the
+/// offending constraint, matching the lowering path.
+pub fn canonical_sparql_query(
+    g: &Loaded,
+    owner: &NamedOrBlankNode,
+    raw: &str,
+) -> Result<(Query, String), String> {
+    let mut parser = SparqlParser::new();
+    if let Some(base) = &g.base {
+        parser = parser
+            .with_base_iri(base)
+            .map_err(|e| format!("invalid SPARQL base IRI: {e}"))?;
+    }
+    for (prefix, namespace) in &g.prefixes {
+        parser = parser
+            .with_prefix(prefix, namespace)
+            .map_err(|e| format!("invalid SPARQL prefix declaration {prefix}: {e}"))?;
+    }
+    let mut prefix_sources: Vec<NamedOrBlankNode> = g
+        .objects(owner, vocab::SH_PREFIXES)
+        .iter()
+        .filter_map(term_to_node)
+        .collect();
+    let mut seen_sources = HashSet::new();
+    while let Some(source) = prefix_sources.pop() {
+        if !seen_sources.insert(source.clone()) {
+            continue;
+        }
+        prefix_sources.extend(
+            g.objects(&source, vocab::OWL_IMPORTS)
+                .iter()
+                .filter_map(term_to_node),
+        );
+        for declaration_term in g.objects(&source, vocab::SH_DECLARE) {
+            let Some(declaration) = term_to_node(&declaration_term) else { continue };
+            let (Some(Term::Literal(prefix)), Some(Term::Literal(namespace))) = (
+                g.object(&declaration, vocab::SH_PREFIX),
+                g.object(&declaration, vocab::SH_NAMESPACE),
+            ) else {
+                continue;
+            };
+            parser = parser
+                .with_prefix(prefix.value(), namespace.value())
+                .map_err(|e| format!("invalid SHACL SPARQL prefix declaration: {e}"))?;
+        }
+    }
+    let query = parser
+        .parse_query(raw)
+        .map_err(|e| format!("invalid SPARQL query: {e}"))?;
+    let canonical = query.to_string();
+    Ok((query, canonical))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExpectedQuery {
+    Select,
+    Ask,
+    Construct,
+    Describe,
+}
+
+impl std::fmt::Display for ExpectedQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Select => "SELECT",
+            Self::Ask => "ASK",
+            Self::Construct => "CONSTRUCT",
+            Self::Describe => "DESCRIBE",
+        })
     }
 }
 

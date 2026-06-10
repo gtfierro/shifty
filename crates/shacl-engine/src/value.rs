@@ -2,10 +2,12 @@
 //! `sh:lessThan`, ranges, etc. Naive reference semantics.
 
 use oxrdf::vocab::xsd;
-use oxrdf::{Literal, Term};
+use oxrdf::{Literal, NamedNodeRef, Term};
+use oxsdatatypes::{Boolean, DateTime, Decimal, Double, Float};
 use regex::Regex;
 use shacl_algebra::value_type::{Bound, ValueType};
 use std::cmp::Ordering;
+use std::str::FromStr;
 
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
@@ -14,7 +16,7 @@ pub fn value_type_holds(vt: &ValueType, term: &Term) -> bool {
     match vt {
         ValueType::Any => true,
         ValueType::Datatype(dt) => {
-            matches!(term, Term::Literal(l) if l.datatype() == dt.as_ref())
+            matches!(term, Term::Literal(l) if l.datatype() == dt.as_ref() && valid_lexical_form(l))
         }
         ValueType::NumericRange { lo, hi } => {
             lo.as_ref().is_none_or(|b| satisfies_lower(term, b))
@@ -68,12 +70,87 @@ pub fn compare_terms(a: &Term, b: &Term) -> Option<Ordering> {
         if is_string(la) && is_string(lb) {
             return Some(la.value().cmp(lb.value()));
         }
+        if la.datatype() == xsd::DATE_TIME && lb.datatype() == xsd::DATE_TIME {
+            let left = DateTime::from_str(la.value()).ok()?;
+            let right = DateTime::from_str(lb.value()).ok()?;
+            return left.partial_cmp(&right);
+        }
     }
     None
 }
 
+fn valid_lexical_form(literal: &Literal) -> bool {
+    let datatype = literal.datatype();
+    let value = literal.value();
+    if datatype == xsd::BOOLEAN {
+        Boolean::from_str(value).is_ok()
+    } else if datatype == xsd::DECIMAL {
+        Decimal::from_str(value).is_ok()
+    } else if datatype == xsd::FLOAT {
+        Float::from_str(value).is_ok()
+    } else if datatype == xsd::DOUBLE {
+        Double::from_str(value).is_ok()
+    } else if datatype == xsd::DATE_TIME {
+        DateTime::from_str(value).is_ok()
+    } else if is_integer_datatype(datatype) {
+        integer_in_datatype_range(value, datatype)
+    } else {
+        true
+    }
+}
+
+fn is_integer_datatype(datatype: NamedNodeRef<'_>) -> bool {
+    matches!(
+        datatype,
+        xsd::INTEGER
+            | xsd::LONG
+            | xsd::INT
+            | xsd::SHORT
+            | xsd::BYTE
+            | xsd::NON_NEGATIVE_INTEGER
+            | xsd::NON_POSITIVE_INTEGER
+            | xsd::NEGATIVE_INTEGER
+            | xsd::POSITIVE_INTEGER
+            | xsd::UNSIGNED_LONG
+            | xsd::UNSIGNED_INT
+            | xsd::UNSIGNED_SHORT
+            | xsd::UNSIGNED_BYTE
+    )
+}
+
+fn integer_in_datatype_range(value: &str, datatype: NamedNodeRef<'_>) -> bool {
+    let value = value.trim();
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    if datatype == xsd::INTEGER {
+        return true;
+    }
+    let Ok(number) = value.parse::<i128>() else {
+        return false;
+    };
+    match datatype {
+        xsd::LONG => number >= i64::MIN.into() && number <= i64::MAX.into(),
+        xsd::INT => number >= i32::MIN.into() && number <= i32::MAX.into(),
+        xsd::SHORT => number >= i16::MIN.into() && number <= i16::MAX.into(),
+        xsd::BYTE => number >= i8::MIN.into() && number <= i8::MAX.into(),
+        xsd::NON_NEGATIVE_INTEGER => number >= 0,
+        xsd::NON_POSITIVE_INTEGER => number <= 0,
+        xsd::NEGATIVE_INTEGER => number < 0,
+        xsd::POSITIVE_INTEGER => number > 0,
+        xsd::UNSIGNED_LONG => number >= 0 && number <= u64::MAX.into(),
+        xsd::UNSIGNED_INT => number >= 0 && number <= u32::MAX.into(),
+        xsd::UNSIGNED_SHORT => number >= 0 && number <= u16::MAX.into(),
+        xsd::UNSIGNED_BYTE => number >= 0 && number <= u8::MAX.into(),
+        _ => false,
+    }
+}
+
 fn numeric(l: &Literal) -> Option<f64> {
-    is_numeric_datatype(l).then(|| l.value().parse::<f64>().ok()).flatten()
+    is_numeric_datatype(l)
+        .then(|| l.value().parse::<f64>().ok())
+        .flatten()
 }
 
 fn is_numeric_datatype(l: &Literal) -> bool {

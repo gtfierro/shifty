@@ -11,6 +11,7 @@ repository.workspace = true
 shacl-algebra.workspace = true
 oxrdf.workspace = true
 oxttl.workspace = true
+spargebra.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

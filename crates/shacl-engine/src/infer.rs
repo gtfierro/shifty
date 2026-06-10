@@ -3,19 +3,22 @@
 //! A rule fires on its focus nodes for which all `sh:condition`s hold, producing
 //! triples from its head's node expressions. Per the decided semantics
 //! ([`docs/03-recursion-semantics.md`](../../../docs/03-recursion-semantics.md)),
-//! inference is the **least fixpoint**: rules are grouped by `sh:order` (lower
-//! first) and each order is saturated — applied until no new triple appears —
-//! before the next. Because `sh:TripleRule` heads only ever combine existing
-//! terms (no term invention), the fixpoint terminates.
+//! inference is the **least fixpoint**. Rules run in ascending `sh:order`
+//! groups, and output from a later group may reactivate an earlier group in the
+//! next pass. Predicate-level delta scheduling avoids rerunning rules whose
+//! graph reads cannot observe the newly added triples. Triple rules only
+//! combine existing terms, and SPARQL `CONSTRUCT` results containing fresh
+//! blank nodes are rejected, preserving termination for the supported subset.
 //!
-//! `sh:SPARQLRule` heads and function node expressions are not executed yet;
-//! they are reported as diagnostics rather than silently skipped.
+//! Function node expressions are not executed yet; they are reported as
+//! diagnostics rather than silently skipped.
 
 use crate::path::{node_of, succ};
-use crate::validate::{focus_nodes, holds, NonStratifiable};
-use oxrdf::{Graph, Term, Triple};
-use shacl_algebra::{NodeExpr, RuleHead, Schema, ShapeArena};
-use shacl_opt::analyze;
+use crate::sparql::SparqlExecutor;
+use crate::validate::{NonStratifiable, focus_nodes_with, holds};
+use oxrdf::{Graph, NamedNode, Term, Triple};
+use shacl_algebra::{NodeExpr, Rule, RuleHead, Schema, ShapeArena};
+use shacl_opt::{RuleDependencies, analyze, rule_dependencies};
 use std::collections::{BTreeSet, HashSet};
 
 /// The result of running inference over a data graph.
@@ -42,65 +45,124 @@ pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStrat
     }
 
     let mut graph = data.clone();
+    let sparql =
+        SparqlExecutor::new(&graph).expect("building an in-memory Oxigraph store should succeed");
     let mut inferred = Vec::new();
     let mut diags: BTreeSet<String> = BTreeSet::new();
 
-    // process rules grouped by ascending sh:order; saturate each group
-    let mut orders: Vec<i64> = schema
+    let mut rules: Vec<ScheduledRule<'_>> = schema
         .rules
         .iter()
-        .filter(|r| !r.deactivated)
-        .map(|r| r.order.unwrap_or(0))
+        .enumerate()
+        .filter(|(_, rule)| !rule.deactivated)
+        .map(|(index, rule)| ScheduledRule {
+            index,
+            order: rule.order.unwrap_or(0),
+            dependencies: rule_dependencies(rule, &schema.arena),
+            rule,
+        })
         .collect();
-    orders.sort_unstable();
-    orders.dedup();
+    rules.sort_by_key(|scheduled| (scheduled.order, scheduled.index));
 
-    for order in orders {
-        loop {
-            let mut candidates = Vec::new();
-            for rule in schema
-                .rules
-                .iter()
-                .filter(|r| !r.deactivated && r.order.unwrap_or(0) == order)
-            {
-                fire_rule(&graph, &schema.arena, rule, &mut candidates, &mut diags);
+    // The first pass evaluates every rule. Later passes are semi-naive at rule
+    // granularity: only rules that may read a changed predicate are active.
+    let mut active: HashSet<usize> = (0..rules.len()).collect();
+    loop {
+        let mut changed_predicates = HashSet::new();
+        let mut added = false;
+        let mut start = 0;
+
+        while start < rules.len() {
+            let order = rules[start].order;
+            let mut end = start + 1;
+            while end < rules.len() && rules[end].order == order {
+                end += 1;
             }
-            let mut added = false;
+
+            // Tied rules observe the same graph snapshot. Their additions are
+            // visible to subsequent order groups in this pass.
+            let mut candidates = Vec::new();
+            for (position, scheduled) in rules[start..end].iter().enumerate() {
+                if !active.contains(&(start + position)) {
+                    continue;
+                }
+                fire_rule(
+                    &graph,
+                    &schema.arena,
+                    scheduled.rule,
+                    &sparql,
+                    &mut candidates,
+                    &mut diags,
+                );
+            }
             for t in candidates {
                 if graph.insert(&t) {
+                    if let Err(error) = sparql.insert(&t) {
+                        diags.insert(format!("failed to update SPARQL inference store: {error}"));
+                    }
+                    changed_predicates.insert(t.predicate.clone());
                     inferred.push(t);
                     added = true;
                 }
             }
-            if !added {
-                break;
+
+            start = end;
+        }
+
+        if !added {
+            break;
+        }
+
+        active.clear();
+        for (position, scheduled) in rules.iter().enumerate() {
+            if scheduled.dependencies.affected_by(&changed_predicates) {
+                active.insert(position);
             }
+        }
+        if active.is_empty() {
+            break;
         }
     }
 
-    Ok(InferenceOutcome { graph, inferred, diagnostics: diags.into_iter().collect() })
+    Ok(InferenceOutcome {
+        graph,
+        inferred,
+        diagnostics: diags.into_iter().collect(),
+    })
+}
+
+struct ScheduledRule<'a> {
+    index: usize,
+    order: i64,
+    dependencies: RuleDependencies,
+    rule: &'a Rule,
 }
 
 fn fire_rule(
     g: &Graph,
     arena: &ShapeArena,
     rule: &shacl_algebra::Rule,
+    sparql: &SparqlExecutor,
     out: &mut Vec<Triple>,
     diags: &mut BTreeSet<String>,
 ) {
-    for v in focus_nodes(g, &rule.selector, arena) {
+    for v in focus_nodes_with(g, g, &rule.selector, arena, sparql) {
         let conditions_hold = rule.conditions.iter().all(|c| {
             let mut stack = HashSet::new();
-            holds(g, arena, &v, *c, &mut stack)
+            holds(g, arena, &v, *c, &mut stack, sparql)
         });
         if !conditions_hold {
             continue;
         }
         match &rule.head {
-            RuleHead::Triple { subject, predicate, object } => {
-                let subjects = eval_node_expr(g, arena, &v, subject, diags);
-                let predicates = eval_node_expr(g, arena, &v, predicate, diags);
-                let objects = eval_node_expr(g, arena, &v, object, diags);
+            RuleHead::Triple {
+                subject,
+                predicate,
+                object,
+            } => {
+                let subjects = eval_node_expr(g, arena, &v, subject, sparql, diags);
+                let predicates = eval_node_expr(g, arena, &v, predicate, sparql, diags);
+                let objects = eval_node_expr(g, arena, &v, object, sparql, diags);
                 for s in &subjects {
                     let Some(subj) = node_of(s) else { continue };
                     for p in &predicates {
@@ -111,9 +173,26 @@ fn fire_rule(
                     }
                 }
             }
-            RuleHead::Sparql(_) => {
-                diags.insert("sh:SPARQLRule execution not yet supported".to_string());
-            }
+            RuleHead::Sparql(construct) => match sparql.construct(&construct.query, &v) {
+                Ok(triples) => {
+                    for triple in triples {
+                        if matches!(triple.subject, oxrdf::NamedOrBlankNode::BlankNode(_))
+                            || matches!(triple.object, Term::BlankNode(_))
+                        {
+                            diags.insert(
+                                "sh:SPARQLRule CONSTRUCT blank nodes are not supported because \
+                                 they can prevent fixpoint termination"
+                                    .to_string(),
+                            );
+                        } else {
+                            out.push(triple);
+                        }
+                    }
+                }
+                Err(error) => {
+                    diags.insert(format!("sh:SPARQLRule evaluation failed: {error}"));
+                }
+            },
         }
     }
 }
@@ -124,26 +203,27 @@ fn eval_node_expr(
     arena: &ShapeArena,
     v: &Term,
     expr: &NodeExpr,
+    sparql: &SparqlExecutor,
     diags: &mut BTreeSet<String>,
 ) -> HashSet<Term> {
     match expr {
         NodeExpr::This => once(v.clone()),
         NodeExpr::Constant(t) => once(t.clone()),
         NodeExpr::Path(p) => succ(g, v, p),
-        NodeExpr::Filter { input, shape } => eval_node_expr(g, arena, v, input, diags)
+        NodeExpr::Filter { input, shape } => eval_node_expr(g, arena, v, input, sparql, diags)
             .into_iter()
             .filter(|x| {
                 let mut stack = HashSet::new();
-                holds(g, arena, x, *shape, &mut stack)
+                holds(g, arena, x, *shape, &mut stack, sparql)
             })
             .collect(),
         NodeExpr::Intersection(es) => {
             let mut iter = es.iter();
             match iter.next() {
                 Some(first) => {
-                    let mut acc = eval_node_expr(g, arena, v, first, diags);
+                    let mut acc = eval_node_expr(g, arena, v, first, sparql, diags);
                     for e in iter {
-                        let s = eval_node_expr(g, arena, v, e, diags);
+                        let s = eval_node_expr(g, arena, v, e, sparql, diags);
                         acc.retain(|x| s.contains(x));
                     }
                     acc
@@ -154,7 +234,7 @@ fn eval_node_expr(
         NodeExpr::Union(es) => {
             let mut acc = HashSet::new();
             for e in es {
-                acc.extend(eval_node_expr(g, arena, v, e, diags));
+                acc.extend(eval_node_expr(g, arena, v, e, sparql, diags));
             }
             acc
         }

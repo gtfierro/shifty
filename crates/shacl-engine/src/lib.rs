@@ -9,13 +9,20 @@
 pub mod infer;
 pub mod path;
 pub mod report;
+mod sparql;
 pub mod validate;
 pub mod value;
 
 pub use infer::{infer, InferenceOutcome};
-pub use report::{report_to_graph, validate_report, ValidationReport, ValidationResult};
+pub use report::{
+    report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
+    ValidationReport, ValidationResult,
+};
 pub use validate::{
-    focus_nodes, validate, validate_plan, NonStratifiable, Reason, ValidationOutcome, Violation,
+    focus_nodes, validate, validate_graphs, validate_graphs_with_mode, validate_plan,
+    validate_plan_graphs, validate_plan_graphs_with_mode, validate_plan_with_context,
+    validate_with_context, NonStratifiable, Reason, ValidationGraphMode, ValidationOutcome,
+    Violation,
 };
 
 #[cfg(test)]
@@ -210,5 +217,59 @@ mod tests {
         assert!(outcome.graph.contains(&triple("http://ex/b", "http://ex/reaches", "http://ex/c")));
         // the fixpoint result: a reaches c (only via b reaches c)
         assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/c")));
+    }
+
+    #[test]
+    fn later_order_output_reactivates_an_earlier_rule() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:rule [
+                    a sh:TripleRule ; sh:order 0 ;
+                    sh:subject sh:this ; sh:predicate ex:done ;
+                    sh:object [ sh:path ex:ready ]
+                ] ;
+                sh:rule [
+                    a sh:TripleRule ; sh:order 1 ;
+                    sh:subject sh:this ; sh:predicate ex:ready ;
+                    sh:object ex:y
+                ] .
+            "
+        );
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+
+        assert!(outcome.graph.contains(&triple("http://ex/x", "http://ex/ready", "http://ex/y")));
+        assert!(outcome.graph.contains(&triple("http://ex/x", "http://ex/done", "http://ex/y")));
+    }
+
+    #[test]
+    fn inferred_triples_can_create_new_rule_targets() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:Seed a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ; sh:predicate ex:eligible ;
+                    sh:object ex:y
+                ] .
+            ex:Eligible a sh:NodeShape ; sh:targetSubjectsOf ex:eligible ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ; sh:predicate ex:classified ;
+                    sh:object ex:yes
+                ] .
+            "
+        );
+        let out = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let outcome = infer(&loaded.graph, &out.schema).unwrap();
+
+        assert!(outcome.graph.contains(&triple(
+            "http://ex/x",
+            "http://ex/classified",
+            "http://ex/yes",
+        )));
     }
 }

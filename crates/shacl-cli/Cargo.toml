@@ -20,3 +20,5 @@ clap.workspace = true
 env_logger.workspace = true
 log.workspace = true
 serde_json.workspace = true
+ureq.workspace = true
+oxttl.workspace = true

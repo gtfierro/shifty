@@ -24,6 +24,7 @@ iri!(RDF_NIL, "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil");
 iri!(RDFS_CLASS, "http://www.w3.org/2000/01/rdf-schema#Class");
 iri!(RDFS_SUBCLASSOF, "http://www.w3.org/2000/01/rdf-schema#subClassOf");
 iri!(OWL_CLASS, "http://www.w3.org/2002/07/owl#Class");
+iri!(OWL_IMPORTS, "http://www.w3.org/2002/07/owl#imports");
 
 // shape types
 iri!(SH_NODE_SHAPE, "http://www.w3.org/ns/shacl#NodeShape");
@@ -35,6 +36,8 @@ iri!(SH_TARGET_CLASS, "http://www.w3.org/ns/shacl#targetClass");
 iri!(SH_TARGET_SUBJECTS_OF, "http://www.w3.org/ns/shacl#targetSubjectsOf");
 iri!(SH_TARGET_OBJECTS_OF, "http://www.w3.org/ns/shacl#targetObjectsOf");
 iri!(SH_TARGET, "http://www.w3.org/ns/shacl#target");
+iri!(SH_SELECT, "http://www.w3.org/ns/shacl#select");
+iri!(SH_ASK, "http://www.w3.org/ns/shacl#ask");
 
 // paths
 iri!(SH_PATH, "http://www.w3.org/ns/shacl#path");
@@ -81,6 +84,7 @@ iri!(SH_PROPERTY, "http://www.w3.org/ns/shacl#property");
 iri!(SH_QUALIFIED_VALUE_SHAPE, "http://www.w3.org/ns/shacl#qualifiedValueShape");
 iri!(SH_QUALIFIED_MIN_COUNT, "http://www.w3.org/ns/shacl#qualifiedMinCount");
 iri!(SH_QUALIFIED_MAX_COUNT, "http://www.w3.org/ns/shacl#qualifiedMaxCount");
+iri!(SH_QUALIFIED_VALUE_SHAPES_DISJOINT, "http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint");
 
 // other
 iri!(SH_CLOSED, "http://www.w3.org/ns/shacl#closed");
@@ -109,6 +113,10 @@ iri!(SH_OBJECT, "http://www.w3.org/ns/shacl#object");
 iri!(SH_CONDITION, "http://www.w3.org/ns/shacl#condition");
 iri!(SH_ORDER, "http://www.w3.org/ns/shacl#order");
 iri!(SH_CONSTRUCT, "http://www.w3.org/ns/shacl#construct");
+iri!(SH_PREFIXES, "http://www.w3.org/ns/shacl#prefixes");
+iri!(SH_DECLARE, "http://www.w3.org/ns/shacl#declare");
+iri!(SH_PREFIX, "http://www.w3.org/ns/shacl#prefix");
+iri!(SH_NAMESPACE, "http://www.w3.org/ns/shacl#namespace");
 
 // validation report vocabulary
 iri!(SH_VALIDATION_REPORT, "http://www.w3.org/ns/shacl#ValidationReport");
@@ -125,6 +133,7 @@ iri!(SH_VIOLATION, "http://www.w3.org/ns/shacl#Violation");
 iri!(SH_SEVERITY, "http://www.w3.org/ns/shacl#severity");
 
 // constraint components
+iri!(SH_CC_SPARQL, "http://www.w3.org/ns/shacl#SPARQLConstraintComponent");
 iri!(SH_CC_CLASS, "http://www.w3.org/ns/shacl#ClassConstraintComponent");
 iri!(SH_CC_DATATYPE, "http://www.w3.org/ns/shacl#DatatypeConstraintComponent");
 iri!(SH_CC_NODE_KIND, "http://www.w3.org/ns/shacl#NodeKindConstraintComponent");
@@ -144,6 +153,15 @@ iri!(SH_CC_XONE, "http://www.w3.org/ns/shacl#XoneConstraintComponent");
 iri!(SH_CC_NODE, "http://www.w3.org/ns/shacl#NodeConstraintComponent");
 iri!(SH_CC_HAS_VALUE, "http://www.w3.org/ns/shacl#HasValueConstraintComponent");
 iri!(SH_CC_IN, "http://www.w3.org/ns/shacl#InConstraintComponent");
+iri!(SH_CC_CLOSED, "http://www.w3.org/ns/shacl#ClosedConstraintComponent");
+iri!(SH_CC_EQUALS, "http://www.w3.org/ns/shacl#EqualsConstraintComponent");
+iri!(SH_CC_DISJOINT, "http://www.w3.org/ns/shacl#DisjointConstraintComponent");
+iri!(SH_CC_LESS_THAN, "http://www.w3.org/ns/shacl#LessThanConstraintComponent");
+iri!(SH_CC_LESS_THAN_OR_EQUALS, "http://www.w3.org/ns/shacl#LessThanOrEqualsConstraintComponent");
+iri!(SH_CC_LANGUAGE_IN, "http://www.w3.org/ns/shacl#LanguageInConstraintComponent");
+iri!(SH_CC_UNIQUE_LANG, "http://www.w3.org/ns/shacl#UniqueLangConstraintComponent");
+iri!(SH_CC_QUALIFIED_MIN_COUNT, "http://www.w3.org/ns/shacl#QualifiedMinCountConstraintComponent");
+iri!(SH_CC_QUALIFIED_MAX_COUNT, "http://www.w3.org/ns/shacl#QualifiedMaxCountConstraintComponent");
 
 /// `rdf:type` as an owned node (for path construction).
 pub fn rdf_type() -> NamedNode {

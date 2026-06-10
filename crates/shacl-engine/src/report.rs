@@ -12,16 +12,19 @@
 //!
 //! Coverage is a growing subset of SHACL Core (see `docs/BACKLOG.md`).
 
-use crate::path::pred;
 use crate::path::succ;
-use crate::value::value_type_holds;
+use crate::sparql::SparqlExecutor;
+use crate::validate::{graph_union, ValidationGraphMode};
+use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shacl_algebra::value_type::{Bound, ValueType};
-use shacl_algebra::{NodeKindSet, Path};
+use shacl_algebra::{NodeKindSet, Path, SparqlConstraint, SparqlQueryKind};
 use shacl_parse::graph::{term_to_node, Loaded};
+use shacl_parse::lower::canonical_sparql_query;
 use shacl_parse::path::parse_path;
 use shacl_parse::vocab;
-use std::collections::HashSet;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 
 /// One `sh:ValidationResult`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -32,6 +35,9 @@ pub struct ValidationResult {
     pub value: Option<Term>,
     pub component: NamedNode,
     pub source_shape: Term,
+    /// `sh:resultSeverity` — the `sh:severity` declared on the source shape,
+    /// defaulting to `sh:Violation`.
+    pub severity: NamedNode,
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +48,67 @@ pub struct ValidationReport {
 
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
 pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
-    let r = Reporter { shapes, data };
+    validate_report_context(shapes, data, data)
+}
+
+/// Validate split data and shapes graphs using the selected graph mode.
+pub fn validate_report_graphs(
+    shapes: &Loaded,
+    data: &Graph,
+) -> ValidationReport {
+    validate_report_graphs_with_mode(shapes, data, ValidationGraphMode::default())
+}
+
+/// Validate split data and shapes graphs using an explicit graph mode.
+pub fn validate_report_graphs_with_mode(
+    shapes: &Loaded,
+    data: &Graph,
+    mode: ValidationGraphMode,
+) -> ValidationReport {
+    match mode {
+        ValidationGraphMode::Data => validate_report_context(shapes, data, data),
+        ValidationGraphMode::Union => {
+            let union = graph_union(data, &shapes.graph);
+            validate_report_context(shapes, data, &union)
+        }
+        ValidationGraphMode::UnionAll => {
+            let union = graph_union(data, &shapes.graph);
+            validate_report_context(shapes, &union, &union)
+        }
+    }
+}
+
+fn validate_report_context(
+    shapes: &Loaded,
+    focus_data: &Graph,
+    context: &Graph,
+) -> ValidationReport {
+    // SHACL-SPARQL constraints and SPARQL-based targets execute against an
+    // in-memory store over the context graph. Build it once, and only when some
+    // shape actually carries a `sh:sparql` constraint or a `sh:target`, so the
+    // common case pays nothing.
+    let needs_sparql = shapes
+        .graph
+        .triples_for_predicate(vocab::SH_SPARQL)
+        .next()
+        .is_some()
+        || shapes
+            .graph
+            .triples_for_predicate(vocab::SH_TARGET)
+            .next()
+            .is_some();
+    let sparql = if needs_sparql {
+        // Only mirror the shapes into a named graph (for `$shapesGraph`) when a
+        // query actually references it — otherwise skip the extra copy.
+        if shapes_reference_shapes_graph(shapes) {
+            SparqlExecutor::new_with_shapes(context, &shapes.graph).ok()
+        } else {
+            SparqlExecutor::new(context).ok()
+        }
+    } else {
+        None
+    };
+    let r = Reporter { shapes, focus_data, context, sparql };
     let mut results = Vec::new();
     for shape in r.target_shapes() {
         for focus in r.focus_nodes(&shape) {
@@ -81,7 +147,7 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
         if let Some(value) = &r.value {
             g.insert(&t(rn.clone().into(), vocab::SH_VALUE, value.clone()));
         }
-        g.insert(&t(rn.clone().into(), vocab::SH_RESULT_SEVERITY, vocab::SH_VIOLATION.into_owned().into()));
+        g.insert(&t(rn.clone().into(), vocab::SH_RESULT_SEVERITY, r.severity.clone().into()));
         g.insert(&t(
             rn.clone().into(),
             vocab::SH_SOURCE_CONSTRAINT_COMPONENT,
@@ -94,7 +160,9 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
 
 struct Reporter<'a> {
     shapes: &'a Loaded,
-    data: &'a Graph,
+    focus_data: &'a Graph,
+    context: &'a Graph,
+    sparql: Option<SparqlExecutor>,
 }
 
 type Visited = HashSet<(NamedOrBlankNode, Term)>;
@@ -108,6 +176,13 @@ impl Reporter<'_> {
                 || p == vocab::SH_TARGET_CLASS
                 || p == vocab::SH_TARGET_SUBJECTS_OF
                 || p == vocab::SH_TARGET_OBJECTS_OF
+            {
+                found.insert(t.subject.into_owned());
+            }
+            // SPARQL-based target: sh:target [ sh:select "…" ]
+            if p == vocab::SH_TARGET
+                && let Some(target) = term_to_node(&t.object.into_owned())
+                && self.shapes.object(&target, vocab::SH_SELECT).is_some()
             {
                 found.insert(t.subject.into_owned());
             }
@@ -161,25 +236,61 @@ impl Reporter<'_> {
         let mut nodes = Vec::new();
         nodes.extend(self.shapes.objects(shape, vocab::SH_TARGET_NODE));
         for c in self.shapes.objects(shape, vocab::SH_TARGET_CLASS) {
-            nodes.extend(pred(self.data, &c, &class_path()));
+            nodes.extend(
+                graph_nodes(self.focus_data)
+                    .into_iter()
+                    .filter(|node| succ(self.context, node, &class_path()).contains(&c)),
+            );
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_SUBJECTS_OF) {
             if let Term::NamedNode(n) = p {
                 nodes.extend(
-                    self.data.triples_for_predicate(n.as_ref()).map(|t| node_term(t.subject)),
+                    self.focus_data
+                        .triples_for_predicate(n.as_ref())
+                        .map(|t| node_term(t.subject)),
                 );
             }
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_OBJECTS_OF) {
             if let Term::NamedNode(n) = p {
-                nodes.extend(self.data.triples_for_predicate(n.as_ref()).map(|t| t.object.into_owned()));
+                nodes.extend(
+                    self.focus_data
+                        .triples_for_predicate(n.as_ref())
+                        .map(|t| t.object.into_owned()),
+                );
+            }
+        }
+        // SPARQL-based targets: sh:target [ sh:select "…" ]. The query selects
+        // `?this` focus nodes from the context store.
+        if let Some(exec) = &self.sparql {
+            for target in self.shapes.objects(shape, vocab::SH_TARGET) {
+                let Some(target_node) = term_to_node(&target) else { continue };
+                let Some(Term::Literal(query)) =
+                    self.shapes.object(&target_node, vocab::SH_SELECT)
+                else {
+                    continue;
+                };
+                // Drop targets that fail to canonicalize, matching the lowering path.
+                let Ok((_, canonical)) =
+                    canonical_sparql_query(self.shapes, &target_node, query.value())
+                else {
+                    continue;
+                };
+                if let Ok(found) = exec.target_nodes(&canonical) {
+                    nodes.extend(found);
+                }
             }
         }
         // implicit class target: instances of the shape (which is also a class)
         if let NamedOrBlankNode::NamedNode(n) = shape
             && self.is_class(shape)
         {
-            nodes.extend(pred(self.data, &Term::NamedNode(n.clone()), &class_path()));
+            let class = Term::NamedNode(n.clone());
+            nodes.extend(
+                graph_nodes(self.focus_data)
+                    .into_iter()
+                    .filter(|node| succ(self.context, node, &class_path()).contains(&class)),
+            );
         }
         let mut seen = HashSet::new();
         nodes.retain(|t| seen.insert(t.clone()));
@@ -205,9 +316,10 @@ impl Reporter<'_> {
         let path_term = self.shapes.object(shape, vocab::SH_PATH);
         let parsed = path_term.as_ref().and_then(|t| parse_path(self.shapes, t).ok());
         let value_nodes: Vec<Term> = match &parsed {
-            Some(p) => succ(self.data, focus, p).into_iter().collect(),
+            Some(p) => succ(self.context, focus, p).into_iter().collect(),
             None => vec![focus.clone()],
         };
+        let severity = self.severity(shape);
         let push = |out: &mut Vec<ValidationResult>, value, component| {
             out.push(ValidationResult {
                 focus: focus.clone(),
@@ -215,6 +327,7 @@ impl Reporter<'_> {
                 value,
                 component,
                 source_shape: node_term_ref(shape),
+                severity: severity.clone(),
             });
         };
 
@@ -239,6 +352,11 @@ impl Reporter<'_> {
             }
         }
 
+        self.collect_closed(shape, focus, &value_nodes, out);
+        self.collect_property_pairs(shape, focus, &path_term, &value_nodes, out);
+        self.collect_unique_lang(shape, focus, &path_term, &value_nodes, out);
+        self.collect_qualified_counts(shape, focus, &path_term, &value_nodes, out, visited);
+
         // value-scoped components
         for u in &value_nodes {
             for (component, ok) in self.value_checks(shape, u, visited) {
@@ -257,7 +375,313 @@ impl Reporter<'_> {
             }
         }
 
+        self.collect_sparql(shape, focus, &path_term, &parsed, out);
+
         visited.remove(&key);
+    }
+
+    /// `sh:sparql` constraints (SHACL-SPARQL). Each `SELECT`/`ASK` query runs for
+    /// the focus node against the context store; every solution (or a `true`
+    /// `ASK`) is one `sh:SPARQLConstraintComponent` result. A `value`/`path`
+    /// projected by the query overrides the value node / `sh:resultPath`.
+    fn collect_sparql(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path_term: &Option<Term>,
+        parsed_path: &Option<Path>,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        let Some(sparql) = &self.sparql else { return };
+        let severity = self.severity(shape);
+        for constraint_term in self.shapes.objects(shape, vocab::SH_SPARQL) {
+            let Some(constraint_node) = term_to_node(&constraint_term) else { continue };
+            let raw = if let Some(Term::Literal(query)) =
+                self.shapes.object(&constraint_node, vocab::SH_SELECT)
+            {
+                Some((SparqlQueryKind::Select, query.value().to_string()))
+            } else if let Some(Term::Literal(query)) =
+                self.shapes.object(&constraint_node, vocab::SH_ASK)
+            {
+                Some((SparqlQueryKind::Ask, query.value().to_string()))
+            } else {
+                None
+            };
+            let Some((kind, raw)) = raw else { continue };
+            // Drop constraints that fail to canonicalize, matching the lowering
+            // path (which emits the diagnostic and omits the constraint).
+            let Ok((_, query)) = canonical_sparql_query(self.shapes, &constraint_node, &raw) else {
+                continue;
+            };
+            let constraint = SparqlConstraint {
+                kind,
+                query,
+                path: parsed_path.clone(),
+                shape: Some(node_term_ref(shape)),
+            };
+            match sparql.constraint_violations(&constraint, focus) {
+                Ok(violations) => {
+                    for violation in violations {
+                        out.push(ValidationResult {
+                            focus: focus.clone(),
+                            path: violation.path.or_else(|| path_term.clone()),
+                            value: violation.value,
+                            component: vocab::SH_CC_SPARQL.into_owned(),
+                            source_shape: node_term_ref(shape),
+                            severity: severity.clone(),
+                        });
+                    }
+                }
+                // Runtime failure (e.g. complex-path prebinding is unsupported):
+                // fail closed, matching the algebra validator.
+                Err(_) => out.push(ValidationResult {
+                    focus: focus.clone(),
+                    path: path_term.clone(),
+                    value: None,
+                    component: vocab::SH_CC_SPARQL.into_owned(),
+                    source_shape: node_term_ref(shape),
+                    severity: severity.clone(),
+                }),
+            }
+        }
+    }
+
+    fn collect_closed(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        value_nodes: &[Term],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !self.bool(shape, vocab::SH_CLOSED) {
+            return;
+        }
+        let mut allowed = HashSet::new();
+        for prop in self.shapes.objects(shape, vocab::SH_PROPERTY) {
+            let Some(prop) = term_to_node(&prop) else { continue };
+            if let Some(Term::NamedNode(path)) = self.shapes.object(&prop, vocab::SH_PATH) {
+                allowed.insert(path);
+            }
+        }
+        for list in self.shapes.objects(shape, vocab::SH_IGNORED_PROPERTIES) {
+            for term in self.shapes.read_list(&list) {
+                if let Term::NamedNode(predicate) = term {
+                    allowed.insert(predicate);
+                }
+            }
+        }
+        for value_node in value_nodes {
+            let Some(node) = term_to_node(value_node) else { continue };
+            for triple in self.context.triples_for_subject(node.as_ref()) {
+                if allowed.contains(&triple.predicate.into_owned()) {
+                    continue;
+                }
+                out.push(ValidationResult {
+                    focus: focus.clone(),
+                    path: Some(Term::NamedNode(triple.predicate.into_owned())),
+                    value: Some(triple.object.into_owned()),
+                    component: vocab::SH_CC_CLOSED.into_owned(),
+                    source_shape: node_term_ref(shape),
+                    severity: self.severity(shape),
+                });
+            }
+        }
+    }
+
+    fn collect_property_pairs(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path: &Option<Term>,
+        value_nodes: &[Term],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        for predicate in self.shapes.objects(shape, vocab::SH_EQUALS) {
+            let Term::NamedNode(predicate) = predicate else { continue };
+            let other = succ(self.context, focus, &Path::Pred(predicate));
+            for value in value_nodes.iter().filter(|value| !other.contains(*value)) {
+                self.push(out, shape, focus, path.clone(), Some((*value).clone()), vocab::SH_CC_EQUALS);
+            }
+            for value in other.iter().filter(|value| !value_nodes.contains(*value)) {
+                self.push(out, shape, focus, path.clone(), Some(value.clone()), vocab::SH_CC_EQUALS);
+            }
+        }
+        for predicate in self.shapes.objects(shape, vocab::SH_DISJOINT) {
+            let Term::NamedNode(predicate) = predicate else { continue };
+            let other = succ(self.context, focus, &Path::Pred(predicate));
+            for value in value_nodes.iter().filter(|value| other.contains(*value)) {
+                self.push(
+                    out,
+                    shape,
+                    focus,
+                    path.clone(),
+                    Some((*value).clone()),
+                    vocab::SH_CC_DISJOINT,
+                );
+            }
+        }
+        for (constraint, component, inclusive) in [
+            (vocab::SH_LESS_THAN, vocab::SH_CC_LESS_THAN, false),
+            (
+                vocab::SH_LESS_THAN_OR_EQUALS,
+                vocab::SH_CC_LESS_THAN_OR_EQUALS,
+                true,
+            ),
+        ] {
+            for predicate in self.shapes.objects(shape, constraint) {
+                let Term::NamedNode(predicate) = predicate else { continue };
+                for left in value_nodes {
+                    for right in succ(self.context, focus, &Path::Pred(predicate.clone())) {
+                        let ordering = compare_terms(left, &right);
+                        let passes = ordering == Some(Ordering::Less)
+                            || inclusive && ordering == Some(Ordering::Equal);
+                        if !passes {
+                            self.push(
+                                out,
+                                shape,
+                                focus,
+                                path.clone(),
+                                Some(left.clone()),
+                                component,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_unique_lang(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path: &Option<Term>,
+        value_nodes: &[Term],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !self.bool(shape, vocab::SH_UNIQUE_LANG) {
+            return;
+        }
+        let mut counts = HashMap::new();
+        for value in value_nodes {
+            if let Term::Literal(literal) = value
+                && let Some(language) = literal.language()
+            {
+                *counts.entry(language.to_ascii_lowercase()).or_insert(0usize) += 1;
+            }
+        }
+        for _ in counts.values().filter(|count| **count > 1) {
+            self.push(
+                out,
+                shape,
+                focus,
+                path.clone(),
+                None,
+                vocab::SH_CC_UNIQUE_LANG,
+            );
+        }
+    }
+
+    fn collect_qualified_counts(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path: &Option<Term>,
+        value_nodes: &[Term],
+        out: &mut Vec<ValidationResult>,
+        visited: &mut Visited,
+    ) {
+        for qualifier in self.shapes.objects(shape, vocab::SH_QUALIFIED_VALUE_SHAPE) {
+            let Some(qualifier) = term_to_node(&qualifier) else { continue };
+            let siblings = if self.bool(shape, vocab::SH_QUALIFIED_VALUE_SHAPES_DISJOINT) {
+                self.sibling_qualified_shapes(shape, path.as_ref())
+            } else {
+                Vec::new()
+            };
+            let count = value_nodes
+                .iter()
+                .filter(|value| {
+                    self.conforms(&qualifier, value, visited)
+                        && siblings
+                            .iter()
+                            .all(|sibling| !self.conforms(sibling, value, visited))
+                })
+                .count() as u64;
+            if let Some(min) = self.int(shape, vocab::SH_QUALIFIED_MIN_COUNT)
+                && count < min
+            {
+                self.push(
+                    out,
+                    shape,
+                    focus,
+                    path.clone(),
+                    None,
+                    vocab::SH_CC_QUALIFIED_MIN_COUNT,
+                );
+            }
+            if let Some(max) = self.int(shape, vocab::SH_QUALIFIED_MAX_COUNT)
+                && count > max
+            {
+                self.push(
+                    out,
+                    shape,
+                    focus,
+                    path.clone(),
+                    None,
+                    vocab::SH_CC_QUALIFIED_MAX_COUNT,
+                );
+            }
+        }
+    }
+
+    fn sibling_qualified_shapes(
+        &self,
+        shape: &NamedOrBlankNode,
+        path: Option<&Term>,
+    ) -> Vec<NamedOrBlankNode> {
+        let shape_term = node_term_ref(shape);
+        let mut siblings = HashSet::new();
+        for triple in self.shapes.graph.triples_for_predicate(vocab::SH_PROPERTY) {
+            if triple.object != shape_term.as_ref() {
+                continue;
+            }
+            let parent = triple.subject.into_owned();
+            for property in self.shapes.objects(&parent, vocab::SH_PROPERTY) {
+                let Some(property) = term_to_node(&property) else { continue };
+                if property == *shape || self.shapes.object(&property, vocab::SH_PATH).as_ref() != path
+                {
+                    continue;
+                }
+                for qualifier in self
+                    .shapes
+                    .objects(&property, vocab::SH_QUALIFIED_VALUE_SHAPE)
+                {
+                    if let Some(qualifier) = term_to_node(&qualifier) {
+                        siblings.insert(qualifier);
+                    }
+                }
+            }
+        }
+        siblings.into_iter().collect()
+    }
+
+    fn push(
+        &self,
+        out: &mut Vec<ValidationResult>,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path: Option<Term>,
+        value: Option<Term>,
+        component: NamedNodeRef<'static>,
+    ) {
+        out.push(ValidationResult {
+            focus: focus.clone(),
+            path,
+            value,
+            component: component.into_owned(),
+            source_shape: node_term_ref(shape),
+            severity: self.severity(shape),
+        });
     }
 
     fn conforms(&self, shape: &NamedOrBlankNode, focus: &Term, visited: &mut Visited) -> bool {
@@ -339,6 +763,21 @@ impl Reporter<'_> {
             let members = self.shapes.read_list(&list);
             checks.push((vocab::SH_CC_IN.into_owned(), members.contains(u)));
         }
+        for list in self.shapes.objects(shape, vocab::SH_LANGUAGE_IN) {
+            let languages = self
+                .shapes
+                .read_list(&list)
+                .into_iter()
+                .filter_map(|term| match term {
+                    Term::Literal(literal) => Some(literal.value().to_string()),
+                    _ => None,
+                })
+                .collect();
+            checks.push((
+                vocab::SH_CC_LANGUAGE_IN.into_owned(),
+                value_type_holds(&ValueType::LangIn(languages), u),
+            ));
+        }
 
         // logical (unit results)
         for list in self.shapes.objects(shape, vocab::SH_AND) {
@@ -384,7 +823,7 @@ impl Reporter<'_> {
     }
 
     fn is_instance(&self, u: &Term, class: &Term) -> bool {
-        succ(self.data, u, &class_path()).contains(class)
+        succ(self.context, u, &class_path()).contains(class)
     }
 
     fn int(&self, s: &NamedOrBlankNode, p: NamedNodeRef) -> Option<u64> {
@@ -393,6 +832,32 @@ impl Reporter<'_> {
             _ => None,
         }
     }
+
+    fn bool(&self, s: &NamedOrBlankNode, p: NamedNodeRef) -> bool {
+        matches!(
+            self.shapes.object(s, p),
+            Some(Term::Literal(ref literal)) if matches!(literal.value(), "true" | "1")
+        )
+    }
+
+    /// `sh:resultSeverity` for results from `shape`: its declared `sh:severity`
+    /// (an IRI such as `sh:Warning`/`sh:Info`), defaulting to `sh:Violation`.
+    fn severity(&self, shape: &NamedOrBlankNode) -> NamedNode {
+        match self.shapes.object(shape, vocab::SH_SEVERITY) {
+            Some(Term::NamedNode(n)) => n,
+            _ => vocab::SH_VIOLATION.into_owned(),
+        }
+    }
+}
+
+/// Whether any `sh:select` / `sh:ask` query references `$shapesGraph`, so the
+/// shapes graph must be mirrored into a named graph for evaluation.
+fn shapes_reference_shapes_graph(shapes: &Loaded) -> bool {
+    [vocab::SH_SELECT, vocab::SH_ASK].iter().any(|predicate| {
+        shapes.graph.triples_for_predicate(*predicate).any(|t| {
+            matches!(t.object, oxrdf::TermRef::Literal(l) if l.value().contains("shapesGraph"))
+        })
+    })
 }
 
 fn class_path() -> Path {
@@ -400,6 +865,15 @@ fn class_path() -> Path {
         Path::Pred(vocab::rdf_type()),
         Path::star(Path::Pred(vocab::rdfs_subclassof())),
     ])
+}
+
+fn graph_nodes(graph: &Graph) -> HashSet<Term> {
+    let mut nodes = HashSet::new();
+    for triple in graph.iter() {
+        nodes.insert(node_term(triple.subject));
+        nodes.insert(triple.object.into_owned());
+    }
+    nodes
 }
 
 fn node_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {

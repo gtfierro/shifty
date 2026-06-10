@@ -28,10 +28,13 @@ shacl-engine = { path = "crates/shacl-engine" }
 
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
+oxsdatatypes = "0.2.2"
 oxttl = "0.2.3"
 oxigraph = { version = "0.5.5", default-features = false }
+spargebra = "=0.4.6"
 petgraph = "0.6"
 clap = { version = "4.5.39", features = ["derive"] }
+ureq = { version = "2", features = ["tls"] }
 regex = "1"
 log = "0.4"
 env_logger = "0.11"
