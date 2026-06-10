@@ -12,6 +12,8 @@
 /python/.ontoenv/
 /profile.json.gz
 /flamegraph.svg
+/perf.data
+/perf.data.old
 *.pyc
 shapes.ir
 

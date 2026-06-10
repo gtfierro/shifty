@@ -13,6 +13,11 @@ Read in order:
 3. [`02-roadmap.md`](02-roadmap.md) — the layered build, Layer 0 → 7.
 4. [`03-recursion-semantics.md`](03-recursion-semantics.md) — the pinned
    recursion semantics (stratified; gfp validation / lfp inference).
+5. [`04-normalization.md`](04-normalization.md) — semantics-preserving Layer 4
+   rewrites and their correctness boundaries.
+6. [`05-sparql-execution.md`](05-sparql-execution.md) — the planned
+   Spargebra-native query compiler, indexed dataset, path acceleration, and
+   Oxigraph/Spareval fallback.
 
 > `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
 > approach) and is kept only as historical reference.

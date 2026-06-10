@@ -1,0 +1,2492 @@
+# baseURI: http://data.ashrae.org/standard223/1.0/data/pd-sr-mp-pritoni
+# imports: http://data.ashrae.org/standard223/1.0/model/all
+# prefix: psm
+
+@prefix g36: <http://data.ashrae.org/standard223/1.0/extensions/g36#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix psm: <http://data.ashrae.org/standard223/1.0/data/pd-sr-mp-pritoni#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtqk: <http://qudt.org/vocab/quantitykind/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix s223: <http://data.ashrae.org/standard223#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://data.ashrae.org/standard223/1.0/data/pd-sr-mp-pritoni>
+  a owl:Ontology ;
+  rdfs:comment "This graph is a sample population of the so-called Pritoni Office Building (suggested by Marco Pritoni) and is used for testing and demonstration." ;
+  owl:imports <http://data.ashrae.org/standard223/1.0/model/all> ;
+  owl:versionInfo "Created with TopBraid Composer" ;
+.
+psm:AHUChilledWaterInlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "AHUChilled water inlet" ;
+.
+psm:AHUChilledWaterOutlet
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "AHUChilled water outlet" ;
+.
+psm:AHUElectricityInlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit3 ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "AHUElectricity inlet" ;
+.
+psm:AHUExhaustOutlet
+  a s223:OutletConnectionPoint ;
+  s223:connectsThrough psm:i00060 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "AHUExhaust outlet" ;
+.
+psm:AHUHotWaterInlet
+  a s223:InletConnectionPoint ;
+  s223:connectsThrough psm:PipeFromBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "AHUHot water inlet" ;
+.
+psm:AHUHotWaterOutlet
+  a s223:OutletConnectionPoint ;
+  s223:connectsThrough psm:PipeToBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "AHUHot water outlet" ;
+.
+psm:AHUOAInlet
+  a s223:InletConnectionPoint ;
+  s223:connectsThrough psm:i00006 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "AHUOAInlet" ;
+.
+psm:AHUReturnInlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "AHUReturn inlet" ;
+.
+psm:AHUSupplyOutlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:VAVSupply ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "AHUSupply outlet" ;
+.
+psm:BR1InletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit1 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "BR1Inlet connection point" ;
+.
+psm:BR1OutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit1 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "BR1Outlet connection point" ;
+.
+psm:BR2InletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "BR2Inlet connection point" ;
+.
+psm:BR2OutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "BR2Outlet connection point" ;
+.
+psm:BR3InletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "BR3Inlet connection point" ;
+.
+psm:BR3OutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit3 ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "BR3Outlet connection point" ;
+.
+psm:BR4InletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit4 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "BR4Inlet connection point" ;
+.
+psm:BR4OutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "BR4Outlet connection point" ;
+.
+psm:BR5InletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit5 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "BR5Inlet connection point" ;
+.
+psm:BR5OutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "BR5Outlet connection point" ;
+.
+psm:Bathroom
+  a s223:PhysicalSpace ;
+  s223:encloses psm:HVACSpace2 ;
+  s223:encloses psm:LightingSpace3 ;
+  s223:encloses psm:OccupancySpace2 ;
+  rdfs:label "Bathroom" ;
+.
+psm:BathroomExhaustDuct
+  a s223:Connection ;
+  s223:cnx psm:BathroomOutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Bathroom exhaust duct" ;
+.
+psm:BathroomExhaustFan
+  a s223:Fan ;
+  s223:cnx psm:FanOutletConnectionPoint ;
+  s223:hasConnectionPoint psm:FanInletConnectionPoint ;
+  s223:hasProperty psm:ExhaustFanStatus ;
+  s223:hasRole s223:Role-Exhaust ;
+  rdfs:label "Bathroom exhaust fan" ;
+.
+psm:BathroomExhaustToExteriorAir
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Bathroom exhaust to exterior air" ;
+.
+psm:BathroomFanExhaustDuct
+  a s223:Duct ;
+  s223:cnx psm:BathroomExhaustToExteriorAir ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Bathroom fan exhaust duct" ;
+.
+psm:BathroomInletConnectionPoint
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Bathroom inlet connection point" ;
+.
+psm:BathroomLight1
+  a s223:Connection ;
+  s223:cnx psm:BathroomLightInletCP ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Bathroom light1" ;
+.
+psm:BathroomLightInletCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:BathroomLight1 ;
+  s223:cnx psm:LightingSpace3 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Bathroom light inlet CP" ;
+.
+psm:BathroomOutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Bathroom outlet connection point" ;
+.
+psm:BreakerPanel1
+  a s223:System ;
+  s223:hasBoundaryConnectionPoint psm:BR1OutletConnectionPoint ;
+  s223:hasBoundaryConnectionPoint psm:BR2OutletConnectionPoint ;
+  s223:hasBoundaryConnectionPoint psm:BR3OutletConnectionPoint ;
+  s223:hasBoundaryConnectionPoint psm:BR4OutletConnectionPoint ;
+  s223:hasBoundaryConnectionPoint psm:BR5OutletConnectionPoint ;
+  s223:hasBoundaryConnectionPoint psm:MainBreakerInletCP ;
+  s223:hasMember psm:ElectricBreaker1 ;
+  s223:hasMember psm:ElectricBreaker2 ;
+  s223:hasMember psm:ElectricBreaker3 ;
+  s223:hasMember psm:ElectricBreaker4 ;
+  s223:hasMember psm:ElectricBreaker5 ;
+  s223:hasMember psm:MainBreaker ;
+  s223:hasOptionalConnectionPoint psm:BR4OutletConnectionPoint ;
+  s223:hasOptionalConnectionPoint psm:BR5OutletConnectionPoint ;
+  rdfs:label "Breaker panel1" ;
+.
+psm:CPToGround
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Medium-ThermalContact ;
+  rdfs:label "CPTo ground" ;
+.
+psm:ChilledWaterInletTemp
+  a s223:QuantifiableObservableProperty ;
+  s223:ofMedium s223:Water-ChilledWater ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Chilled water inlet temp" ;
+.
+psm:ChilledWaterTemperatureSensor_13
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:i00039 ;
+  s223:observes psm:ChilledWaterInletTemp ;
+  rdfs:label "S13" ;
+.
+psm:CoolingCoilOutletTemperature
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "65"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Cooling coil outlet temperature" ;
+.
+psm:CoolingCoilValveActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:CoolingCoilValvePosition ;
+  rdfs:label "A5" ;
+.
+psm:CoolingCoilValvePosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Cooling coil valve position" ;
+.
+psm:Corridor
+  a s223:PhysicalSpace ;
+  s223:encloses psm:HVACSpace4 ;
+  s223:encloses psm:HVACSpace5 ;
+  s223:encloses psm:LightingSpace5 ;
+  s223:encloses psm:OccupancySpace4 ;
+  rdfs:label "Corridor" ;
+.
+psm:CorridorInletConnectionPointK
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Corridor inlet connection point k" ;
+.
+psm:CorridorInletConnectionPointPO
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Corridor inlet connection point po" ;
+.
+psm:CorridorLight1
+  a s223:Connection ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Corridor light1" ;
+.
+psm:CorridorLightInletCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:CorridorLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Corridor light inlet CP" ;
+.
+psm:CorridorOutletConnectionPointB
+  a s223:BidirectionalConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Corridor outlet connection point b" ;
+.
+psm:CorridorOutletConnectionPointOO
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Corridor outlet connection point OO" ;
+.
+psm:DLightPath1
+  a s223:Connection ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "DLight Path1" ;
+.
+psm:DaylightSensor1
+  a s223:IlluminanceSensor ;
+  s223:hasObservationLocation psm:LightingSpace1 ;
+  s223:hasPhysicalLocation psm:OpenOffice ;
+  s223:observes psm:OpenOfficeDaylightLevel ;
+  rdfs:label "D1" ;
+.
+psm:Driver1
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:Luminaire1CCT ;
+  s223:actuatedByProperty psm:Luminaire1Intensity ;
+  s223:actuatedByProperty psm:Luminaire1OnOff ;
+  s223:actuates psm:LightEngine1 ;
+  s223:cnx psm:Driver1Inlet ;
+  s223:cnx psm:Driver1Outlet ;
+  rdfs:label "Driver1" ;
+.
+psm:Driver1Inlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  s223:mapsTo psm:Luminaire1Inlet ;
+  rdfs:label "Driver1Inlet" ;
+.
+psm:Driver1Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:Luminaire1InternalWire ;
+  s223:hasMedium s223:Constituent-Electricity ;
+  rdfs:label "Driver1Outlet" ;
+.
+psm:ELightPath1
+  a s223:Connection ;
+  s223:cnx psm:LightingSpace1ELInlet ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "ELight Path1" ;
+.
+psm:ELightPath2
+  a s223:Connection ;
+  s223:cnx psm:LightingSpace2ELInlet ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "ELight Path2" ;
+.
+psm:ElectricBreaker1
+  a s223:ElectricityBreaker ;
+  s223:hasConnectionPoint psm:BR1InletConnectionPoint ;
+  s223:hasConnectionPoint psm:BR1OutletConnectionPoint ;
+  rdfs:label "Electric breaker1" ;
+.
+psm:ElectricBreaker2
+  a s223:ElectricityBreaker ;
+  s223:hasConnectionPoint psm:BR2InletConnectionPoint ;
+  s223:hasConnectionPoint psm:BR2OutletConnectionPoint ;
+  rdfs:label "Electric breaker2" ;
+.
+psm:ElectricBreaker3
+  a s223:ElectricityBreaker ;
+  s223:hasConnectionPoint psm:BR3InletConnectionPoint ;
+  s223:hasConnectionPoint psm:BR3OutletConnectionPoint ;
+  rdfs:label "Electric breaker3" ;
+.
+psm:ElectricBreaker4
+  a s223:ElectricityBreaker ;
+  s223:hasConnectionPoint psm:BR4InletConnectionPoint ;
+  s223:hasConnectionPoint psm:BR4OutletConnectionPoint ;
+  rdfs:label "Electric breaker4" ;
+.
+psm:ElectricBreaker5
+  a s223:ElectricityBreaker ;
+  s223:hasConnectionPoint psm:BR5InletConnectionPoint ;
+  s223:hasConnectionPoint psm:BR5OutletConnectionPoint ;
+  rdfs:label "Electric breaker5" ;
+.
+psm:ElectricCircuit1
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Electric Circuit 1" ;
+.
+psm:ElectricCircuit2
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Electric Circuit 2" ;
+.
+psm:ElectricCircuit3
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "Electric Circuit 3" ;
+.
+psm:ElectricInletCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:PowerToCoil ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Electric inlet CP" ;
+.
+psm:ExhaustAirDamperActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:ExhaustAirDamperPosition ;
+  rdfs:label "A1" ;
+.
+psm:ExhaustAirDamperPosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Exhaust air damper position" ;
+.
+psm:ExhaustFanStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-On ;
+  rdfs:label "Exhaust fan status" ;
+.
+psm:ExhaustToExteriorAir
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Exhaust to exterior air" ;
+.
+psm:ExteriorAir
+  a s223:DomainSpace ;
+  s223:cnx psm:BathroomExhaustToExteriorAir ;
+  s223:hasConnectionPoint psm:ExhaustToExteriorAir ;
+  s223:hasConnectionPoint psm:SupplyFromExteriorAir ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "Exterior air" ;
+.
+psm:ExteriorAmbientLight
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:ExteriorAmbientLightCP ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "Exterior ambient light" ;
+.
+psm:ExteriorAmbientLightCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ExteriorAmbientLightPath ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Exterior ambient light CP" ;
+.
+psm:ExteriorAmbientLightPath
+  a s223:Connection ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Exterior ambient light path" ;
+.
+psm:ExteriorPhysicalSpace
+  a s223:OutdoorPhysicalSpace ;
+  s223:encloses psm:ExteriorAir ;
+  s223:encloses psm:ExteriorAmbientLight ;
+  rdfs:label "Exterior physical space" ;
+.
+psm:ExternalBoiler
+  a s223:Boiler ;
+  s223:hasConnectionPoint psm:ExternalBoilerInletCP ;
+  s223:hasConnectionPoint psm:ExternalBoilerOutletCP ;
+  rdfs:label "External boiler" ;
+.
+psm:ExternalBoilerInletCP
+  a s223:InletConnectionPoint ;
+  s223:connectsThrough psm:PipeToBoiler ;
+  s223:hasMedium s223:Fluid-Water ;
+  rdfs:label "External boiler inlet CP" ;
+.
+psm:ExternalBoilerOutletCP
+  a s223:OutletConnectionPoint ;
+  s223:connectsThrough psm:PipeFromBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "External boiler outlet CP" ;
+.
+psm:ExternalLoop
+  a s223:Coil ;
+  s223:cnx psm:CPToGround ;
+  s223:hasConnectionPoint psm:LoopInletCP ;
+  s223:hasConnectionPoint psm:LoopOutletCP ;
+  rdfs:label "External loop" ;
+.
+psm:FanInletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:BathroomExhaustDuct ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Fan inlet connection point" ;
+.
+psm:FanOutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:BathroomFanExhaustDuct ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Fan outlet connection point" ;
+.
+psm:Floor1
+  a s223:PhysicalSpace ;
+  s223:contains psm:Bathroom ;
+  s223:contains psm:Corridor ;
+  s223:contains psm:Kitchenette ;
+  s223:contains psm:OpenOffice ;
+  s223:contains psm:PrivateOffice ;
+  rdfs:label "Floor1" ;
+.
+psm:FlowSensor1
+  a s223:FlowSensor ;
+  s223:hasObservationLocation psm:i00053 ;
+  s223:observes psm:ReturnAirFlowRate ;
+  rdfs:label "S1" ;
+.
+psm:GridConnection
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-240VLL-120VLN-1Ph-60Hz ;
+  rdfs:label "Grid connection" ;
+.
+psm:HVAC4-5Connection
+  a s223:Connection ;
+  s223:cnx psm:InletIntraCorridor4CP ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "HVAC4-5Connection" ;
+.
+psm:HVACSpace1
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:OpenOfficeInletConnectionPoint ;
+  s223:hasConnectionPoint psm:OpenOfficeOutletConnectionPoint ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "HVACSpace1" ;
+.
+psm:HVACSpace2
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:BathroomInletConnectionPoint ;
+  s223:hasConnectionPoint psm:BathroomOutletConnectionPoint ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "HVACSpace2" ;
+.
+psm:HVACSpace3
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:PrivateOfficeInletConnectionPoint ;
+  s223:hasConnectionPoint psm:PrivateOfficeOutletConnectionPoint ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "HVACSpace3" ;
+.
+psm:HVACSpace4
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:CorridorInletConnectionPointPO ;
+  s223:hasConnectionPoint psm:CorridorOutletConnectionPointB ;
+  s223:hasConnectionPoint psm:CorridorOutletConnectionPointOO ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "HVACSpace4" ;
+.
+psm:HVACSpace5
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:CorridorInletConnectionPointK ;
+  s223:hasConnectionPoint psm:OutletIntraCorridor5CP ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "HVACSpace5" ;
+.
+psm:HVACSpace6
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:KitchenetteInletConnectionPoint ;
+  s223:hasConnectionPoint psm:KitchenetteOutletConnectionPoint ;
+  s223:hasDomain s223:Domain-HVAC ;
+  rdfs:label "HVACSpace6" ;
+.
+psm:HVACSpace6TempSensor
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:HVACSpace6 ;
+  s223:observes psm:HVACSpaceTemp ;
+  rdfs:label "HVACSpace6Temp sensor" ;
+.
+psm:HVACSpaceTemp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "HVACSpace temp" ;
+.
+psm:HVACZone1
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-HVAC ;
+  s223:hasDomainSpace psm:HVACSpace1 ;
+  s223:hasDomainSpace psm:HVACSpace2 ;
+  s223:hasDomainSpace psm:HVACSpace3 ;
+  s223:hasDomainSpace psm:HVACSpace4 ;
+  rdfs:label "HVACZone1" ;
+.
+psm:HVACZone1Temperature
+  a s223:QuantifiableObservableProperty ;
+  s223:hasSetpoint psm:HVACZone1TemperatureSetpoint ;
+  s223:hasValue 69.7 ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "HVACZone1Temperature" ;
+.
+psm:HVACZone1TemperatureSensor
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:HVACSpace1 ;
+  s223:hasPhysicalLocation psm:OpenOffice ;
+  s223:observes psm:HVACZone1Temperature ;
+  rdfs:label "TH1" ;
+.
+psm:HVACZone1TemperatureSetpoint
+  a s223:QuantifiableProperty ;
+  s223:hasValue 73.0 ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "HVACZone1Temperature setpoint" ;
+.
+psm:HVACZone1Thermostat
+  a s223:Thermostat ;
+  s223:contains psm:HVACZone1TemperatureSensor ;
+  s223:executes psm:TerminalUnit1Function ;
+  s223:hasProperty psm:HVACZone1TemperatureSetpoint ;
+  rdfs:label "HVACZone1Thermostat" ;
+.
+psm:HVACZone2
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-HVAC ;
+  s223:hasDomainSpace psm:HVACSpace5 ;
+  s223:hasDomainSpace psm:HVACSpace6 ;
+  rdfs:label "HVACZone2" ;
+.
+psm:HVACZone2Temperature
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue 73.2 ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "HVACZone2Temperature" ;
+.
+psm:HVACZone2Thermostat
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:HVACSpace5 ;
+  s223:hasPhysicalLocation psm:Corridor ;
+  s223:observes psm:HVACZone2Temperature ;
+  rdfs:label "TH2" ;
+.
+psm:HeatingCoilOutletTemperature
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "80"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Heating coil outlet temperature" ;
+.
+psm:HeatingCoilValveActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:HeatingCoilValvePosition ;
+  rdfs:label "A4" ;
+.
+psm:HeatingCoilValvePosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Heating coil valve position" ;
+.
+psm:InletIntraCorridor4CP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:isConnectionPointOf psm:HVACSpace4 ;
+  rdfs:label "Inlet intra corridor4CP" ;
+.
+psm:InternalAHUElectricJunction
+  a s223:Junction ;
+  s223:hasConnectionPoint psm:JunctionIn ;
+  s223:hasConnectionPoint psm:JunctionOut1 ;
+  s223:hasConnectionPoint psm:JunctionOut2 ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Internal AHUElectric junction" ;
+.
+psm:JunctionIn
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Electricity-AC ;
+  s223:mapsTo psm:AHUElectricityInlet ;
+  rdfs:label "Junction in" ;
+.
+psm:JunctionOut1
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:PowerToFan ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Junction out1" ;
+.
+psm:JunctionOut2
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:PowerToCoil ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Junction out2" ;
+.
+psm:Kitchenette
+  a s223:PhysicalSpace ;
+  s223:encloses psm:HVACSpace6 ;
+  s223:encloses psm:LightingSpace6 ;
+  s223:encloses psm:OccupancySpace5 ;
+  rdfs:label "Kitchenette" ;
+.
+psm:KitchenetteInletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Kitchenette inlet connection point" ;
+.
+psm:KitchenetteLight1
+  a s223:Connection ;
+  s223:cnx psm:KitchenetteLightInletCP ;
+  s223:cnx psm:Luminaire11Outlet ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Kitchenette light1" ;
+.
+psm:KitchenetteLightInletCP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Kitchenette light inlet CP" ;
+.
+psm:KitchenetteLightingSystem
+  a s223:System ;
+  s223:hasMember psm:Luminaire11 ;
+  s223:hasMember psm:Luminaire12 ;
+  s223:hasMember psm:OccSensor5 ;
+  rdfs:label "Kitchenette lighting system" ;
+.
+psm:KitchenetteOutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Kitchenette outlet connection point" ;
+.
+psm:LIghtingSpace1DLInlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:DLightPath1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Lighting Space1 DL Inlet" ;
+.
+psm:LightEngine1
+  a s223:Equipment ;
+  s223:hasConnectionPoint psm:LightEngine1Inlet ;
+  s223:hasConnectionPoint psm:LightEngine1Outlet ;
+  rdfs:label "LightEngine1" ;
+.
+psm:LightEngine1Inlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Constituent-Electricity ;
+  rdfs:label "Light engine1Inlet" ;
+.
+psm:LightEngine1Outlet
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Light-Visible ;
+  s223:mapsTo psm:Luminaire1Outlet ;
+  rdfs:label "Light Engine 1 Outlet" ;
+.
+psm:LightingSpace1
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:LIghtingSpace1DLInlet ;
+  s223:hasConnectionPoint psm:LightingSpace1ELInlet ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "LightingSpace1" ;
+.
+psm:LightingSpace1ELInlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Lighting Space1 EL Inlet" ;
+.
+psm:LightingSpace2
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:LightingSpace2ELInlet ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "LightingSpace2" ;
+.
+psm:LightingSpace2ELInlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Lighting Space2 EL Inlet" ;
+.
+psm:LightingSpace3
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:BathroomLightInletCP ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "LightingSpace3" ;
+.
+psm:LightingSpace4
+  a s223:DomainSpace ;
+  s223:cnx psm:PrivateOfficeLightInletCP ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "LightingSpace4" ;
+.
+psm:LightingSpace5
+  a s223:DomainSpace ;
+  s223:cnx psm:CorridorLightInletCP ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "LightingSpace5" ;
+.
+psm:LightingSpace6
+  a s223:DomainSpace ;
+  s223:hasConnectionPoint psm:KitchenetteLightInletCP ;
+  s223:hasDomain s223:Domain-Lighting ;
+  rdfs:label "LightingSpace6" ;
+.
+psm:LightingZone1
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-Lighting ;
+  s223:hasDomainSpace psm:LightingSpace1 ;
+  rdfs:label "LightingZone1" ;
+.
+psm:LightingZone2
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-Lighting ;
+  s223:hasDomainSpace psm:LightingSpace2 ;
+  rdfs:label "LightingZone2" ;
+.
+psm:LightingZone3
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-Lighting ;
+  s223:hasDomainSpace psm:LightingSpace3 ;
+  rdfs:label "LightingZone3" ;
+.
+psm:LightingZone4
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-Lighting ;
+  s223:hasDomainSpace psm:LightingSpace4 ;
+  rdfs:label "LightingZone4" ;
+.
+psm:LightingZone5
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-Lighting ;
+  s223:hasDomainSpace psm:LightingSpace5 ;
+  rdfs:label "LightingZone5" ;
+.
+psm:LightingZone6
+  a s223:Zone ;
+  s223:hasDomain s223:Domain-Lighting ;
+  s223:hasDomainSpace psm:LightingSpace6 ;
+  rdfs:label "LightingZone6" ;
+.
+psm:LoopInletCP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Water ;
+  rdfs:label "Loop inlet CP" ;
+.
+psm:LoopOutletCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:LoopToValve ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "Loop outlet CP" ;
+.
+psm:LoopToValve
+  a s223:Pipe ;
+  s223:cnx psm:AHUChilledWaterInlet ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "Loop to Valve" ;
+.
+psm:Luminaire1
+  a s223:Luminaire ;
+  s223:cnx psm:Luminaire1Inlet ;
+  s223:cnx psm:Luminaire1Outlet ;
+  s223:contains psm:Driver1 ;
+  s223:contains psm:LightEngine1 ;
+  rdfs:label "Luminaire1" ;
+.
+psm:Luminaire10
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire10Inlet ;
+  s223:hasConnectionPoint psm:Luminaire10Outlet ;
+  s223:hasProperty psm:Luminaire10OnOffStatus ;
+  rdfs:label "Luminaire10" ;
+.
+psm:Luminaire10Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire10Inlet" ;
+.
+psm:Luminaire10OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire10On off status" ;
+.
+psm:Luminaire10Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:CorridorLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire10Outlet" ;
+.
+psm:Luminaire11
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire11Inlet ;
+  s223:hasConnectionPoint psm:Luminaire11Outlet ;
+  s223:hasPhysicalLocation psm:Kitchenette ;
+  s223:hasProperty psm:Luminaire11OnOffStatus ;
+  rdfs:label "Luminaire11" ;
+.
+psm:Luminaire11Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire11Inlet" ;
+.
+psm:Luminaire11OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire11On off status" ;
+.
+psm:Luminaire11Outlet
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire11Outlet" ;
+.
+psm:Luminaire12
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire12Inlet ;
+  s223:hasConnectionPoint psm:Luminaire12Outlet ;
+  s223:hasPhysicalLocation psm:Kitchenette ;
+  s223:hasProperty psm:Luminaire12OnOffStatus ;
+  rdfs:label "Luminaire12" ;
+.
+psm:Luminaire12Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire12Inlet" ;
+.
+psm:Luminaire12OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire12On off status" ;
+.
+psm:Luminaire12Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:KitchenetteLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire12Outlet" ;
+.
+psm:Luminaire1CCT
+  a s223:QuantifiableActuatableProperty ;
+  qudt:hasQuantityKind qudtqk:ThermodynamicTemperature ;
+  qudt:hasUnit unit:K ;
+  rdfs:label "Luminaire1CCT" ;
+.
+psm:Luminaire1Function
+  a s223:Function ;
+  s223:hasInput psm:OccupancyProp1 ;
+  s223:hasInput psm:OpenOfficeDaylightLevel ;
+  s223:hasOutput psm:Luminaire1CCT ;
+  s223:hasOutput psm:Luminaire1Intensity ;
+  s223:hasOutput psm:Luminaire1OnOff ;
+  rdfs:label "Luminaire1function block" ;
+.
+psm:Luminaire1Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit1 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire1Inlet" ;
+.
+psm:Luminaire1Intensity
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue 50.5 ;
+  qudt:hasQuantityKind qudtqk:LuminousFluxRatio ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Luminaire1Intensity" ;
+.
+psm:Luminaire1InternalWire
+  a s223:Conductor ;
+  s223:cnx psm:LightEngine1Inlet ;
+  s223:hasMedium s223:Constituent-Electricity ;
+  rdfs:label "Luminaire1Internal wire" ;
+.
+psm:Luminaire1OnOff
+  a s223:EnumeratedActuatableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire1OnOff" ;
+.
+psm:Luminaire1Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ELightPath1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire1Outlet" ;
+.
+psm:Luminaire2
+  a s223:Luminaire ;
+  s223:actuatedByProperty psm:Luminaire2CCT ;
+  s223:actuatedByProperty psm:Luminaire2Intensity ;
+  s223:actuatedByProperty psm:Luminaire2OnOff ;
+  s223:hasConnectionPoint psm:Luminaire2Inlet ;
+  s223:hasConnectionPoint psm:Luminaire2Outlet ;
+  s223:hasProperty psm:Luminaire2OnOffStatus ;
+  rdfs:label "Luminaire2" ;
+.
+psm:Luminaire2CCT
+  a s223:QuantifiableActuatableProperty ;
+  qudt:hasQuantityKind qudtqk:ThermodynamicTemperature ;
+  qudt:hasUnit unit:K ;
+  rdfs:label "Luminaire2CCT" ;
+.
+psm:Luminaire2Function
+  a s223:Function ;
+  s223:hasInput psm:OccupancyProp1 ;
+  s223:hasInput psm:OpenOfficeDaylightLevel ;
+  s223:hasOutput psm:Luminaire2CCT ;
+  s223:hasOutput psm:Luminaire2Intensity ;
+  s223:hasOutput psm:Luminaire2OnOff ;
+  rdfs:label "Luminaire2 function block" ;
+.
+psm:Luminaire2Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit1 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire2Inlet" ;
+.
+psm:Luminaire2Intensity
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue 50.5 ;
+  qudt:hasQuantityKind qudtqk:LuminousFluxRatio ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Luminaire2Intensity" ;
+.
+psm:Luminaire2OnOff
+  a s223:EnumeratedActuatableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire2OnOff" ;
+.
+psm:Luminaire2OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire2On off status" ;
+.
+psm:Luminaire2Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ELightPath1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire2Outlet" ;
+.
+psm:Luminaire3
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire3Inlet ;
+  s223:hasConnectionPoint psm:Luminaire3Outlet ;
+  s223:hasProperty psm:Luminaire3OnOffStatus ;
+  rdfs:label "Luminaire3" ;
+.
+psm:Luminaire3Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit1 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire3Inlet" ;
+.
+psm:Luminaire3OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire3On off status" ;
+.
+psm:Luminaire3Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ELightPath2 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire3Outlet" ;
+.
+psm:Luminaire4
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire4Inlet ;
+  s223:hasConnectionPoint psm:Luminaire4Outlet ;
+  s223:hasProperty psm:Luminaire4OnOffStatus ;
+  rdfs:label "Luminaire4" ;
+.
+psm:Luminaire4Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit1 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire4Inlet" ;
+.
+psm:Luminaire4OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire4On off status" ;
+.
+psm:Luminaire4Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ELightPath2 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire4Outlet" ;
+.
+psm:Luminaire5
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire5Inlet ;
+  s223:hasConnectionPoint psm:Luminaire5Outlet ;
+  s223:hasProperty psm:Luminaire5OnOffStatus ;
+  rdfs:label "Luminaire5" ;
+.
+psm:Luminaire5Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire5Inlet" ;
+.
+psm:Luminaire5OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire5On off status" ;
+.
+psm:Luminaire5Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:BathroomLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire5Outlet" ;
+.
+psm:Luminaire6
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire6Inlet ;
+  s223:hasConnectionPoint psm:Luminaire6Outlet ;
+  s223:hasProperty psm:Luminaire6OnOffStatus ;
+  rdfs:label "Luminaire6" ;
+.
+psm:Luminaire6Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire6Inlet" ;
+.
+psm:Luminaire6OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire6On off status" ;
+.
+psm:Luminaire6Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:BathroomLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire6Outlet" ;
+.
+psm:Luminaire7
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire7Inlet ;
+  s223:hasConnectionPoint psm:Luminaire7Outlet ;
+  s223:hasProperty psm:Luminaire7OnOffStatus ;
+  rdfs:label "Luminaire7" ;
+.
+psm:Luminaire7Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire7Inlet" ;
+.
+psm:Luminaire7OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire7On off status" ;
+.
+psm:Luminaire7Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:PrivateOfficeLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire7Outlet" ;
+.
+psm:Luminaire8
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire8Inlet ;
+  s223:hasConnectionPoint psm:Luminaire8Outlet ;
+  s223:hasProperty psm:Luminaire8OnOffStatus ;
+  rdfs:label "Luminaire8" ;
+.
+psm:Luminaire8Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire8Inlet" ;
+.
+psm:Luminaire8OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire8On off status" ;
+.
+psm:Luminaire8Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:PrivateOfficeLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire8Outlet" ;
+.
+psm:Luminaire9
+  a s223:Luminaire ;
+  s223:hasConnectionPoint psm:Luminaire9Inlet ;
+  s223:hasConnectionPoint psm:Luminaire9Outlet ;
+  s223:hasProperty psm:Luminaire9OnOffStatus ;
+  rdfs:label "Luminaire9" ;
+.
+psm:Luminaire9Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ElectricCircuit2 ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Luminaire9Inlet" ;
+.
+psm:Luminaire9OnOffStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-Off ;
+  rdfs:label "Luminaire9On off status" ;
+.
+psm:Luminaire9Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:CorridorLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Luminaire9Outlet" ;
+.
+psm:MainBreaker
+  a s223:ElectricityBreaker ;
+  s223:hasConnectionPoint psm:MainBreakerInletCP ;
+  s223:hasConnectionPoint psm:MainBreakerOutCP1 ;
+  s223:hasConnectionPoint psm:MainBreakerOutCP2 ;
+  s223:hasConnectionPoint psm:MainBreakerOutCP3 ;
+  s223:hasConnectionPoint psm:MainBreakerOutCP4 ;
+  s223:hasConnectionPoint psm:MainBreakerOutCP5 ;
+  rdfs:label "Main breaker" ;
+.
+psm:MainBreakerCircuit1
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker circuit1" ;
+.
+psm:MainBreakerCircuit2
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker circuit2" ;
+.
+psm:MainBreakerCircuit3
+  a s223:Conductor ;
+  s223:cnx psm:BR3InletConnectionPoint ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "Main breaker circuit3" ;
+.
+psm:MainBreakerCircuit4
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker circuit4" ;
+.
+psm:MainBreakerCircuit5
+  a s223:Conductor ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker circuit5" ;
+.
+psm:MainBreakerInletCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:GridConnection ;
+  s223:hasMedium s223:AC-240VLL-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker inlet CP" ;
+.
+psm:MainBreakerOutCP1
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit1 ;
+  s223:hasElectricalPhase s223:ElectricalPhaseIdentifier-A ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker out CP1" ;
+.
+psm:MainBreakerOutCP2
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit2 ;
+  s223:hasElectricalPhase s223:ElectricalPhaseIdentifier-B ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker out CP2" ;
+.
+psm:MainBreakerOutCP3
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit3 ;
+  s223:hasElectricalPhase s223:ElectricalPhaseIdentifier-BC ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "Main breaker out CP3" ;
+.
+psm:MainBreakerOutCP4
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit4 ;
+  s223:hasElectricalPhase s223:ElectricalPhaseIdentifier-C ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker out CP4" ;
+.
+psm:MainBreakerOutCP5
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:MainBreakerCircuit5 ;
+  s223:hasElectricalPhase s223:ElectricalPhaseIdentifier-A ;
+  s223:hasMedium s223:AC-120VLN-1Ph-60Hz ;
+  rdfs:label "Main breaker out CP5" ;
+.
+psm:MainGridConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:GridConnection ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Main grid connection point" ;
+.
+psm:MainGridPowerSource
+  a s223:Generator ;
+  s223:cnx psm:MainGridConnectionPoint ;
+  rdfs:label "Main grid power source" ;
+.
+psm:MixedAirDamperActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:MixedAirDamperPosition ;
+  rdfs:label "A2" ;
+.
+psm:MixedAirDamperPosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Mixed air damper position" ;
+.
+psm:MixedAirPressure
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue 15.5 ;
+  qudt:hasQuantityKind qudtqk:Pressure ;
+  qudt:hasUnit unit:PSI ;
+  rdfs:label "Mixed air pressure" ;
+.
+psm:MixedAirPressureSensor
+  a s223:PressureSensor ;
+  s223:hasObservationLocation psm:i00024 ;
+  s223:observes psm:MixedAirPressure ;
+  rdfs:label "S5" ;
+.
+psm:OA-to-EconDamper
+  a s223:Connection ;
+  s223:cnx psm:i00018 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "OA-to-Econ damper" ;
+.
+psm:OA-to-MinDamper
+  a s223:Connection ;
+  s223:cnx psm:OAJunctionOutletToMin ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "OA-to-Min damper" ;
+.
+psm:OAJunctionInlet
+  a s223:InletConnectionPoint ;
+  s223:mapsTo psm:AHUOAInlet ;
+  rdfs:label "OAJunction inlet" ;
+.
+psm:OAJunctionOutletToEcon
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:OA-to-EconDamper ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "OAJunction outlet to econ" ;
+.
+psm:OAJunctionOutletToMin
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "OAJunction outlet to min" ;
+.
+psm:OccSensor1
+  a s223:OccupantCountSensor ;
+  s223:hasObservationLocation psm:OccupancySpace1 ;
+  s223:hasPhysicalLocation psm:OpenOffice ;
+  s223:observes psm:OccupancyProp1 ;
+  rdfs:label "O1" ;
+.
+psm:OccSensor2
+  a s223:OccupantMotionSensor ;
+  s223:hasObservationLocation psm:OccupancySpace2 ;
+  s223:hasPhysicalLocation psm:Bathroom ;
+  s223:observes psm:OccupancyProp2 ;
+  rdfs:label "O2" ;
+.
+psm:OccSensor3
+  a s223:OccupantPresenceSensor ;
+  s223:hasObservationLocation psm:OccupancySpace3 ;
+  s223:observes psm:OccupancyProp3 ;
+  rdfs:label "O3" ;
+.
+psm:OccSensor4
+  a s223:OccupantMotionSensor ;
+  s223:hasObservationLocation psm:OccupancySpace4 ;
+  s223:observes psm:OccupancyProp4 ;
+  rdfs:label "O4" ;
+.
+psm:OccSensor5
+  a s223:OccupantPresenceSensor ;
+  s223:hasObservationLocation psm:OccupancySpace5 ;
+  s223:observes psm:OccupancyProp5 ;
+  rdfs:label "O5" ;
+.
+psm:OccupancyProp1
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "5"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Population ;
+  qudt:hasUnit unit:NUM ;
+  rdfs:label "Occupancy prop1" ;
+.
+psm:OccupancyProp2
+  a s223:EnumeratedObservableProperty ;
+  s223:hasEnumerationKind s223:Occupancy-Motion ;
+  s223:hasValue s223:Motion-True ;
+  rdfs:label "Occupancy prop2" ;
+.
+psm:OccupancyProp3
+  a s223:EnumeratedObservableProperty ;
+  s223:hasEnumerationKind s223:Occupancy-Presence ;
+  s223:hasValue s223:Presence-True ;
+  rdfs:label "Occupancy prop3" ;
+.
+psm:OccupancyProp4
+  a s223:EnumeratedObservableProperty ;
+  s223:hasEnumerationKind s223:Occupancy-Motion ;
+  s223:hasValue s223:Motion-True ;
+  rdfs:label "Occupancy prop4" ;
+.
+psm:OccupancyProp5
+  a s223:EnumeratedObservableProperty ;
+  s223:hasEnumerationKind s223:Occupancy-Presence ;
+  s223:hasValue s223:Presence-True ;
+  rdfs:label "Occupancy prop5" ;
+.
+psm:OccupancySpace1
+  a s223:DomainSpace ;
+  s223:hasDomain s223:Domain-Occupancy ;
+  rdfs:label "Occupancy space1" ;
+.
+psm:OccupancySpace2
+  a s223:DomainSpace ;
+  s223:hasDomain s223:Domain-Occupancy ;
+  rdfs:label "Occupancy space2" ;
+.
+psm:OccupancySpace3
+  a s223:DomainSpace ;
+  s223:hasDomain s223:Domain-Occupancy ;
+  rdfs:label "Occupancy space3" ;
+.
+psm:OccupancySpace4
+  a s223:DomainSpace ;
+  s223:hasDomain s223:Domain-Occupancy ;
+  rdfs:label "Occupancy space4" ;
+.
+psm:OccupancySpace5
+  a s223:DomainSpace ;
+  s223:hasDomain s223:Domain-Occupancy ;
+  rdfs:label "OccupancySpace5" ;
+.
+psm:OfficeWindowDaylightCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:DLightPath1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Office window daylight CP" ;
+.
+psm:OfficeWindowExteriorLightInletCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:ExteriorAmbientLightPath ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Office window exterior light inlet CP" ;
+.
+psm:OpenOffice
+  a s223:PhysicalSpace ;
+  s223:encloses psm:HVACSpace1 ;
+  s223:encloses psm:LightingSpace1 ;
+  s223:encloses psm:LightingSpace2 ;
+  s223:encloses psm:OccupancySpace1 ;
+  rdfs:label "Open office" ;
+.
+psm:OpenOfficeDaylightLevel
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind qudtqk:Illuminance ;
+  qudt:hasUnit unit:LUX ;
+  rdfs:label "Open office daylight level" ;
+.
+psm:OpenOfficeInletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Open office inlet connection point" ;
+.
+psm:OpenOfficeOutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:ReturnDuct ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Open office outlet connection point" ;
+.
+psm:OpenOfficeWindows
+  a s223:Window ;
+  s223:cnx psm:OfficeWindowDaylightCP ;
+  s223:cnx psm:OfficeWindowExteriorLightInletCP ;
+  rdfs:label "Open office windows" ;
+.
+psm:OpeningCB
+  a s223:Connection ;
+  s223:cnx psm:BathroomInletConnectionPoint ;
+  s223:cnx psm:CorridorOutletConnectionPointB ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Opening CB" ;
+.
+psm:OpeningCOO
+  a s223:Connection ;
+  s223:cnx psm:CorridorOutletConnectionPointOO ;
+  s223:cnx psm:OpenOfficeInletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Opening COO" ;
+.
+psm:OpeningKC
+  a s223:Connection ;
+  s223:cnx psm:CorridorInletConnectionPointK ;
+  s223:cnx psm:KitchenetteOutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Opening KC" ;
+.
+psm:OpeningPOC
+  a s223:Connection ;
+  s223:cnx psm:CorridorInletConnectionPointPO ;
+  s223:cnx psm:PrivateOfficeOutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Opening POC" ;
+.
+psm:OutletIntraCorridor5CP
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:HVAC4-5Connection ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Outlet intra corridor5CP" ;
+.
+psm:OutsideAirDamperActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:OutsideAirDamperPosition ;
+  rdfs:label "A3" ;
+.
+psm:OutsideAirDamperPosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Outside air damper position" ;
+.
+psm:OutsideAirJunction
+  a s223:Junction ;
+  s223:hasConnectionPoint psm:OAJunctionInlet ;
+  s223:hasConnectionPoint psm:OAJunctionOutletToEcon ;
+  s223:hasConnectionPoint psm:OAJunctionOutletToMin ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Outside air junction" ;
+.
+psm:PipeFromBoiler
+  a s223:Connection ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "Pipe from boiler" ;
+.
+psm:PipeToBoiler
+  a s223:Connection ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "Pipe to boiler" ;
+.
+psm:PowerToCoil
+  a s223:Conductor ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Power to coil" ;
+.
+psm:PowerToFan
+  a s223:Conductor ;
+  s223:hasMedium s223:Electricity-AC ;
+  rdfs:label "Power to fan" ;
+.
+psm:PrivateOffice
+  a s223:PhysicalSpace ;
+  s223:encloses psm:HVACSpace3 ;
+  s223:encloses psm:LightingSpace4 ;
+  s223:encloses psm:OccupancySpace3 ;
+  rdfs:label "Private office" ;
+.
+psm:PrivateOfficeInletConnectionPoint
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Private office inlet connection point" ;
+.
+psm:PrivateOfficeLight1
+  a s223:Connection ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Private office light1" ;
+.
+psm:PrivateOfficeLightInletCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:PrivateOfficeLight1 ;
+  s223:hasMedium s223:Light-Visible ;
+  rdfs:label "Private office light inlet CP" ;
+.
+psm:PrivateOfficeOutletConnectionPoint
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Private office outlet connection point" ;
+.
+psm:ReturnAirFlowRate
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue 129.3 ;
+  qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+  qudt:hasUnit unit:FT3-PER-MIN ;
+  rdfs:label "Return air flow rate" ;
+.
+psm:ReturnDuct
+  a s223:Connection ;
+  s223:cnx psm:AHUReturnInlet ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasProperty psm:ratmp ;
+  rdfs:label "Return duct" ;
+.
+psm:ReturnFanActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:ReturnFanSpeed ;
+  rdfs:label "A8" ;
+.
+psm:ReturnFanSpeed
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Return fan speed" ;
+.
+psm:ReturnFanStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-On ;
+  rdfs:label "Return fan status" ;
+.
+psm:ReturnSystem
+  a s223:System ;
+  s223:hasMember psm:i00051 ;
+  s223:hasMember psm:i00056 ;
+  s223:hasRole s223:Role-Return ;
+  rdfs:label "Return System" ;
+.
+psm:RoomSupply1
+  a s223:Connection ;
+  s223:cnx psm:PrivateOfficeInletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Room supply1" ;
+.
+psm:RoomSupply2
+  a s223:Connection ;
+  s223:cnx psm:KitchenetteInletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Room supply2" ;
+.
+psm:SupplyFanActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:SupplyFanSpeed ;
+  rdfs:label "A9" ;
+.
+psm:SupplyFanElectricInCP
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:PowerToFan ;
+  s223:hasMedium s223:AC-240VLL-1Ph-60Hz ;
+  rdfs:label "Supply fan electric in CP" ;
+.
+psm:SupplyFanSpeed
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "80"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Supply fan speed" ;
+.
+psm:SupplyFanStatus
+  a s223:EnumerableProperty ;
+  s223:hasEnumerationKind s223:Binary-OnOff ;
+  s223:hasValue s223:OnOff-On ;
+  rdfs:label "Supply fan status" ;
+.
+psm:SupplyFromExteriorAir
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Supply from exterior air" ;
+.
+psm:SupplySystem
+  a s223:System ;
+  s223:hasBoundaryConnectionPoint psm:CPToGround ;
+  s223:hasMember psm:ExternalLoop ;
+  s223:hasMember psm:i00007 ;
+  s223:hasMember psm:i00011 ;
+  s223:hasMember psm:i00016 ;
+  s223:hasMember psm:i00021 ;
+  s223:hasMember psm:i00025 ;
+  s223:hasMember psm:i00036 ;
+  s223:hasMember psm:i00047 ;
+  s223:hasRole s223:Role-Supply ;
+  rdfs:label "Supply System" ;
+.
+psm:TU1DamperPositionCommand
+  a s223:QuantifiableActuatableProperty ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "TU1 Damper Position Command" ;
+.
+psm:TU1InternalPipe
+  a s223:Pipe ;
+  s223:cnx psm:VAV1ReheatCoilSupplyFluidInlet ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "TU1Internal pipe" ;
+.
+psm:TU1ReheatValve
+  a s223:Valve ;
+  s223:actuatedByProperty psm:TU1ReheatValvePositionCommand ;
+  s223:cnx psm:TU1ReheatValveOCP ;
+  s223:hasConnectionPoint psm:TU1ReheatValveICP ;
+  rdfs:label "TU1Reheat valve" ;
+.
+psm:TU1ReheatValveICP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Water-HotWater ;
+  s223:mapsTo psm:VAV1BoxSupplyFluidInlet ;
+  rdfs:label "TU1Reheat valve ICP" ;
+.
+psm:TU1ReheatValveOCP
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:TU1InternalPipe ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "TU1Reheat valve outlet CP" ;
+.
+psm:TU1ReheatValvePositionCommand
+  a s223:QuantifiableActuatableProperty ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "TU1Reheat valve position command" ;
+.
+psm:TempSensor_1
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:i00050 ;
+  s223:observes psm:CoolingCoilOutletTemperature ;
+  rdfs:label "S7" ;
+.
+psm:TempSensor_2
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:i00046 ;
+  s223:observes psm:HeatingCoilOutletTemperature ;
+  rdfs:label "S6" ;
+.
+psm:TerminalUnit1Function
+  a s223:Function ;
+  s223:hasInput psm:HVACZone1Temperature ;
+  s223:hasInput psm:HVACZone1TemperatureSetpoint ;
+  s223:hasInput psm:OccupancyProp1 ;
+  s223:hasOutput psm:TU1DamperPositionCommand ;
+  s223:hasOutput psm:TU1ReheatValvePositionCommand ;
+  rdfs:label "Terminal Unit1 Function Block" ;
+.
+psm:VAV1BoxSupplyFluidInlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:PipeFromBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "VAV1Box supply fluid inlet" ;
+.
+psm:VAV1BoxSupplyFluidOutlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:PipeToBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "VAV1Box supply fluid outlet" ;
+.
+psm:VAV1DamperInletCP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:VAVBox1Inlet ;
+  rdfs:label "VAV1Damper inlet CP" ;
+.
+psm:VAV1DamperOutletCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAV1Damper outlet CP" ;
+.
+psm:VAV1InletFlow
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "135"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+  qudt:hasUnit unit:FT3-PER-MIN ;
+  rdfs:label "VAV1Inlet flow" ;
+.
+psm:VAV1InletReheatCoilCP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAV1Inlet reheat coil CP" ;
+.
+psm:VAV1InletTemperature
+  a s223:QuantifiableProperty ;
+  s223:hasValue 70.2 ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "VAV1 Inlet Temperature (estimated)" ;
+.
+psm:VAV1InletTemperatureFunction
+  a s223:Function ;
+  s223:hasInput psm:VAV1OutletTemperature ;
+  s223:hasOutput psm:VAV1InletTemperature ;
+  rdfs:label "VAV1Inlet temperature function" ;
+.
+psm:VAV1InternalConnection
+  a s223:Connection ;
+  s223:cnx psm:VAV1DamperOutletCP ;
+  s223:cnx psm:VAV1InletReheatCoilCP ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAV1Internal connection" ;
+.
+psm:VAV1OuletReheatCoilCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:VAVBox1Outlet ;
+  rdfs:label "VAV1Oulet reheat coil CP" ;
+.
+psm:VAV1OutletTemperature
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue 72.3 ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "VAV1 Outlet Temperature" ;
+.
+psm:VAV1ReheatCoilSupplyFluidInlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "VAV1Reheat coil supply fluid inlet" ;
+.
+psm:VAV1ReheatCoilSupplyFluidOutlet
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Water-HotWater ;
+  s223:mapsTo psm:VAV1BoxSupplyFluidOutlet ;
+  rdfs:label "VAV1Reheat coil supply fluid outlet" ;
+.
+psm:VAV2DamperInletCP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:VAVBox2Inlet ;
+  rdfs:label "VAV2Damper inlet CP" ;
+.
+psm:VAV2DamperOutletCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAV2Damper outlet CP" ;
+.
+psm:VAV2InletFlow
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "250"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+  qudt:hasUnit unit:FT3-PER-MIN ;
+  rdfs:label "VAV2Inlet flow" ;
+.
+psm:VAV2InletReheatCoilCP
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAV2Inlet reheat coil CP" ;
+.
+psm:VAV2InternalConnection
+  a s223:Connection ;
+  s223:cnx psm:VAV2DamperOutletCP ;
+  s223:cnx psm:VAV2InletReheatCoilCP ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAV2Internal connection" ;
+.
+psm:VAV2OuletReheatCoilCP
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:VAVBox2Outlet ;
+  rdfs:label "VAV2Oulet reheat coil CP" ;
+.
+psm:VAV2OutletTemperature
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "70"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "VAV2Outlet temperature" ;
+.
+psm:VAV2ReheatCoilSupplyFluidInlet
+  a s223:InletConnectionPoint ;
+  s223:hasMedium s223:Water-HotWater ;
+  s223:mapsTo psm:VAV2SupplyFluidInlet ;
+  rdfs:label "VAV2Reheat coil supply fluid inlet" ;
+.
+psm:VAV2ReheatCoilSupplyFluidOutlet
+  a s223:OutletConnectionPoint ;
+  s223:hasMedium s223:Water-HotWater ;
+  s223:mapsTo psm:VAV2SupplyFluidOutlet ;
+  rdfs:label "VAV2Reheat coil supply fluid outlet" ;
+.
+psm:VAV2SupplyFluidInlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:PipeFromBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "VAV2Supply fluid inlet" ;
+.
+psm:VAV2SupplyFluidOutlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:PipeToBoiler ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "VAV2Supply fluid outlet" ;
+.
+psm:VAVBox1
+  a s223:SingleDuctTerminal ;
+  s223:cnx psm:VAV1BoxSupplyFluidInlet ;
+  s223:cnx psm:VAV1BoxSupplyFluidOutlet ;
+  s223:cnx psm:VAVBox1Inlet ;
+  s223:cnx psm:VAVBox1Outlet ;
+  s223:contains psm:TU1ReheatValve ;
+  s223:contains psm:VAVBox1HeatingCoil ;
+  s223:contains psm:VAVBox1InletFlowSensor ;
+  s223:contains psm:VAVBox1MotorizedDamper ;
+  s223:contains psm:VAVBox1OutletTemperatureSensor ;
+  rdfs:label "VAVBox1" ;
+.
+psm:VAVBox1DamperActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:VAVBox1DamperPosition ;
+  rdfs:label "A10" ;
+.
+psm:VAVBox1DamperPosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "VAVBox1Damper position" ;
+.
+psm:VAVBox1HeatingCoil
+  a s223:HeatingCoil ;
+  s223:hasConnectionPoint psm:VAV1InletReheatCoilCP ;
+  s223:hasConnectionPoint psm:VAV1OuletReheatCoilCP ;
+  s223:hasConnectionPoint psm:VAV1ReheatCoilSupplyFluidInlet ;
+  s223:hasConnectionPoint psm:VAV1ReheatCoilSupplyFluidOutlet ;
+  rdfs:label "VAVBox1Heating coil" ;
+.
+psm:VAVBox1Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:VAVSupply ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAVBox1Inlet" ;
+.
+psm:VAVBox1InletFlowSensor
+  a s223:FlowSensor ;
+  s223:hasObservationLocation psm:VAV2DamperInletCP ;
+  s223:observes psm:VAV1InletFlow ;
+  rdfs:label "S9" ;
+.
+psm:VAVBox1MotorizedDamper
+  a s223:Damper ;
+  s223:actuatedByProperty psm:TU1DamperPositionCommand ;
+  s223:hasConnectionPoint psm:VAV1DamperInletCP ;
+  s223:hasConnectionPoint psm:VAV1DamperOutletCP ;
+  rdfs:label "VAVBox1Motorized damper " ;
+.
+psm:VAVBox1Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:RoomSupply1 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAVBox1Outlet" ;
+.
+psm:VAVBox1OutletTemperatureSensor
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:VAV1OuletReheatCoilCP ;
+  s223:observes psm:VAV1OutletTemperature ;
+  rdfs:label "S10" ;
+.
+psm:VAVBox1ReheatValveActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:VAVBox1ReheatValvePosition ;
+  rdfs:label "A11" ;
+.
+psm:VAVBox1ReheatValvePosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "VAVBox1Reheat valve position" ;
+.
+psm:VAVBox2
+  a s223:SingleDuctTerminal ;
+  s223:contains psm:VAVBox2HeatingCoil ;
+  s223:contains psm:VAVBox2InletFlowSensor ;
+  s223:contains psm:VAVBox2MotorizedDamper ;
+  s223:contains psm:VAVBox2OutletTemperatureSensor ;
+  s223:hasConnectionPoint psm:VAV2SupplyFluidInlet ;
+  s223:hasConnectionPoint psm:VAV2SupplyFluidOutlet ;
+  s223:hasConnectionPoint psm:VAVBox2Inlet ;
+  s223:hasConnectionPoint psm:VAVBox2Outlet ;
+  rdfs:label "VAVBox2" ;
+.
+psm:VAVBox2DamperActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:VAVBox2DamperPosition ;
+  rdfs:label "A6" ;
+.
+psm:VAVBox2DamperPosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "VAVBox2Damper position" ;
+.
+psm:VAVBox2HeatingCoil
+  a s223:HeatingCoil ;
+  s223:hasConnectionPoint psm:VAV2InletReheatCoilCP ;
+  s223:hasConnectionPoint psm:VAV2OuletReheatCoilCP ;
+  s223:hasConnectionPoint psm:VAV2ReheatCoilSupplyFluidInlet ;
+  s223:hasConnectionPoint psm:VAV2ReheatCoilSupplyFluidOutlet ;
+  rdfs:label "VAVBox2Heating coil" ;
+.
+psm:VAVBox2Inlet
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:VAVSupply ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAVBox2Inlet" ;
+.
+psm:VAVBox2InletFlowSensor
+  a s223:FlowSensor ;
+  s223:hasObservationLocation psm:VAV2DamperInletCP ;
+  s223:observes psm:VAV2InletFlow ;
+  rdfs:label "S11" ;
+.
+psm:VAVBox2MotorizedDamper
+  a s223:Damper ;
+  s223:hasConnectionPoint psm:VAV2DamperInletCP ;
+  s223:hasConnectionPoint psm:VAV2DamperOutletCP ;
+  rdfs:label "VAVBox2Motorized damper" ;
+.
+psm:VAVBox2Outlet
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:RoomSupply2 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAVBox2Outlet" ;
+.
+psm:VAVBox2OutletTemperatureSensor
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:VAV2OuletReheatCoilCP ;
+  s223:observes psm:VAV2OutletTemperature ;
+  rdfs:label "S12" ;
+.
+psm:VAVBox2ReheatValveActuator
+  a s223:Actuator ;
+  s223:actuatedByProperty psm:VAVBox2ReheatValvePosition ;
+  rdfs:label "A7" ;
+.
+psm:VAVBox2ReheatValvePosition
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasValue "50"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "VAVBox2Reheat valve position" ;
+.
+psm:VAVSupply
+  a s223:Connection ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "VAVSupply" ;
+.
+psm:ValveToCoil
+  a s223:Pipe ;
+  s223:cnx psm:i00039 ;
+  s223:cnx psm:i00044 ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "Valve to coil" ;
+.
+psm:i00001
+  a s223:AirHandlingUnit ;
+  s223:contains psm:InternalAHUElectricJunction ;
+  s223:contains psm:OutsideAirJunction ;
+  s223:contains psm:i00007 ;
+  s223:contains psm:i00011 ;
+  s223:contains psm:i00016 ;
+  s223:contains psm:i00021 ;
+  s223:contains psm:i00025 ;
+  s223:contains psm:i00030 ;
+  s223:contains psm:i00036 ;
+  s223:contains psm:i00041 ;
+  s223:contains psm:i00047 ;
+  s223:contains psm:i00051 ;
+  s223:contains psm:i00056 ;
+  s223:contains psm:i00061 ;
+  s223:hasConnectionPoint psm:AHUChilledWaterInlet ;
+  s223:hasConnectionPoint psm:AHUChilledWaterOutlet ;
+  s223:hasConnectionPoint psm:AHUElectricityInlet ;
+  s223:hasConnectionPoint psm:AHUExhaustOutlet ;
+  s223:hasConnectionPoint psm:AHUHotWaterInlet ;
+  s223:hasConnectionPoint psm:AHUHotWaterOutlet ;
+  s223:hasConnectionPoint psm:AHUOAInlet ;
+  s223:hasConnectionPoint psm:AHUReturnInlet ;
+  s223:hasConnectionPoint psm:AHUSupplyOutlet ;
+  s223:hasRole s223:Role-OutdoorAirIntake ;
+  rdfs:label "AHU" ;
+.
+psm:i00006
+  a s223:Connection ;
+  s223:cnx psm:SupplyFromExteriorAir ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasProperty psm:oatmp ;
+  rdfs:label "A-9.outside_air" ;
+.
+psm:i00007
+  a s223:Damper ;
+  s223:actuatedByProperty psm:i00008 ;
+  s223:cnx psm:i00009 ;
+  s223:cnx psm:i00010 ;
+  rdfs:label "A-9.min_oa_damper" ;
+.
+psm:i00008
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasAspect s223:Binary-Position ;
+  qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Minimum outdoor air damper command" ;
+.
+psm:i00009
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:OA-to-MinDamper ;
+  s223:cnx psm:i00007 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.min_oa_damper.airInlet" ;
+.
+psm:i00010
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00007 ;
+  s223:cnx psm:i00015 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.min_oa_damper.airOutlet" ;
+.
+psm:i00011
+  a s223:Equipment ;
+  s223:cnx psm:i00013 ;
+  s223:cnx psm:i00014 ;
+  s223:hasProperty psm:i00012 ;
+  rdfs:label "A-9.outside_air_afms" ;
+.
+psm:i00012
+  a s223:QuantifiableProperty ;
+  qudt:hasQuantityKind qudtqk:VolumeFlowRate ;
+  qudt:hasUnit unit:FT3-PER-MIN ;
+  rdfs:label "Outdoor air flow" ;
+.
+psm:i00013
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00011 ;
+  s223:cnx psm:i00015 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.outside_air_afms.airInlet" ;
+.
+psm:i00014
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00011 ;
+  s223:cnx psm:i00020 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.outside_air_afms.airOutlet" ;
+.
+psm:i00015
+  a s223:Connection ;
+  s223:cnx psm:i00010 ;
+  s223:cnx psm:i00013 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Outside air connection" ;
+.
+psm:i00016
+  a s223:Damper ;
+  s223:actuatedByProperty psm:i00017 ;
+  s223:cnx psm:i00018 ;
+  s223:cnx psm:i00019 ;
+  rdfs:label "A-9.economizer_oa_damper" ;
+.
+psm:i00017
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasAspect s223:Binary-Position ;
+  qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Economizer outside air damper command" ;
+.
+psm:i00018
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00016 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.economizer_oa_damper.airInlet" ;
+.
+psm:i00019
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00016 ;
+  s223:cnx psm:i00020 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.economizer_oa_damper.airOutlet" ;
+.
+psm:i00020
+  a s223:Connection ;
+  s223:cnx psm:i00014 ;
+  s223:cnx psm:i00019 ;
+  s223:cnx psm:i00023 ;
+  s223:cnx psm:i00064 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.mixed_air" ;
+.
+psm:i00021
+  a s223:Equipment ;
+  a s223:Filter ;
+  s223:cnx psm:i00023 ;
+  s223:cnx psm:i00024 ;
+  s223:hasProperty psm:i00022 ;
+  rdfs:label "A-9.mixed_air_filter" ;
+.
+psm:i00022
+  a s223:QuantifiableProperty ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Mixed air temperature" ;
+.
+psm:i00023
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00020 ;
+  s223:cnx psm:i00021 ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:hasProperty psm:mxtmp ;
+  rdfs:label "A-9.mixed_air_filter.airInlet" ;
+.
+psm:i00024
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00021 ;
+  s223:cnx psm:i00035 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.mixed_air_filter.airOutlet" ;
+.
+psm:i00025
+  a s223:HeatingCoil ;
+  s223:cnx psm:i00026 ;
+  s223:cnx psm:i00027 ;
+  s223:cnx psm:i00028 ;
+  s223:cnx psm:i00029 ;
+  rdfs:label "A-9.hot_water_coil" ;
+.
+psm:i00026
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00025 ;
+  s223:cnx psm:i00035 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.hot_water_coil.airInlet" ;
+.
+psm:i00027
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00025 ;
+  s223:cnx psm:i00046 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.hot_water_coil.airOutlet" ;
+.
+psm:i00028
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00025 ;
+  s223:hasMedium s223:Water-HotWater ;
+  s223:mapsTo psm:AHUHotWaterInlet ;
+  rdfs:label "A-9.hot_water_coil.hotWaterInlet" ;
+.
+psm:i00029
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00025 ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "A-9.hot_water_coil.hotWaterOutlet" ;
+.
+psm:i00030
+  a s223:Valve ;
+  s223:cnx psm:i00032 ;
+  s223:cnx psm:i00033 ;
+  s223:hasProperty psm:i00031 ;
+  rdfs:label "A-9.hot_water_coil.hw_valve" ;
+.
+psm:i00031
+  a s223:QuantifiableProperty ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Hot water valve command" ;
+.
+psm:i00032
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00030 ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "A-9.hot_water_coil.hw_valve.hotWaterInlet" ;
+.
+psm:i00033
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00030 ;
+  s223:hasMedium s223:Water-HotWater ;
+  s223:mapsTo psm:AHUHotWaterOutlet ;
+  rdfs:label "A-9.hot_water_coil.hw_valve.hotWaterOutlet" ;
+.
+psm:i00034
+  a s223:Connection ;
+  s223:cnx psm:i00029 ;
+  s223:cnx psm:i00032 ;
+  s223:hasMedium s223:Water-HotWater ;
+  rdfs:label "Hot water connection" ;
+.
+psm:i00035
+  a s223:Connection ;
+  s223:cnx psm:i00024 ;
+  s223:cnx psm:i00026 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Mixed air connection to filter" ;
+.
+psm:i00036
+  a s223:CoolingCoil ;
+  s223:cnx psm:ElectricInletCP ;
+  s223:cnx psm:i00037 ;
+  s223:cnx psm:i00038 ;
+  s223:cnx psm:i00039 ;
+  s223:cnx psm:i00040 ;
+  rdfs:label "A-9.chilled_water_coil" ;
+.
+psm:i00037
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00036 ;
+  s223:cnx psm:i00046 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.chilled_water_coil.airInlet" ;
+.
+psm:i00038
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00036 ;
+  s223:cnx psm:i00050 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.chilled_water_coil.airOutlet" ;
+.
+psm:i00039
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00036 ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "A-9.chilled_water_coil.chilledWaterSupply" ;
+.
+psm:i00040
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00036 ;
+  s223:hasMedium s223:Fluid-Water ;
+  s223:mapsTo psm:AHUChilledWaterOutlet ;
+  rdfs:label "A-9.chilled_water_coil.chilledWaterReturn" ;
+.
+psm:i00041
+  a s223:Valve ;
+  s223:cnx psm:i00043 ;
+  s223:cnx psm:i00044 ;
+  s223:hasProperty psm:i00042 ;
+  rdfs:label "A-9.chilled_water_coil.chilled_water_valve" ;
+.
+psm:i00042
+  a s223:QuantifiableProperty ;
+  qudt:hasQuantityKind qudtqk:Dimensionless ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Chilled water valve command" ;
+.
+psm:i00043
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00041 ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  s223:mapsTo psm:AHUChilledWaterInlet ;
+  rdfs:label "A-9.chilled_water_coil.chilled_water_valve.chilledWaterInlet" ;
+.
+psm:i00044
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00041 ;
+  s223:hasMedium s223:Water-ChilledWater ;
+  rdfs:label "A-9.chilled_water_coil.chilled_water_valve.chilledWaterOutlet" ;
+.
+psm:i00045
+  a s223:Connection ;
+  s223:cnx psm:AHUChilledWaterOutlet ;
+  s223:cnx psm:LoopInletCP ;
+  s223:hasMedium s223:Fluid-Water ;
+  rdfs:label "Chilled water connection" ;
+.
+psm:i00046
+  a s223:Connection ;
+  s223:cnx psm:i00027 ;
+  s223:cnx psm:i00037 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Connection from heating coil" ;
+.
+psm:i00047
+  a s223:Fan ;
+  s223:cnx psm:i00048 ;
+  s223:cnx psm:i00049 ;
+  s223:hasConnectionPoint psm:SupplyFanElectricInCP ;
+  s223:hasProperty psm:SupplyFanStatus ;
+  rdfs:label "A-9.supply_fan" ;
+.
+psm:i00048
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00047 ;
+  s223:cnx psm:i00050 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.supply_fan.airInlet" ;
+.
+psm:i00049
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00047 ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:AHUSupplyOutlet ;
+  rdfs:label "A-9.supply_fan.airOutlet" ;
+.
+psm:i00050
+  a s223:Connection ;
+  s223:cnx psm:i00038 ;
+  s223:cnx psm:i00048 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Connection from Cooling Coil" ;
+.
+psm:i00051
+  a s223:Fan ;
+  s223:cnx psm:i00052 ;
+  s223:cnx psm:i00053 ;
+  s223:hasProperty psm:ReturnFanStatus ;
+  rdfs:label "A-9.return_fan" ;
+.
+psm:i00052
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00051 ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:AHUReturnInlet ;
+  rdfs:label "A-9.return_fan.airInlet" ;
+.
+psm:i00053
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00051 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.return_fan.airOutlet" ;
+.
+psm:i00055
+  a s223:Connection ;
+  s223:cnx psm:i00053 ;
+  s223:cnx psm:i00058 ;
+  s223:cnx psm:i00063 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.return_air" ;
+.
+psm:i00056
+  a s223:Damper ;
+  s223:actuatedByProperty psm:i00057 ;
+  s223:cnx psm:i00058 ;
+  s223:cnx psm:i00059 ;
+  rdfs:label "A-9.exhaust_air_damper" ;
+.
+psm:i00057
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasAspect s223:Binary-Position ;
+  qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Exhaust air damper command" ;
+.
+psm:i00058
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00055 ;
+  s223:cnx psm:i00056 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.exhaust_air_damper.airInlet" ;
+.
+psm:i00059
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00056 ;
+  s223:hasMedium s223:Fluid-Air ;
+  s223:mapsTo psm:AHUExhaustOutlet ;
+  rdfs:label "A-9.exhaust_air_damper.airOutlet" ;
+.
+psm:i00060
+  a s223:Connection ;
+  s223:cnx psm:ExhaustToExteriorAir ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "Exhaust air connection" ;
+.
+psm:i00061
+  a s223:Damper ;
+  s223:actuatedByProperty psm:i00062 ;
+  s223:cnx psm:i00063 ;
+  s223:cnx psm:i00064 ;
+  rdfs:label "A-9.return_air_damper" ;
+.
+psm:i00062
+  a s223:QuantifiableActuatableProperty ;
+  s223:hasAspect s223:Binary-Position ;
+  qudt:hasQuantityKind qudtqk:DimensionlessRatio ;
+  qudt:hasUnit unit:PERCENT ;
+  rdfs:label "Return air damper command" ;
+.
+psm:i00063
+  a s223:InletConnectionPoint ;
+  s223:cnx psm:i00055 ;
+  s223:cnx psm:i00061 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.return_air_damper.airInlet" ;
+.
+psm:i00064
+  a s223:OutletConnectionPoint ;
+  s223:cnx psm:i00020 ;
+  s223:cnx psm:i00061 ;
+  s223:hasMedium s223:Fluid-Air ;
+  rdfs:label "A-9.return_air_damper.airOutlet" ;
+.
+psm:masen
+  a s223:Sensor ;
+  s223:observes psm:mxtmp ;
+  rdfs:label "S4" ;
+.
+psm:mxtmp
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue "78"^^xsd:decimal ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Mixed Air Temperature" ;
+.
+psm:oasen
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:i00013 ;
+  s223:observes psm:oatmp ;
+  rdfs:label "S3" ;
+.
+psm:oatmp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Outside Air Temperature" ;
+.
+psm:rasen
+  a s223:TemperatureSensor ;
+  s223:hasObservationLocation psm:i00052 ;
+  s223:observes psm:ratmp ;
+  rdfs:label "S2" ;
+.
+psm:ratmp
+  a s223:QuantifiableObservableProperty ;
+  qudt:hasQuantityKind qudtqk:Temperature ;
+  qudt:hasUnit unit:DEG_F ;
+  rdfs:label "Return Air Temperature" ;
+.
+psm:sap
+  a s223:QuantifiableObservableProperty ;
+  s223:hasValue 15.6 ;
+  qudt:hasQuantityKind qudtqk:Pressure ;
+  qudt:hasUnit unit:PSI ;
+  rdfs:label "Supply Air Pressure" ;
+.
+psm:sasen
+  a s223:PressureSensor ;
+  s223:hasObservationLocation psm:i00049 ;
+  s223:observes psm:sap ;
+  rdfs:label "S8" ;
+.

@@ -19,14 +19,18 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 
 ## Engine / semantics (Layers 3, 6)
 - **[done]** Rule **execution** (Layer 6): lfp forward chaining, `sh:order`
-  strata, naive fixpoint (`shacl_engine::infer`, `shacl infer` CLI), including
-  Oxigraph `CONSTRUCT` execution with `$this` prebinding. CONSTRUCT blank-node
-  output is rejected to preserve fixpoint termination. Still to do:
-  **[do]** semi-naive (delta) evaluation; **[do]** function node expressions;
-  **[do]** `validate --infer`.
+  priority groups, global fixpoint (`shacl_engine::infer`, `shacl infer` CLI),
+  and conservative predicate-delta scheduling at rule granularity. Later-order
+  output can reactivate earlier rules. Oxigraph `CONSTRUCT` execution supports
+  `$this` prebinding; CONSTRUCT blank-node output is rejected to preserve
+  termination for the supported subset. Still to do: **[do]** finer focus-node
+  / relational-delta evaluation; **[do]** function node expressions;
+  **[done]** CLI validation runs inference first; **[do]** predicate-level
+  logical stratification for non-monotone rule conditions (the current analyzer
+  stratifies shape SCCs).
 - **[done]** Initial SPARQL execution backend: one Oxigraph store per validation
-  or inference run, cached prepared queries, `$this` substitution, and a
-  Spargebra `VALUES` rewrite for simple-predicate `$PATH` prebinding. Split
+  or inference run, cached parsed/prepared queries, and Spargebra AST
+  substitution for `$this` and simple-predicate `$PATH` prebinding. Split
   data/shapes validation defaults to union evaluation with data-only focus
   discovery; the API and CLI also expose data-only and full-union modes.
 - **[do]** Full SHACL-SPARQL prebinding: complex `$PATH` AST replacement,
@@ -76,9 +80,12 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 - **[do]** **Data-aware statistics**: predicate counts → real selectivity
   ordering (cost is a static proxy today).
 - **[do]** Memoize / share shape evaluation across focus nodes within a run.
-- **[do]** SPARQL query optimization: recognize and lift simple BGPs into the
-  native algebra, push target/constraint bindings into patterns, and use graph
-  statistics for join ordering before handing residual queries to Oxigraph.
+- **[do]** Implement the staged native SPARQL design in
+  [`05-sparql-execution.md`](05-sparql-execution.md): per-query instrumentation
+  and capability analysis; immutable `QueryableDataset` indexes; native BGP
+  execution with batched `$this`; indexed paths and correlated anti-joins; then
+  data-aware join planning. Unsupported whole queries continue through
+  Oxigraph/Spareval.
 - **[todo]** Incremental / focus-delta scheduling.
 
 ## Layer 7 (not started)

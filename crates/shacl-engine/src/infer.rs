@@ -15,8 +15,8 @@
 
 use crate::path::{node_of, succ};
 use crate::sparql::SparqlExecutor;
-use crate::validate::{NonStratifiable, focus_nodes_with, holds};
-use oxrdf::{Graph, NamedNode, Term, Triple};
+use crate::validate::{NonStratifiable, focus_nodes_with, graph_union, holds};
+use oxrdf::{Graph, Term, Triple};
 use shacl_algebra::{NodeExpr, Rule, RuleHead, Schema, ShapeArena};
 use shacl_opt::{RuleDependencies, analyze, rule_dependencies};
 use std::collections::{BTreeSet, HashSet};
@@ -33,6 +33,30 @@ pub struct InferenceOutcome {
 
 /// Run rule inference to a least fixpoint, ordered by `sh:order`.
 pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStratifiable> {
+    infer_with_context(data, data, schema)
+}
+
+/// Run inference over split data and shapes graphs.
+///
+/// Rule focus nodes come from `data`, while class hierarchy, paths, conditions,
+/// and SPARQL rule bodies see the RDF union of `data` and `shapes`.
+pub fn infer_graphs(
+    data: &Graph,
+    shapes: &Graph,
+    schema: &Schema,
+) -> Result<InferenceOutcome, NonStratifiable> {
+    let context = graph_union(data, shapes);
+    infer_with_context(data, &context, schema)
+}
+
+/// Run inference with data-scoped focus discovery and a broader execution
+/// context. `context` should contain `data`; newly inferred triples are added to
+/// both the returned data graph and the mutable execution context.
+pub fn infer_with_context(
+    data: &Graph,
+    context: &Graph,
+    schema: &Schema,
+) -> Result<InferenceOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -45,8 +69,9 @@ pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStrat
     }
 
     let mut graph = data.clone();
+    let mut context = context.clone();
     let sparql =
-        SparqlExecutor::new(&graph).expect("building an in-memory Oxigraph store should succeed");
+        SparqlExecutor::new(&context).expect("building an in-memory Oxigraph store should succeed");
     let mut inferred = Vec::new();
     let mut diags: BTreeSet<String> = BTreeSet::new();
 
@@ -88,6 +113,7 @@ pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStrat
                 }
                 fire_rule(
                     &graph,
+                    &context,
                     &schema.arena,
                     scheduled.rule,
                     &sparql,
@@ -96,7 +122,9 @@ pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStrat
                 );
             }
             for t in candidates {
-                if graph.insert(&t) {
+                if !context.contains(&t) {
+                    graph.insert(&t);
+                    context.insert(&t);
                     if let Err(error) = sparql.insert(&t) {
                         diags.insert(format!("failed to update SPARQL inference store: {error}"));
                     }
@@ -139,17 +167,18 @@ struct ScheduledRule<'a> {
 }
 
 fn fire_rule(
-    g: &Graph,
+    data: &Graph,
+    context: &Graph,
     arena: &ShapeArena,
     rule: &shacl_algebra::Rule,
     sparql: &SparqlExecutor,
     out: &mut Vec<Triple>,
     diags: &mut BTreeSet<String>,
 ) {
-    for v in focus_nodes_with(g, g, &rule.selector, arena, sparql) {
+    for v in focus_nodes_with(data, context, &rule.selector, arena, sparql) {
         let conditions_hold = rule.conditions.iter().all(|c| {
             let mut stack = HashSet::new();
-            holds(g, arena, &v, *c, &mut stack, sparql)
+            holds(context, arena, &v, *c, &mut stack, sparql)
         });
         if !conditions_hold {
             continue;
@@ -160,9 +189,9 @@ fn fire_rule(
                 predicate,
                 object,
             } => {
-                let subjects = eval_node_expr(g, arena, &v, subject, sparql, diags);
-                let predicates = eval_node_expr(g, arena, &v, predicate, sparql, diags);
-                let objects = eval_node_expr(g, arena, &v, object, sparql, diags);
+                let subjects = eval_node_expr(context, arena, &v, subject, sparql, diags);
+                let predicates = eval_node_expr(context, arena, &v, predicate, sparql, diags);
+                let objects = eval_node_expr(context, arena, &v, object, sparql, diags);
                 for s in &subjects {
                     let Some(subj) = node_of(s) else { continue };
                     for p in &predicates {

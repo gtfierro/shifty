@@ -86,6 +86,10 @@ Guiding principles:
   focus nodes from selectors) vs. graph scan.
 - Path compilation: BGP/reachability plans for `Seq/Alt/Star/Inverse`; pick index
   orders (SPO/POS/OSP) from a predicate-statistics model.
+- Compile the supported Spargebra subset into native scans, joins, path scans,
+  and correlated semi/anti-joins over a shared immutable indexed dataset.
+  Unsupported whole queries fall back to Oxigraph/Spareval. See
+  [`05-sparql-execution.md`](05-sparql-execution.md).
 - Common-subexpression sharing across shapes; push `test`/`closed` filters down;
   short-circuit Boolean evaluation ordered by selectivity.
 - Incremental / focus-delta scheduling (only re-check affected focus nodes).
@@ -96,8 +100,11 @@ Guiding principles:
 
 - Node-expression evaluator (reuses `Path` + functions).
 - Rule engine: evaluate body (selector + condition shapes), materialize head
-  triples; **semi-naive fixpoint** over the rule set with `sh:order` strata and
-  recursion semantics from Layer 4.
+  triples; **semi-naive fixpoint** over the rule set with `sh:order` priority
+  groups and recursion semantics from Layer 4. The first implementation uses
+  conservative predicate-delta scheduling at rule granularity; native paths
+  expose exact reads while opaque/domain-sensitive constructs fall back to
+  wildcard rescheduling.
 - Interaction model: inference-then-validation, with provenance for inferred
   triples.
 - **Deliverable:** AF rule conformance; fixpoint termination guarantees
@@ -123,8 +130,8 @@ Guiding principles:
 | 2 Parser & lowering | ✅ Turtle → IR for Core + targets + paths; AF/SPARQL diagnosed; `shacl inspect` stage viewer |
 | 3 Reference semantics | ✅ denotational evaluator (`G ⊨ S`); `shacl validate`; W3C core 89/113 pass, 0 fail, 24 skip |
 | 4 Static analysis & recursion | 🔨 stratification + gfp semantics wired; normalization Tier-1 (CSE, compaction, Boolean, NNF, count-merge — see [`04-normalization.md`](04-normalization.md)) |
-| 5 Planning | 🔨 plan IR + planner + executor (`validate_plan`); class-target seeding ≈23× vs scan on a synthetic graph; W3C cross-checked. Path compilation / data-aware stats next |
-| 6 AF inference | 🔨 rule lowering + lfp fixpoint engine (`shacl infer`); TripleRules + node exprs. SPARQLRules / functions / semi-naive next |
+| 5 Planning | 🔨 plan IR + planner + executor (`validate_plan`); class-target seeding ≈23× vs scan on a synthetic graph; W3C cross-checked. Indexed paths and native Spargebra execution are designed in [`05-sparql-execution.md`](05-sparql-execution.md) |
+| 6 AF inference | 🔨 rule lowering + global lfp fixpoint engine (`shacl infer`); TripleRules, SPARQLRules, node exprs, and predicate-delta scheduling. Functions next |
 | 7 Compilation/JIT | ⬜ not started |
 
 Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,

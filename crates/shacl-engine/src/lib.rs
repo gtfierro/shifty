@@ -13,7 +13,7 @@ mod sparql;
 pub mod validate;
 pub mod value;
 
-pub use infer::{infer, InferenceOutcome};
+pub use infer::{infer, infer_graphs, infer_with_context, InferenceOutcome};
 pub use report::{
     report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     ValidationReport, ValidationResult,
@@ -271,5 +271,39 @@ mod tests {
             "http://ex/classified",
             "http://ex/yes",
         )));
+    }
+
+    #[test]
+    fn split_inference_uses_shapes_graph_as_rule_context() {
+        let shapes_ttl = format!(
+            "{PREFIXES}
+            ex:InverseShape a sh:NodeShape ;
+                sh:targetClass ex:Thing ;
+                sh:rule [
+                    a sh:SPARQLRule ;
+                    sh:construct \"\"\"
+                        CONSTRUCT {{ ?o ?inverse $this }}
+                        WHERE {{
+                            $this ?predicate ?o .
+                            ?predicate ex:inverseOf ?inverse .
+                        }}
+                    \"\"\"
+                ] .
+            ex:p ex:inverseOf ex:q .
+            "
+        );
+        let data_ttl = format!(
+            "{PREFIXES}
+            ex:a a ex:Thing ; ex:p ex:b .
+            "
+        );
+        let shapes = shacl_parse::load_turtle(shapes_ttl.as_bytes(), None).unwrap();
+        let parsed = shacl_parse::parse_loaded(&shapes);
+        let data = shacl_parse::load_turtle(data_ttl.as_bytes(), None).unwrap();
+
+        let outcome = infer_graphs(&data.graph, &shapes.graph, &parsed.schema).unwrap();
+
+        assert!(outcome.graph.contains(&triple("http://ex/b", "http://ex/q", "http://ex/a")));
+        assert_eq!(outcome.inferred.len(), 1);
     }
 }

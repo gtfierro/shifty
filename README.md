@@ -49,6 +49,30 @@ cargo run -p shacl-cli -- validate --graph-mode union-all --shapes shapes.ttl --
 The Rust API mirrors these modes: `validate_graphs` defaults to union
 evaluation, while `validate_graphs_with_mode` accepts `ValidationGraphMode`.
 
+## Profiling
+
+Linux profiling uses
+[`cargo-flamegraph`](https://github.com/flamegraph-rs/flamegraph) and `perf`.
+Install the Rust tool and the `perf` package for the running kernel, then run:
+
+```sh
+cargo install flamegraph
+
+# Profiles inference followed by validation on the 223P/NIST workload.
+scripts/flamegraph.sh
+
+# Profile any other shacl CLI invocation.
+FLAMEGRAPH_OUTPUT=person.svg scripts/flamegraph.sh \
+  validate --shapes examples/person.ttl --data examples/person-data.ttl
+```
+
+Open the generated SVG in a browser to use its interactive search and zoom.
+The script uses the release profile with debug symbols and disables expensive
+inline-frame expansion during flamegraph generation. It samples the software
+`cpu-clock` event so Intel hybrid-core systems produce one complete profile.
+Use `FLAMEGRAPH_FREQUENCY` and `FLAMEGRAPH_STACK_SIZE` to override the
+disk-conscious defaults.
+
 The `algebra` text view is a cycle-safe flat dump of the shape graph: each arena
 slot prints as `@i = <φ>` with child shapes referenced as `@j`, so recursion and
 sharing are visible at a glance.

@@ -137,3 +137,141 @@ fn sparql_constraints_see_the_shapes_graph() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn inference_executes_over_data_and_shapes_union() {
+    let dir = std::env::temp_dir().join(format!("shacl-cli-infer-union-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let shapes = dir.join("shapes.ttl");
+    let data = dir.join("data.ttl");
+
+    std::fs::write(
+        &shapes,
+        r#"
+            @prefix ex: <http://ex/> .
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:Thing ;
+                sh:rule [
+                    a sh:SPARQLRule ;
+                    sh:construct """
+                        CONSTRUCT { ?object ?inverse $this }
+                        WHERE {
+                            $this ?predicate ?object .
+                            ?predicate ex:inverseOf ?inverse .
+                        }
+                    """
+                ] .
+            ex:p ex:inverseOf ex:q .
+        "#,
+    )
+    .unwrap();
+    std::fs::write(
+        &data,
+        r#"
+            @prefix ex: <http://ex/> .
+            ex:a a ex:Thing ; ex:p ex:b .
+        "#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_shacl"))
+        .args([
+            "infer",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--data",
+            data.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("inferred 1 triple(s)"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("<http://ex/b> <http://ex/q> <http://ex/a>"),
+        "stdout: {stdout}"
+    );
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn validation_runs_inference_first() {
+    let dir = std::env::temp_dir().join(format!("shacl-cli-validate-infer-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let shapes = dir.join("shapes.ttl");
+    let data = dir.join("data.ttl");
+
+    std::fs::write(
+        &shapes,
+        r#"
+            @prefix ex: <http://ex/> .
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:item ;
+                sh:property [ sh:path ex:derived ; sh:maxCount 0 ] ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ;
+                    sh:predicate ex:derived ;
+                    sh:object ex:value
+                ] .
+        "#,
+    )
+    .unwrap();
+    std::fs::write(&data, "@prefix ex: <http://ex/> . ex:item ex:input ex:value .").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_shacl"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--data",
+            data.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("conforms: false"), "stdout: {stdout}");
+    assert!(stdout.contains("at most 0 value(s)"), "stdout: {stdout}");
+
+    let report = Command::new(env!("CARGO_BIN_EXE_shacl"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--data",
+            data.to_str().unwrap(),
+            "--report",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        report.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&report.stderr)
+    );
+    let report_stdout = String::from_utf8(report.stdout).unwrap();
+    assert!(
+        report_stdout.contains("sh:conforms false"),
+        "stdout: {report_stdout}"
+    );
+    assert!(
+        report_stdout.contains("sh:sourceConstraintComponent sh:MaxCountConstraintComponent"),
+        "stdout: {report_stdout}"
+    );
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

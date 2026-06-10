@@ -172,13 +172,13 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
         eprintln!("{d}");
     }
 
-    let data = if args.data.is_empty() {
-        shapes
+    let outcome = if args.data.is_empty() {
+        shacl_engine::infer(&shapes.graph, &parsed.schema)
     } else {
-        load_sources(&args.data, base)?
+        let data = load_sources(&args.data, base)?;
+        shacl_engine::infer_graphs(&data.graph, &shapes.graph, &parsed.schema)
     };
-
-    let outcome = match shacl_engine::infer(&data.graph, &parsed.schema) {
+    let outcome = match outcome {
         Ok(o) => o,
         Err(e) => return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into()),
     };
@@ -217,6 +217,10 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
 fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let base = args.base.as_deref();
     let shapes_loaded = load_sources(&args.shapes, base)?;
+    let parsed = shacl_parse::parse_loaded(&shapes_loaded);
+    for d in &parsed.diagnostics {
+        eprintln!("{d}");
+    }
     let graph_mode = args.graph_mode.into();
 
     let data_loaded = if args.data.is_empty() {
@@ -224,10 +228,27 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     } else {
         Some(load_sources(&args.data, base)?)
     };
-    let data_graph = data_loaded.as_ref().map(|d| &d.graph).unwrap_or(&shapes_loaded.graph);
+    let inference = match data_loaded.as_ref() {
+        Some(data) => {
+            shacl_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &parsed.schema)
+        }
+        None => shacl_engine::infer(&shapes_loaded.graph, &parsed.schema),
+    };
+    let inference = match inference {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            return Err(
+                format!("{e}; cannot infer before validation (see `inspect --stage strata`)")
+                    .into(),
+            );
+        }
+    };
+    for d in &inference.diagnostics {
+        eprintln!("warning: {d}");
+    }
+    let data_graph = &inference.graph;
 
     // W3C report mode: component-granular validator + RDF report output.
-    // Uses only the raw loaded graph, so lowering is skipped entirely.
     if args.report {
         let report = shacl_engine::validate_report_graphs_with_mode(
             &shapes_loaded,
@@ -264,11 +285,6 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         })?.finish()?;
         print!("{}", String::from_utf8_lossy(&bytes));
         return Ok(());
-    }
-
-    let parsed = shacl_parse::parse_loaded(&shapes_loaded);
-    for d in &parsed.diagnostics {
-        eprintln!("{d}");
     }
 
     let outcome = match shacl_engine::validate_graphs_with_mode(
