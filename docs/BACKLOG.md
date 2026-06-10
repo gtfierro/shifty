@@ -34,7 +34,10 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   refuse today) — see [`03-recursion-semantics.md`](03-recursion-semantics.md).
 
 ## Normalization (Layer 4) — see [`04-normalization.md`](04-normalization.md)
-- **[do]** Value-type tightening + unsat (range/length merge, datatype conflict).
+- **[done]** Value-type tightening + unsat (`ValueType::normalize` + `mk_and`
+  `merge_value_types`): same-family range/length bound merge, empty-range /
+  `len.min>max` / distinct-datatype → ⊥, `test(any)` → ⊤. Numeric ordering only;
+  cross-facet unsat still **[todo]**.
 - **[do]** Path converse-normalization (`(π₁·π₂)⁻ = π₂⁻·π₁⁻`, inverse on `Pred` only).
 - **[do]** `id`-path collapse (`∃≥1 id.φ = φ`); qualifier-⊥ count collapse.
 - **[todo]** Absorption, complementary atoms, cross-facet unsat, selector

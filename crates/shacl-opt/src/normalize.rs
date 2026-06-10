@@ -14,6 +14,7 @@
 use crate::strata::analyze;
 use shacl_algebra::{
     NodeExpr, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId, Statement,
+    ValueType,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -148,6 +149,12 @@ impl<'a> Interner<'a> {
                 let q = self.intern(qualifier);
                 self.mk_count(path, min, max, q)
             }
+            // value-type facet tightening + same-family unsat (§4)
+            Shape::TestType(vt) => match vt.normalize() {
+                None => self.bottom(),                              // facet unsat ⇒ ⊥
+                Some(ValueType::Any) => self.top(),                 // any ⇒ ⊤
+                Some(v) => self.cons(Shape::TestType(v)),
+            },
             // leaves (and the transient Pending) are interned verbatim
             leaf => self.cons(leaf),
         }
@@ -222,6 +229,8 @@ impl<'a> Interner<'a> {
         }
         // merge counts on the same (path, qualifier) into one tightened bound
         let flat = self.merge_counts(flat);
+        // fuse sibling value-type facets into one tightened test(τ)
+        let flat = self.merge_value_types(flat);
         // absorption (merging may have produced ⊤/⊥) + dedup + complement
         let mut acc = Vec::new();
         for id in flat {
@@ -279,6 +288,33 @@ impl<'a> Interner<'a> {
             result.push(merged);
         }
         result
+    }
+
+    /// Fuse conjoined value-type facets (`test(τ)` siblings) into one tightened
+    /// `test(τ₁ ∧ … ∧ τₙ)`, applying range/length bound-merging and same-family
+    /// unsat ([`ValueType::normalize`]). An unsatisfiable combination becomes
+    /// ⊥ (absorbed by the surrounding ∧); a vacuous one (`any`) drops out.
+    fn merge_value_types(&mut self, flat: Vec<ShapeId>) -> Vec<ShapeId> {
+        let mut facets: Vec<ValueType> = Vec::new();
+        let mut others = Vec::new();
+        for id in flat {
+            match self.dst.get(id) {
+                Shape::TestType(vt) => facets.push(vt.clone()),
+                _ => others.push(id),
+            }
+        }
+        if facets.is_empty() {
+            return others;
+        }
+        match ValueType::and(facets).normalize() {
+            None => others.push(self.bottom()),  // unsat ⇒ ⊥ (mk_and's loop absorbs)
+            Some(ValueType::Any) => {}            // vacuous ⇒ drops from ∧
+            Some(v) => {
+                let id = self.cons(Shape::TestType(v));
+                others.push(id);
+            }
+        }
+        others
     }
 
     fn mk_or(&mut self, ids: Vec<ShapeId>) -> ShapeId {
@@ -516,6 +552,53 @@ mod tests {
         let root = a.insert(Shape::And(vec![lo, hi]));
         let n = normalize(&schema_with(a, root));
         assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn unsat_value_type_absorbs_conjunction() {
+        // K(IRI) ∧ test([5,3])  →  ⊥   (the empty range folds to ⊥, absorbing ∧)
+        use shacl_algebra::{Bound, Literal, NamedNode, ValueType};
+        let int = |n: i64| Literal::new_typed_literal(
+            n.to_string(),
+            NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
+        );
+        let mut a = ShapeArena::new();
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let bad = a.insert(Shape::TestType(ValueType::NumericRange {
+            lo: Some(Bound { value: int(5), inclusive: true }),
+            hi: Some(Bound { value: int(3), inclusive: true }),
+        }));
+        let root = a.insert(Shape::And(vec![k, bad]));
+        let n = normalize(&schema_with(a, root));
+        assert!(matches!(n.arena.get(n.statements[0].shape),
+            Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn conjoined_range_facets_merge() {
+        // test(≥1) ∧ test(≤10)  →  single test([1,10])
+        use shacl_algebra::{Bound, Literal, NamedNode, ValueType};
+        let int = |n: i64| Literal::new_typed_literal(
+            n.to_string(),
+            NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
+        );
+        let mut a = ShapeArena::new();
+        let lo = a.insert(Shape::TestType(ValueType::NumericRange {
+            lo: Some(Bound { value: int(1), inclusive: true }),
+            hi: None,
+        }));
+        let hi = a.insert(Shape::TestType(ValueType::NumericRange {
+            lo: None,
+            hi: Some(Bound { value: int(10), inclusive: true }),
+        }));
+        let root = a.insert(Shape::And(vec![lo, hi]));
+        let n = normalize(&schema_with(a, root));
+        match n.arena.get(n.statements[0].shape) {
+            Shape::TestType(ValueType::NumericRange { lo, hi }) => {
+                assert!(lo.is_some() && hi.is_some(), "expected fused [1,10]");
+            }
+            other => panic!("expected one fused range facet, got {other:?}"),
+        }
     }
 
     #[test]

@@ -49,9 +49,17 @@ here are per-node truth-functional / relational, hence gfp-safe.
 
 ## 4. Value types `τ`
 - Flatten `And`, drop `any`. **[done]** (smart constructor)
-- Range/length tightening (merge bounds). **[do]**
-- Facet unsat → ⊥ (empty range, `len.min>max`, conflicting datatypes). **[do]**
+- Range/length tightening (merge bounds). **[done]** (`ValueType::normalize`
+  folds same-family numeric/length bounds to the tighter pair; conjoined
+  `test(τ)` siblings are fused in `mk_and` via `merge_value_types`. Numeric
+  ordering covers xsd numeric only — incomparable bounds are kept, never
+  merged.)
+- Facet unsat → ⊥ (empty range, `len.min>max`, conflicting datatypes). **[done]**
+  (`ValueType::normalize` returns `None`; the normalizer maps it to ⊥, which the
+  Boolean layer then absorbs. `test(any)` ⇒ ⊤.)
 - Cross-facet unsat (`datatype(xsd:string) ∧ NumericRange`). **[todo]**
+  (needs a datatype↔facet compatibility table; same blocker as non-numeric
+  bound ordering for dates/durations.)
 
 ## 5. Schema level
 - Statement/selector dedup. **[do]**
