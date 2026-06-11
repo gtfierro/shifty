@@ -4,6 +4,8 @@ A formalism-first SHACL validation and SHACL-AF inference engine written in Rust
 
 See the `archive-first-attempt` branch for an older attempt, which was published as shifty 0.0.7
 
+**Disclosure: This project was nearly 100% "vibe coded" with Claude Opus 4.8, Sonnet 4.6, and ChatGPT 5.5**
+
 ## Features
 
 - **Full SHACL Core validation** — node and property shapes, all standard constraint components
