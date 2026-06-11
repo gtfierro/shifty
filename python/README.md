@@ -178,8 +178,10 @@ Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `sh
 ```python
 result = shifty.validate_algebra(data, shapes)
 print(result.conforms)        # False
+print(result.results_text)    # human-readable summary (built and cached on first access)
 for v in result.violations:
-    print(v.focus)            # IRI of the failing focus node
+    print(v.focus_node)       # IRI of the failing focus node
+    print(v.shape_name)       # IRI of the violated shape, or None
     for r in v.reasons:
         print(r.message)      # human-readable failure description
         print(r.path)         # path that was checked, if applicable
