@@ -12,6 +12,7 @@
 //!
 //! Coverage is a growing subset of SHACL Core (see `docs/BACKLOG.md`).
 
+use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::SparqlExecutor;
 use crate::validate::{graph_union, ValidationGraphMode};
@@ -23,6 +24,7 @@ use shacl_parse::graph::{term_to_node, Loaded};
 use shacl_parse::lower::canonical_sparql_query;
 use shacl_parse::path::parse_path;
 use shacl_parse::vocab;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
@@ -38,6 +40,8 @@ pub struct ValidationResult {
     /// `sh:resultSeverity` — the `sh:severity` declared on the source shape,
     /// defaulting to `sh:Violation`.
     pub severity: NamedNode,
+    /// `sh:resultMessage` — copied from `sh:message` on the source shape.
+    pub messages: Vec<Term>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,14 +105,35 @@ fn validate_report_context(
         // Only mirror the shapes into a named graph (for `$shapesGraph`) when a
         // query actually references it — otherwise skip the extra copy.
         if shapes_reference_shapes_graph(shapes) {
-            SparqlExecutor::new_with_shapes(context, &shapes.graph).ok()
+            SparqlExecutor::new_with_shapes(context, &shapes.graph)
+                .ok()
+                .map(|s| s.with_frozen(FrozenIndexedDataset::from_graphs(context, &shapes.graph)))
         } else {
-            SparqlExecutor::new(context).ok()
+            SparqlExecutor::new(context)
+                .ok()
+                .map(|s| s.with_frozen(FrozenIndexedDataset::from_graph(context)))
         }
     } else {
         None
     };
-    let r = Reporter { shapes, focus_data, context, sparql };
+    // Dictionary-encoded snapshot of the context, used as the indexed backend
+    // for every `sh:path` / `rdfs:subClassOf*` traversal below. Built once and
+    // shared across all (shape, focus) visits — the report-path analogue of the
+    // algebra path's `FrozenIndexedDataset` reachability backend.
+    let frozen = FrozenIndexedDataset::from_graph(context);
+    // Index class membership once (instead of a forward scan over every node per
+    // class-target shape): this is the report path's analogue of the plan's
+    // backward `PathToConst` focus source, amortized across all shapes.
+    let class_index = build_class_index(context, focus_data, &frozen);
+    let r = Reporter {
+        shapes,
+        focus_data,
+        context,
+        frozen,
+        sparql,
+        class_index,
+        path_cache: RefCell::new(HashMap::new()),
+    };
     let mut results = Vec::new();
     for shape in r.target_shapes() {
         for focus in r.focus_nodes(&shape) {
@@ -153,6 +178,9 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
             vocab::SH_SOURCE_CONSTRAINT_COMPONENT,
             r.component.clone().into(),
         ));
+        for msg in &r.messages {
+            g.insert(&t(rn.clone().into(), vocab::SH_RESULT_MESSAGE, msg.clone()));
+        }
         g.insert(&t(rn.into(), vocab::SH_SOURCE_SHAPE, r.source_shape.clone()));
     }
     g
@@ -162,7 +190,15 @@ struct Reporter<'a> {
     shapes: &'a Loaded,
     focus_data: &'a Graph,
     context: &'a Graph,
+    /// Indexed snapshot of `context` for path / class-hierarchy traversal.
+    frozen: FrozenIndexedDataset,
     sparql: Option<SparqlExecutor>,
+    /// `class → focus-data instances` under `rdf:type / rdfs:subClassOf*`, built
+    /// once and shared by every `sh:targetClass` / implicit-class lookup.
+    class_index: HashMap<Term, Vec<Term>>,
+    /// Parsed `sh:path` per shape node, so `collect` does not re-parse the path
+    /// RDF on every (shape, focus) visit. `None` = shape has no/invalid path.
+    path_cache: RefCell<HashMap<NamedOrBlankNode, (Option<Term>, Option<Path>)>>,
 }
 
 type Visited = HashSet<(NamedOrBlankNode, Term)>;
@@ -236,11 +272,9 @@ impl Reporter<'_> {
         let mut nodes = Vec::new();
         nodes.extend(self.shapes.objects(shape, vocab::SH_TARGET_NODE));
         for c in self.shapes.objects(shape, vocab::SH_TARGET_CLASS) {
-            nodes.extend(
-                graph_nodes(self.focus_data)
-                    .into_iter()
-                    .filter(|node| succ(self.context, node, &class_path()).contains(&c)),
-            );
+            if let Some(instances) = self.class_index.get(&c) {
+                nodes.extend(instances.iter().cloned());
+            }
         }
         for p in self.shapes.objects(shape, vocab::SH_TARGET_SUBJECTS_OF) {
             if let Term::NamedNode(n) = p {
@@ -286,15 +320,30 @@ impl Reporter<'_> {
             && self.is_class(shape)
         {
             let class = Term::NamedNode(n.clone());
-            nodes.extend(
-                graph_nodes(self.focus_data)
-                    .into_iter()
-                    .filter(|node| succ(self.context, node, &class_path()).contains(&class)),
-            );
+            if let Some(instances) = self.class_index.get(&class) {
+                nodes.extend(instances.iter().cloned());
+            }
         }
         let mut seen = HashSet::new();
         nodes.retain(|t| seen.insert(t.clone()));
         nodes
+    }
+
+    /// The shape's `sh:path` as both its raw RDF node (for `sh:resultPath`) and
+    /// the parsed path algebra, memoized so repeated visits don't re-parse it.
+    fn shape_path(&self, shape: &NamedOrBlankNode) -> (Option<Term>, Option<Path>) {
+        if let Some(cached) = self.path_cache.borrow().get(shape) {
+            return cached.clone();
+        }
+        let path_term = self.shapes.object(shape, vocab::SH_PATH);
+        let parsed = path_term
+            .as_ref()
+            .and_then(|t| parse_path(self.shapes, t).ok());
+        let entry = (path_term, parsed);
+        self.path_cache
+            .borrow_mut()
+            .insert(shape.clone(), entry.clone());
+        entry
     }
 
     /// Collect the results of validating `focus` against `shape`.
@@ -313,13 +362,13 @@ impl Reporter<'_> {
             return; // recursion: conform on the back-edge (gfp)
         }
 
-        let path_term = self.shapes.object(shape, vocab::SH_PATH);
-        let parsed = path_term.as_ref().and_then(|t| parse_path(self.shapes, t).ok());
+        let (path_term, parsed) = self.shape_path(shape);
         let value_nodes: Vec<Term> = match &parsed {
-            Some(p) => succ(self.context, focus, p).into_iter().collect(),
+            Some(p) => succ(&self.frozen,focus, p).into_iter().collect(),
             None => vec![focus.clone()],
         };
         let severity = self.severity(shape);
+        let messages = self.messages(shape);
         let push = |out: &mut Vec<ValidationResult>, value, component| {
             out.push(ValidationResult {
                 focus: focus.clone(),
@@ -328,6 +377,7 @@ impl Reporter<'_> {
                 component,
                 source_shape: node_term_ref(shape),
                 severity: severity.clone(),
+                messages: messages.clone(),
             });
         };
 
@@ -419,6 +469,7 @@ impl Reporter<'_> {
                 path: parsed_path.clone(),
                 shape: Some(node_term_ref(shape)),
             };
+            let messages = self.messages(shape);
             match sparql.constraint_violations(&constraint, focus) {
                 Ok(violations) => {
                     for violation in violations {
@@ -429,6 +480,7 @@ impl Reporter<'_> {
                             component: vocab::SH_CC_SPARQL.into_owned(),
                             source_shape: node_term_ref(shape),
                             severity: severity.clone(),
+                            messages: messages.clone(),
                         });
                     }
                 }
@@ -441,6 +493,7 @@ impl Reporter<'_> {
                     component: vocab::SH_CC_SPARQL.into_owned(),
                     source_shape: node_term_ref(shape),
                     severity: severity.clone(),
+                    messages: messages.clone(),
                 }),
             }
         }
@@ -483,6 +536,7 @@ impl Reporter<'_> {
                     component: vocab::SH_CC_CLOSED.into_owned(),
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
+                    messages: self.messages(shape),
                 });
             }
         }
@@ -498,7 +552,7 @@ impl Reporter<'_> {
     ) {
         for predicate in self.shapes.objects(shape, vocab::SH_EQUALS) {
             let Term::NamedNode(predicate) = predicate else { continue };
-            let other = succ(self.context, focus, &Path::Pred(predicate));
+            let other = succ(&self.frozen,focus, &Path::Pred(predicate));
             for value in value_nodes.iter().filter(|value| !other.contains(*value)) {
                 self.push(out, shape, focus, path.clone(), Some((*value).clone()), vocab::SH_CC_EQUALS);
             }
@@ -508,7 +562,7 @@ impl Reporter<'_> {
         }
         for predicate in self.shapes.objects(shape, vocab::SH_DISJOINT) {
             let Term::NamedNode(predicate) = predicate else { continue };
-            let other = succ(self.context, focus, &Path::Pred(predicate));
+            let other = succ(&self.frozen,focus, &Path::Pred(predicate));
             for value in value_nodes.iter().filter(|value| other.contains(*value)) {
                 self.push(
                     out,
@@ -531,7 +585,7 @@ impl Reporter<'_> {
             for predicate in self.shapes.objects(shape, constraint) {
                 let Term::NamedNode(predicate) = predicate else { continue };
                 for left in value_nodes {
-                    for right in succ(self.context, focus, &Path::Pred(predicate.clone())) {
+                    for right in succ(&self.frozen,focus, &Path::Pred(predicate.clone())) {
                         let ordering = compare_terms(left, &right);
                         let passes = ordering == Some(Ordering::Less)
                             || inclusive && ordering == Some(Ordering::Equal);
@@ -681,7 +735,13 @@ impl Reporter<'_> {
             component: component.into_owned(),
             source_shape: node_term_ref(shape),
             severity: self.severity(shape),
+            messages: self.messages(shape),
         });
+    }
+
+    /// Read `sh:message` values from `shape` to propagate as `sh:resultMessage`.
+    fn messages(&self, shape: &NamedOrBlankNode) -> Vec<Term> {
+        self.shapes.objects(shape, vocab::SH_MESSAGE)
     }
 
     fn conforms(&self, shape: &NamedOrBlankNode, focus: &Term, visited: &mut Visited) -> bool {
@@ -823,7 +883,7 @@ impl Reporter<'_> {
     }
 
     fn is_instance(&self, u: &Term, class: &Term) -> bool {
-        succ(self.context, u, &class_path()).contains(class)
+        succ(&self.frozen,u, &class_path()).contains(class)
     }
 
     fn int(&self, s: &NamedOrBlankNode, p: NamedNodeRef) -> Option<u64> {
@@ -865,6 +925,42 @@ fn class_path() -> Path {
         Path::Pred(vocab::rdf_type()),
         Path::star(Path::Pred(vocab::rdfs_subclassof())),
     ])
+}
+
+/// Index `class → focus-data instances` under `rdf:type / rdfs:subClassOf*`.
+///
+/// One pass over the `rdf:type` triples replaces the per-shape forward scan
+/// (`graph_nodes(data).filter(node is instance of c)`), which was
+/// `O(shapes × nodes × type-closure)`. Each instance is attributed to every
+/// superclass of its declared type, and the reflexive `subClassOf*` closure of
+/// each distinct type is computed at most once. Only nodes present in the focus
+/// (data) graph are indexed, matching the original target-selection semantics.
+fn build_class_index(
+    context: &Graph,
+    focus_data: &Graph,
+    frozen: &FrozenIndexedDataset,
+) -> HashMap<Term, Vec<Term>> {
+    let focus_nodes = graph_nodes(focus_data);
+    let subclass_star = Path::star(Path::Pred(vocab::rdfs_subclassof()));
+    let mut supers: HashMap<Term, Vec<Term>> = HashMap::new();
+    let mut index: HashMap<Term, Vec<Term>> = HashMap::new();
+    let mut seen: HashSet<(Term, Term)> = HashSet::new();
+    for triple in context.triples_for_predicate(vocab::RDF_TYPE) {
+        let node = node_term(triple.subject);
+        if !focus_nodes.contains(&node) {
+            continue;
+        }
+        let ty = triple.object.into_owned();
+        let classes = supers
+            .entry(ty.clone())
+            .or_insert_with(|| succ(frozen, &ty, &subclass_star).into_iter().collect());
+        for class in classes.iter() {
+            if seen.insert((class.clone(), node.clone())) {
+                index.entry(class.clone()).or_default().push(node.clone());
+            }
+        }
+    }
+    index
 }
 
 fn graph_nodes(graph: &Graph) -> HashSet<Term> {

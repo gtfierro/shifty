@@ -29,13 +29,7 @@ impl RuleDependencies {
 /// Predicates whose triples may affect a rule's targets, conditions, or head
 /// node expressions.
 pub fn rule_dependencies(rule: &Rule, arena: &ShapeArena) -> RuleDependencies {
-    let mut deps = RuleDependencies::default();
-    selector_dependencies(&rule.selector, arena, &mut deps);
-
-    let mut visited = HashSet::new();
-    for condition in &rule.conditions {
-        shape_dependencies(arena, *condition, &mut visited, &mut deps);
-    }
+    let mut deps = rule_guard_dependencies(rule, arena);
 
     match &rule.head {
         RuleHead::Triple {
@@ -52,24 +46,41 @@ pub fn rule_dependencies(rule: &Rule, arena: &ShapeArena) -> RuleDependencies {
     deps
 }
 
-fn selector_dependencies(selector: &Selector, arena: &ShapeArena, deps: &mut RuleDependencies) {
+/// Predicates whose triples may change a rule's focus nodes or conditions.
+///
+/// Keeping guard dependencies separate from head dependencies allows inference
+/// to narrow a monotone SPARQL rule to focus nodes derived from the graph delta
+/// when its eligibility is known to be unchanged.
+pub fn rule_guard_dependencies(rule: &Rule, arena: &ShapeArena) -> RuleDependencies {
+    let mut deps = selector_dependencies(&rule.selector, arena);
+    let mut visited = HashSet::new();
+    for condition in &rule.conditions {
+        shape_dependencies(arena, *condition, &mut visited, &mut deps);
+    }
+    deps
+}
+
+/// Predicates whose triples may change the focus nodes selected by `selector`.
+pub fn selector_dependencies(selector: &Selector, arena: &ShapeArena) -> RuleDependencies {
+    let mut deps = RuleDependencies::default();
     match selector {
         Selector::HasOut(predicate) | Selector::HasIn(predicate) => {
             deps.predicate(predicate);
         }
         Selector::IsConst(_) => {}
         Selector::HasPath(path, qualifier) => {
-            path_dependencies(path, deps);
+            path_dependencies(path, &mut deps);
             if path_is_nullable(path) {
                 // HasPath scans the graph's node domain. A triple with any
                 // predicate can introduce a new focus node for a nullable path.
                 deps.wildcard = true;
             }
             let mut visited = HashSet::new();
-            shape_dependencies(arena, *qualifier, &mut visited, deps);
+            shape_dependencies(arena, *qualifier, &mut visited, &mut deps);
         }
         Selector::Sparql(_) => deps.wildcard = true,
     }
+    deps
 }
 
 fn node_expr_dependencies(expr: &NodeExpr, arena: &ShapeArena, deps: &mut RuleDependencies) {
@@ -207,5 +218,25 @@ mod tests {
 
         let deps = rule_dependencies(&rule, &arena);
         assert!(deps.wildcard);
+    }
+
+    #[test]
+    fn sparql_head_does_not_make_unchanged_guards_wildcard() {
+        let arena = ShapeArena::new();
+        let rule = Rule {
+            selector: Selector::IsConst(Term::NamedNode(named("focus"))),
+            conditions: Vec::new(),
+            head: RuleHead::Sparql(shacl_algebra::SparqlConstruct {
+                query: "CONSTRUCT {} WHERE {}".to_string(),
+            }),
+            order: None,
+            deactivated: false,
+        };
+
+        assert!(rule_dependencies(&rule, &arena).wildcard);
+        assert_eq!(
+            rule_guard_dependencies(&rule, &arena),
+            RuleDependencies::default()
+        );
     }
 }

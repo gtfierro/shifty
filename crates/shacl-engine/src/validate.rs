@@ -9,7 +9,8 @@
 //! lets a failed universal drill straight into the offending value node's inner
 //! constraint.
 
-use crate::path::{node_of, pred, succ};
+use crate::frozen::FrozenIndexedDataset;
+use crate::path::{PathBackend, node_of, pred, succ};
 use crate::sparql::SparqlExecutor;
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
@@ -151,16 +152,30 @@ pub fn validate_with_context(
     // query references `$shapesGraph` (rare), so the common path stays cheap.
     let sparql = if uses_shapes_graph(&schema.arena) {
         SparqlExecutor::new_with_shapes(context, context)
+            .expect("building an in-memory Oxigraph store should succeed")
+            .with_frozen(FrozenIndexedDataset::from_graphs(context, context))
     } else {
         SparqlExecutor::new(context)
-    }
-    .expect("building an in-memory Oxigraph store should succeed");
+            .expect("building an in-memory Oxigraph store should succeed")
+            .with_frozen(FrozenIndexedDataset::from_graph(context))
+    };
+    // Path / shape evaluation runs over the indexed frozen snapshot built above;
+    // `context` (the mutable-free Graph) is only the fallback for callers without
+    // a snapshot (none here — `with_frozen` always ran).
+    let backend = path_backend(&sparql, context);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
-        for v in focus_nodes_with(data, context, &st.selector, &schema.arena, &sparql) {
+        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
             let mut stack = HashSet::new();
-            let mut reasons =
-                explain(context, &schema.arena, &v, st.shape, None, &mut stack, &sparql);
+            let mut reasons = explain(
+                backend,
+                &schema.arena,
+                &v,
+                st.shape,
+                None,
+                &mut stack,
+                &sparql,
+            );
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
                 violations.push(Violation {
@@ -251,14 +266,23 @@ pub fn validate_plan_with_context(
         return Err(NonStratifiable { components });
     }
 
-    let sparql =
-        SparqlExecutor::new(context).expect("building an in-memory Oxigraph store should succeed");
+    let sparql = SparqlExecutor::new(context)
+        .expect("building an in-memory Oxigraph store should succeed")
+        .with_frozen(FrozenIndexedDataset::from_graph(context));
+    let backend = path_backend(&sparql, context);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
-        for v in focus_for_source(data, context, &sp.source, &plan.arena, &sparql) {
+        for v in focus_for_source(data, backend, &sp.source, &plan.arena, &sparql) {
             let mut stack = HashSet::new();
-            let mut reasons =
-                explain(context, &plan.arena, &v, sp.shape, None, &mut stack, &sparql);
+            let mut reasons = explain(
+                backend,
+                &plan.arena,
+                &v,
+                sp.shape,
+                None,
+                &mut stack,
+                &sparql,
+            );
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
                 violations.push(Violation {
@@ -275,10 +299,20 @@ pub fn validate_plan_with_context(
     })
 }
 
+/// The path-evaluation backend for a validation run: the indexed frozen snapshot
+/// when present (always so on the validation paths), else the context `Graph`
+/// (the inference / standalone-target fallback). See [`crate::path::PathBackend`].
+fn path_backend<'a>(sparql: &'a SparqlExecutor, context: &'a Graph) -> &'a dyn PathBackend {
+    match sparql.frozen() {
+        Some(frozen) => frozen,
+        None => context,
+    }
+}
+
 /// Focus nodes for a compiled [`FocusSource`].
 fn focus_for_source(
     data: &Graph,
-    context: &Graph,
+    backend: &dyn PathBackend,
     source: &FocusSource,
     arena: &ShapeArena,
     sparql: &SparqlExecutor,
@@ -288,7 +322,7 @@ fn focus_for_source(
         FocusSource::ObjectsOf(p) => objects_of(data, p),
         FocusSource::Node(c) => vec![c.clone()],
         // the optimization: seed backward from the constant, no full scan
-        FocusSource::PathToConst { path, target } => pred(context, target, path)
+        FocusSource::PathToConst { path, target } => pred(backend, target, path)
             .into_iter()
             .filter(|node| graph_contains_term(data, node))
             .collect(),
@@ -296,9 +330,9 @@ fn focus_for_source(
             .into_iter()
             .filter(|v| {
                 let mut stack = HashSet::new();
-                succ(context, v, path)
+                succ(backend, v, path)
                     .iter()
-                    .any(|u| holds(context, arena, u, *qualifier, &mut stack, sparql))
+                    .any(|u| holds(backend, arena, u, *qualifier, &mut stack, sparql))
             })
             .collect(),
         FocusSource::Sparql(target) => {
@@ -322,7 +356,7 @@ pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term
 
 pub(crate) fn focus_nodes_with(
     data: &Graph,
-    context: &Graph,
+    backend: &dyn PathBackend,
     sel: &Selector,
     arena: &ShapeArena,
     sparql: &SparqlExecutor,
@@ -331,15 +365,25 @@ pub(crate) fn focus_nodes_with(
         Selector::HasOut(q) => subjects_of(data, q),
         Selector::HasIn(q) => objects_of(data, q),
         Selector::IsConst(c) => vec![c.clone()],
-        Selector::HasPath(path, qual) => all_nodes(data)
-            .into_iter()
-            .filter(|v| {
-                let mut stack = HashSet::new();
-                succ(context, v, path)
-                    .iter()
-                    .any(|u| holds(context, arena, u, *qual, &mut stack, sparql))
-            })
-            .collect(),
+        Selector::HasPath(path, qual) => match arena.get(*qual) {
+            // Class targets are lowered to
+            // rdf:type/rdfs:subClassOf* ending at a constant. Searching
+            // backward from that constant avoids traversing the hierarchy once
+            // for every node in the data graph.
+            Shape::TestConst(target) => pred(backend, target, path)
+                .into_iter()
+                .filter(|node| graph_contains_term(data, node))
+                .collect(),
+            _ => all_nodes(data)
+                .into_iter()
+                .filter(|v| {
+                    let mut stack = HashSet::new();
+                    succ(backend, v, path)
+                        .iter()
+                        .any(|u| holds(backend, arena, u, *qual, &mut stack, sparql))
+                })
+                .collect(),
+        },
         Selector::Sparql(target) => {
             let candidates = all_nodes(data);
             sparql
@@ -355,7 +399,7 @@ pub(crate) fn focus_nodes_with(
 /// `G, v ⊨ φ` (bare bool). Used for target selection, qualifier counting, and
 /// rule conditions (`crate::infer`).
 pub(crate) fn holds(
-    g: &Graph,
+    g: &dyn PathBackend,
     arena: &ShapeArena,
     v: &Term,
     id: ShapeId,
@@ -403,7 +447,7 @@ pub(crate) fn holds(
 /// The reasons `φ` (slot `id`) fails at `node`. Empty iff it holds. `path_ctx`
 /// is the rendered path by which `node` was reached from the enclosing focus.
 fn explain(
-    g: &Graph,
+    g: &dyn PathBackend,
     arena: &ShapeArena,
     node: &Term,
     id: ShapeId,
@@ -522,7 +566,7 @@ fn explain(
 
 #[allow(clippy::too_many_arguments)]
 fn explain_count(
-    g: &Graph,
+    g: &dyn PathBackend,
     arena: &ShapeArena,
     node: &Term,
     id: ShapeId,
@@ -593,7 +637,7 @@ fn leaf(
     }
 }
 
-fn all_pairs_ordered(g: &Graph, v: &Term, path: &Path, p: &NamedNode, allow_eq: bool) -> bool {
+fn all_pairs_ordered(g: &dyn PathBackend, v: &Term, path: &Path, p: &NamedNode, allow_eq: bool) -> bool {
     let lhs = succ(g, v, path);
     let rhs = objects(g, v, p);
     for a in &lhs {
@@ -608,22 +652,16 @@ fn all_pairs_ordered(g: &Graph, v: &Term, path: &Path, p: &NamedNode, allow_eq: 
     true
 }
 
-fn objects(g: &Graph, v: &Term, p: &NamedNode) -> HashSet<Term> {
+fn objects(g: &dyn PathBackend, v: &Term, p: &NamedNode) -> HashSet<Term> {
     succ(g, v, &Path::Pred(p.clone()))
 }
 
 /// Predicates on `node` not allowed by a closed shape's set `q`.
-fn closed_offenders(g: &Graph, node: &Term, q: &BTreeSet<NamedNode>) -> BTreeSet<NamedNode> {
-    let mut bad = BTreeSet::new();
-    if let Some(n) = node_of(node) {
-        for t in g.triples_for_subject(&n) {
-            let p = t.predicate.into_owned();
-            if !q.contains(&p) {
-                bad.insert(p);
-            }
-        }
-    }
-    bad
+fn closed_offenders(g: &dyn PathBackend, node: &Term, q: &BTreeSet<NamedNode>) -> BTreeSet<NamedNode> {
+    g.out_predicates(node)
+        .into_iter()
+        .filter(|p| !q.contains(p))
+        .collect()
 }
 
 fn unique_lang(values: &HashSet<Term>) -> bool {

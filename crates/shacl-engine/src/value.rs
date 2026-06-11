@@ -3,7 +3,8 @@
 
 use oxrdf::vocab::xsd;
 use oxrdf::{Literal, NamedNodeRef, Term};
-use oxsdatatypes::{Boolean, DateTime, Decimal, Double, Float};
+use oxsdatatypes::{Boolean, Date, DateTime, DayTimeDuration, Decimal, Double, Duration, Float,
+    Time, YearMonthDuration};
 use regex::Regex;
 use shacl_algebra::value_type::{Bound, ValueType};
 use std::cmp::Ordering;
@@ -59,9 +60,10 @@ fn satisfies_upper(term: &Term, b: &Bound) -> bool {
     }
 }
 
-/// Partial ordering over terms (SPARQL-flavored, reference subset): numeric
-/// literals compare numerically, string-typed literals lexicographically;
-/// everything else is incomparable (`None`).
+/// Partial ordering over terms: numeric literals compare numerically,
+/// string-typed literals lexicographically, and the XSD date/time/duration
+/// family via their `oxsdatatypes` implementations (which correctly model the
+/// partial order for timezone-unaware comparisons and incomparable durations).
 pub fn compare_terms(a: &Term, b: &Term) -> Option<Ordering> {
     if let (Term::Literal(la), Term::Literal(lb)) = (a, b) {
         if let (Some(na), Some(nb)) = (numeric(la), numeric(lb)) {
@@ -70,13 +72,35 @@ pub fn compare_terms(a: &Term, b: &Term) -> Option<Ordering> {
         if is_string(la) && is_string(lb) {
             return Some(la.value().cmp(lb.value()));
         }
-        if la.datatype() == xsd::DATE_TIME && lb.datatype() == xsd::DATE_TIME {
+        let (dta, dtb) = (la.datatype(), lb.datatype());
+        if dta == xsd::DATE_TIME && dtb == xsd::DATE_TIME {
             let left = DateTime::from_str(la.value()).ok()?;
             let right = DateTime::from_str(lb.value()).ok()?;
             return left.partial_cmp(&right);
         }
+        if dta == xsd::DATE && dtb == xsd::DATE {
+            let left = Date::from_str(la.value()).ok()?;
+            let right = Date::from_str(lb.value()).ok()?;
+            return left.partial_cmp(&right);
+        }
+        if dta == xsd::TIME && dtb == xsd::TIME {
+            let left = Time::from_str(la.value()).ok()?;
+            let right = Time::from_str(lb.value()).ok()?;
+            return left.partial_cmp(&right);
+        }
+        if is_duration_datatype(dta) && is_duration_datatype(dtb) {
+            // Parse via Duration for all three subtypes; Duration::partial_cmp
+            // correctly returns None for incomparable year-month vs day-time pairs.
+            let left = Duration::from_str(la.value()).ok()?;
+            let right = Duration::from_str(lb.value()).ok()?;
+            return left.partial_cmp(&right);
+        }
     }
     None
+}
+
+fn is_duration_datatype(dt: NamedNodeRef<'_>) -> bool {
+    dt == xsd::DURATION || dt == xsd::YEAR_MONTH_DURATION || dt == xsd::DAY_TIME_DURATION
 }
 
 fn valid_lexical_form(literal: &Literal) -> bool {
@@ -92,6 +116,16 @@ fn valid_lexical_form(literal: &Literal) -> bool {
         Double::from_str(value).is_ok()
     } else if datatype == xsd::DATE_TIME {
         DateTime::from_str(value).is_ok()
+    } else if datatype == xsd::DATE {
+        Date::from_str(value).is_ok()
+    } else if datatype == xsd::TIME {
+        Time::from_str(value).is_ok()
+    } else if datatype == xsd::DURATION {
+        Duration::from_str(value).is_ok()
+    } else if datatype == xsd::YEAR_MONTH_DURATION {
+        YearMonthDuration::from_str(value).is_ok()
+    } else if datatype == xsd::DAY_TIME_DURATION {
+        DayTimeDuration::from_str(value).is_ok()
     } else if is_integer_datatype(datatype) {
         integer_in_datatype_range(value, datatype)
     } else {
@@ -211,4 +245,88 @@ fn compile(regex: &str, flags: &str) -> Option<Regex> {
         format!("(?{active}){regex}")
     };
     Regex::new(&pattern).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxrdf::Literal;
+    use std::cmp::Ordering;
+
+    fn lit(value: &str, datatype: &str) -> Term {
+        Term::Literal(Literal::new_typed_literal(
+            value,
+            oxrdf::NamedNode::new(datatype).unwrap(),
+        ))
+    }
+    fn date(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#date") }
+    fn time(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#time") }
+    fn dur(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#duration") }
+    fn ymd(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#yearMonthDuration") }
+    fn dtd(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#dayTimeDuration") }
+
+    #[test]
+    fn date_ordering() {
+        assert_eq!(compare_terms(&date("2020-01-01"), &date("2020-06-01")), Some(Ordering::Less));
+        assert_eq!(compare_terms(&date("2020-06-01"), &date("2020-01-01")), Some(Ordering::Greater));
+        assert_eq!(compare_terms(&date("2020-03-15"), &date("2020-03-15")), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn time_ordering() {
+        assert_eq!(compare_terms(&time("08:00:00"), &time("17:30:00")), Some(Ordering::Less));
+        assert_eq!(compare_terms(&time("23:59:59"), &time("00:00:00")), Some(Ordering::Greater));
+        assert_eq!(compare_terms(&time("12:00:00"), &time("12:00:00")), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn duration_ordering() {
+        assert_eq!(compare_terms(&dur("P1Y"), &dur("P2Y")), Some(Ordering::Less));
+        assert_eq!(compare_terms(&dur("P30D"), &dur("P1D")), Some(Ordering::Greater));
+        assert_eq!(compare_terms(&dur("P1Y"), &dur("P1Y")), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn year_month_duration_ordering() {
+        assert_eq!(compare_terms(&ymd("P1Y"), &ymd("P13M")), Some(Ordering::Less));
+        assert_eq!(compare_terms(&ymd("P2Y"), &ymd("P1Y")), Some(Ordering::Greater));
+    }
+
+    #[test]
+    fn day_time_duration_ordering() {
+        assert_eq!(compare_terms(&dtd("PT1H"), &dtd("PT2H")), Some(Ordering::Less));
+        assert_eq!(compare_terms(&dtd("P2D"), &dtd("P1D")), Some(Ordering::Greater));
+    }
+
+    #[test]
+    fn genuinely_incomparable_durations() {
+        // P1M and P30D are incomparable: a month is 28–31 days so no consistent ordering
+        assert_eq!(compare_terms(&dur("P1M"), &dur("P30D")), None);
+    }
+
+    #[test]
+    fn cross_type_incomparable() {
+        assert_eq!(compare_terms(&date("2020-01-01"), &time("12:00:00")), None);
+        assert_eq!(compare_terms(&date("2020-01-01"), &dur("P1Y")), None);
+    }
+
+    #[test]
+    fn valid_lexical_form_date() {
+        let good = Literal::new_typed_literal("2020-01-01",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap());
+        let bad = Literal::new_typed_literal("not-a-date",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap());
+        assert!(valid_lexical_form(&good));
+        assert!(!valid_lexical_form(&bad));
+    }
+
+    #[test]
+    fn valid_lexical_form_duration() {
+        let good = Literal::new_typed_literal("P1Y2M3DT4H",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#duration").unwrap());
+        let bad = Literal::new_typed_literal("not-a-duration",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#duration").unwrap());
+        assert!(valid_lexical_form(&good));
+        assert!(!valid_lexical_form(&bad));
+    }
 }

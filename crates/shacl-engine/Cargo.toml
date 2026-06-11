@@ -15,6 +15,7 @@ oxrdf.workspace = true
 oxsdatatypes.workspace = true
 oxigraph.workspace = true
 spargebra.workspace = true
+spareval.workspace = true
 serde.workspace = true
 log.workspace = true
 regex.workspace = true

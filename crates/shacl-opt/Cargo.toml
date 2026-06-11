@@ -11,3 +11,4 @@ repository.workspace = true
 shacl-algebra.workspace = true
 petgraph.workspace = true
 serde.workspace = true
+spargebra.workspace = true

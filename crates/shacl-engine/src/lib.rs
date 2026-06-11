@@ -6,23 +6,26 @@
 //! inference engine (Layer 6) and compiled executors (Layer 7) come later; every
 //! execution mode must agree with this oracle.
 
+pub mod frozen;
 pub mod infer;
+mod native_exec;
 pub mod path;
+mod path_plan;
+pub mod profile;
 pub mod report;
 mod sparql;
 pub mod validate;
 pub mod value;
 
-pub use infer::{infer, infer_graphs, infer_with_context, InferenceOutcome};
+pub use infer::{InferenceOutcome, infer, infer_graphs, infer_with_context};
 pub use report::{
-    report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
-    ValidationReport, ValidationResult,
+    ValidationReport, ValidationResult, report_to_graph, validate_report, validate_report_graphs,
+    validate_report_graphs_with_mode,
 };
 pub use validate::{
-    focus_nodes, validate, validate_graphs, validate_graphs_with_mode, validate_plan,
-    validate_plan_graphs, validate_plan_graphs_with_mode, validate_plan_with_context,
-    validate_with_context, NonStratifiable, Reason, ValidationGraphMode, ValidationOutcome,
-    Violation,
+    NonStratifiable, Reason, ValidationGraphMode, ValidationOutcome, Violation, focus_nodes,
+    validate, validate_graphs, validate_graphs_with_mode, validate_plan, validate_plan_graphs,
+    validate_plan_graphs_with_mode, validate_plan_with_context, validate_with_context,
 };
 
 #[cfg(test)]
@@ -75,7 +78,8 @@ mod tests {
             "missing maxCount reason: {msgs:?}"
         );
         assert!(
-            msgs.iter().any(|m| m.contains("closed") && m.contains("extra")),
+            msgs.iter()
+                .any(|m| m.contains("closed") && m.contains("extra")),
             "missing closed reason: {msgs:?}"
         );
     }
@@ -94,7 +98,11 @@ mod tests {
         let outcome = run(&ttl);
         assert!(!outcome.conforms);
         // only ex:bob violates maxCount 1
-        let bad: Vec<_> = outcome.violations.iter().map(|r| r.focus.to_string()).collect();
+        let bad: Vec<_> = outcome
+            .violations
+            .iter()
+            .map(|r| r.focus.to_string())
+            .collect();
         assert_eq!(bad, vec!["<http://ex/bob>".to_string()]);
     }
 
@@ -124,7 +132,11 @@ mod tests {
         );
         let outcome = run(&ttl);
         assert!(!outcome.conforms);
-        let bad: Vec<_> = outcome.violations.iter().map(|r| r.focus.to_string()).collect();
+        let bad: Vec<_> = outcome
+            .violations
+            .iter()
+            .map(|r| r.focus.to_string())
+            .collect();
         assert_eq!(bad, vec!["<http://ex/carol>".to_string()]);
     }
 
@@ -192,7 +204,11 @@ mod tests {
         let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
         let outcome = infer(&loaded.graph, &out.schema).unwrap();
         assert_eq!(outcome.inferred.len(), 1);
-        assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/knows2", "http://ex/b")));
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/a", "http://ex/knows2", "http://ex/b"))
+        );
     }
 
     #[test]
@@ -213,10 +229,22 @@ mod tests {
         let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
         let outcome = infer(&loaded.graph, &out.schema).unwrap();
-        assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/b")));
-        assert!(outcome.graph.contains(&triple("http://ex/b", "http://ex/reaches", "http://ex/c")));
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/b"))
+        );
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/b", "http://ex/reaches", "http://ex/c"))
+        );
         // the fixpoint result: a reaches c (only via b reaches c)
-        assert!(outcome.graph.contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/c")));
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/a", "http://ex/reaches", "http://ex/c"))
+        );
     }
 
     #[test]
@@ -240,8 +268,16 @@ mod tests {
         let loaded = shacl_parse::load_turtle(ttl.as_bytes(), None).unwrap();
         let outcome = infer(&loaded.graph, &out.schema).unwrap();
 
-        assert!(outcome.graph.contains(&triple("http://ex/x", "http://ex/ready", "http://ex/y")));
-        assert!(outcome.graph.contains(&triple("http://ex/x", "http://ex/done", "http://ex/y")));
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/x", "http://ex/ready", "http://ex/y"))
+        );
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/x", "http://ex/done", "http://ex/y"))
+        );
     }
 
     #[test]
@@ -303,7 +339,11 @@ mod tests {
 
         let outcome = infer_graphs(&data.graph, &shapes.graph, &parsed.schema).unwrap();
 
-        assert!(outcome.graph.contains(&triple("http://ex/b", "http://ex/q", "http://ex/a")));
+        assert!(
+            outcome
+                .graph
+                .contains(&triple("http://ex/b", "http://ex/q", "http://ex/a"))
+        );
         assert_eq!(outcome.inferred.len(), 1);
     }
 }

@@ -40,6 +40,9 @@ struct InferArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
+    /// Print per-query SPARQL telemetry after inference.
+    #[arg(long)]
+    profile: bool,
 }
 
 #[derive(Args)]
@@ -62,6 +65,9 @@ struct ValidateArgs {
     /// RDF graph scope used during validation.
     #[arg(long, visible_alias = "graph-scope", value_enum, default_value_t = GraphMode::Union)]
     graph_mode: GraphMode,
+    /// Print per-query SPARQL telemetry after validation.
+    #[arg(long)]
+    profile: bool,
 }
 
 #[derive(Args)]
@@ -91,6 +97,8 @@ enum Stage {
     Strata,
     /// The physical plan (Layer 5: focus sources + cost-ordered checks).
     Plan,
+    /// SPARQL capability classification and path demand (Stage 1 analysis).
+    Capability,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -151,7 +159,10 @@ fn fetch_bytes(src: &str) -> Result<Vec<u8>, Box<dyn Error>> {
     }
 }
 
-fn load_sources(sources: &[String], base: Option<&str>) -> Result<shacl_parse::Loaded, Box<dyn Error>> {
+fn load_sources(
+    sources: &[String],
+    base: Option<&str>,
+) -> Result<shacl_parse::Loaded, Box<dyn Error>> {
     let mut merged: Option<shacl_parse::Loaded> = None;
     for src in sources {
         let bytes = fetch_bytes(src)?;
@@ -165,6 +176,9 @@ fn load_sources(sources: &[String], base: Option<&str>) -> Result<shacl_parse::L
 }
 
 fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
+    if args.profile {
+        shacl_engine::profile::enable();
+    }
     let base = args.base.as_deref();
     let shapes = load_sources(&args.shapes, base)?;
     let parsed = shacl_parse::parse_loaded(&shapes);
@@ -212,10 +226,18 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    if args.profile {
+        if let Some(col) = shacl_engine::profile::take() {
+            col.print_summary();
+        }
+    }
     Ok(())
 }
 
 fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
+    if args.profile {
+        shacl_engine::profile::enable();
+    }
     let base = args.base.as_deref();
     let shapes_loaded = load_sources(&args.shapes, base)?;
     let parsed = shacl_parse::parse_loaded(&shapes_loaded);
@@ -231,18 +253,16 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         Some(load_sources(&args.data, base)?)
     };
     let inference = match data_loaded.as_ref() {
-        Some(data) => {
-            shacl_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized)
-        }
+        Some(data) => shacl_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized),
         None => shacl_engine::infer(&shapes_loaded.graph, &normalized),
     };
     let inference = match inference {
         Ok(outcome) => outcome,
         Err(e) => {
-            return Err(
-                format!("{e}; cannot infer before validation (see `inspect --stage strata`)")
-                    .into(),
-            );
+            return Err(format!(
+                "{e}; cannot infer before validation (see `inspect --stage strata`)"
+            )
+            .into());
         }
     };
     for d in &inference.diagnostics {
@@ -252,27 +272,28 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
-        let report = shacl_engine::validate_report_graphs_with_mode(
-            &shapes_loaded,
-            data_graph,
-            graph_mode,
-        );
+        let report =
+            shacl_engine::validate_report_graphs_with_mode(&shapes_loaded, data_graph, graph_mode);
         let graph = shacl_engine::report_to_graph(&report);
         // Collect prefixes from shapes + data, deduplicating by name.
         // Fall back to standard entries for sh:/rdf:/xsd: if not declared.
         let mut prefixes: Vec<(&str, &str)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for (name, iri) in shapes_loaded.prefixes.iter()
-            .chain(data_loaded.as_ref().map(|d| d.prefixes.iter()).into_iter().flatten())
-        {
+        for (name, iri) in shapes_loaded.prefixes.iter().chain(
+            data_loaded
+                .as_ref()
+                .map(|d| d.prefixes.iter())
+                .into_iter()
+                .flatten(),
+        ) {
             if seen.insert(name.as_str()) {
                 prefixes.push((name.as_str(), iri.as_str()));
             }
         }
         for (name, iri) in [
-            ("sh",   "http://www.w3.org/ns/shacl#"),
-            ("rdf",  "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
-            ("xsd",  "http://www.w3.org/2001/XMLSchema#"),
+            ("sh", "http://www.w3.org/ns/shacl#"),
+            ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+            ("xsd", "http://www.w3.org/2001/XMLSchema#"),
         ] {
             if seen.insert(name) {
                 prefixes.push((name, iri));
@@ -282,9 +303,12 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         for (name, iri) in &prefixes {
             ser = ser.with_prefix(*name, *iri).unwrap();
         }
-        let bytes = graph.iter().try_fold(ser.for_writer(Vec::new()), |mut s, triple| {
-            s.serialize_triple(triple).map(|()| s)
-        })?.finish()?;
+        let bytes = graph
+            .iter()
+            .try_fold(ser.for_writer(Vec::new()), |mut s, triple| {
+                s.serialize_triple(triple).map(|()| s)
+            })?
+            .finish()?;
         print!("{}", String::from_utf8_lossy(&bytes));
         return Ok(());
     }
@@ -334,6 +358,12 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+
+    if args.profile {
+        if let Some(col) = shacl_engine::profile::take() {
+            col.print_summary();
+        }
+    }
     Ok(())
 }
 
@@ -367,7 +397,12 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
                         .collect();
                     println!("{}", serde_json::to_string_pretty(&triples)?);
                 }
-                Format::Dot => return Err("--format dot is only supported for --stage algebra or --stage normalized".into()),
+                Format::Dot => {
+                    return Err(
+                        "--format dot is only supported for --stage algebra or --stage normalized"
+                            .into(),
+                    );
+                }
             }
         }
         Stage::Algebra => {
@@ -399,7 +434,12 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             match args.format {
                 Format::Json => println!("{}", serde_json::to_string_pretty(&strat)?),
                 Format::Text => print_strata(&strat),
-                Format::Dot => return Err("--format dot is only supported for --stage algebra or --stage normalized".into()),
+                Format::Dot => {
+                    return Err(
+                        "--format dot is only supported for --stage algebra or --stage normalized"
+                            .into(),
+                    );
+                }
             }
             for d in &out.diagnostics {
                 eprintln!("{d}");
@@ -418,6 +458,17 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
                 eprintln!("{d}");
             }
         }
+        Stage::Capability => {
+            if !matches!(args.format, Format::Text) {
+                return Err("--stage capability only supports --format text".into());
+            }
+            let out = shacl_parse::parse_turtle(&bytes, base)?;
+            let normalized = shacl_opt::normalize(&out.schema);
+            print_capability(&normalized);
+            for d in &out.diagnostics {
+                eprintln!("{d}");
+            }
+        }
     }
     Ok(())
 }
@@ -432,7 +483,11 @@ fn print_strata(strat: &shacl_opt::Stratification) {
         recursive,
     );
     let fmt = |shapes: &[shacl_algebra::ShapeId]| {
-        shapes.iter().map(|s| format!("@{}", s.0)).collect::<Vec<_>>().join(" ")
+        shapes
+            .iter()
+            .map(|s| format!("@{}", s.0))
+            .collect::<Vec<_>>()
+            .join(" ")
     };
     if recursive > 0 {
         println!("recursive components (in dependency order):");
@@ -446,6 +501,116 @@ fn print_strata(strat: &shacl_opt::Stratification) {
                 "NON-STRATIFIABLE: recursion through negation"
             };
             println!("  stratum {level}: {}  ({tag})", fmt(&s.shapes));
+        }
+    }
+}
+
+fn print_capability(schema: &shacl_algebra::Schema) {
+    use shacl_algebra::Shape;
+    use shacl_opt::{
+        analyze_capability, extract_algebra_demand, extract_sparql_demand, lower_query,
+    };
+    use spargebra::SparqlParser;
+
+    let mut sparql_queries: Vec<String> = Vec::new();
+    for i in 0..schema.arena.len() {
+        let id = shacl_algebra::ShapeId(i as u32);
+        if let Shape::Sparql(c) = schema.arena.get(id) {
+            sparql_queries.push(c.query.clone());
+        }
+    }
+
+    // `lower_query` is the actual stage-3 routing gate; `analyze_capability` is
+    // the broader eventual-native classification. They differ for constructs the
+    // executor doesn't yet implement (paths, `=`, EXISTS) — surface both.
+    let lowered_count = sparql_queries
+        .iter()
+        .filter(|q| {
+            SparqlParser::new()
+                .parse_query(q)
+                .map(|parsed| lower_query(&parsed).is_ok())
+                .unwrap_or(false)
+        })
+        .count();
+
+    println!(
+        "capability: {} SPARQL constraint query/queries ({} lower to native now, {} fall back)",
+        sparql_queries.len(),
+        lowered_count,
+        sparql_queries.len() - lowered_count,
+    );
+
+    for (i, q) in sparql_queries.iter().enumerate() {
+        match SparqlParser::new().parse_query(q) {
+            Ok(parsed) => {
+                let cap = analyze_capability(&parsed);
+                let tag = match lower_query(&parsed) {
+                    Ok(_) => "NATIVE".to_string(),
+                    Err(reason) if cap.is_native() => {
+                        // Eventually native, but not yet lowered in stage 3.
+                        format!("FALLBACK (stage 3: {reason})")
+                    }
+                    Err(_) => format!("FALLBACK ({})", cap.fallback_reason().unwrap_or("unknown")),
+                };
+                let preview: String = q.split_whitespace().collect::<Vec<_>>().join(" ");
+                let preview = if preview.len() > 60 {
+                    &preview[..60]
+                } else {
+                    &preview
+                };
+                println!("  [{i}] {tag}: {preview}…");
+            }
+            Err(e) => println!("  [{i}] PARSE ERROR: {e}"),
+        }
+    }
+
+    // Algebra path demand
+    let alg_demand = extract_algebra_demand(schema);
+    if !alg_demand.is_empty() {
+        println!("\npath demand (algebra):");
+        let mut entries: Vec<_> = alg_demand.values().collect();
+        entries.sort_by(|a, b| {
+            let ta = a.forward_probes + a.reverse_probes + a.membership_probes + a.open_scans;
+            let tb = b.forward_probes + b.reverse_probes + b.membership_probes + b.open_scans;
+            tb.cmp(&ta)
+        });
+        for d in entries {
+            println!(
+                "  {}: fwd={} rev={} mem={} scan={}",
+                d.path, d.forward_probes, d.reverse_probes, d.membership_probes, d.open_scans,
+            );
+        }
+    }
+
+    // SPARQL path demand
+    let mut sparql_demand = std::collections::HashMap::new();
+    for q in &sparql_queries {
+        if let Ok(parsed) = SparqlParser::new().parse_query(q) {
+            for (k, v) in extract_sparql_demand(&parsed) {
+                let entry = sparql_demand.entry(k).or_insert(shacl_opt::PathDemand {
+                    path: v.path.clone(),
+                    ..Default::default()
+                });
+                entry.forward_probes += v.forward_probes;
+                entry.reverse_probes += v.reverse_probes;
+                entry.membership_probes += v.membership_probes;
+                entry.open_scans += v.open_scans;
+            }
+        }
+    }
+    if !sparql_demand.is_empty() {
+        println!("\npath demand (SPARQL):");
+        let mut entries: Vec<_> = sparql_demand.values().collect();
+        entries.sort_by(|a, b| {
+            let ta = a.forward_probes + a.reverse_probes + a.membership_probes + a.open_scans;
+            let tb = b.forward_probes + b.reverse_probes + b.membership_probes + b.open_scans;
+            tb.cmp(&ta)
+        });
+        for d in entries {
+            println!(
+                "  {}: fwd={} rev={} mem={} scan={}",
+                d.path, d.forward_probes, d.reverse_probes, d.membership_probes, d.open_scans,
+            );
         }
     }
 }

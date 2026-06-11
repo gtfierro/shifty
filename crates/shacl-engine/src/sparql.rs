@@ -4,29 +4,70 @@
 //! Oxigraph's prepared form, applies SHACL prebindings, and executes against a
 //! store that is kept in sync with rule inference.
 
+use crate::frozen::{FrozenIndexedDataset, TermId};
+use crate::native_exec;
+use crate::profile;
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator};
 use oxigraph::store::Store;
 use oxrdf::{
-    Graph, GraphName, GraphNameRef, Literal, NamedNode, Quad, QuadRef, Term, Triple, Variable,
+    Graph, GraphName, GraphNameRef, Literal, NamedNode, NamedOrBlankNode, Quad, QuadRef, Term,
+    Triple, Variable,
 };
 use shacl_algebra::{Path, SparqlConstraint};
-use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression};
+use shacl_opt::{NativeQueryPlan, QueryForm, lower_query};
+use spargebra::algebra::{
+    AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
+};
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::{Query, SparqlParser};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// The named graph the shapes graph is loaded under so `GRAPH $shapesGraph {…}`
 /// can be evaluated; `$shapesGraph` is pre-bound to this IRI.
-const SHAPES_GRAPH_IRI: &str = "urn:x-shacl:shapes-graph";
+pub(crate) use crate::frozen::SHAPES_GRAPH_IRI;
 
 pub(crate) struct SparqlExecutor {
     store: Store,
+    /// Frozen dataset used for constraint/target SPARQL during validation. `None`
+    /// during inference (where the store mutates between rule firings).
+    frozen: Option<FrozenIndexedDataset>,
     prepared: RefCell<HashMap<String, PreparedSparqlQuery>>,
     parsed: RefCell<HashMap<String, Query>>,
+    /// Per-constraint compilation cache (doc §72): static SHACL substitutions
+    /// applied once, then either a native plan or a fallback query. Keyed by the
+    /// constraint's query plus its static bindings (path / shape).
+    compiled: RefCell<HashMap<CompileKey, Rc<Compiled>>>,
+    /// Native plans for SPARQL rule WHERE clauses, keyed by canonical query.
+    constructs: RefCell<HashMap<String, Rc<CompiledConstruct>>>,
     /// IRI of the loaded shapes graph, pre-bound to `$shapesGraph`. `None` when
     /// no shapes graph was loaded (so `$shapesGraph` is left unsupported).
     shapes_graph: Option<NamedNode>,
+}
+
+/// Cache key for a compiled constraint: the canonical query plus the static
+/// bindings that change its plan. `$this` is bound per focus and so is *not*
+/// part of the key (one plan serves every focus node).
+#[derive(PartialEq, Eq, Hash)]
+struct CompileKey {
+    query: String,
+    path: Option<String>,
+    shape: Option<String>,
+}
+
+/// A compiled constraint. `query` is the statically substituted Spargebra query
+/// with `$this` left free — used for fallback execution and, in debug builds, as
+/// the differential oracle. `plan` is present when the query lowered to the
+/// native subset.
+struct Compiled {
+    plan: Option<NativeQueryPlan>,
+    query: Query,
+}
+
+struct CompiledConstruct {
+    plan: Option<NativeQueryPlan>,
+    template: Vec<TriplePattern>,
 }
 
 #[derive(Debug)]
@@ -77,10 +118,29 @@ impl SparqlExecutor {
         };
         Ok(Self {
             store,
+            frozen: None,
             prepared: RefCell::new(HashMap::new()),
             parsed: RefCell::new(HashMap::new()),
+            compiled: RefCell::new(HashMap::new()),
+            constructs: RefCell::new(HashMap::new()),
             shapes_graph,
         })
+    }
+
+    /// Attach a frozen dataset snapshot for use during validation. When set,
+    /// `target_nodes` and `constraint_violations` evaluate against the frozen
+    /// dataset instead of the mutable Store. Do NOT call during inference (where
+    /// the Store mutates between rule firings and must remain the source of truth).
+    pub fn with_frozen(mut self, frozen: FrozenIndexedDataset) -> Self {
+        self.frozen = Some(frozen);
+        self
+    }
+
+    /// The attached frozen snapshot, if any. Validation uses it as the indexed
+    /// `PathBackend` for `sh:path` traversal; inference leaves it `None` and
+    /// falls back to its mutable graph.
+    pub(crate) fn frozen(&self) -> Option<&FrozenIndexedDataset> {
+        self.frozen.as_ref()
     }
 
     pub fn insert(&self, triple: &Triple) -> Result<(), String> {
@@ -95,11 +155,19 @@ impl SparqlExecutor {
     }
 
     pub fn target_nodes(&self, query: &str) -> Result<Vec<Term>, String> {
-        let results = self
-            .prepared(query)?
-            .on_store(&self.store)
-            .execute()
-            .map_err(err)?;
+        let fp = profile::fingerprint(query);
+        let start = std::time::Instant::now();
+        let results = if let Some(frozen) = &self.frozen {
+            self.prepared(query)?
+                .on_queryable_dataset(frozen)
+                .execute()
+                .map_err(err)?
+        } else {
+            self.prepared(query)?
+                .on_store(&self.store)
+                .execute()
+                .map_err(err)?
+        };
         let QueryResults::Solutions(solutions) = results else {
             return Err("SPARQL target did not produce SELECT solutions".to_string());
         };
@@ -109,6 +177,11 @@ impl SparqlExecutor {
                 nodes.push(node.clone());
             }
         }
+        profile::record(
+            &fp,
+            start.elapsed().as_micros() as u64,
+            profile::ExecutorKind::Fallback { reason: None },
+        );
         Ok(nodes)
     }
 
@@ -117,10 +190,54 @@ impl SparqlExecutor {
         constraint: &SparqlConstraint,
         focus: &Term,
     ) -> Result<Vec<SparqlViolation>, String> {
-        // SHACL pre-binding is defined as *substitution* of the bound variable
-        // with its value throughout the query (SHACL §5.2.1), not as an initial
-        // binding / outer join — the latter gives wrong answers for BIND,
-        // sub-SELECT, and nested groups. Rewrite the parsed algebra directly.
+        let compiled = self.compile_constraint(constraint)?;
+        let fp = profile::fingerprint(&constraint.query);
+        let start = std::time::Instant::now();
+
+        if let Some(plan) = &compiled.plan {
+            let violations = self.run_native(plan, focus);
+            // Differential gate (doc §254): in debug builds, every natively
+            // executed query is re-run through Spareval over the same frozen
+            // dataset and the two violation multisets must match exactly.
+            #[cfg(debug_assertions)]
+            {
+                let reference = self.run_fallback(&compiled.query, focus)?;
+                assert_violations_match(&constraint.query, focus, &violations, &reference);
+            }
+            profile::record(
+                &fp,
+                start.elapsed().as_micros() as u64,
+                profile::ExecutorKind::Native,
+            );
+            Ok(violations)
+        } else {
+            let result = self.run_fallback(&compiled.query, focus)?;
+            profile::record(
+                &fp,
+                start.elapsed().as_micros() as u64,
+                profile::ExecutorKind::Fallback { reason: None },
+            );
+            Ok(result)
+        }
+    }
+
+    /// Apply the static SHACL substitutions to a constraint's query and, when a
+    /// frozen dataset is available, try to lower it to the native subset. The
+    /// result is cached: `$this` is bound per focus, so one compiled entry serves
+    /// every focus node (doc §72).
+    fn compile_constraint(&self, constraint: &SparqlConstraint) -> Result<Rc<Compiled>, String> {
+        let key = CompileKey {
+            query: constraint.query.clone(),
+            path: constraint.path.as_ref().map(path_key),
+            shape: constraint.shape.as_ref().map(|s| s.to_string()),
+        };
+        if let Some(compiled) = self.compiled.borrow().get(&key) {
+            return Ok(compiled.clone());
+        }
+
+        // SHACL pre-binding is *substitution* throughout the query (SHACL
+        // §5.2.1), not an initial binding. `$this` is left free here — the native
+        // executor binds it per focus, and the fallback substitutes it per call.
         let mut query = self.parse(&constraint.query)?;
         if let Some(path) = &constraint.path {
             match path {
@@ -129,15 +246,14 @@ impl SparqlExecutor {
                     &variable("PATH"),
                     &Term::NamedNode(predicate.clone()),
                 ),
-                _ => {
-                    return Err(
-                        "SPARQL $PATH prebinding for complex SHACL paths requires query rewriting"
-                            .to_string(),
-                    );
+                complex => {
+                    let sparql_path = path_to_property_path(complex).ok_or_else(|| {
+                        format!("SHACL path cannot be expressed as a SPARQL property path: {complex:?}")
+                    })?;
+                    query = rewrite_path_query(query, &sparql_path);
                 }
             }
         }
-        substitute_query(&mut query, &variable("this"), focus);
         if let Some(shape) = &constraint.shape {
             substitute_query(&mut query, &variable("currentShape"), shape);
         }
@@ -148,9 +264,64 @@ impl SparqlExecutor {
                 &Term::NamedNode(graph.clone()),
             );
         }
-        let prepared = SparqlEvaluator::new().for_query(query);
 
-        match prepared.on_store(&self.store).execute().map_err(err)? {
+        // Native execution requires the frozen dataset as its storage backend.
+        let plan = match &self.frozen {
+            Some(_) => lower_query(&query).ok(),
+            None => None,
+        };
+        let compiled = Rc::new(Compiled { plan, query });
+        self.compiled.borrow_mut().insert(key, compiled.clone());
+        Ok(compiled)
+    }
+
+    /// Execute a native plan for one focus node, mapping its solutions to SHACL
+    /// violations.
+    fn run_native(&self, plan: &NativeQueryPlan, focus: &Term) -> Vec<SparqlViolation> {
+        let frozen = self
+            .frozen
+            .as_ref()
+            .expect("native plan implies a frozen dataset (compile_constraint guards this)");
+        let foci = [focus.clone()];
+        let result = native_exec::execute(plan, frozen, &foci);
+        let solutions = &result.solutions[0];
+        match result.form {
+            // ASK: any solution is a violation, matching the fallback's Boolean.
+            QueryForm::Ask => {
+                if solutions.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![SparqlViolation {
+                        value: None,
+                        path: None,
+                    }]
+                }
+            }
+            QueryForm::Select => solutions
+                .iter()
+                .map(|b| SparqlViolation {
+                    value: b.get("value").cloned(),
+                    path: b.get("path").cloned(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Execute a statically substituted query through Spareval (over the frozen
+    /// dataset when present, else the Store), substituting `$this` for this call.
+    fn run_fallback(&self, query: &Query, focus: &Term) -> Result<Vec<SparqlViolation>, String> {
+        let mut query = query.clone();
+        substitute_query(&mut query, &variable("this"), focus);
+        let prepared = SparqlEvaluator::new().for_query(query);
+        let query_result = if let Some(frozen) = &self.frozen {
+            prepared
+                .on_queryable_dataset(frozen)
+                .execute()
+                .map_err(err)?
+        } else {
+            prepared.on_store(&self.store).execute().map_err(err)?
+        };
+        match query_result {
             QueryResults::Solutions(solutions) => solutions
                 .map(|solution| {
                     let solution = solution.map_err(err)?;
@@ -174,17 +345,122 @@ impl SparqlExecutor {
         }
     }
 
-    pub fn construct(&self, query: &str, focus: &Term) -> Result<Vec<Triple>, String> {
-        // Pre-bind `$this` by algebra substitution (template included), matching
-        // the constraint path rather than relying on initial bindings.
+    /// Execute a SPARQL CONSTRUCT rule for multiple focus nodes.
+    pub fn construct_many(
+        &self,
+        query: &str,
+        foci: &[Term],
+        frozen: Option<&FrozenIndexedDataset>,
+    ) -> Result<Vec<Triple>, String> {
+        const BATCH_SIZE: usize = 2048;
+
+        if foci.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let fp = profile::fingerprint(query);
+        let start = std::time::Instant::now();
+        let mut triples = Vec::new();
+        let compiled = self.compile_construct(query)?;
+        let executor = if let (Some(plan), Some(frozen)) = (&compiled.plan, frozen) {
+            for chunk in foci.chunks(BATCH_SIZE) {
+                let result = native_exec::execute_ids(plan, frozen, chunk);
+                for (focus_index, solutions) in result.solutions.into_iter().enumerate() {
+                    for bindings in solutions {
+                        instantiate_template(
+                            &compiled.template,
+                            plan,
+                            frozen,
+                            &chunk[focus_index],
+                            &bindings,
+                            &mut triples,
+                        );
+                    }
+                }
+            }
+            profile::ExecutorKind::Native
+        } else {
+            for focus in foci {
+                triples.extend(self.construct_one(query, focus)?);
+            }
+            triples.retain(|triple| {
+                !self
+                    .store
+                    .contains(QuadRef::new(
+                        triple.subject.as_ref(),
+                        triple.predicate.as_ref(),
+                        triple.object.as_ref(),
+                        GraphNameRef::DefaultGraph,
+                    ))
+                    .unwrap_or(false)
+            });
+            profile::ExecutorKind::Fallback { reason: None }
+        };
+
+        profile::record(&fp, start.elapsed().as_micros() as u64, executor);
+        Ok(triples)
+    }
+
+    /// Return focus nodes whose native CONSTRUCT WHERE solutions involve the
+    /// supplied default-graph delta. `None` requests full-focus evaluation
+    /// because this query is not in the supported differential subset.
+    pub fn construct_delta_foci(
+        &self,
+        query: &str,
+        delta: &[Triple],
+        frozen: Option<&FrozenIndexedDataset>,
+    ) -> Result<Option<HashSet<Term>>, String> {
+        let compiled = self.compile_construct(query)?;
+        let (Some(plan), Some(frozen)) = (&compiled.plan, frozen) else {
+            return Ok(None);
+        };
+        Ok(native_exec::delta_focus_ids(plan, frozen, delta).map(|ids| {
+            ids.into_iter()
+                .filter_map(|id| frozen.externalize(id))
+                .collect()
+        }))
+    }
+
+    fn compile_construct(&self, query: &str) -> Result<Rc<CompiledConstruct>, String> {
+        if let Some(compiled) = self.constructs.borrow().get(query) {
+            return Ok(compiled.clone());
+        }
+        let parsed = self.parse(query)?;
+        let Query::Construct {
+            template,
+            dataset,
+            pattern,
+            base_iri,
+        } = parsed
+        else {
+            return Err("SPARQL rule did not contain a CONSTRUCT query".to_string());
+        };
+
+        let plan = if dataset.is_none() && !template.iter().any(triple_has_blank_node) {
+            lower_query(&Query::Select {
+                dataset: None,
+                pattern,
+                base_iri,
+            })
+            .ok()
+        } else {
+            None
+        };
+        let compiled = Rc::new(CompiledConstruct { plan, template });
+        self.constructs
+            .borrow_mut()
+            .insert(query.to_string(), compiled.clone());
+        Ok(compiled)
+    }
+
+    fn construct_one(&self, query: &str, focus: &Term) -> Result<Vec<Triple>, String> {
         let mut query = self.parse(query)?;
         substitute_query(&mut query, &variable("this"), focus);
         let prepared = SparqlEvaluator::new().for_query(query);
-        let QueryResults::Graph(triples) = prepared.on_store(&self.store).execute().map_err(err)?
-        else {
-            return Err("SPARQL rule did not produce CONSTRUCT graph results".to_string());
-        };
-        triples.map(|triple| triple.map_err(err)).collect()
+        match prepared.on_store(&self.store).execute().map_err(err)? {
+            QueryResults::Graph(triples) => triples.map(|triple| triple.map_err(err)).collect(),
+            _ => Err("SPARQL rule did not produce CONSTRUCT graph results".to_string()),
+        }
     }
 
     fn prepared(&self, query: &str) -> Result<PreparedSparqlQuery, String> {
@@ -210,6 +486,262 @@ impl SparqlExecutor {
             .borrow_mut()
             .insert(query.to_string(), parsed.clone());
         Ok(parsed)
+    }
+}
+
+fn triple_has_blank_node(triple: &TriplePattern) -> bool {
+    matches!(triple.subject, TermPattern::BlankNode(_))
+        || matches!(triple.object, TermPattern::BlankNode(_))
+}
+
+fn instantiate_template(
+    template: &[TriplePattern],
+    plan: &NativeQueryPlan,
+    frozen: &FrozenIndexedDataset,
+    focus: &Term,
+    bindings: &native_exec::NativeIdBindings,
+    out: &mut Vec<Triple>,
+) {
+    for triple in template {
+        let Some(subject_id) =
+            resolve_template_id(&triple.subject, plan, frozen, focus, bindings)
+        else {
+            continue;
+        };
+        let Some(predicate_id) =
+            resolve_template_predicate_id(&triple.predicate, plan, frozen, focus, bindings)
+        else {
+            continue;
+        };
+        let Some(object_id) =
+            resolve_template_id(&triple.object, plan, frozen, focus, bindings)
+        else {
+            continue;
+        };
+        if frozen.contains_ids(subject_id, predicate_id, object_id) {
+            continue;
+        }
+
+        let Some(subject) = frozen.externalize(subject_id).and_then(|term| match term {
+            Term::NamedNode(node) => Some(NamedOrBlankNode::NamedNode(node)),
+            Term::BlankNode(node) => Some(NamedOrBlankNode::BlankNode(node)),
+            Term::Literal(_) => None,
+        }) else {
+            continue;
+        };
+        let Some(Term::NamedNode(predicate)) = frozen.externalize(predicate_id) else {
+            continue;
+        };
+        let Some(object) = frozen.externalize(object_id) else {
+            continue;
+        };
+        out.push(Triple::new(subject, predicate, object));
+    }
+}
+
+fn resolve_template_id(
+    pattern: &TermPattern,
+    plan: &NativeQueryPlan,
+    frozen: &FrozenIndexedDataset,
+    focus: &Term,
+    bindings: &native_exec::NativeIdBindings,
+) -> Option<TermId> {
+    match pattern {
+        TermPattern::NamedNode(node) => Some(frozen.intern(&Term::NamedNode(node.clone()))),
+        TermPattern::BlankNode(node) => Some(frozen.intern(&Term::BlankNode(node.clone()))),
+        TermPattern::Literal(literal) => Some(frozen.intern(&Term::Literal(literal.clone()))),
+        TermPattern::Variable(variable) if variable.as_str() == "this" => {
+            Some(frozen.intern(focus))
+        }
+        TermPattern::Variable(variable) => {
+            let id = plan.var_id(variable.as_str())?;
+            bindings.get(&id).copied()
+        }
+        #[allow(unreachable_patterns)]
+        _ => None,
+    }
+}
+
+fn resolve_template_predicate_id(
+    pattern: &NamedNodePattern,
+    plan: &NativeQueryPlan,
+    frozen: &FrozenIndexedDataset,
+    focus: &Term,
+    bindings: &native_exec::NativeIdBindings,
+) -> Option<TermId> {
+    match pattern {
+        NamedNodePattern::NamedNode(node) => Some(frozen.intern(&Term::NamedNode(node.clone()))),
+        NamedNodePattern::Variable(variable) => {
+            if variable.as_str() == "this" {
+                Some(frozen.intern(focus))
+            } else {
+                let id = plan.var_id(variable.as_str())?;
+                bindings.get(&id).copied()
+            }
+        }
+    }
+}
+
+/// Convert a SHACL `Path` to a Spargebra `PropertyPathExpression` for use in
+/// SPARQL property-path patterns. Returns `None` for paths that have no SPARQL
+/// equivalent (`Path::Id`, and empty `Alt`/`Seq`).
+fn path_to_property_path(path: &Path) -> Option<PropertyPathExpression> {
+    match path {
+        Path::Id => None,
+        Path::Pred(n) => Some(PropertyPathExpression::NamedNode(n.clone())),
+        Path::Inverse(inner) => path_to_property_path(inner)
+            .map(|p| PropertyPathExpression::Reverse(Box::new(p))),
+        Path::Seq(parts) => {
+            let sparql: Vec<_> = parts
+                .iter()
+                .map(path_to_property_path)
+                .collect::<Option<Vec<_>>>()?;
+            sparql
+                .into_iter()
+                .reduce(|a, b| PropertyPathExpression::Sequence(Box::new(a), Box::new(b)))
+        }
+        Path::Alt(parts) => {
+            // `zero_or_one(p)` expands to `Alt([p, Id])`. Strip `Id` elements and,
+            // if any were present, wrap the remainder in `ZeroOrOne`.
+            let has_id = parts.iter().any(|p| matches!(p, Path::Id));
+            let sparql: Vec<_> = parts
+                .iter()
+                .filter(|p| !matches!(p, Path::Id))
+                .map(path_to_property_path)
+                .collect::<Option<Vec<_>>>()?;
+            if sparql.is_empty() {
+                return None;
+            }
+            let base = sparql
+                .into_iter()
+                .reduce(|a, b| PropertyPathExpression::Alternative(Box::new(a), Box::new(b)))?;
+            if has_id {
+                Some(PropertyPathExpression::ZeroOrOne(Box::new(base)))
+            } else {
+                Some(base)
+            }
+        }
+        Path::Star(inner) => path_to_property_path(inner)
+            .map(|p| PropertyPathExpression::ZeroOrMore(Box::new(p))),
+    }
+}
+
+/// Rewrite a query by replacing every BGP triple whose predicate is `?PATH`
+/// with a `GraphPattern::Path` using `sparql_path`. This is the correct
+/// treatment for SHACL `$PATH` pre-binding when the path is complex (non-pred).
+fn rewrite_path_query(query: Query, path: &PropertyPathExpression) -> Query {
+    match query {
+        Query::Select { dataset, pattern, base_iri } => Query::Select {
+            dataset,
+            pattern: rewrite_path_pattern(pattern, path),
+            base_iri,
+        },
+        Query::Ask { dataset, pattern, base_iri } => Query::Ask {
+            dataset,
+            pattern: rewrite_path_pattern(pattern, path),
+            base_iri,
+        },
+        other => other,
+    }
+}
+
+fn rewrite_path_pattern(pattern: GraphPattern, path: &PropertyPathExpression) -> GraphPattern {
+    match pattern {
+        GraphPattern::Bgp { patterns } => {
+            let mut result = GraphPattern::Bgp { patterns: vec![] };
+            let mut remaining = Vec::new();
+            for triple in patterns {
+                if matches!(&triple.predicate, NamedNodePattern::Variable(v) if v.as_str() == "PATH")
+                {
+                    let path_gp = GraphPattern::Path {
+                        subject: triple.subject,
+                        path: path.clone(),
+                        object: triple.object,
+                    };
+                    result = GraphPattern::Join {
+                        left: Box::new(result),
+                        right: Box::new(path_gp),
+                    };
+                } else {
+                    remaining.push(triple);
+                }
+            }
+            if remaining.is_empty() {
+                result
+            } else {
+                let bgp = GraphPattern::Bgp { patterns: remaining };
+                GraphPattern::Join {
+                    left: Box::new(bgp),
+                    right: Box::new(result),
+                }
+            }
+        }
+        // Path patterns don't contain $PATH in predicate position.
+        GraphPattern::Path { .. } => pattern,
+        GraphPattern::Join { left, right } => GraphPattern::Join {
+            left: Box::new(rewrite_path_pattern(*left, path)),
+            right: Box::new(rewrite_path_pattern(*right, path)),
+        },
+        GraphPattern::Union { left, right } => GraphPattern::Union {
+            left: Box::new(rewrite_path_pattern(*left, path)),
+            right: Box::new(rewrite_path_pattern(*right, path)),
+        },
+        GraphPattern::Minus { left, right } => GraphPattern::Minus {
+            left: Box::new(rewrite_path_pattern(*left, path)),
+            right: Box::new(rewrite_path_pattern(*right, path)),
+        },
+        GraphPattern::Lateral { left, right } => GraphPattern::Lateral {
+            left: Box::new(rewrite_path_pattern(*left, path)),
+            right: Box::new(rewrite_path_pattern(*right, path)),
+        },
+        GraphPattern::LeftJoin { left, right, expression } => GraphPattern::LeftJoin {
+            left: Box::new(rewrite_path_pattern(*left, path)),
+            right: Box::new(rewrite_path_pattern(*right, path)),
+            expression,
+        },
+        GraphPattern::Filter { expr, inner } => GraphPattern::Filter {
+            expr,
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+        },
+        GraphPattern::Graph { name, inner } => GraphPattern::Graph {
+            name,
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+        },
+        GraphPattern::Extend { inner, variable, expression } => GraphPattern::Extend {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+            variable,
+            expression,
+        },
+        GraphPattern::OrderBy { inner, expression } => GraphPattern::OrderBy {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+            expression,
+        },
+        GraphPattern::Project { inner, variables } => GraphPattern::Project {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+            variables,
+        },
+        GraphPattern::Distinct { inner } => GraphPattern::Distinct {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+        },
+        GraphPattern::Reduced { inner } => GraphPattern::Reduced {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+        },
+        GraphPattern::Slice { inner, start, length } => GraphPattern::Slice {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+            start,
+            length,
+        },
+        GraphPattern::Group { inner, variables, aggregates } => GraphPattern::Group {
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+            variables,
+            aggregates,
+        },
+        GraphPattern::Service { name, inner, silent } => GraphPattern::Service {
+            name,
+            inner: Box::new(rewrite_path_pattern(*inner, path)),
+            silent,
+        },
+        GraphPattern::Values { .. } => pattern,
     }
 }
 
@@ -409,4 +941,39 @@ fn variable(name: &str) -> Variable {
 
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+/// Canonical cache-key fragment for a constraint's `$PATH` binding.
+fn path_key(path: &Path) -> String {
+    shacl_algebra::render::path_to_string(path)
+}
+
+/// Assert the native executor and the Spareval fallback produce the same
+/// violation multiset for a focus node. Debug-only differential gate.
+#[cfg(debug_assertions)]
+fn assert_violations_match(
+    query: &str,
+    focus: &Term,
+    native: &[SparqlViolation],
+    reference: &[SparqlViolation],
+) {
+    fn canonical(violations: &[SparqlViolation]) -> Vec<(String, String)> {
+        let mut keyed: Vec<(String, String)> = violations
+            .iter()
+            .map(|v| {
+                (
+                    v.value.as_ref().map(Term::to_string).unwrap_or_default(),
+                    v.path.as_ref().map(Term::to_string).unwrap_or_default(),
+                )
+            })
+            .collect();
+        keyed.sort();
+        keyed
+    }
+    let native = canonical(native);
+    let reference = canonical(reference);
+    assert_eq!(
+        native, reference,
+        "native vs Spareval disagreement for focus {focus}\n  query: {query}\n  native:   {native:?}\n  spareval: {reference:?}",
+    );
 }

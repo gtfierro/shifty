@@ -33,34 +33,55 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   substitution for `$this` and simple-predicate `$PATH` prebinding. Split
   data/shapes validation defaults to union evaluation with data-only focus
   discovery; the API and CLI also expose data-only and full-union modes.
-- **[do]** Full SHACL-SPARQL prebinding: complex `$PATH` AST replacement,
-  `$shapesGraph` / `$currentShape`, and explicit execution-error propagation.
-- **[do]** Add SPARQL constraints and targets to the RDF-driven W3C report path;
-  the algebra conformance path executes them today. This blocks the
-  `advanced/sparql/` and `advanced/target/` validation cases, which the advanced
-  harness skips for now (see below).
+- **[done]** Report-path SPARQL uses frozen dataset: `validate_report_context` now
+  calls `.with_frozen(FrozenIndexedDataset::from_graph(context))` (or
+  `from_graphs` when a shapes graph is needed), matching what the algebra path
+  does in `validate_with_context`. SPARQL constraints that lower to the native
+  subset run through `native_exec`; fallback queries run over
+  `QueryableDataset` instead of the mutable Oxigraph Store. **[done]** The
+  report-path `succ()`/`pred()` now run over the indexed `FrozenIndexedDataset`
+  too, via the `path::PathBackend` trait (see Layer 5).
+- **[done]** Full SHACL-SPARQL prebinding: `$shapesGraph` / `$currentShape`
+  were already substituted as named-node terms. Complex `$PATH` (non-predicate
+  paths) now rewritten via `path_to_property_path` + `rewrite_path_pattern`:
+  `Path::Alt/Seq/Star/Inverse` → `PropertyPathExpression`; BGP triples with
+  `?PATH` predicate replaced by `GraphPattern::Path`. `Path::Id`/unsupported
+  variants fall through to an error (fail-closed). Tests cover
+  alternative, sequence, inverse, and zero-or-more paths.
+- **[done]** SPARQL constraints and targets on the RDF-driven W3C report path:
+  `collect_sparql` and SPARQL-based `focus_nodes` were already implemented;
+  removed the stale skip guards in the advanced harness. Now executes the
+  `advanced/sparql/` and `advanced/target/` cases (5 new passes).
 - **[done]** W3C `sh:ValidationReport` output: component-granular, RDF-driven
   validator (`shacl_engine::validate_report`, `validate --report` CLI) +
   `report_to_graph`. data-shapes core: **98/113 pass, 0 fail, 15 skip**.
   Report coverage includes `closed`, property pairs, term ordering,
   `languageIn`, `uniqueLang`, qualified counts/disjointness, and ill-formed
-  datatype literals. Full blank-node graph isomorphism in the harness remains
-  **[do]** (blank nodes are wildcarded today).
+  datatype literals.
+- **[done]** Exact blank-node comparison in both report harnesses: focus/value
+  blank nodes compare exactly (same file → same IDs); complex `sh:resultPath`
+  blank-node sub-graphs are canonicalized via `parse_path` + `path_to_string`;
+  `sh:sourceShape` blank nodes are still wildcarded (expected results use empty
+  `[ ]` placeholders for anonymous shapes).
 - **[done]** W3C SHACL-AF **advanced** suite harness
   (`crates/shacl-engine/tests/w3c_advanced.rs`) over
   `testdata/test-suite/advanced/`, decoding the DASH test vocabulary:
   `dash:InferencingTestCase` → `infer` + expected-triple check;
   `sht:Validate` / `dash:GraphValidationTestCase` → `validate_report` result-set
   match. Advanced files use relative IRIs, so a `file://` base is supplied.
-  Current: **91 pass (4 inferencing + 87 validation), 0 fail, 14 skip (of 105)**.
-  The 14 skips are the still-unsupported features below:
+  Current: **96 pass (4 inferencing + 92 validation), 0 fail, 9 skip (of 105)**.
+  The 9 skips are the still-unsupported features below:
   **[todo]** SHACL functions (AF-F, `sh:SPARQLFunction`) → 3 inferencing skips +
-  the `function/` cases; **[do]** SPARQL constraints/targets on the report path →
-  `advanced/sparql/` + `advanced/target/`; plus custom components / `sh:expression`.
+  the `function/` cases; plus custom components / `sh:expression` → 6 validation
+  skips.
 - the algebra path's `Violation`/`Reason` reports stay focus-node + `@id` level
   (the report validator is the W3C-faithful path).
-- **[do]** Term ordering beyond numeric, `xsd:string`, and `xsd:dateTime`
-  (additional date/time and duration datatypes) for ranges / `sh:lessThan`.
+- **[done]** Term ordering extended: `compare_terms` now handles `xsd:date`,
+  `xsd:time`, `xsd:duration`, `xsd:yearMonthDuration`, and
+  `xsd:dayTimeDuration` via `oxsdatatypes` `PartialOrd` (which uses the XSD
+  four-reference-datetime algorithm for durations, correctly returning `None`
+  for genuinely incomparable pairs like `P1M` vs `P30D`). `valid_lexical_form`
+  validates the same types. 9 unit tests added in `value::tests`.
 - **[todo]** Well-founded fallback for non-stratifiable schemas (we diagnose &
   refuse today) — see [`03-recursion-semantics.md`](03-recursion-semantics.md).
 
@@ -75,8 +96,23 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   canonicalization, target merging.
 
 ## Planning / execution (Layer 5)
-- **[do]** **Path compilation**: index-aware reachability plans for
+- **[done]** **Path compilation**: index-aware reachability plans for
   `Seq/Alt/Star/Inverse`; SPO/POS/OSP order choice (replace naive re-walking).
+  `ReachStep` IR pre-interns predicate `TermId`s and folds `Inverse` into step
+  direction at compile time; `apply_closure` dispatches `Star/Plus/Opt` over
+  compiled steps; `compile_bwd` reverses `Seq` order statically.
+- **[done]** Storage-backend trait for path evaluation: `path::PathBackend`
+  exposes `objects`/`subjects`/`out_predicates`, and `succ`/`pred` are generic
+  over it (`B: PathBackend + ?Sized`). Two impls: `oxrdf::Graph` (linear B-tree
+  scans, kept for inference's growing graph) and `FrozenIndexedDataset` (the
+  `u32`-dictionary sorted indexes). The report path (`Reporter::frozen`) and both
+  algebra entry points (via `SparqlExecutor::frozen()`, `Graph` fallback) now
+  traverse `sh:path` / `rdfs:subClassOf*` over the indexed snapshot built once
+  per run; inference keeps the `Graph` backend. A `Graph`-vs-`Frozen`
+  differential unit test pins agreement across `Pred/Inverse/Seq/Alt/Star`.
+  Still naive `Term`-space (re-interns each frontier node); folding into
+  `TermId`-space compiled `ReachStep` plans is the staged native SPARQL design
+  below.
 - **[do]** **Data-aware statistics**: predicate counts → real selectivity
   ordering (cost is a static proxy today).
 - **[do]** Memoize / share shape evaluation across focus nodes within a run.
@@ -90,3 +126,9 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 
 ## Layer 7 (not started)
 - **[todo]** Compilation / JIT of plans; batch/vectorized evaluation.
+
+## Tooling / scripts
+- **[done]** `scripts/bench_brick.sh` and `scripts/bench_s223.sh`: aligned
+  table output — split `mean±stddev` into separate integer columns so
+  `printf` width calculations are exact (the `±` multi-byte character was
+  off by one). Header uses `+/-`; data rows use `%d` for both columns.

@@ -18,6 +18,7 @@
 //! and tightens as we grow.
 
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
+use shacl_algebra::render::path_to_string;
 use shacl_engine::ValidationResult;
 use shacl_parse::vocab;
 use std::path::{Path, PathBuf};
@@ -35,11 +36,8 @@ const RDF_OBJECT: NamedNodeRef =
 
 /// Predicates whose presence means the case exercises a feature the RDF-driven
 /// validator / inference engine doesn't support yet; skip rather than report a
-/// spurious failure. SPARQL constraints/targets parse fine but are not executed
-/// on the report path (see BACKLOG), so they are skipped for validation cases.
+/// spurious failure.
 const UNSUPPORTED_VALIDATION: &[&str] = &[
-    "http://www.w3.org/ns/shacl#sparql",
-    "http://www.w3.org/ns/shacl#target",
     "http://www.w3.org/ns/shacl#parameter",
     "http://www.w3.org/ns/shacl#validator",
     "http://www.w3.org/ns/shacl#nodeValidator",
@@ -126,20 +124,34 @@ fn expected_inferred(loaded: &shacl_parse::Loaded) -> Vec<Triple> {
 
 type Key = (String, Option<String>, Option<String>, String, String);
 
-fn term_key(t: &Term) -> String {
+/// Canonical key for a path term that may be a blank-node sub-graph.
+/// Parses and re-serializes complex paths so structurally identical paths
+/// compare equal even when the blank-node IDs differ.
+fn path_term_key(loaded: &shacl_parse::Loaded, t: &Term) -> String {
+    if matches!(t, Term::BlankNode(_)) {
+        if let Ok(p) = shacl_parse::path::parse_path(loaded, t) {
+            return path_to_string(&p);
+        }
+    }
+    t.to_string()
+}
+
+/// Wildcards blank-node source shapes because test expectations sometimes use
+/// empty `[ ]` placeholders for anonymous shapes.
+fn shape_term_key(t: &Term) -> String {
     match t {
         Term::BlankNode(_) => "_:BLANK".to_string(),
         other => other.to_string(),
     }
 }
 
-fn result_key(r: &ValidationResult) -> Key {
+fn result_key(loaded: &shacl_parse::Loaded, r: &ValidationResult) -> Key {
     (
-        term_key(&r.focus),
-        r.path.as_ref().map(term_key),
-        r.value.as_ref().map(term_key),
+        r.focus.to_string(),
+        r.path.as_ref().map(|p| path_term_key(loaded, p)),
+        r.value.as_ref().map(|v| v.to_string()),
         format!("<{}>", r.component.as_str()),
-        term_key(&r.source_shape),
+        shape_term_key(&r.source_shape),
     )
 }
 
@@ -163,11 +175,11 @@ fn expected_report(loaded: &shacl_parse::Loaded) -> Option<(bool, Vec<Key>)> {
         let component = loaded.object(&rn, vocab::SH_SOURCE_CONSTRAINT_COMPONENT)?;
         let source = loaded.object(&rn, vocab::SH_SOURCE_SHAPE)?;
         keys.push((
-            term_key(&focus),
-            loaded.object(&rn, vocab::SH_RESULT_PATH).as_ref().map(term_key),
-            loaded.object(&rn, vocab::SH_VALUE).as_ref().map(term_key),
-            term_key(&component),
-            term_key(&source),
+            focus.to_string(),
+            loaded.object(&rn, vocab::SH_RESULT_PATH).as_ref().map(|p| path_term_key(loaded, p)),
+            loaded.object(&rn, vocab::SH_VALUE).as_ref().map(|v| v.to_string()),
+            component.to_string(),
+            shape_term_key(&source),
         ));
     }
     Some((conforms, keys))
@@ -238,7 +250,7 @@ fn w3c_advanced_conformance() {
         };
 
         let report = shacl_engine::validate_report(&loaded, &loaded.graph);
-        let mut got: Vec<Key> = report.results.iter().map(result_key).collect();
+        let mut got: Vec<Key> = report.results.iter().map(|r| result_key(&loaded, r)).collect();
         exp.sort();
         got.sort();
 

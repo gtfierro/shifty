@@ -131,6 +131,8 @@ iri!(SH_SOURCE_CONSTRAINT_COMPONENT, "http://www.w3.org/ns/shacl#sourceConstrain
 iri!(SH_SOURCE_SHAPE, "http://www.w3.org/ns/shacl#sourceShape");
 iri!(SH_VIOLATION, "http://www.w3.org/ns/shacl#Violation");
 iri!(SH_SEVERITY, "http://www.w3.org/ns/shacl#severity");
+iri!(SH_MESSAGE, "http://www.w3.org/ns/shacl#message");
+iri!(SH_RESULT_MESSAGE, "http://www.w3.org/ns/shacl#resultMessage");
 
 // constraint components
 iri!(SH_CC_SPARQL, "http://www.w3.org/ns/shacl#SPARQLConstraintComponent");

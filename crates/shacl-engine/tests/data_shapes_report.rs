@@ -2,11 +2,22 @@
 //!
 //! For each test we compare our `sh:ValidationReport` to the expected one,
 //! matching result-sets on (focusNode, resultPath, value, component,
-//! sourceShape). Blank nodes are wildcarded (we don't do full graph
-//! isomorphism yet) and severity/message are ignored. Unsupported feature
-//! regions are skipped; every executed report case must match.
+//! sourceShape).
+//!
+//! Blank-node handling:
+//! - focusNode / value: expected and actual come from the same Turtle file so
+//!   blank-node IDs are identical on both sides — exact comparison.
+//! - resultPath: complex paths are blank-node subgraphs; two DIFFERENT blank
+//!   nodes in the file represent the same path (one in the shape definition,
+//!   one in the expected result). Canonicalized by parsing and re-serializing.
+//! - sourceShape: expected results sometimes use an empty blank node `[ ]` as a
+//!   placeholder meaning "some anonymous shape"; wildcarded.
+//!
+//! Severity and message fields are not checked.
+//! Unsupported feature regions are skipped; every executed report case must match.
 
 use oxrdf::{NamedNodeRef, Term};
+use shacl_algebra::render::path_to_string;
 use shacl_engine::ValidationResult;
 use shacl_parse::vocab;
 use std::path::{Path, PathBuf};
@@ -42,23 +53,39 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// A comparison key: blank nodes wildcarded, IRIs/literals exact.
 type Key = (String, Option<String>, Option<String>, String, String);
 
-fn term_key(t: &Term) -> String {
+/// Canonical key for a term that may be a blank node.
+///
+/// - IRI / literal: exact string.
+/// - Blank node as a path root: parse the path sub-graph and render
+///   canonically so structurally identical paths compare equal even when the
+///   blank-node IDs differ (e.g., expected-report copy vs. shapes-graph copy).
+/// - Blank node as a shape or data node: wildcard ("_:BLANK") because
+///   expected results sometimes use empty placeholder blank nodes.
+fn path_term_key(loaded: &shacl_parse::Loaded, t: &Term) -> String {
+    if matches!(t, Term::BlankNode(_)) {
+        if let Ok(p) = shacl_parse::path::parse_path(loaded, t) {
+            return path_to_string(&p);
+        }
+    }
+    t.to_string()
+}
+
+fn shape_term_key(t: &Term) -> String {
     match t {
         Term::BlankNode(_) => "_:BLANK".to_string(),
         other => other.to_string(),
     }
 }
 
-fn result_key(r: &ValidationResult) -> Key {
+fn result_key(loaded: &shacl_parse::Loaded, r: &ValidationResult) -> Key {
     (
-        term_key(&r.focus),
-        r.path.as_ref().map(term_key),
-        r.value.as_ref().map(term_key),
+        r.focus.to_string(),
+        r.path.as_ref().map(|p| path_term_key(loaded, p)),
+        r.value.as_ref().map(|v| v.to_string()),
         format!("<{}>", r.component.as_str()),
-        term_key(&r.source_shape),
+        shape_term_key(&r.source_shape),
     )
 }
 
@@ -82,11 +109,11 @@ fn expected_keys(loaded: &shacl_parse::Loaded) -> Option<(bool, Vec<Key>)> {
         let component = loaded.object(&rn, vocab::SH_SOURCE_CONSTRAINT_COMPONENT)?;
         let source = loaded.object(&rn, vocab::SH_SOURCE_SHAPE)?;
         keys.push((
-            term_key(&focus),
-            loaded.object(&rn, vocab::SH_RESULT_PATH).as_ref().map(term_key),
-            loaded.object(&rn, vocab::SH_VALUE).as_ref().map(term_key),
-            term_key(&component),
-            term_key(&source),
+            focus.to_string(),
+            loaded.object(&rn, vocab::SH_RESULT_PATH).as_ref().map(|p| path_term_key(loaded, p)),
+            loaded.object(&rn, vocab::SH_VALUE).as_ref().map(|v| v.to_string()),
+            component.to_string(),
+            shape_term_key(&source),
         ));
     }
     Some((conforms, keys))
@@ -122,7 +149,7 @@ fn data_shapes_core_reports() {
         };
 
         let report = shacl_engine::validate_report(&loaded, &loaded.graph);
-        let mut got: Vec<Key> = report.results.iter().map(result_key).collect();
+        let mut got: Vec<Key> = report.results.iter().map(|r| result_key(&loaded, r)).collect();
         exp.sort();
         got.sort();
 

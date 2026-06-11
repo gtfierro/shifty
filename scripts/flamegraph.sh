@@ -21,8 +21,8 @@ stack_size="${FLAMEGRAPH_STACK_SIZE:-16384}"
 if [[ $# -eq 0 ]]; then
   cli_args=(
     validate
-    --shapes 223p-closure.ttl
-    --data nist-bdg1-1.ttl
+    --shapes Brick-closure.ttl
+    --data ../shifty/models/bldg37.ttl
   )
 else
   cli_args=("$@")

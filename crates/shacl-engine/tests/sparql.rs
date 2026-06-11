@@ -1,5 +1,5 @@
 use oxrdf::{NamedNode, Triple};
-use shacl_engine::{infer, validate};
+use shacl_engine::{infer, validate, validate_report};
 use std::path::{Path, PathBuf};
 
 fn fixture(path: &str) -> PathBuf {
@@ -83,6 +83,141 @@ fn w3c_sparql_construct_rule() {
         )
         .unwrap(),
     )));
+}
+
+/// SHACL `$PATH` prebinding for complex (non-predicate) property shapes.
+/// Each sub-test uses `validate_report` so that `collect_sparql` on the
+/// report path exercises the same `compile_constraint` code that the
+/// algebra path uses.
+mod complex_path_prebinding {
+    use super::*;
+
+    fn shapes_data(shapes_ttl: &str) -> shacl_parse::Loaded {
+        shacl_parse::load_turtle(shapes_ttl.as_bytes(), None).expect("valid Turtle")
+    }
+
+    fn prefix() -> &'static str {
+        r#"
+        @prefix sh:  <http://www.w3.org/ns/shacl#> .
+        @prefix ex:  <http://example.org/> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+        "#
+    }
+
+    /// `$PATH` is an `sh:alternativePath` — rewrites the BGP triple to a
+    /// SPARQL `|` property-path pattern.
+    #[test]
+    fn alternative_path() {
+        let ttl = format!(
+            r#"{prefix}
+            ex:S a sh:PropertyShape ;
+                sh:path [ sh:alternativePath ( ex:p ex:q ) ] ;
+                sh:targetClass ex:C ;
+                sh:sparql [
+                    sh:select """
+                        SELECT $this ?value
+                        WHERE {{ $this $PATH ?value .
+                                 FILTER (isLiteral(?value) && str(?value) = "bad") }}
+                    """ ] .
+            ex:Good  a ex:C ; ex:p "ok" .
+            ex:Bad1  a ex:C ; ex:p "bad" .
+            ex:Bad2  a ex:C ; ex:q "bad" .
+            "#,
+            prefix = prefix()
+        );
+        let loaded = shapes_data(&ttl);
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
+        assert!(focuses.contains(&"<http://example.org/Bad1>".to_string()), "{focuses:?}");
+        assert!(focuses.contains(&"<http://example.org/Bad2>".to_string()), "{focuses:?}");
+        assert!(!focuses.contains(&"<http://example.org/Good>".to_string()), "{focuses:?}");
+    }
+
+    /// `$PATH` is an `sh:inversePath` — rewrites to `^ex:p`.
+    #[test]
+    fn inverse_path() {
+        let ttl = format!(
+            r#"{prefix}
+            ex:S a sh:PropertyShape ;
+                sh:path [ sh:inversePath ex:child ] ;
+                sh:targetClass ex:Person ;
+                sh:sparql [
+                    sh:select """
+                        SELECT $this ?value
+                        WHERE {{ $this $PATH ?value .
+                                 FILTER (!isIRI(?value)) }}
+                    """ ] .
+            ex:Alice a ex:Person .
+            ex:Bob   a ex:Person ; ex:child ex:Alice .
+            "#,
+            prefix = prefix()
+        );
+        let loaded = shapes_data(&ttl);
+        let report = validate_report(&loaded, &loaded.graph);
+        // ex:Alice has ex:Bob as inverse-child (ex:Bob ex:child ex:Alice)
+        // ex:Bob has no inverse-child
+        // The constraint fires when the value node is not an IRI, but
+        // ex:Bob is an IRI, so nothing should violate.
+        assert!(report.conforms, "results: {:?}", report.results);
+    }
+
+    /// `$PATH` is an `sh:sequencePath` — rewrites to `ex:p/ex:q`.
+    #[test]
+    fn sequence_path() {
+        let ttl = format!(
+            r#"{prefix}
+            ex:S a sh:PropertyShape ;
+                sh:path ( ex:p ex:q ) ;
+                sh:targetClass ex:C ;
+                sh:sparql [
+                    sh:select """
+                        SELECT $this ?value
+                        WHERE {{ $this $PATH ?value .
+                                 FILTER (str(?value) = "bad") }}
+                    """ ] .
+            ex:Good a ex:C ; ex:p [ ex:q "ok" ] .
+            ex:Bad  a ex:C ; ex:p [ ex:q "bad" ] .
+            "#,
+            prefix = prefix()
+        );
+        let loaded = shapes_data(&ttl);
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
+        assert!(focuses.contains(&"<http://example.org/Bad>".to_string()), "{focuses:?}");
+        assert!(!focuses.contains(&"<http://example.org/Good>".to_string()), "{focuses:?}");
+    }
+
+    /// `$PATH` is an `sh:zeroOrMorePath` — rewrites to `ex:p*`.
+    #[test]
+    fn zero_or_more_path() {
+        let ttl = format!(
+            r#"{prefix}
+            ex:S a sh:PropertyShape ;
+                sh:path [ sh:zeroOrMorePath ex:next ] ;
+                sh:targetClass ex:Node ;
+                sh:sparql [
+                    sh:select """
+                        SELECT $this ?value
+                        WHERE {{ $this $PATH ?value .
+                                 FILTER (?value = ex:Sink) }}
+                    """ ] .
+            ex:A a ex:Node ; ex:next ex:B .
+            ex:B a ex:Node ; ex:next ex:Sink .
+            ex:Sink a ex:Node .
+            "#,
+            prefix = prefix()
+        );
+        let loaded = shapes_data(&ttl);
+        let report = validate_report(&loaded, &loaded.graph);
+        // ex:A and ex:B can reach ex:Sink via ex:next*; ex:Sink reaches itself.
+        // All three violate the constraint (they all reach ex:Sink).
+        assert!(!report.conforms);
+        let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
+        assert!(focuses.contains(&"<http://example.org/A>".to_string()), "{focuses:?}");
+        assert!(focuses.contains(&"<http://example.org/B>".to_string()), "{focuses:?}");
+    }
 }
 
 #[test]
