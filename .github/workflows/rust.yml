@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: [ "main", "shacl-formalism" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "shacl-formalism" ]
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -31,7 +31,3 @@ jobs:
 
     - name: Cargo test
       run: cargo test --workspace
-
-    # TEMPORARILY DISABLED: Compiled tests are failing and need investigation
-    # - name: Cargo test (compiled manifest suite)
-    #   run: cargo test -p shifty-shacl --features compiled-tests --test compiled_manifest_test

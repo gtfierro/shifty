@@ -1,8 +1,0 @@
-@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-
-<https://gtf.fyi/ttl/openworld.ttl> a owl:Ontology .
-
-# for ASHRAE Standard 223(P)
-<http://data.ashrae.org/standard223#ClosedWorldQUDTShape> sh:deactivated true .
-<http://data.ashrae.org/standard223#ClosedWorld223Shape> sh:deactivated true .

@@ -21,8 +21,8 @@ stack_size="${FLAMEGRAPH_STACK_SIZE:-16384}"
 if [[ $# -eq 0 ]]; then
   cli_args=(
     validate
-    --shapes Brick-closure.ttl
-    --data ../shifty/models/bldg37.ttl
+    --shapes "$repo_root/benchmark/brick/Brick-closure.ttl"
+    --data "$repo_root/benchmark/brick/models/bldg1.ttl"
   )
 else
   cli_args=("$@")
@@ -31,7 +31,7 @@ fi
 mkdir -p "$(dirname "$output")"
 
 cargo flamegraph \
-  --package shacl-cli \
+  --package shifty-cli \
   --bin shacl \
   --cmd "record -e cpu-clock -F $frequency --call-graph dwarf,$stack_size -g" \
   --no-inline \

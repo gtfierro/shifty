@@ -143,7 +143,7 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 - **[todo]** Compilation / JIT of plans; batch/vectorized evaluation.
 
 ## Tooling / scripts
-- **[done]** `scripts/bench_brick.sh` and `scripts/bench_s223.sh`: aligned
+- **[done]** `benchmark/bench_brick.sh` and `benchmark/bench_s223.sh`: aligned
   table output — split `mean±stddev` into separate integer columns so
   `printf` width calculations are exact (the `±` multi-byte character was
   off by one). Header uses `+/-`; data rows use `%d` for both columns.

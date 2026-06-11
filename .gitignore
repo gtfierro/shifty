@@ -1,4 +1,6 @@
 /target
+/brick/
+/s223/
 .DS_Store
 /.aider*
 /.aider.tags.cache.v4/

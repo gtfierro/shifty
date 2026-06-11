@@ -9941,8 +9941,7 @@ s223:Electricity-AC a s223:Class,
             sh:path s223:hasVoltage ] .
 
 <http://data.ashrae.org/standard223/1.0/model/all> a owl:Ontology ;
-    #owl:imports <http://qudt.org/3.1.7/shacl/qudt-all>,
-    #    sh: ;
+    owl:imports <http://qudt.org/3.3.0/shacl/qudt-all> ;
     owl:versionInfo "git:master@d33e4b7e98a0b9374cb7bd17ccffd366285ae6d4 date:2025-10-29 13:57:40 UTC" ;
     sh:declare [ sh:namespace "http://www.w3.org/2000/01/rdf-schema#"^^xsd:anyURI ;
             sh:prefix "rdfs"^^xsd:string ],
