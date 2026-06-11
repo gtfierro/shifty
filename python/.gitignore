@@ -1,0 +1,36 @@
+# Build artifacts
+*.so
+*.pyd
+*.dll
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Plans (build artifacts)
+plans/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+.env/
+venv/
+
+# Test coverage
+.coverage
+htmlcov/
+.coverage.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Lock files (optional: uncomment if you want to track)
+# uv.lock
