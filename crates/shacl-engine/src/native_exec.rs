@@ -534,6 +534,41 @@ impl NativeExecutor<'_> {
                 let tb = self.eval_value(b, sol)?;
                 Some(ta == tb)
             }
+            // value equality (=): fast path is term-id identity, which covers
+            // IRIs, blank nodes, and same-type same-lexical-form literals.
+            // For different-id literals, we return None (type error) whenever
+            // numeric promotion could apply, rather than risk a wrong answer.
+            ExprPlan::Equal(a, b) => {
+                let ta = self.eval_value(a, sol)?;
+                let tb = self.eval_value(b, sol)?;
+                if ta == tb {
+                    return Some(true);
+                }
+                let ta_term = self.ds.externalize(ta)?;
+                let tb_term = self.ds.externalize(tb)?;
+                match (&ta_term, &tb_term) {
+                    (Term::NamedNode(_), Term::NamedNode(_)) => Some(false),
+                    (Term::BlankNode(_), Term::BlankNode(_)) => Some(false),
+                    (Term::Literal(la), Term::Literal(lb)) => {
+                        if is_numeric_datatype(la.datatype().as_str())
+                            || is_numeric_datatype(lb.datatype().as_str())
+                        {
+                            // Cross-type or non-canonical same-type numeric: value
+                            // promotion needed. Return None (type error) rather
+                            // than produce a wrong result; Spareval handles these.
+                            None
+                        } else if la.datatype() == lb.datatype() {
+                            // Same non-numeric type, different lexical form → not equal.
+                            Some(false)
+                        } else {
+                            // Incompatible literal types → type error per SPARQL spec.
+                            None
+                        }
+                    }
+                    // IRI vs. literal or blank node vs. literal → type error.
+                    _ => None,
+                }
+            }
             // Correlated EXISTS: run the sub-plan seeded with this solution and
             // test for any result. Never a type error (NOT EXISTS is Not(Exists)).
             ExprPlan::Exists(op) => {
@@ -559,6 +594,7 @@ impl NativeExecutor<'_> {
             | ExprPlan::And(..)
             | ExprPlan::Or(..)
             | ExprPlan::SameTerm(..)
+            | ExprPlan::Equal(..)
             | ExprPlan::Exists(_) => {
                 let b = self.ebv(expr, sol)?;
                 Some(self.ds.intern(&Term::Literal(Literal::from(b))))
@@ -914,6 +950,33 @@ mod tests {
     fn not_exists_filter_matches_spareval() {
         assert_agrees(
             "SELECT ?value WHERE { $this <http://ex/p> ?value FILTER NOT EXISTS { ?value <http://ex/flag> <http://ex/bad> } }",
+            "http://ex/a",
+        );
+    }
+
+    #[test]
+    fn equal_iri_constant_matches_spareval() {
+        // FILTER(?value = <iri>): term-id fast path keeps the matching row.
+        assert_agrees(
+            "SELECT ?value WHERE { $this <http://ex/p> ?value FILTER (?value = <http://ex/b>) }",
+            "http://ex/a",
+        );
+    }
+
+    #[test]
+    fn equal_variable_to_variable_matches_spareval() {
+        // FILTER(?x = ?y): rows where two paths converge on the same node.
+        assert_agrees(
+            "SELECT ?o WHERE { $this <http://ex/p> ?o . $this <http://ex/p> ?o FILTER (?o = ?o) }",
+            "http://ex/a",
+        );
+    }
+
+    #[test]
+    fn equal_unequal_iris_matches_spareval() {
+        // FILTER(?value = <iri>) where ?value never equals the constant.
+        assert_agrees(
+            "SELECT ?value WHERE { $this <http://ex/p> ?value FILTER (?value = <http://ex/nonexistent>) }",
             "http://ex/a",
         );
     }

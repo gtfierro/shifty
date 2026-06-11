@@ -110,6 +110,11 @@ pub enum ExprPlan {
     And(Box<ExprPlan>, Box<ExprPlan>),
     Or(Box<ExprPlan>, Box<ExprPlan>),
     SameTerm(Box<ExprPlan>, Box<ExprPlan>),
+    /// SPARQL value equality (`=`). Uses term-id identity as the fast path.
+    /// Returns `None` (type error) for cross-type numeric comparisons rather
+    /// than implementing full numeric promotion — those queries fall through
+    /// the FILTER just as SPARQL type errors do.
+    Equal(Box<ExprPlan>, Box<ExprPlan>),
     /// Correlated `EXISTS { … }`: true iff the sub-plan rooted at this `OpId`,
     /// seeded with the current solution, yields at least one row. `NOT EXISTS`
     /// is `Not(Exists(..))`. The sub-plan lives in the same `nodes` arena.
@@ -459,6 +464,10 @@ fn lower_expr(b: &mut Builder, expr: &Expression, graph: &GraphScan) -> Result<E
             Box::new(lower_expr(b, a, graph)?),
             Box::new(lower_expr(b, c, graph)?),
         )),
+        Expression::Equal(a, c) => Ok(ExprPlan::Equal(
+            Box::new(lower_expr(b, a, graph)?),
+            Box::new(lower_expr(b, c, graph)?),
+        )),
         // Correlated EXISTS / NOT EXISTS: lower the sub-pattern into the same
         // arena, rooted at its own InputFocus (seeded with the current solution
         // at evaluation time). NOT EXISTS arrives as Not(Exists(..)).
@@ -467,7 +476,6 @@ fn lower_expr(b: &mut Builder, expr: &Expression, graph: &GraphScan) -> Result<E
             let root = lower_pattern(b, pattern, leaf, graph)?;
             Ok(ExprPlan::Exists(root))
         }
-        Expression::Equal(..) => Err("= (value equality)".into()),
         Expression::Greater(..)
         | Expression::GreaterOrEqual(..)
         | Expression::Less(..)
@@ -588,9 +596,9 @@ mod tests {
     }
 
     #[test]
-    fn value_equality_falls_back() {
-        let q = parse("ASK { ?this <http://ex/p> ?o FILTER (?o = 3) }");
-        assert_eq!(lower_query(&q).unwrap_err(), "= (value equality)");
+    fn value_equality_lowers() {
+        let q = parse("ASK { ?this <http://ex/p> ?o FILTER (?o = <http://ex/target>) }");
+        lower_query(&q).expect("= over IRIs should lower");
     }
 
     #[test]
