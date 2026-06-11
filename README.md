@@ -2,6 +2,8 @@
 
 A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool and as Python bindings (`pyshifty`).
 
+See the `archive-first-attempt` branch for an older attempt, which was published as shifty 0.0.7
+
 ## Features
 
 - **Full SHACL Core validation** — node and property shapes, all standard constraint components
