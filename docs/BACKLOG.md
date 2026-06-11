@@ -90,8 +90,11 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `merge_value_types`): same-family range/length bound merge, empty-range /
   `len.min>max` / distinct-datatype → ⊥, `test(any)` → ⊤. Numeric ordering only;
   cross-facet unsat still **[todo]**.
-- **[do]** Path converse-normalization (`(π₁·π₂)⁻ = π₂⁻·π₁⁻`, inverse on `Pred` only).
-- **[do]** `id`-path collapse (`∃≥1 id.φ = φ`); qualifier-⊥ count collapse.
+- **[done]** Path converse-normalization (`(π₁·π₂)⁻ = π₂⁻·π₁⁻`, inverse on `Pred` only):
+  `push_inverse`/`normalize_path` in `shacl_opt::normalize`; called from `simplify`,
+  `rebuild_cyclic`, and `selector`. Also applied to `Eq`/`Disj`/`Lt`/`Le`/`UniqueLang` leaves.
+- **[done]** `id`-path collapse (`∃≥1 id.φ = φ`, `∃[0..0] id.φ = ¬φ`, `∃≥2 id.φ = ⊥`) and
+  qualifier-⊥ count collapse (`∃≥1 π.⊥ = ⊥`, `∃[0..m] π.⊥ = ⊤`) in `mk_count`.
 - **[todo]** Absorption, complementary atoms, cross-facet unsat, selector
   canonicalization, target merging.
 

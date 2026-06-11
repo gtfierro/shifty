@@ -131,7 +131,7 @@ fn sparql_constraints_see_the_shapes_graph() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("conforms: false"), "stdout: {stdout}");
     assert!(
-        stdout.contains("SPARQL constraint produced a violation"),
+        stdout.contains("SPARQL constraint at") && stdout.contains("not satisfied"),
         "stdout: {stdout}"
     );
 

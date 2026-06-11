@@ -36,6 +36,33 @@ pub fn normalize(schema: &Schema) -> Schema {
     Schema { arena: z.dst, statements, rules, names }
 }
 
+/// Push `Inverse` inward one level, returning the canonical inverse of `path`
+/// (only `Inverse(Pred(...))` leaves remain after full recursion).
+fn push_inverse(path: Path) -> Path {
+    match path {
+        Path::Id => Path::Id,
+        Path::Inverse(inner) => normalize_path(*inner), // (π⁻)⁻ = normalize(π)
+        Path::Seq(steps) => {
+            // (π₁·…·πₙ)⁻ = πₙ⁻·…·π₁⁻
+            Path::seq(steps.into_iter().rev().map(push_inverse).collect())
+        }
+        Path::Alt(alts) => Path::alt(alts.into_iter().map(push_inverse).collect()),
+        Path::Star(inner) => Path::star(push_inverse(*inner)), // (π*)⁻ = (π⁻)*
+        pred => Path::Inverse(Box::new(pred)),                  // Pred: stays wrapped
+    }
+}
+
+/// Recursively normalize a path so `Inverse` only wraps `Pred` leaves.
+fn normalize_path(path: Path) -> Path {
+    match path {
+        Path::Inverse(inner) => push_inverse(*inner),
+        Path::Seq(steps) => Path::seq(steps.into_iter().map(normalize_path).collect()),
+        Path::Alt(alts) => Path::alt(alts.into_iter().map(normalize_path).collect()),
+        Path::Star(inner) => normalize_path(*inner).star(),
+        other => other,
+    }
+}
+
 /// The tighter lower bound (larger min), treating `None` as no bound.
 fn tighter_lower(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     match (a, b) {
@@ -147,7 +174,7 @@ impl<'a> Interner<'a> {
             }
             Shape::Count { path, min, max, qualifier } => {
                 let q = self.intern(qualifier);
-                self.mk_count(path, min, max, q)
+                self.mk_count(normalize_path(path), min, max, q)
             }
             // value-type facet tightening + same-family unsat (§4)
             Shape::TestType(vt) => match vt.normalize() {
@@ -155,7 +182,13 @@ impl<'a> Interner<'a> {
                 Some(ValueType::Any) => self.top(),                 // any ⇒ ⊤
                 Some(v) => self.cons(Shape::TestType(v)),
             },
-            // leaves (and the transient Pending) are interned verbatim
+            // path-bearing leaves: normalize their paths
+            Shape::Eq(path, nn) => self.cons(Shape::Eq(normalize_path(path), nn)),
+            Shape::Disj(path, nn) => self.cons(Shape::Disj(normalize_path(path), nn)),
+            Shape::Lt(path, nn) => self.cons(Shape::Lt(normalize_path(path), nn)),
+            Shape::Le(path, nn) => self.cons(Shape::Le(normalize_path(path), nn)),
+            Shape::UniqueLang(path) => self.cons(Shape::UniqueLang(normalize_path(path))),
+            // remaining leaves (and the transient Pending) are interned verbatim
             leaf => self.cons(leaf),
         }
     }
@@ -168,7 +201,7 @@ impl<'a> Interner<'a> {
             Shape::And(cs) => Shape::And(self.intern_set(&cs)),
             Shape::Or(cs) => Shape::Or(self.intern_set(&cs)),
             Shape::Count { path, min, max, qualifier } => {
-                Shape::Count { path, min, max, qualifier: self.intern(qualifier) }
+                Shape::Count { path: normalize_path(path), min, max, qualifier: self.intern(qualifier) }
             }
             leaf => leaf,
         }
@@ -367,12 +400,32 @@ impl<'a> Interner<'a> {
         {
             return self.bottom(); // unsatisfiable bounds
         }
+        // qualifier-⊥ collapse: no node ever satisfies ⊥, so count is always 0
+        if self.is_bottom(q) {
+            return if min.unwrap_or(0) >= 1 {
+                self.bottom() // ∃≥1 π.⊥ = ⊥
+            } else {
+                self.top() // ∃[0..m] π.⊥ = ⊤
+            };
+        }
+        // id-path collapse: id reaches exactly 1 node (the focus node itself)
+        if path == Path::Id {
+            let lo = min.unwrap_or(0);
+            if lo >= 2 {
+                return self.bottom(); // ∃≥2 id.φ = ⊥
+            }
+            return match (lo, max) {
+                (0, Some(0)) => self.mk_not(q), // ∃[0..0] id.φ = ¬φ
+                (1, _) => q,                     // ∃≥1 id.φ = φ
+                _ => self.top(),                 // ∃[0..≥1] id.φ = ⊤
+            };
+        }
         self.cons(Shape::Count { path, min, max, qualifier: q })
     }
 
     fn selector(&mut self, sel: &Selector) -> Selector {
         match sel {
-            Selector::HasPath(p, q) => Selector::HasPath(p.clone(), self.intern(*q)),
+            Selector::HasPath(p, q) => Selector::HasPath(normalize_path(p.clone()), self.intern(*q)),
             other => other.clone(),
         }
     }
@@ -618,6 +671,123 @@ mod tests {
         let root = a.insert(Shape::Not(s));
         let n = normalize(&schema_with(a, root));
         assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(_)));
+    }
+
+    #[test]
+    fn qualifier_bottom_min1_is_bottom() {
+        // ∃≥1 p.⊥ = ⊥
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let bot = a.insert(Shape::Not(top));
+        let count = a.insert(Shape::Count {
+            path: Path::Pred(shacl_algebra::NamedNode::new("http://ex/p").unwrap()),
+            min: Some(1),
+            max: None,
+            qualifier: bot,
+        });
+        let n = normalize(&schema_with(a, count));
+        let r = n.statements[0].shape;
+        assert!(matches!(n.arena.get(r), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn qualifier_bottom_max_bound_is_top() {
+        // ∃[0..2] p.⊥ = ⊤
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let bot = a.insert(Shape::Not(top));
+        let count = a.insert(Shape::Count {
+            path: Path::Pred(shacl_algebra::NamedNode::new("http://ex/p").unwrap()),
+            min: None,
+            max: Some(2),
+            qualifier: bot,
+        });
+        let n = normalize(&schema_with(a, count));
+        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Top));
+    }
+
+    #[test]
+    fn id_path_min1_is_qualifier() {
+        // ∃≥1 id.φ = φ
+        let mut a = ShapeArena::new();
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let count = a.insert(Shape::Count { path: Path::Id, min: Some(1), max: None, qualifier: k });
+        let n = normalize(&schema_with(a, count));
+        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::TestKind(NodeKindSet::IRI)));
+    }
+
+    #[test]
+    fn id_path_max0_is_negation() {
+        // ∃[0..0] id.φ = ¬φ
+        let mut a = ShapeArena::new();
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let count =
+            a.insert(Shape::Count { path: Path::Id, min: None, max: Some(0), qualifier: k });
+        let n = normalize(&schema_with(a, count));
+        match n.arena.get(n.statements[0].shape) {
+            Shape::Not(inner) => {
+                assert!(matches!(n.arena.get(*inner), Shape::TestKind(NodeKindSet::IRI)))
+            }
+            other => panic!("expected Not(IRI), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn id_path_min2_is_bottom() {
+        // ∃≥2 id.φ = ⊥
+        let mut a = ShapeArena::new();
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let count =
+            a.insert(Shape::Count { path: Path::Id, min: Some(2), max: None, qualifier: k });
+        let n = normalize(&schema_with(a, count));
+        let r = n.statements[0].shape;
+        assert!(matches!(n.arena.get(r), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn converse_pushdown_through_seq() {
+        // ∃≥1 (p·q)⁻.⊤ → path normalized to q⁻·p⁻
+        let p = shacl_algebra::NamedNode::new("http://ex/p").unwrap();
+        let q = shacl_algebra::NamedNode::new("http://ex/q").unwrap();
+        let inv_seq = Path::Inverse(Box::new(Path::Seq(vec![
+            Path::Pred(p.clone()),
+            Path::Pred(q.clone()),
+        ])));
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let count =
+            a.insert(Shape::Count { path: inv_seq, min: Some(1), max: None, qualifier: top });
+        let n = normalize(&schema_with(a, count));
+        match n.arena.get(n.statements[0].shape) {
+            Shape::Count { path, .. } => {
+                let expected = Path::Seq(vec![
+                    Path::Inverse(Box::new(Path::Pred(q))),
+                    Path::Inverse(Box::new(Path::Pred(p))),
+                ]);
+                assert_eq!(*path, expected, "expected (p·q)⁻ normalized to q⁻·p⁻");
+            }
+            other => panic!("expected Count with normalized path, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn converse_pushdown_through_alt_and_star() {
+        // (p|q)⁻ = p⁻|q⁻;  (p*)⁻ = (p⁻)*
+        let p = shacl_algebra::NamedNode::new("http://ex/p").unwrap();
+        let q = shacl_algebra::NamedNode::new("http://ex/q").unwrap();
+        let alt = Path::Alt(vec![Path::Pred(p.clone()), Path::Pred(q.clone())]);
+        assert_eq!(
+            normalize_path(Path::Inverse(Box::new(alt))),
+            Path::Alt(vec![
+                Path::Inverse(Box::new(Path::Pred(p.clone()))),
+                Path::Inverse(Box::new(Path::Pred(q))),
+            ])
+        );
+        let star_inv = Path::Inverse(Box::new(Path::Star(Box::new(Path::Pred(p.clone())))));
+        assert_eq!(
+            normalize_path(star_inv),
+            Path::Star(Box::new(Path::Inverse(Box::new(Path::Pred(p)))))
+        );
     }
 
     #[test]
