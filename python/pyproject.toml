@@ -23,6 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Topic :: Scientific/Engineering",
 ]
+readme = "../README.md"
 keywords = ["shacl", "rdf", "validation", "knowledge-graph", "semantic-web"]
 dependencies = []
 
