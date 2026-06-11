@@ -63,7 +63,7 @@ for model in "$MODELS_DIR"/*.ttl; do
         --shapes "$SHAPES" \
         --data   "$model")"
 
-    read -r val_ms val_sd <<< "$(mean_stddev "$BINARY" validate --report \
+    read -r val_ms val_sd <<< "$(mean_stddev "$BINARY" validate \
         --shapes "$SHAPES" \
         --data   "$model")"
 
