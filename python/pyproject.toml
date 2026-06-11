@@ -43,6 +43,7 @@ python-source = "."
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-cov>=5",
     "rdflib>=6.0",
     "maturin>=1.7",
 ]

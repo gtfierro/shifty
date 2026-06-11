@@ -26,16 +26,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install uv
         uses: astral-sh/setup-uv@v6
-      - name: Install pytest and pytest-cov
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install project and dependencies
         working-directory: python
-        run: uv add --dev pytest pytest-cov
+        run: uv sync --dev
       - name: Run Python binding tests with coverage
         working-directory: python
         run: uv run pytest tests/ -v --cov=shifty --cov-report=term-missing --cov-report=xml
