@@ -22,10 +22,10 @@ documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
 # internal crates
-shifty-algebra = { path = "crates/shifty-algebra" }
-shifty-parse = { path = "crates/shifty-parse" }
-shifty-opt = { path = "crates/shifty-opt" }
-shifty-engine = { path = "crates/shifty-engine" }
+shifty-algebra = { path = "crates/shifty-algebra", version = "0.1.1" }
+shifty-parse = { path = "crates/shifty-parse", version = "0.1.1" }
+shifty-opt = { path = "crates/shifty-opt", version = "0.1.1" }
+shifty-engine = { path = "crates/shifty-engine", version = "0.1.1" }
 
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
