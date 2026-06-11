@@ -178,6 +178,8 @@ pub fn infer_with_context(
                     }
                     _ => focus_nodes.as_slice(),
                 };
+                let rule_label = format!("rule[{}]", start + position);
+                let rule_t = std::time::Instant::now();
                 fire_rule(
                     execution_focus_nodes,
                     &context,
@@ -188,6 +190,7 @@ pub fn infer_with_context(
                     &mut candidates,
                     &mut diags,
                 );
+                crate::profile::record_shape(&rule_label, rule_t.elapsed().as_micros() as u64);
             }
             if let Some(frozen) = frozen.as_mut() {
                 frozen.extend_triples(candidates.iter());

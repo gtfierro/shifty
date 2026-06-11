@@ -19,6 +19,7 @@ use shacl_algebra::render::{path_to_string, shape_to_string};
 use shacl_algebra::{
     NamedNode, Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlTarget, Term,
 };
+use std::collections::HashMap;
 use std::collections::BTreeSet;
 
 /// How to enumerate the focus nodes of a statement.
@@ -51,6 +52,10 @@ pub struct PhysicalPlan {
     /// The shape arena with `And`/`Or` children reordered cheapest-first.
     pub arena: ShapeArena,
     pub statements: Vec<StatementPlan>,
+    /// IRI names for named shape nodes, copied from the source schema for
+    /// profiling and diagnostics (same contents as `Schema::names`).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub names: HashMap<ShapeId, String>,
 }
 
 /// Plan a (normalized) schema.
@@ -77,7 +82,7 @@ pub fn plan(schema: &Schema) -> PhysicalPlan {
         .map(|st| StatementPlan { source: plan_selector(&arena, &st.selector), shape: st.shape })
         .collect();
 
-    PhysicalPlan { arena, statements }
+    PhysicalPlan { arena, statements, names: schema.names.clone() }
 }
 
 fn sort_by_cost(mut cs: Vec<ShapeId>, costs: &[u64]) -> Vec<ShapeId> {

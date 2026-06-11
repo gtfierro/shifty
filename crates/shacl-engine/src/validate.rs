@@ -171,7 +171,13 @@ pub fn validate_with_context(
     let backend = path_backend(&sparql, context);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
+        let label = schema
+            .names
+            .get(&st.shape)
+            .cloned()
+            .unwrap_or_else(|| format!("@{}", st.shape.0));
         for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+            let t = std::time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(
                 backend,
@@ -182,6 +188,7 @@ pub fn validate_with_context(
                 &mut stack,
                 &sparql,
             );
+            crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
                 violations.push(Violation {
@@ -278,7 +285,13 @@ pub fn validate_plan_with_context(
     let backend = path_backend(&sparql, context);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
+        let label = plan
+            .names
+            .get(&sp.shape)
+            .cloned()
+            .unwrap_or_else(|| format!("@{}", sp.shape.0));
         for v in focus_for_source(data, backend, &sp.source, &plan.arena, &sparql) {
+            let t = std::time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(
                 backend,
@@ -289,6 +302,7 @@ pub fn validate_plan_with_context(
                 &mut stack,
                 &sparql,
             );
+            crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
                 violations.push(Violation {

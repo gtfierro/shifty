@@ -20,6 +20,20 @@ pub struct QueryRecord {
     pub total_exec_us: u64,
 }
 
+/// Per-shape or per-rule wall-clock record. One entry per distinct label
+/// (shape IRI, `@N` slot id, or `rule[N]`).
+#[derive(Debug, Clone)]
+pub struct ShapeRecord {
+    /// Shape IRI (named shapes), `@N` arena slot (blank-node shapes), or
+    /// `rule[N]` (inference rules).
+    pub label: String,
+    /// Number of evaluation calls (one per focus node for validation, one per
+    /// rule firing for inference).
+    pub invocations: u64,
+    /// Total wall-clock time across all invocations, in microseconds.
+    pub total_us: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutorKind {
     /// Spareval fallback; carries the capability-analysis reason if known.
@@ -32,6 +46,7 @@ pub enum ExecutorKind {
 #[derive(Debug, Default)]
 pub struct ProfileCollector {
     records: Vec<QueryRecord>,
+    shape_records: Vec<ShapeRecord>,
 }
 
 impl ProfileCollector {
@@ -57,16 +72,47 @@ impl ProfileCollector {
         }
     }
 
+    pub fn record_shape_invocation(&mut self, label: &str, exec_us: u64) {
+        if let Some(r) = self.shape_records.iter_mut().find(|r| r.label == label) {
+            r.invocations += 1;
+            r.total_us += exec_us;
+        } else {
+            self.shape_records.push(ShapeRecord {
+                label: label.to_string(),
+                invocations: 1,
+                total_us: exec_us,
+            });
+        }
+    }
+
     pub fn records(&self) -> &[QueryRecord] {
         &self.records
     }
 
+    pub fn shape_records(&self) -> &[ShapeRecord] {
+        &self.shape_records
+    }
+
     pub fn print_summary(&self) {
+        if !self.shape_records.is_empty() {
+            println!("profile: {} distinct shape(s)/rule(s)", self.shape_records.len());
+            let mut sorted = self.shape_records.to_vec();
+            sorted.sort_by(|a, b| b.total_us.cmp(&a.total_us));
+            for r in &sorted {
+                let avg_us = if r.invocations > 0 { r.total_us / r.invocations } else { 0 };
+                println!(
+                    "  {}: {} call(s), {}µs total, {}µs avg",
+                    r.label, r.invocations, r.total_us, avg_us,
+                );
+            }
+        }
         if self.records.is_empty() {
-            println!("profile: no SPARQL queries invoked");
+            if self.shape_records.is_empty() {
+                println!("profile: no data collected");
+            }
             return;
         }
-        println!("profile: {} distinct query/queries", self.records.len());
+        println!("profile: {} distinct SPARQL query/queries", self.records.len());
         let mut sorted = self.records.to_vec();
         sorted.sort_by(|a, b| b.total_exec_us.cmp(&a.total_exec_us));
         for r in &sorted {
@@ -107,6 +153,15 @@ pub fn record(fingerprint: &str, exec_us: u64, executor: ExecutorKind) {
     PROFILER.with(|p| {
         if let Some(col) = p.borrow_mut().as_mut() {
             col.record_invocation(fingerprint, exec_us, executor);
+        }
+    });
+}
+
+/// Record one shape/rule evaluation. No-op when profiling is disabled.
+pub fn record_shape(label: &str, exec_us: u64) {
+    PROFILER.with(|p| {
+        if let Some(col) = p.borrow_mut().as_mut() {
+            col.record_shape_invocation(label, exec_us);
         }
     });
 }
