@@ -478,7 +478,8 @@ impl Lowerer<'_> {
         }
 
         // implicit class target: a shape that is also an rdfs:Class / owl:Class
-        if (self.g.has_type(s, vocab::RDFS_CLASS) || self.g.has_type(s, vocab::OWL_CLASS))
+        if (self.g.is_instance_of(s, vocab::RDFS_CLASS)
+            || self.g.is_instance_of(s, vocab::OWL_CLASS))
             && let NamedOrBlankNode::NamedNode(n) = s
         {
             sels.push(self.class_selector(Term::NamedNode(n.clone())));
