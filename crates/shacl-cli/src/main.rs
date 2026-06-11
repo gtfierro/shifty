@@ -564,13 +564,7 @@ fn print_capability(schema: &shacl_algebra::Schema) {
                     }
                     Err(_) => format!("FALLBACK ({})", cap.fallback_reason().unwrap_or("unknown")),
                 };
-                let preview: String = q.split_whitespace().collect::<Vec<_>>().join(" ");
-                let preview = if preview.len() > 60 {
-                    &preview[..60]
-                } else {
-                    &preview
-                };
-                println!("  [{i}] {tag}: {preview}…");
+                println!("  [{i}] {tag}:\n{q}");
             }
             Err(e) => println!("  [{i}] PARSE ERROR: {e}"),
         }
