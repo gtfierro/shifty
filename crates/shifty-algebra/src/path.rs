@@ -143,6 +143,9 @@ mod tests {
             pred("a").one_or_more(),
             Path::Seq(vec![pred("a"), Path::Star(Box::new(pred("a")))])
         );
-        assert_eq!(pred("a").zero_or_one(), Path::Alt(vec![pred("a"), Path::Id]));
+        assert_eq!(
+            pred("a").zero_or_one(),
+            Path::Alt(vec![pred("a"), Path::Id])
+        );
     }
 }

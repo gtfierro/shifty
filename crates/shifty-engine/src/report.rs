@@ -20,7 +20,7 @@ use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::value_type::{Bound, ValueType};
 use shifty_algebra::{NodeKindSet, Path, SparqlConstraint, SparqlQueryKind};
-use shifty_parse::graph::{term_to_node, Loaded};
+use shifty_parse::graph::{Loaded, term_to_node};
 use shifty_parse::lower::canonical_sparql_query;
 use shifty_parse::path::parse_path;
 use shifty_parse::vocab;
@@ -56,10 +56,7 @@ pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
 }
 
 /// Validate split data and shapes graphs using the selected graph mode.
-pub fn validate_report_graphs(
-    shapes: &Loaded,
-    data: &Graph,
-) -> ValidationReport {
+pub fn validate_report_graphs(shapes: &Loaded, data: &Graph) -> ValidationReport {
     validate_report_graphs_with_mode(shapes, data, ValidationGraphMode::default())
 }
 
@@ -141,7 +138,10 @@ fn validate_report_context(
             r.collect(&shape, &focus, &mut results, &mut visited);
         }
     }
-    ValidationReport { conforms: results.is_empty(), results }
+    ValidationReport {
+        conforms: results.is_empty(),
+        results,
+    }
 }
 
 /// Serialize a report as an RDF `sh:ValidationReport` graph (W3C shape).
@@ -164,7 +164,11 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
     for r in &report.results {
         let rn = BlankNode::default();
         g.insert(&t(root.clone().into(), vocab::SH_RESULT, rn.clone().into()));
-        g.insert(&t(rn.clone().into(), vocab::RDF_TYPE, vocab::SH_VALIDATION_RESULT.into_owned().into()));
+        g.insert(&t(
+            rn.clone().into(),
+            vocab::RDF_TYPE,
+            vocab::SH_VALIDATION_RESULT.into_owned().into(),
+        ));
         g.insert(&t(rn.clone().into(), vocab::SH_FOCUS_NODE, r.focus.clone()));
         if let Some(path) = &r.path {
             g.insert(&t(rn.clone().into(), vocab::SH_RESULT_PATH, path.clone()));
@@ -172,7 +176,11 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
         if let Some(value) = &r.value {
             g.insert(&t(rn.clone().into(), vocab::SH_VALUE, value.clone()));
         }
-        g.insert(&t(rn.clone().into(), vocab::SH_RESULT_SEVERITY, r.severity.clone().into()));
+        g.insert(&t(
+            rn.clone().into(),
+            vocab::SH_RESULT_SEVERITY,
+            r.severity.clone().into(),
+        ));
         g.insert(&t(
             rn.clone().into(),
             vocab::SH_SOURCE_CONSTRAINT_COMPONENT,
@@ -181,7 +189,11 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
         for msg in &r.messages {
             g.insert(&t(rn.clone().into(), vocab::SH_RESULT_MESSAGE, msg.clone()));
         }
-        g.insert(&t(rn.into(), vocab::SH_SOURCE_SHAPE, r.source_shape.clone()));
+        g.insert(&t(
+            rn.into(),
+            vocab::SH_SOURCE_SHAPE,
+            r.source_shape.clone(),
+        ));
     }
     g
 }
@@ -200,7 +212,9 @@ fn substitute_messages(
     messages
         .iter()
         .map(|msg| {
-            let Term::Literal(lit) = msg else { return msg.clone() };
+            let Term::Literal(lit) = msg else {
+                return msg.clone();
+            };
             let text = lit.value();
             let substituted = apply_message_template(text, focus, bindings);
             if substituted == text {
@@ -224,10 +238,13 @@ struct Reporter<'a> {
     class_index: HashMap<Term, Vec<Term>>,
     /// Parsed `sh:path` per shape node, so `collect` does not re-parse the path
     /// RDF on every (shape, focus) visit. `None` = shape has no/invalid path.
-    path_cache: RefCell<HashMap<NamedOrBlankNode, (Option<Term>, Option<Path>)>>,
+    path_cache: RefCell<HashMap<NamedOrBlankNode, PathCacheEntry>>,
 }
 
 type Visited = HashSet<(NamedOrBlankNode, Term)>;
+
+/// Cached parsed path and its term representation for sh:path expressions
+type PathCacheEntry = (Option<Term>, Option<Path>);
 
 impl Reporter<'_> {
     fn target_shapes(&self) -> Vec<NamedOrBlankNode> {
@@ -323,9 +340,10 @@ impl Reporter<'_> {
         // `?this` focus nodes from the context store.
         if let Some(exec) = &self.sparql {
             for target in self.shapes.objects(shape, vocab::SH_TARGET) {
-                let Some(target_node) = term_to_node(&target) else { continue };
-                let Some(Term::Literal(query)) =
-                    self.shapes.object(&target_node, vocab::SH_SELECT)
+                let Some(target_node) = term_to_node(&target) else {
+                    continue;
+                };
+                let Some(Term::Literal(query)) = self.shapes.object(&target_node, vocab::SH_SELECT)
                 else {
                     continue;
                 };
@@ -389,7 +407,7 @@ impl Reporter<'_> {
 
         let (path_term, parsed) = self.shape_path(shape);
         let value_nodes: Vec<Term> = match &parsed {
-            Some(p) => succ(&self.frozen,focus, p).into_iter().collect(),
+            Some(p) => succ(&self.frozen, focus, p).into_iter().collect(),
             None => vec![focus.clone()],
         };
         let severity = self.severity(shape);
@@ -470,7 +488,9 @@ impl Reporter<'_> {
         let Some(sparql) = &self.sparql else { return };
         let severity = self.severity(shape);
         for constraint_term in self.shapes.objects(shape, vocab::SH_SPARQL) {
-            let Some(constraint_node) = term_to_node(&constraint_term) else { continue };
+            let Some(constraint_node) = term_to_node(&constraint_term) else {
+                continue;
+            };
             let raw = if let Some(Term::Literal(query)) =
                 self.shapes.object(&constraint_node, vocab::SH_SELECT)
             {
@@ -501,7 +521,11 @@ impl Reporter<'_> {
             // precedence; absent that, fall back to the owning shape's sh:message.
             let raw_messages = {
                 let on_constraint = self.shapes.objects(&constraint_node, vocab::SH_MESSAGE);
-                if on_constraint.is_empty() { self.messages(shape) } else { on_constraint }
+                if on_constraint.is_empty() {
+                    self.messages(shape)
+                } else {
+                    on_constraint
+                }
             };
             match sparql.constraint_violations(&constraint, focus) {
                 Ok(violations) => {
@@ -546,7 +570,9 @@ impl Reporter<'_> {
         }
         let mut allowed = HashSet::new();
         for prop in self.shapes.objects(shape, vocab::SH_PROPERTY) {
-            let Some(prop) = term_to_node(&prop) else { continue };
+            let Some(prop) = term_to_node(&prop) else {
+                continue;
+            };
             if let Some(Term::NamedNode(path)) = self.shapes.object(&prop, vocab::SH_PATH) {
                 allowed.insert(path);
             }
@@ -559,7 +585,9 @@ impl Reporter<'_> {
             }
         }
         for value_node in value_nodes {
-            let Some(node) = term_to_node(value_node) else { continue };
+            let Some(node) = term_to_node(value_node) else {
+                continue;
+            };
             for triple in self.context.triples_for_subject(node.as_ref()) {
                 if allowed.contains(&triple.predicate.into_owned()) {
                     continue;
@@ -586,18 +614,36 @@ impl Reporter<'_> {
         out: &mut Vec<ValidationResult>,
     ) {
         for predicate in self.shapes.objects(shape, vocab::SH_EQUALS) {
-            let Term::NamedNode(predicate) = predicate else { continue };
-            let other = succ(&self.frozen,focus, &Path::Pred(predicate));
+            let Term::NamedNode(predicate) = predicate else {
+                continue;
+            };
+            let other = succ(&self.frozen, focus, &Path::Pred(predicate));
             for value in value_nodes.iter().filter(|value| !other.contains(*value)) {
-                self.push(out, shape, focus, path.clone(), Some((*value).clone()), vocab::SH_CC_EQUALS);
+                self.push(
+                    out,
+                    shape,
+                    focus,
+                    path.clone(),
+                    Some((*value).clone()),
+                    vocab::SH_CC_EQUALS,
+                );
             }
             for value in other.iter().filter(|value| !value_nodes.contains(*value)) {
-                self.push(out, shape, focus, path.clone(), Some(value.clone()), vocab::SH_CC_EQUALS);
+                self.push(
+                    out,
+                    shape,
+                    focus,
+                    path.clone(),
+                    Some(value.clone()),
+                    vocab::SH_CC_EQUALS,
+                );
             }
         }
         for predicate in self.shapes.objects(shape, vocab::SH_DISJOINT) {
-            let Term::NamedNode(predicate) = predicate else { continue };
-            let other = succ(&self.frozen,focus, &Path::Pred(predicate));
+            let Term::NamedNode(predicate) = predicate else {
+                continue;
+            };
+            let other = succ(&self.frozen, focus, &Path::Pred(predicate));
             for value in value_nodes.iter().filter(|value| other.contains(*value)) {
                 self.push(
                     out,
@@ -618,9 +664,11 @@ impl Reporter<'_> {
             ),
         ] {
             for predicate in self.shapes.objects(shape, constraint) {
-                let Term::NamedNode(predicate) = predicate else { continue };
+                let Term::NamedNode(predicate) = predicate else {
+                    continue;
+                };
                 for left in value_nodes {
-                    for right in succ(&self.frozen,focus, &Path::Pred(predicate.clone())) {
+                    for right in succ(&self.frozen, focus, &Path::Pred(predicate.clone())) {
                         let ordering = compare_terms(left, &right);
                         let passes = ordering == Some(Ordering::Less)
                             || inclusive && ordering == Some(Ordering::Equal);
@@ -656,7 +704,9 @@ impl Reporter<'_> {
             if let Term::Literal(literal) = value
                 && let Some(language) = literal.language()
             {
-                *counts.entry(language.to_ascii_lowercase()).or_insert(0usize) += 1;
+                *counts
+                    .entry(language.to_ascii_lowercase())
+                    .or_insert(0usize) += 1;
             }
         }
         for _ in counts.values().filter(|count| **count > 1) {
@@ -681,7 +731,9 @@ impl Reporter<'_> {
         visited: &mut Visited,
     ) {
         for qualifier in self.shapes.objects(shape, vocab::SH_QUALIFIED_VALUE_SHAPE) {
-            let Some(qualifier) = term_to_node(&qualifier) else { continue };
+            let Some(qualifier) = term_to_node(&qualifier) else {
+                continue;
+            };
             let siblings = if self.bool(shape, vocab::SH_QUALIFIED_VALUE_SHAPES_DISJOINT) {
                 self.sibling_qualified_shapes(shape, path.as_ref())
             } else {
@@ -736,8 +788,11 @@ impl Reporter<'_> {
             }
             let parent = triple.subject.into_owned();
             for property in self.shapes.objects(&parent, vocab::SH_PROPERTY) {
-                let Some(property) = term_to_node(&property) else { continue };
-                if property == *shape || self.shapes.object(&property, vocab::SH_PATH).as_ref() != path
+                let Some(property) = term_to_node(&property) else {
+                    continue;
+                };
+                if property == *shape
+                    || self.shapes.object(&property, vocab::SH_PATH).as_ref() != path
                 {
                     continue;
                 }
@@ -825,7 +880,10 @@ impl Reporter<'_> {
         ] {
             if let Some(Term::Literal(b)) = self.shapes.object(shape, pred_iri) {
                 let vt = ValueType::NumericRange {
-                    lo: Some(Bound { value: b, inclusive }),
+                    lo: Some(Bound {
+                        value: b,
+                        inclusive,
+                    }),
                     hi: None,
                 };
                 checks.push((comp.into_owned(), value_type_holds(&vt, u)));
@@ -838,7 +896,10 @@ impl Reporter<'_> {
             if let Some(Term::Literal(b)) = self.shapes.object(shape, pred_iri) {
                 let vt = ValueType::NumericRange {
                     lo: None,
-                    hi: Some(Bound { value: b, inclusive }),
+                    hi: Some(Bound {
+                        value: b,
+                        inclusive,
+                    }),
                 };
                 checks.push((comp.into_owned(), value_type_holds(&vt, u)));
             }
@@ -847,19 +908,34 @@ impl Reporter<'_> {
         let min_len = self.int(shape, vocab::SH_MIN_LENGTH);
         let max_len = self.int(shape, vocab::SH_MAX_LENGTH);
         if let Some(m) = min_len {
-            let vt = ValueType::Length { min: Some(m), max: None };
-            checks.push((vocab::SH_CC_MIN_LENGTH.into_owned(), value_type_holds(&vt, u)));
+            let vt = ValueType::Length {
+                min: Some(m),
+                max: None,
+            };
+            checks.push((
+                vocab::SH_CC_MIN_LENGTH.into_owned(),
+                value_type_holds(&vt, u),
+            ));
         }
         if let Some(m) = max_len {
-            let vt = ValueType::Length { min: None, max: Some(m) };
-            checks.push((vocab::SH_CC_MAX_LENGTH.into_owned(), value_type_holds(&vt, u)));
+            let vt = ValueType::Length {
+                min: None,
+                max: Some(m),
+            };
+            checks.push((
+                vocab::SH_CC_MAX_LENGTH.into_owned(),
+                value_type_holds(&vt, u),
+            ));
         }
         if let Some(Term::Literal(re)) = self.shapes.object(shape, vocab::SH_PATTERN) {
             let flags = match self.shapes.object(shape, vocab::SH_FLAGS) {
                 Some(Term::Literal(f)) => f.value().to_string(),
                 _ => String::new(),
             };
-            let vt = ValueType::Pattern { regex: re.value().to_string(), flags };
+            let vt = ValueType::Pattern {
+                regex: re.value().to_string(),
+                flags,
+            };
             checks.push((vocab::SH_CC_PATTERN.into_owned(), value_type_holds(&vt, u)));
         }
         // sh:in
@@ -914,12 +990,18 @@ impl Reporter<'_> {
         }
         for n in self.shapes.objects(shape, vocab::SH_NOT) {
             if let Some(nn) = term_to_node(&n) {
-                checks.push((vocab::SH_CC_NOT.into_owned(), !self.conforms(&nn, u, visited)));
+                checks.push((
+                    vocab::SH_CC_NOT.into_owned(),
+                    !self.conforms(&nn, u, visited),
+                ));
             }
         }
         for n in self.shapes.objects(shape, vocab::SH_NODE) {
             if let Some(nn) = term_to_node(&n) {
-                checks.push((vocab::SH_CC_NODE.into_owned(), self.conforms(&nn, u, visited)));
+                checks.push((
+                    vocab::SH_CC_NODE.into_owned(),
+                    self.conforms(&nn, u, visited),
+                ));
             }
         }
 
@@ -927,7 +1009,7 @@ impl Reporter<'_> {
     }
 
     fn is_instance(&self, u: &Term, class: &Term) -> bool {
-        succ(&self.frozen,u, &class_path()).contains(class)
+        succ(&self.frozen, u, &class_path()).contains(class)
     }
 
     fn int(&self, s: &NamedOrBlankNode, p: NamedNodeRef) -> Option<u64> {
@@ -958,9 +1040,9 @@ impl Reporter<'_> {
 /// shapes graph must be mirrored into a named graph for evaluation.
 fn shapes_reference_shapes_graph(shapes: &Loaded) -> bool {
     [vocab::SH_SELECT, vocab::SH_ASK].iter().any(|predicate| {
-        shapes.graph.triples_for_predicate(*predicate).any(|t| {
-            matches!(t.object, oxrdf::TermRef::Literal(l) if l.value().contains("shapesGraph"))
-        })
+        shapes.graph.triples_for_predicate(*predicate).any(
+            |t| matches!(t.object, oxrdf::TermRef::Literal(l) if l.value().contains("shapesGraph")),
+        )
     })
 }
 
@@ -1028,7 +1110,9 @@ fn node_term_ref(s: &NamedOrBlankNode) -> Term {
 }
 
 fn map_node_kind(term: &Term) -> Option<NodeKindSet> {
-    let Term::NamedNode(n) = term else { return None };
+    let Term::NamedNode(n) = term else {
+        return None;
+    };
     let r = n.as_ref();
     Some(if r == vocab::SH_IRI {
         NodeKindSet::IRI

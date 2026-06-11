@@ -19,8 +19,8 @@ use shifty_algebra::render::{path_to_string, shape_to_string};
 use shifty_algebra::{
     NamedNode, Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlTarget, Term,
 };
-use std::collections::HashMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 
 /// How to enumerate the focus nodes of a statement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,10 +79,17 @@ pub fn plan(schema: &Schema) -> PhysicalPlan {
     let statements = schema
         .statements
         .iter()
-        .map(|st| StatementPlan { source: plan_selector(&arena, &st.selector), shape: st.shape })
+        .map(|st| StatementPlan {
+            source: plan_selector(&arena, &st.selector),
+            shape: st.shape,
+        })
         .collect();
 
-    PhysicalPlan { arena, statements, names: schema.names.clone() }
+    PhysicalPlan {
+        arena,
+        statements,
+        names: schema.names.clone(),
+    }
 }
 
 fn sort_by_cost(mut cs: Vec<ShapeId>, costs: &[u64]) -> Vec<ShapeId> {
@@ -96,10 +103,14 @@ fn plan_selector(arena: &ShapeArena, sel: &Selector) -> FocusSource {
         Selector::HasIn(p) => FocusSource::ObjectsOf(p.clone()),
         Selector::IsConst(c) => FocusSource::Node(c.clone()),
         Selector::HasPath(path, qual) => match arena.get(*qual) {
-            Shape::TestConst(c) => {
-                FocusSource::PathToConst { path: path.clone(), target: c.clone() }
-            }
-            _ => FocusSource::ScanFilter { path: path.clone(), qualifier: *qual },
+            Shape::TestConst(c) => FocusSource::PathToConst {
+                path: path.clone(),
+                target: c.clone(),
+            },
+            _ => FocusSource::ScanFilter {
+                path: path.clone(),
+                qualifier: *qual,
+            },
         },
         Selector::Sparql(target) => FocusSource::Sparql(target.clone()),
     }
@@ -151,7 +162,9 @@ fn cost_of(
             .map(|c| cost_of(arena, *c, memo, computing))
             .sum::<u64>()
             .max(1),
-        Shape::Count { path, qualifier, .. } => {
+        Shape::Count {
+            path, qualifier, ..
+        } => {
             let q = cost_of(arena, qualifier, memo, computing);
             path_cost(&path) * (1 + q)
         }
@@ -179,7 +192,11 @@ pub fn plan_to_text(plan: &PhysicalPlan) -> String {
     let mut out = String::new();
     out.push_str(&format!("plan: {} statement(s)\n", plan.statements.len()));
     for (i, st) in plan.statements.iter().enumerate() {
-        out.push_str(&format!("  [{i}] {}  ⇒  @{}\n", focus_to_string(&st.source), st.shape.0));
+        out.push_str(&format!(
+            "  [{i}] {}  ⇒  @{}\n",
+            focus_to_string(&st.source),
+            st.shape.0
+        ));
     }
 
     let costs = compute_costs(&plan.arena);
@@ -258,9 +275,18 @@ mod tests {
         let kind = a.insert(Shape::TestKind(NodeKindSet::IRI));
         let top = a.insert(Shape::Top);
         let star = Path::star(Path::Pred(nn("http://ex/p")));
-        let count = a.insert(Shape::Count { path: star, min: Some(1), max: None, qualifier: top });
+        let count = a.insert(Shape::Count {
+            path: star,
+            min: Some(1),
+            max: None,
+            qualifier: top,
+        });
         let and = a.insert(Shape::And(vec![count, kind])); // expensive first
-        let p = plan(&schema_with(a, Selector::IsConst(Term::NamedNode(nn("http://ex/x"))), and));
+        let p = plan(&schema_with(
+            a,
+            Selector::IsConst(Term::NamedNode(nn("http://ex/x"))),
+            and,
+        ));
         match p.arena.get(and) {
             Shape::And(cs) => assert_eq!(cs, &vec![kind, count]), // cheap nodeKind moved first
             other => panic!("expected And, got {other:?}"),
@@ -275,13 +301,18 @@ mod tests {
         let test = a.insert(Shape::TestConst(class.clone()));
         let path = Path::seq(vec![
             Path::Pred(nn("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")),
-            Path::star(Path::Pred(nn("http://www.w3.org/2000/01/rdf-schema#subClassOf"))),
+            Path::star(Path::Pred(nn(
+                "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+            ))),
         ]);
         let root = a.insert(Shape::TestKind(NodeKindSet::IRI));
         let p = plan(&schema_with(a, Selector::HasPath(path.clone(), test), root));
         assert_eq!(
             p.statements[0].source,
-            FocusSource::PathToConst { path, target: class }
+            FocusSource::PathToConst {
+                path,
+                target: class
+            }
         );
     }
 
@@ -290,6 +321,9 @@ mod tests {
         let mut a = ShapeArena::new();
         let root = a.insert(Shape::Top);
         let p = plan(&schema_with(a, Selector::HasOut(nn("http://ex/q")), root));
-        assert_eq!(p.statements[0].source, FocusSource::SubjectsOf(nn("http://ex/q")));
+        assert_eq!(
+            p.statements[0].source,
+            FocusSource::SubjectsOf(nn("http://ex/q"))
+        );
     }
 }

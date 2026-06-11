@@ -204,7 +204,12 @@ impl ShapeArena {
         if max.is_none() && matches!(min, None | Some(0)) {
             return self.insert(Shape::Top);
         }
-        self.insert(Shape::Count { path, min, max, qualifier })
+        self.insert(Shape::Count {
+            path,
+            min,
+            max,
+            qualifier,
+        })
     }
 }
 

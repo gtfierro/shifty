@@ -226,10 +226,10 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    if args.profile {
-        if let Some(col) = shifty_engine::profile::take() {
-            col.print_summary();
-        }
+    if args.profile
+        && let Some(col) = shifty_engine::profile::take()
+    {
+        col.print_summary();
     }
     Ok(())
 }
@@ -355,11 +355,8 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
                         v.focus,
                         shifty_algebra::render::selector_to_string(&st.selector)
                     );
-                    let mut groups: Vec<Vec<String>> = v
-                        .reasons
-                        .iter()
-                        .map(|r| render_reason(r, 6))
-                        .collect();
+                    let mut groups: Vec<Vec<String>> =
+                        v.reasons.iter().map(|r| render_reason(r, 6)).collect();
                     groups.sort_by(|a, b| a[0].cmp(&b[0]));
                     for group in groups {
                         for line in group {
@@ -371,10 +368,10 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if args.profile {
-        if let Some(col) = shifty_engine::profile::take() {
-            col.print_summary();
-        }
+    if args.profile
+        && let Some(col) = shifty_engine::profile::take()
+    {
+        col.print_summary();
     }
     Ok(())
 }

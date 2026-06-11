@@ -67,9 +67,10 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect(&path, out);
-        } else if path.file_name().is_some_and(|n| {
-            n.to_str().is_some_and(|s| s.ends_with(".test.ttl"))
-        }) {
+        } else if path
+            .file_name()
+            .is_some_and(|n| n.to_str().is_some_and(|s| s.ends_with(".test.ttl")))
+        {
             out.push(path);
         }
     }
@@ -98,7 +99,9 @@ fn expected_inferred(loaded: &shifty_parse::Loaded) -> Vec<Triple> {
         .collect::<Vec<_>>()
     {
         for er in loaded.objects(&case, DASH_EXPECTED_RESULT) {
-            let Some(ern) = shifty_parse::graph::term_to_node(&er) else { continue };
+            let Some(ern) = shifty_parse::graph::term_to_node(&er) else {
+                continue;
+            };
             let (Some(s), Some(p), Some(o)) = (
                 loaded.object(&ern, RDF_SUBJECT),
                 loaded.object(&ern, RDF_PREDICATE),
@@ -128,10 +131,10 @@ type Key = (String, Option<String>, Option<String>, String, String);
 /// Parses and re-serializes complex paths so structurally identical paths
 /// compare equal even when the blank-node IDs differ.
 fn path_term_key(loaded: &shifty_parse::Loaded, t: &Term) -> String {
-    if matches!(t, Term::BlankNode(_)) {
-        if let Ok(p) = shifty_parse::path::parse_path(loaded, t) {
-            return path_to_string(&p);
-        }
+    if matches!(t, Term::BlankNode(_))
+        && let Ok(p) = shifty_parse::path::parse_path(loaded, t)
+    {
+        return path_to_string(&p);
     }
     t.to_string()
 }
@@ -170,14 +173,22 @@ fn expected_report(loaded: &shifty_parse::Loaded) -> Option<(bool, Vec<Key>)> {
 
     let mut keys = Vec::new();
     for res in loaded.objects(&report, vocab::SH_RESULT) {
-        let Some(rn) = shifty_parse::graph::term_to_node(&res) else { continue };
+        let Some(rn) = shifty_parse::graph::term_to_node(&res) else {
+            continue;
+        };
         let focus = loaded.object(&rn, vocab::SH_FOCUS_NODE)?;
         let component = loaded.object(&rn, vocab::SH_SOURCE_CONSTRAINT_COMPONENT)?;
         let source = loaded.object(&rn, vocab::SH_SOURCE_SHAPE)?;
         keys.push((
             focus.to_string(),
-            loaded.object(&rn, vocab::SH_RESULT_PATH).as_ref().map(|p| path_term_key(loaded, p)),
-            loaded.object(&rn, vocab::SH_VALUE).as_ref().map(|v| v.to_string()),
+            loaded
+                .object(&rn, vocab::SH_RESULT_PATH)
+                .as_ref()
+                .map(|p| path_term_key(loaded, p)),
+            loaded
+                .object(&rn, vocab::SH_VALUE)
+                .as_ref()
+                .map(|v| v.to_string()),
             component.to_string(),
             shape_term_key(&source),
         ));
@@ -197,7 +208,11 @@ fn w3c_advanced_conformance() {
     let mut failures: Vec<String> = Vec::new();
 
     for file in &files {
-        let name = file.strip_prefix(suite_dir()).unwrap_or(file).display().to_string();
+        let name = file
+            .strip_prefix(suite_dir())
+            .unwrap_or(file)
+            .display()
+            .to_string();
         let bytes = std::fs::read(file).unwrap();
         // Advanced tests use relative IRIs (e.g. `<square.test.ttl>`), so a base
         // is required to resolve them — mirror the `sparql.rs` fixture loader.
@@ -250,7 +265,11 @@ fn w3c_advanced_conformance() {
         };
 
         let report = shifty_engine::validate_report(&loaded, &loaded.graph);
-        let mut got: Vec<Key> = report.results.iter().map(|r| result_key(&loaded, r)).collect();
+        let mut got: Vec<Key> = report
+            .results
+            .iter()
+            .map(|r| result_key(&loaded, r))
+            .collect();
         exp.sort();
         got.sort();
 

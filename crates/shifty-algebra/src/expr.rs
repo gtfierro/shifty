@@ -21,7 +21,10 @@ pub enum NodeExpr {
     /// Values reachable from the focus node along a path (`sh:path` expression).
     Path(Path),
     /// `sh:filterShape` — keep only inputs satisfying `shape`.
-    Filter { input: Box<NodeExpr>, shape: ShapeId },
+    Filter {
+        input: Box<NodeExpr>,
+        shape: ShapeId,
+    },
     /// `sh:intersection` of sub-expression result sets.
     Intersection(Vec<NodeExpr>),
     /// `sh:union` of sub-expression result sets.

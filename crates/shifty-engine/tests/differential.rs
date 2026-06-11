@@ -82,7 +82,11 @@ pub fn assert_same_outcome(
 ) {
     assert_same_verdict(label, left, right);
 
-    let mut foci: Vec<String> = left.violations.iter().map(|v| v.focus.to_string()).collect();
+    let mut foci: Vec<String> = left
+        .violations
+        .iter()
+        .map(|v| v.focus.to_string())
+        .collect();
     foci.sort();
     foci.dedup();
     for focus in &foci {
@@ -153,7 +157,11 @@ fn nist_bdg1_known_violations_against_223p_closure() {
     )
     .expect("validated schema must be stratifiable");
 
-    let mut foci: Vec<String> = outcome.violations.iter().map(|v| v.focus.to_string()).collect();
+    let mut foci: Vec<String> = outcome
+        .violations
+        .iter()
+        .map(|v| v.focus.to_string())
+        .collect();
     foci.sort();
     foci.dedup();
     assert_eq!(

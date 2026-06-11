@@ -2,8 +2,7 @@ use std::process::Command;
 
 #[test]
 fn validation_executes_over_data_and_shapes_union() {
-    let dir =
-        std::env::temp_dir().join(format!("shifty-cli-union-class-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("shifty-cli-union-class-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let shapes = dir.join("shapes.ttl");
     let data = dir.join("data.ttl");
@@ -31,7 +30,7 @@ fn validation_executes_over_data_and_shapes_union() {
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let output = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",
             "--shapes",
@@ -49,9 +48,12 @@ fn validation_executes_over_data_and_shapes_union() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("conforms: false"), "stdout: {stdout}");
     assert!(stdout.contains("<http://ex/item>"), "stdout: {stdout}");
-    assert!(!stdout.contains("<http://ex/shapeItem>"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("<http://ex/shapeItem>"),
+        "stdout: {stdout}"
+    );
 
-    let data_only = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let data_only = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",
             "--shapes",
@@ -64,9 +66,12 @@ fn validation_executes_over_data_and_shapes_union() {
         .output()
         .unwrap();
     let data_stdout = String::from_utf8(data_only.stdout).unwrap();
-    assert!(data_stdout.contains("conforms: true"), "stdout: {data_stdout}");
+    assert!(
+        data_stdout.contains("conforms: true"),
+        "stdout: {data_stdout}"
+    );
 
-    let union_all = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let union_all = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",
             "--shapes",
@@ -79,7 +84,10 @@ fn validation_executes_over_data_and_shapes_union() {
         .output()
         .unwrap();
     let union_all_stdout = String::from_utf8(union_all.stdout).unwrap();
-    assert!(union_all_stdout.contains("<http://ex/item>"), "stdout: {union_all_stdout}");
+    assert!(
+        union_all_stdout.contains("<http://ex/item>"),
+        "stdout: {union_all_stdout}"
+    );
     assert!(
         union_all_stdout.contains("<http://ex/shapeItem>"),
         "stdout: {union_all_stdout}"
@@ -90,8 +98,7 @@ fn validation_executes_over_data_and_shapes_union() {
 
 #[test]
 fn sparql_constraints_see_the_shapes_graph() {
-    let dir =
-        std::env::temp_dir().join(format!("shifty-cli-union-sparql-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("shifty-cli-union-sparql-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let shapes = dir.join("shapes.ttl");
     let data = dir.join("data.ttl");
@@ -113,7 +120,7 @@ fn sparql_constraints_see_the_shapes_graph() {
     .unwrap();
     std::fs::write(&data, "@prefix ex: <http://ex/> . ex:item ex:value 1 .").unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let output = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",
             "--shapes",
@@ -176,7 +183,7 @@ fn inference_executes_over_data_and_shapes_union() {
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let output = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "infer",
             "--shapes",
@@ -203,7 +210,8 @@ fn inference_executes_over_data_and_shapes_union() {
 
 #[test]
 fn validation_runs_inference_first() {
-    let dir = std::env::temp_dir().join(format!("shifty-cli-validate-infer-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("shifty-cli-validate-infer-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let shapes = dir.join("shapes.ttl");
     let data = dir.join("data.ttl");
@@ -226,9 +234,13 @@ fn validation_runs_inference_first() {
         "#,
     )
     .unwrap();
-    std::fs::write(&data, "@prefix ex: <http://ex/> . ex:item ex:input ex:value .").unwrap();
+    std::fs::write(
+        &data,
+        "@prefix ex: <http://ex/> . ex:item ex:input ex:value .",
+    )
+    .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let output = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",
             "--shapes",
@@ -247,7 +259,7 @@ fn validation_runs_inference_first() {
     assert!(stdout.contains("conforms: false"), "stdout: {stdout}");
     assert!(stdout.contains("at most 0 value(s)"), "stdout: {stdout}");
 
-    let report = Command::new(env!("CARGO_BIN_EXE_shacl"))
+    let report = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",
             "--shapes",

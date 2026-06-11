@@ -48,18 +48,39 @@ pub fn dependency_edges(arena: &ShapeArena) -> Vec<DepEdge> {
     for i in 0..arena.len() {
         let from = ShapeId(i as u32);
         match arena.get(from) {
-            Shape::Not(c) => edges.push(DepEdge { from, to: *c, polarity: Polarity::Negative }),
+            Shape::Not(c) => edges.push(DepEdge {
+                from,
+                to: *c,
+                polarity: Polarity::Negative,
+            }),
             Shape::And(cs) | Shape::Or(cs) => {
                 for c in cs {
-                    edges.push(DepEdge { from, to: *c, polarity: Polarity::Positive });
+                    edges.push(DepEdge {
+                        from,
+                        to: *c,
+                        polarity: Polarity::Positive,
+                    });
                 }
             }
-            Shape::Count { min, max, qualifier, .. } => {
+            Shape::Count {
+                min,
+                max,
+                qualifier,
+                ..
+            } => {
                 if min.is_some() {
-                    edges.push(DepEdge { from, to: *qualifier, polarity: Polarity::Positive });
+                    edges.push(DepEdge {
+                        from,
+                        to: *qualifier,
+                        polarity: Polarity::Positive,
+                    });
                 }
                 if max.is_some() {
-                    edges.push(DepEdge { from, to: *qualifier, polarity: Polarity::Negative });
+                    edges.push(DepEdge {
+                        from,
+                        to: *qualifier,
+                        polarity: Polarity::Negative,
+                    });
                 }
             }
             _ => {}

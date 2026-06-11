@@ -22,7 +22,10 @@ pub enum ValueType {
     /// `sh:datatype`.
     Datatype(NamedNode),
     /// `sh:minInclusive` / `sh:minExclusive` / `sh:maxInclusive` / `sh:maxExclusive`.
-    NumericRange { lo: Option<Bound>, hi: Option<Bound> },
+    NumericRange {
+        lo: Option<Bound>,
+        hi: Option<Bound>,
+    },
     /// `sh:minLength` / `sh:maxLength`.
     Length { min: Option<u64>, max: Option<u64> },
     /// `sh:pattern` (+ `sh:flags`).
@@ -126,7 +129,10 @@ impl ValueType {
             parts.push(ValueType::NumericRange { lo, hi });
         }
         if has_length && !(len_min.is_none() && len_max.is_none()) {
-            parts.push(ValueType::Length { min: len_min, max: len_max });
+            parts.push(ValueType::Length {
+                min: len_min,
+                max: len_max,
+            });
         }
         parts.extend(rest);
         Some(ValueType::and(parts))
@@ -161,12 +167,20 @@ fn tighter_upper(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 /// merge them, so the incoming bound is preserved as its own range facet in
 /// `rest` and the running bound is left unchanged (conjunction is order- and
 /// grouping-independent, so this stays sound — we just tighten less).
-fn fold_bound(cur: Option<Bound>, new: Bound, side: Side, rest: &mut Vec<ValueType>) -> Option<Bound> {
+fn fold_bound(
+    cur: Option<Bound>,
+    new: Bound,
+    side: Side,
+    rest: &mut Vec<ValueType>,
+) -> Option<Bound> {
     let Some(c) = cur else { return Some(new) };
     match compare_literals(&c.value, &new.value) {
         Some(Ordering::Equal) => {
             // same value: the exclusive bound is tighter
-            Some(Bound { value: c.value, inclusive: c.inclusive && new.inclusive })
+            Some(Bound {
+                value: c.value,
+                inclusive: c.inclusive && new.inclusive,
+            })
         }
         Some(ord) => {
             let cur_tighter = match side {
@@ -177,8 +191,14 @@ fn fold_bound(cur: Option<Bound>, new: Bound, side: Side, rest: &mut Vec<ValueTy
         }
         None => {
             rest.push(match side {
-                Side::Lo => ValueType::NumericRange { lo: Some(new), hi: None },
-                Side::Hi => ValueType::NumericRange { lo: None, hi: Some(new) },
+                Side::Lo => ValueType::NumericRange {
+                    lo: Some(new),
+                    hi: None,
+                },
+                Side::Hi => ValueType::NumericRange {
+                    lo: None,
+                    hi: Some(new),
+                },
             });
             Some(c)
         }
@@ -188,7 +208,9 @@ fn fold_bound(cur: Option<Bound>, new: Bound, side: Side, rest: &mut Vec<ValueTy
 /// Is `[lo, hi]` empty? `lo > hi`, or `lo == hi` with either end exclusive.
 /// Only decides when the two bounds are numerically comparable.
 fn range_is_empty(lo: &Option<Bound>, hi: &Option<Bound>) -> bool {
-    let (Some(l), Some(h)) = (lo, hi) else { return false };
+    let (Some(l), Some(h)) = (lo, hi) else {
+        return false;
+    };
     match compare_literals(&l.value, &h.value) {
         Some(Ordering::Greater) => true,
         Some(Ordering::Equal) => !(l.inclusive && h.inclusive),
@@ -213,7 +235,10 @@ mod tests {
     fn and_flattens_and_drops_any() {
         let xsd_string = NamedNode::new("http://www.w3.org/2001/XMLSchema#string").unwrap();
         let dt = ValueType::Datatype(xsd_string);
-        let len = ValueType::Length { min: Some(1), max: None };
+        let len = ValueType::Length {
+            min: Some(1),
+            max: None,
+        };
         let combined = ValueType::and(vec![
             ValueType::Any,
             dt.clone(),
@@ -239,27 +264,42 @@ mod tests {
     }
 
     fn incl(n: i64) -> Bound {
-        Bound { value: int(n), inclusive: true }
+        Bound {
+            value: int(n),
+            inclusive: true,
+        }
     }
 
     fn excl(n: i64) -> Bound {
-        Bound { value: int(n), inclusive: false }
+        Bound {
+            value: int(n),
+            inclusive: false,
+        }
     }
 
     #[test]
     fn empty_range_is_unsat() {
         // [5, 3] is empty
-        let vt = ValueType::NumericRange { lo: Some(incl(5)), hi: Some(incl(3)) };
+        let vt = ValueType::NumericRange {
+            lo: Some(incl(5)),
+            hi: Some(incl(3)),
+        };
         assert_eq!(vt.normalize(), None);
     }
 
     #[test]
     fn point_range_exclusive_end_is_unsat() {
         // [5, 5) is empty
-        let vt = ValueType::NumericRange { lo: Some(incl(5)), hi: Some(excl(5)) };
+        let vt = ValueType::NumericRange {
+            lo: Some(incl(5)),
+            hi: Some(excl(5)),
+        };
         assert_eq!(vt.normalize(), None);
         // but [5, 5] is a single point, satisfiable
-        let pt = ValueType::NumericRange { lo: Some(incl(5)), hi: Some(incl(5)) };
+        let pt = ValueType::NumericRange {
+            lo: Some(incl(5)),
+            hi: Some(incl(5)),
+        };
         assert!(pt.normalize().is_some());
     }
 
@@ -267,12 +307,21 @@ mod tests {
     fn merges_numeric_ranges() {
         // (≥1) ∧ (≤10) → [1, 10]
         let vt = ValueType::and(vec![
-            ValueType::NumericRange { lo: Some(incl(1)), hi: None },
-            ValueType::NumericRange { lo: None, hi: Some(incl(10)) },
+            ValueType::NumericRange {
+                lo: Some(incl(1)),
+                hi: None,
+            },
+            ValueType::NumericRange {
+                lo: None,
+                hi: Some(incl(10)),
+            },
         ]);
         assert_eq!(
             vt.normalize(),
-            Some(ValueType::NumericRange { lo: Some(incl(1)), hi: Some(incl(10)) })
+            Some(ValueType::NumericRange {
+                lo: Some(incl(1)),
+                hi: Some(incl(10))
+            })
         );
     }
 
@@ -280,8 +329,14 @@ mod tests {
     fn merges_to_tighter_bounds() {
         // (≥1) ∧ (≥5) → ≥5 ; (≤10) ∧ (≤3) → ≤3 ⇒ [5, 3] ⇒ ⊥
         let vt = ValueType::and(vec![
-            ValueType::NumericRange { lo: Some(incl(1)), hi: Some(incl(10)) },
-            ValueType::NumericRange { lo: Some(incl(5)), hi: Some(incl(3)) },
+            ValueType::NumericRange {
+                lo: Some(incl(1)),
+                hi: Some(incl(10)),
+            },
+            ValueType::NumericRange {
+                lo: Some(incl(5)),
+                hi: Some(incl(3)),
+            },
         ]);
         assert_eq!(vt.normalize(), None);
     }
@@ -290,12 +345,21 @@ mod tests {
     fn exclusive_wins_on_tie() {
         // (≥5 incl) ∧ (≥5 excl) → ≥5 excl
         let vt = ValueType::and(vec![
-            ValueType::NumericRange { lo: Some(incl(5)), hi: None },
-            ValueType::NumericRange { lo: Some(excl(5)), hi: None },
+            ValueType::NumericRange {
+                lo: Some(incl(5)),
+                hi: None,
+            },
+            ValueType::NumericRange {
+                lo: Some(excl(5)),
+                hi: None,
+            },
         ]);
         assert_eq!(
             vt.normalize(),
-            Some(ValueType::NumericRange { lo: Some(excl(5)), hi: None })
+            Some(ValueType::NumericRange {
+                lo: Some(excl(5)),
+                hi: None
+            })
         );
     }
 
@@ -314,14 +378,32 @@ mod tests {
     fn merges_length_bounds_and_unsat() {
         // minLength 2 ∧ maxLength 5 → {2..5}
         let ok = ValueType::and(vec![
-            ValueType::Length { min: Some(2), max: None },
-            ValueType::Length { min: None, max: Some(5) },
+            ValueType::Length {
+                min: Some(2),
+                max: None,
+            },
+            ValueType::Length {
+                min: None,
+                max: Some(5),
+            },
         ]);
-        assert_eq!(ok.normalize(), Some(ValueType::Length { min: Some(2), max: Some(5) }));
+        assert_eq!(
+            ok.normalize(),
+            Some(ValueType::Length {
+                min: Some(2),
+                max: Some(5)
+            })
+        );
         // minLength 5 ∧ maxLength 2 → ⊥
         let bad = ValueType::and(vec![
-            ValueType::Length { min: Some(5), max: None },
-            ValueType::Length { min: None, max: Some(2) },
+            ValueType::Length {
+                min: Some(5),
+                max: None,
+            },
+            ValueType::Length {
+                min: None,
+                max: Some(2),
+            },
         ]);
         assert_eq!(bad.normalize(), None);
     }
@@ -335,8 +417,17 @@ mod tests {
             NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap(),
         );
         let vt = ValueType::and(vec![
-            ValueType::NumericRange { lo: Some(incl(1)), hi: None },
-            ValueType::NumericRange { lo: None, hi: Some(Bound { value: date, inclusive: true }) },
+            ValueType::NumericRange {
+                lo: Some(incl(1)),
+                hi: None,
+            },
+            ValueType::NumericRange {
+                lo: None,
+                hi: Some(Bound {
+                    value: date,
+                    inclusive: true,
+                }),
+            },
         ]);
         let n = vt.normalize().expect("not unsat");
         // both bounds still present somewhere in the result

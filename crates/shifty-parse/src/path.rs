@@ -1,7 +1,7 @@
 //! Parse a `sh:path` value into the [`Path`] algebra (gap-analysis **P1** for the
 //! `oneOrMore`/`zeroOrOne` sugar).
 
-use crate::graph::{term_to_node, Loaded};
+use crate::graph::{Loaded, term_to_node};
 use crate::vocab;
 use oxrdf::Term;
 use shifty_algebra::Path;

@@ -110,8 +110,7 @@ impl TripleIndex {
         self.spo.sort_unstable();
         self.spo.dedup();
 
-        self.pos
-            .extend(triples.iter().map(|&[s, p, o]| [p, o, s]));
+        self.pos.extend(triples.iter().map(|&[s, p, o]| [p, o, s]));
         self.pos.sort_unstable();
         self.pos.dedup();
 
@@ -255,8 +254,7 @@ impl FrozenIndexedDataset {
     pub(crate) fn encode_triple(&self, triple: &oxrdf::Triple) -> [TermId; 3] {
         [
             self.terms.intern(triple.subject.clone().into()),
-            self.terms
-                .intern(Term::NamedNode(triple.predicate.clone())),
+            self.terms.intern(Term::NamedNode(triple.predicate.clone())),
             self.terms.intern(triple.object.clone()),
         ]
     }

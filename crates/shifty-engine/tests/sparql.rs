@@ -41,14 +41,16 @@ fn w3c_node_sparql_constraint() {
 
 #[test]
 fn w3c_property_sparql_constraint_prebinds_path() {
-    let (loaded, parsed) = load(
-        "data-shapes/data-shapes-test-suite/tests/sparql/property/sparql-001.ttl",
-    );
+    let (loaded, parsed) =
+        load("data-shapes/data-shapes-test-suite/tests/sparql/property/sparql-001.ttl");
     let outcome = validate(&loaded.graph, &parsed.schema).expect("stratifiable");
     assert!(!outcome.conforms);
     assert_eq!(outcome.violations.len(), 1);
     assert_eq!(outcome.violations[0].reasons.len(), 1);
-    assert_eq!(outcome.violations[0].reasons[0].value.to_string(), "\"Spain\"@en");
+    assert_eq!(
+        outcome.violations[0].reasons[0].value.to_string(),
+        "\"Spain\"@en"
+    );
 }
 
 #[test]
@@ -129,9 +131,18 @@ mod complex_path_prebinding {
         let report = validate_report(&loaded, &loaded.graph);
         assert!(!report.conforms);
         let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
-        assert!(focuses.contains(&"<http://example.org/Bad1>".to_string()), "{focuses:?}");
-        assert!(focuses.contains(&"<http://example.org/Bad2>".to_string()), "{focuses:?}");
-        assert!(!focuses.contains(&"<http://example.org/Good>".to_string()), "{focuses:?}");
+        assert!(
+            focuses.contains(&"<http://example.org/Bad1>".to_string()),
+            "{focuses:?}"
+        );
+        assert!(
+            focuses.contains(&"<http://example.org/Bad2>".to_string()),
+            "{focuses:?}"
+        );
+        assert!(
+            !focuses.contains(&"<http://example.org/Good>".to_string()),
+            "{focuses:?}"
+        );
     }
 
     /// `$PATH` is an `sh:inversePath` — rewrites to `^ex:p`.
@@ -185,8 +196,14 @@ mod complex_path_prebinding {
         let report = validate_report(&loaded, &loaded.graph);
         assert!(!report.conforms);
         let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
-        assert!(focuses.contains(&"<http://example.org/Bad>".to_string()), "{focuses:?}");
-        assert!(!focuses.contains(&"<http://example.org/Good>".to_string()), "{focuses:?}");
+        assert!(
+            focuses.contains(&"<http://example.org/Bad>".to_string()),
+            "{focuses:?}"
+        );
+        assert!(
+            !focuses.contains(&"<http://example.org/Good>".to_string()),
+            "{focuses:?}"
+        );
     }
 
     /// `$PATH` is an `sh:zeroOrMorePath` — rewrites to `ex:p*`.
@@ -215,8 +232,14 @@ mod complex_path_prebinding {
         // All three violate the constraint (they all reach ex:Sink).
         assert!(!report.conforms);
         let focuses: Vec<_> = report.results.iter().map(|r| r.focus.to_string()).collect();
-        assert!(focuses.contains(&"<http://example.org/A>".to_string()), "{focuses:?}");
-        assert!(focuses.contains(&"<http://example.org/B>".to_string()), "{focuses:?}");
+        assert!(
+            focuses.contains(&"<http://example.org/A>".to_string()),
+            "{focuses:?}"
+        );
+        assert!(
+            focuses.contains(&"<http://example.org/B>".to_string()),
+            "{focuses:?}"
+        );
     }
 }
 
@@ -236,14 +259,23 @@ fn construct_blank_nodes_are_rejected_to_preserve_termination() {
     let parsed = shifty_parse::parse_turtle(ttl, None).expect("valid shapes");
     let outcome = infer(&loaded.graph, &parsed.schema).expect("stratifiable");
     assert!(outcome.inferred.is_empty());
-    assert!(outcome.diagnostics.iter().any(|message| message.contains("blank nodes")));
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(|message| message.contains("blank nodes"))
+    );
 }
 
 /// All reason messages produced by the plan-path validator for `ttl`.
 fn reason_messages(ttl: &[u8]) -> Vec<String> {
     let loaded = shifty_parse::load_turtle(ttl, None).expect("valid Turtle");
     let parsed = shifty_parse::parse_turtle(ttl, None).expect("valid shapes");
-    assert!(parsed.diagnostics.is_empty(), "diags: {:?}", parsed.diagnostics);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "diags: {:?}",
+        parsed.diagnostics
+    );
     let outcome = validate(&loaded.graph, &parsed.schema).expect("stratifiable");
     assert!(!outcome.conforms);
     outcome

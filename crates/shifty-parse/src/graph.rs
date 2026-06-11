@@ -33,7 +33,11 @@ impl Loaded {
             .map(|(p, iri)| (p.to_string(), iri.to_string()))
             .collect();
         let base = reader.base_iri().map(|s| s.to_string());
-        Ok(Self { graph, prefixes, base })
+        Ok(Self {
+            graph,
+            prefixes,
+            base,
+        })
     }
 
     /// All objects of `(subject, predicate)`.
@@ -77,15 +81,12 @@ impl Loaded {
                 continue;
             }
             pending.extend(
-                self.objects(
-                    &NamedOrBlankNode::NamedNode(class),
-                    vocab::RDFS_SUBCLASSOF,
-                )
-                .into_iter()
-                .filter_map(|term| match term {
-                    Term::NamedNode(node) => Some(node),
-                    _ => None,
-                }),
+                self.objects(&NamedOrBlankNode::NamedNode(class), vocab::RDFS_SUBCLASSOF)
+                    .into_iter()
+                    .filter_map(|term| match term {
+                        Term::NamedNode(node) => Some(node),
+                        _ => None,
+                    }),
             );
         }
         false

@@ -7,16 +7,16 @@
 //! compose by conjunction. Unsupported AF constructs emit diagnostics.
 
 use crate::diagnostics::{DiagLevel, Diagnostic};
-use crate::graph::{term_to_node, Loaded};
+use crate::graph::{Loaded, term_to_node};
 use crate::path::parse_path;
 use crate::vocab;
 use oxrdf::{Literal, NamedOrBlankNode, Term};
-use spargebra::{Query, SparqlParser};
 use shifty_algebra::{
     Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena,
     ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget, Statement,
     ValueType,
 };
+use spargebra::{Query, SparqlParser};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub struct Lowered {
@@ -43,7 +43,10 @@ pub fn lower(g: &Loaded) -> Lowered {
         let selectors = l.target_selectors(s);
         if let Some(shape) = l.cache.get(s).copied() {
             for sel in &selectors {
-                l.statements.push(Statement { selector: sel.clone(), shape });
+                l.statements.push(Statement {
+                    selector: sel.clone(),
+                    shape,
+                });
             }
         }
         l.parse_rules(s, &selectors);
@@ -242,17 +245,27 @@ impl Lowerer<'_> {
         // numeric range (combine the four bounds into one facet)
         let lo = self
             .lit(s, vocab::SH_MIN_INCLUSIVE)
-            .map(|value| Bound { value, inclusive: true })
+            .map(|value| Bound {
+                value,
+                inclusive: true,
+            })
             .or_else(|| {
-                self.lit(s, vocab::SH_MIN_EXCLUSIVE)
-                    .map(|value| Bound { value, inclusive: false })
+                self.lit(s, vocab::SH_MIN_EXCLUSIVE).map(|value| Bound {
+                    value,
+                    inclusive: false,
+                })
             });
         let hi = self
             .lit(s, vocab::SH_MAX_INCLUSIVE)
-            .map(|value| Bound { value, inclusive: true })
+            .map(|value| Bound {
+                value,
+                inclusive: true,
+            })
             .or_else(|| {
-                self.lit(s, vocab::SH_MAX_EXCLUSIVE)
-                    .map(|value| Bound { value, inclusive: false })
+                self.lit(s, vocab::SH_MAX_EXCLUSIVE).map(|value| Bound {
+                    value,
+                    inclusive: false,
+                })
             });
         if lo.is_some() || hi.is_some() {
             let id = self
@@ -513,8 +526,12 @@ impl Lowerer<'_> {
     /// targets, so we emit one [`Rule`] per selector.
     fn parse_rules(&mut self, s: &NamedOrBlankNode, selectors: &[Selector]) {
         for rule_term in self.g.objects(s, vocab::SH_RULE) {
-            let Some(rn) = term_to_node(&rule_term) else { continue };
-            let Some(head) = self.parse_rule_head(&rn) else { continue };
+            let Some(rn) = term_to_node(&rule_term) else {
+                continue;
+            };
+            let Some(head) = self.parse_rule_head(&rn) else {
+                continue;
+            };
 
             let conditions: Vec<ShapeId> = self
                 .g
@@ -556,7 +573,11 @@ impl Lowerer<'_> {
             return None;
         }
         let (Some(subj), Some(pred), Some(obj)) = (subj, pred, obj) else {
-            self.diag(DiagLevel::Error, "sh:TripleRule missing subject/predicate/object", rn);
+            self.diag(
+                DiagLevel::Error,
+                "sh:TripleRule missing subject/predicate/object",
+                rn,
+            );
             return None;
         };
         Some(RuleHead::Triple {
@@ -578,12 +599,20 @@ impl Lowerer<'_> {
                     match parse_path(self.g, &path_term) {
                         Ok(path) => Some(NodeExpr::Path(path)),
                         Err(e) => {
-                            self.diag(DiagLevel::Error, format!("invalid node-expression path: {e}"), owner);
+                            self.diag(
+                                DiagLevel::Error,
+                                format!("invalid node-expression path: {e}"),
+                                owner,
+                            );
                             None
                         }
                     }
                 } else {
-                    self.diag(DiagLevel::Unsupported, "complex node expression not yet lowered", owner);
+                    self.diag(
+                        DiagLevel::Unsupported,
+                        "complex node expression not yet lowered",
+                        owner,
+                    );
                     None
                 }
             }
@@ -737,7 +766,9 @@ pub fn canonical_sparql_query(
                 .filter_map(term_to_node),
         );
         for declaration_term in g.objects(&source, vocab::SH_DECLARE) {
-            let Some(declaration) = term_to_node(&declaration_term) else { continue };
+            let Some(declaration) = term_to_node(&declaration_term) else {
+                continue;
+            };
             let (Some(Term::Literal(prefix)), Some(Term::Literal(namespace))) = (
                 g.object(&declaration, vocab::SH_PREFIX),
                 g.object(&declaration, vocab::SH_NAMESPACE),
@@ -783,7 +814,9 @@ fn class_path() -> Path {
 }
 
 fn map_node_kind(term: &Term) -> Option<NodeKindSet> {
-    let Term::NamedNode(n) = term else { return None };
+    let Term::NamedNode(n) = term else {
+        return None;
+    };
     let r = n.as_ref();
     Some(if r == vocab::SH_IRI {
         NodeKindSet::IRI

@@ -273,8 +273,12 @@ mod tests {
         let frozen = FrozenIndexedDataset::from_graph(&g);
         let a = term("http://ex/a");
         let star = Path::Star(Box::new(p("http://ex/p")));
-        let expected =
-            HashSet::from([term("http://ex/a"), term("http://ex/b"), term("http://ex/e"), term("http://ex/c")]);
+        let expected = HashSet::from([
+            term("http://ex/a"),
+            term("http://ex/b"),
+            term("http://ex/e"),
+            term("http://ex/c"),
+        ]);
         assert_eq!(succ(&g, &a, &star), expected);
         assert_eq!(succ(&frozen, &a, &star), expected);
     }
@@ -285,7 +289,10 @@ mod tests {
         let frozen = FrozenIndexedDataset::from_graph(&g);
         let a = term("http://ex/a");
         assert_eq!(g.out_predicates(&a), BTreeSet::from([nn("http://ex/p")]));
-        assert_eq!(frozen.out_predicates(&a), BTreeSet::from([nn("http://ex/p")]));
+        assert_eq!(
+            frozen.out_predicates(&a),
+            BTreeSet::from([nn("http://ex/p")])
+        );
         // Literal subject → no outgoing predicates on either backend.
         let lit = Term::Literal(oxrdf::Literal::new_simple_literal("x"));
         assert!(g.out_predicates(&lit).is_empty());

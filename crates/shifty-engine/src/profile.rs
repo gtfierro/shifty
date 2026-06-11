@@ -95,11 +95,14 @@ impl ProfileCollector {
 
     pub fn print_summary(&self) {
         if !self.shape_records.is_empty() {
-            println!("profile: {} distinct shape(s)/rule(s)", self.shape_records.len());
+            println!(
+                "profile: {} distinct shape(s)/rule(s)",
+                self.shape_records.len()
+            );
             let mut sorted = self.shape_records.to_vec();
-            sorted.sort_by(|a, b| b.total_us.cmp(&a.total_us));
+            sorted.sort_by_key(|b| std::cmp::Reverse(b.total_us));
             for r in &sorted {
-                let avg_us = if r.invocations > 0 { r.total_us / r.invocations } else { 0 };
+                let avg_us = r.total_us.checked_div(r.invocations).unwrap_or(0);
                 println!(
                     "  {}: {} call(s), {}µs total, {}µs avg",
                     r.label, r.invocations, r.total_us, avg_us,
@@ -112,20 +115,19 @@ impl ProfileCollector {
             }
             return;
         }
-        println!("profile: {} distinct SPARQL query/queries", self.records.len());
+        println!(
+            "profile: {} distinct SPARQL query/queries",
+            self.records.len()
+        );
         let mut sorted = self.records.to_vec();
-        sorted.sort_by(|a, b| b.total_exec_us.cmp(&a.total_exec_us));
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.total_exec_us));
         for r in &sorted {
             let exec_str = match &r.executor {
                 ExecutorKind::Fallback { reason: None } => "fallback".to_string(),
                 ExecutorKind::Fallback { reason: Some(s) } => format!("fallback({s})"),
                 ExecutorKind::Native => "native".to_string(),
             };
-            let avg_us = if r.invocations > 0 {
-                r.total_exec_us / r.invocations
-            } else {
-                0
-            };
+            let avg_us = r.total_exec_us.checked_div(r.invocations).unwrap_or(0);
             println!(
                 "  [{exec_str}] {}: {} call(s), {}µs total, {}µs avg",
                 r.fingerprint, r.invocations, r.total_exec_us, avg_us,

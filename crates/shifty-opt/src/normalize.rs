@@ -24,7 +24,10 @@ pub fn normalize(schema: &Schema) -> Schema {
     let statements = schema
         .statements
         .iter()
-        .map(|st| Statement { selector: z.selector(&st.selector), shape: z.intern(st.shape) })
+        .map(|st| Statement {
+            selector: z.selector(&st.selector),
+            shape: z.intern(st.shape),
+        })
         .collect();
     let rules = schema.rules.iter().map(|r| z.rule(r)).collect();
     // remap shape names through the CSE memo (CSE may collapse two named shapes)
@@ -33,7 +36,12 @@ pub fn normalize(schema: &Schema) -> Schema {
         .iter()
         .filter_map(|(old, name)| z.memo.get(old).map(|new| (*new, name.clone())))
         .collect();
-    Schema { arena: z.dst, statements, rules, names }
+    Schema {
+        arena: z.dst,
+        statements,
+        rules,
+        names,
+    }
 }
 
 /// Push `Inverse` inward one level, returning the canonical inverse of `path`
@@ -48,7 +56,7 @@ fn push_inverse(path: Path) -> Path {
         }
         Path::Alt(alts) => Path::alt(alts.into_iter().map(push_inverse).collect()),
         Path::Star(inner) => Path::star(push_inverse(*inner)), // (π*)⁻ = (π⁻)*
-        pred => Path::Inverse(Box::new(pred)),                  // Pred: stays wrapped
+        pred => Path::Inverse(Box::new(pred)),                 // Pred: stays wrapped
     }
 }
 
@@ -172,14 +180,19 @@ impl<'a> Interner<'a> {
                 let ids = cs.iter().map(|c| self.intern(*c)).collect();
                 self.mk_or(ids)
             }
-            Shape::Count { path, min, max, qualifier } => {
+            Shape::Count {
+                path,
+                min,
+                max,
+                qualifier,
+            } => {
                 let q = self.intern(qualifier);
                 self.mk_count(normalize_path(path), min, max, q)
             }
             // value-type facet tightening + same-family unsat (§4)
             Shape::TestType(vt) => match vt.normalize() {
-                None => self.bottom(),                              // facet unsat ⇒ ⊥
-                Some(ValueType::Any) => self.top(),                 // any ⇒ ⊤
+                None => self.bottom(),              // facet unsat ⇒ ⊥
+                Some(ValueType::Any) => self.top(), // any ⇒ ⊤
                 Some(v) => self.cons(Shape::TestType(v)),
             },
             // path-bearing leaves: normalize their paths
@@ -200,9 +213,17 @@ impl<'a> Interner<'a> {
             Shape::Not(c) => Shape::Not(self.intern(c)),
             Shape::And(cs) => Shape::And(self.intern_set(&cs)),
             Shape::Or(cs) => Shape::Or(self.intern_set(&cs)),
-            Shape::Count { path, min, max, qualifier } => {
-                Shape::Count { path: normalize_path(path), min, max, qualifier: self.intern(qualifier) }
-            }
+            Shape::Count {
+                path,
+                min,
+                max,
+                qualifier,
+            } => Shape::Count {
+                path: normalize_path(path),
+                min,
+                max,
+                qualifier: self.intern(qualifier),
+            },
             leaf => leaf,
         }
     }
@@ -234,7 +255,12 @@ impl<'a> Interner<'a> {
                 self.mk_and(neg)
             }
             // ¬(∃[min..max] π.q) = ∃≤(min-1) π.q ∨ ∃≥(max+1) π.q (qualifier stays positive)
-            Shape::Count { path, min, max, qualifier } => {
+            Shape::Count {
+                path,
+                min,
+                max,
+                qualifier,
+            } => {
                 let mut alts = Vec::new();
                 if let Some(a) = min
                     && a > 0
@@ -297,7 +323,13 @@ impl<'a> Interner<'a> {
         let mut others = Vec::new();
 
         for id in flat {
-            if let Shape::Count { path, min, max, qualifier } = self.dst.get(id).clone() {
+            if let Shape::Count {
+                path,
+                min,
+                max,
+                qualifier,
+            } = self.dst.get(id).clone()
+            {
                 let key = (path, qualifier);
                 match index.get(&key) {
                     Some(&i) => {
@@ -340,8 +372,8 @@ impl<'a> Interner<'a> {
             return others;
         }
         match ValueType::and(facets).normalize() {
-            None => others.push(self.bottom()),  // unsat ⇒ ⊥ (mk_and's loop absorbs)
-            Some(ValueType::Any) => {}            // vacuous ⇒ drops from ∧
+            None => others.push(self.bottom()), // unsat ⇒ ⊥ (mk_and's loop absorbs)
+            Some(ValueType::Any) => {}          // vacuous ⇒ drops from ∧
             Some(v) => {
                 let id = self.cons(Shape::TestType(v));
                 others.push(id);
@@ -416,16 +448,23 @@ impl<'a> Interner<'a> {
             }
             return match (lo, max) {
                 (0, Some(0)) => self.mk_not(q), // ∃[0..0] id.φ = ¬φ
-                (1, _) => q,                     // ∃≥1 id.φ = φ
-                _ => self.top(),                 // ∃[0..≥1] id.φ = ⊤
+                (1, _) => q,                    // ∃≥1 id.φ = φ
+                _ => self.top(),                // ∃[0..≥1] id.φ = ⊤
             };
         }
-        self.cons(Shape::Count { path, min, max, qualifier: q })
+        self.cons(Shape::Count {
+            path,
+            min,
+            max,
+            qualifier: q,
+        })
     }
 
     fn selector(&mut self, sel: &Selector) -> Selector {
         match sel {
-            Selector::HasPath(p, q) => Selector::HasPath(normalize_path(p.clone()), self.intern(*q)),
+            Selector::HasPath(p, q) => {
+                Selector::HasPath(normalize_path(p.clone()), self.intern(*q))
+            }
             other => other.clone(),
         }
     }
@@ -442,7 +481,11 @@ impl<'a> Interner<'a> {
 
     fn head(&mut self, h: &RuleHead) -> RuleHead {
         match h {
-            RuleHead::Triple { subject, predicate, object } => RuleHead::Triple {
+            RuleHead::Triple {
+                subject,
+                predicate,
+                object,
+            } => RuleHead::Triple {
                 subject: self.node_expr(subject),
                 predicate: self.node_expr(predicate),
                 object: self.node_expr(object),
@@ -512,7 +555,9 @@ mod tests {
         let root = a.insert(Shape::And(vec![k, bot]));
         let n = normalize(&schema_with(a, root));
         let rooted = n.statements[0].shape;
-        assert!(matches!(n.arena.get(rooted), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+        assert!(
+            matches!(n.arena.get(rooted), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top))
+        );
     }
 
     #[test]
@@ -532,7 +577,9 @@ mod tests {
         let nk = a.insert(Shape::Not(k));
         let root = a.insert(Shape::And(vec![k, nk]));
         let n = normalize(&schema_with(a, root));
-        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+        assert!(
+            matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top))
+        );
     }
 
     #[test]
@@ -583,8 +630,18 @@ mod tests {
         let p = Path::Pred(shifty_algebra::NamedNode::new("http://ex/p").unwrap());
         let t1 = a.insert(Shape::Top);
         let t2 = a.insert(Shape::Top);
-        let lo = a.insert(Shape::Count { path: p.clone(), min: Some(1), max: None, qualifier: t1 });
-        let hi = a.insert(Shape::Count { path: p, min: None, max: Some(1), qualifier: t2 });
+        let lo = a.insert(Shape::Count {
+            path: p.clone(),
+            min: Some(1),
+            max: None,
+            qualifier: t1,
+        });
+        let hi = a.insert(Shape::Count {
+            path: p,
+            min: None,
+            max: Some(1),
+            qualifier: t2,
+        });
         let root = a.insert(Shape::And(vec![lo, hi]));
         let n = normalize(&schema_with(a, root));
         match n.arena.get(n.statements[0].shape) {
@@ -600,26 +657,46 @@ mod tests {
         let p = Path::Pred(shifty_algebra::NamedNode::new("http://ex/p").unwrap());
         let t1 = a.insert(Shape::Top);
         let t2 = a.insert(Shape::Top);
-        let lo = a.insert(Shape::Count { path: p.clone(), min: Some(2), max: None, qualifier: t1 });
-        let hi = a.insert(Shape::Count { path: p, min: None, max: Some(1), qualifier: t2 });
+        let lo = a.insert(Shape::Count {
+            path: p.clone(),
+            min: Some(2),
+            max: None,
+            qualifier: t1,
+        });
+        let hi = a.insert(Shape::Count {
+            path: p,
+            min: None,
+            max: Some(1),
+            qualifier: t2,
+        });
         let root = a.insert(Shape::And(vec![lo, hi]));
         let n = normalize(&schema_with(a, root));
-        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+        assert!(
+            matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top))
+        );
     }
 
     #[test]
     fn unsat_value_type_absorbs_conjunction() {
         // K(IRI) ∧ test([5,3])  →  ⊥   (the empty range folds to ⊥, absorbing ∧)
         use shifty_algebra::{Bound, Literal, NamedNode, ValueType};
-        let int = |n: i64| Literal::new_typed_literal(
-            n.to_string(),
-            NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
-        );
+        let int = |n: i64| {
+            Literal::new_typed_literal(
+                n.to_string(),
+                NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
+            )
+        };
         let mut a = ShapeArena::new();
         let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
         let bad = a.insert(Shape::TestType(ValueType::NumericRange {
-            lo: Some(Bound { value: int(5), inclusive: true }),
-            hi: Some(Bound { value: int(3), inclusive: true }),
+            lo: Some(Bound {
+                value: int(5),
+                inclusive: true,
+            }),
+            hi: Some(Bound {
+                value: int(3),
+                inclusive: true,
+            }),
         }));
         let root = a.insert(Shape::And(vec![k, bad]));
         let n = normalize(&schema_with(a, root));
@@ -631,18 +708,26 @@ mod tests {
     fn conjoined_range_facets_merge() {
         // test(≥1) ∧ test(≤10)  →  single test([1,10])
         use shifty_algebra::{Bound, Literal, NamedNode, ValueType};
-        let int = |n: i64| Literal::new_typed_literal(
-            n.to_string(),
-            NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
-        );
+        let int = |n: i64| {
+            Literal::new_typed_literal(
+                n.to_string(),
+                NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
+            )
+        };
         let mut a = ShapeArena::new();
         let lo = a.insert(Shape::TestType(ValueType::NumericRange {
-            lo: Some(Bound { value: int(1), inclusive: true }),
+            lo: Some(Bound {
+                value: int(1),
+                inclusive: true,
+            }),
             hi: None,
         }));
         let hi = a.insert(Shape::TestType(ValueType::NumericRange {
             lo: None,
-            hi: Some(Bound { value: int(10), inclusive: true }),
+            hi: Some(Bound {
+                value: int(10),
+                inclusive: true,
+            }),
         }));
         let root = a.insert(Shape::And(vec![lo, hi]));
         let n = normalize(&schema_with(a, root));
@@ -711,9 +796,17 @@ mod tests {
         // ∃≥1 id.φ = φ
         let mut a = ShapeArena::new();
         let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
-        let count = a.insert(Shape::Count { path: Path::Id, min: Some(1), max: None, qualifier: k });
+        let count = a.insert(Shape::Count {
+            path: Path::Id,
+            min: Some(1),
+            max: None,
+            qualifier: k,
+        });
         let n = normalize(&schema_with(a, count));
-        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::TestKind(NodeKindSet::IRI)));
+        assert!(matches!(
+            n.arena.get(n.statements[0].shape),
+            Shape::TestKind(NodeKindSet::IRI)
+        ));
     }
 
     #[test]
@@ -721,12 +814,19 @@ mod tests {
         // ∃[0..0] id.φ = ¬φ
         let mut a = ShapeArena::new();
         let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
-        let count =
-            a.insert(Shape::Count { path: Path::Id, min: None, max: Some(0), qualifier: k });
+        let count = a.insert(Shape::Count {
+            path: Path::Id,
+            min: None,
+            max: Some(0),
+            qualifier: k,
+        });
         let n = normalize(&schema_with(a, count));
         match n.arena.get(n.statements[0].shape) {
             Shape::Not(inner) => {
-                assert!(matches!(n.arena.get(*inner), Shape::TestKind(NodeKindSet::IRI)))
+                assert!(matches!(
+                    n.arena.get(*inner),
+                    Shape::TestKind(NodeKindSet::IRI)
+                ))
             }
             other => panic!("expected Not(IRI), got {other:?}"),
         }
@@ -737,8 +837,12 @@ mod tests {
         // ∃≥2 id.φ = ⊥
         let mut a = ShapeArena::new();
         let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
-        let count =
-            a.insert(Shape::Count { path: Path::Id, min: Some(2), max: None, qualifier: k });
+        let count = a.insert(Shape::Count {
+            path: Path::Id,
+            min: Some(2),
+            max: None,
+            qualifier: k,
+        });
         let n = normalize(&schema_with(a, count));
         let r = n.statements[0].shape;
         assert!(matches!(n.arena.get(r), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
@@ -755,8 +859,12 @@ mod tests {
         ])));
         let mut a = ShapeArena::new();
         let top = a.insert(Shape::Top);
-        let count =
-            a.insert(Shape::Count { path: inv_seq, min: Some(1), max: None, qualifier: top });
+        let count = a.insert(Shape::Count {
+            path: inv_seq,
+            min: Some(1),
+            max: None,
+            qualifier: top,
+        });
         let n = normalize(&schema_with(a, count));
         match n.arena.get(n.statements[0].shape) {
             Shape::Count { path, .. } => {

@@ -19,9 +19,7 @@ use crate::sparql::SparqlExecutor;
 use crate::validate::{NonStratifiable, focus_nodes_with, graph_union, holds};
 use oxrdf::{Graph, NamedNode, Term, Triple};
 use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, ShapeArena};
-use shifty_opt::{
-    RuleDependencies, analyze, rule_dependencies, rule_guard_dependencies,
-};
+use shifty_opt::{RuleDependencies, analyze, rule_dependencies, rule_guard_dependencies};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// The result of running inference over a data graph.
@@ -257,6 +255,7 @@ fn selector_stale(sel: &Selector, pass_changed: &HashSet<NamedNode>) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fire_rule(
     focus_nodes: &[Term],
     context: &Graph,

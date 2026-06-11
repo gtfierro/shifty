@@ -21,7 +21,11 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     pub fn new(level: DiagLevel, message: impl Into<String>, subject: Option<String>) -> Self {
-        Self { level, message: message.into(), subject }
+        Self {
+            level,
+            message: message.into(),
+            subject,
+        }
     }
 }
 

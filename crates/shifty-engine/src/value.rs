@@ -3,8 +3,10 @@
 
 use oxrdf::vocab::xsd;
 use oxrdf::{Literal, NamedNodeRef, Term};
-use oxsdatatypes::{Boolean, Date, DateTime, DayTimeDuration, Decimal, Double, Duration, Float,
-    Time, YearMonthDuration};
+use oxsdatatypes::{
+    Boolean, Date, DateTime, DayTimeDuration, Decimal, Double, Duration, Float, Time,
+    YearMonthDuration,
+};
 use regex::Regex;
 use shifty_algebra::value_type::{Bound, ValueType};
 use std::cmp::Ordering;
@@ -259,43 +261,92 @@ mod tests {
             oxrdf::NamedNode::new(datatype).unwrap(),
         ))
     }
-    fn date(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#date") }
-    fn time(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#time") }
-    fn dur(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#duration") }
-    fn ymd(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#yearMonthDuration") }
-    fn dtd(v: &str) -> Term { lit(v, "http://www.w3.org/2001/XMLSchema#dayTimeDuration") }
+    fn date(v: &str) -> Term {
+        lit(v, "http://www.w3.org/2001/XMLSchema#date")
+    }
+    fn time(v: &str) -> Term {
+        lit(v, "http://www.w3.org/2001/XMLSchema#time")
+    }
+    fn dur(v: &str) -> Term {
+        lit(v, "http://www.w3.org/2001/XMLSchema#duration")
+    }
+    fn ymd(v: &str) -> Term {
+        lit(v, "http://www.w3.org/2001/XMLSchema#yearMonthDuration")
+    }
+    fn dtd(v: &str) -> Term {
+        lit(v, "http://www.w3.org/2001/XMLSchema#dayTimeDuration")
+    }
 
     #[test]
     fn date_ordering() {
-        assert_eq!(compare_terms(&date("2020-01-01"), &date("2020-06-01")), Some(Ordering::Less));
-        assert_eq!(compare_terms(&date("2020-06-01"), &date("2020-01-01")), Some(Ordering::Greater));
-        assert_eq!(compare_terms(&date("2020-03-15"), &date("2020-03-15")), Some(Ordering::Equal));
+        assert_eq!(
+            compare_terms(&date("2020-01-01"), &date("2020-06-01")),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_terms(&date("2020-06-01"), &date("2020-01-01")),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_terms(&date("2020-03-15"), &date("2020-03-15")),
+            Some(Ordering::Equal)
+        );
     }
 
     #[test]
     fn time_ordering() {
-        assert_eq!(compare_terms(&time("08:00:00"), &time("17:30:00")), Some(Ordering::Less));
-        assert_eq!(compare_terms(&time("23:59:59"), &time("00:00:00")), Some(Ordering::Greater));
-        assert_eq!(compare_terms(&time("12:00:00"), &time("12:00:00")), Some(Ordering::Equal));
+        assert_eq!(
+            compare_terms(&time("08:00:00"), &time("17:30:00")),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_terms(&time("23:59:59"), &time("00:00:00")),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_terms(&time("12:00:00"), &time("12:00:00")),
+            Some(Ordering::Equal)
+        );
     }
 
     #[test]
     fn duration_ordering() {
-        assert_eq!(compare_terms(&dur("P1Y"), &dur("P2Y")), Some(Ordering::Less));
-        assert_eq!(compare_terms(&dur("P30D"), &dur("P1D")), Some(Ordering::Greater));
-        assert_eq!(compare_terms(&dur("P1Y"), &dur("P1Y")), Some(Ordering::Equal));
+        assert_eq!(
+            compare_terms(&dur("P1Y"), &dur("P2Y")),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_terms(&dur("P30D"), &dur("P1D")),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_terms(&dur("P1Y"), &dur("P1Y")),
+            Some(Ordering::Equal)
+        );
     }
 
     #[test]
     fn year_month_duration_ordering() {
-        assert_eq!(compare_terms(&ymd("P1Y"), &ymd("P13M")), Some(Ordering::Less));
-        assert_eq!(compare_terms(&ymd("P2Y"), &ymd("P1Y")), Some(Ordering::Greater));
+        assert_eq!(
+            compare_terms(&ymd("P1Y"), &ymd("P13M")),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_terms(&ymd("P2Y"), &ymd("P1Y")),
+            Some(Ordering::Greater)
+        );
     }
 
     #[test]
     fn day_time_duration_ordering() {
-        assert_eq!(compare_terms(&dtd("PT1H"), &dtd("PT2H")), Some(Ordering::Less));
-        assert_eq!(compare_terms(&dtd("P2D"), &dtd("P1D")), Some(Ordering::Greater));
+        assert_eq!(
+            compare_terms(&dtd("PT1H"), &dtd("PT2H")),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_terms(&dtd("P2D"), &dtd("P1D")),
+            Some(Ordering::Greater)
+        );
     }
 
     #[test]
@@ -312,20 +363,28 @@ mod tests {
 
     #[test]
     fn valid_lexical_form_date() {
-        let good = Literal::new_typed_literal("2020-01-01",
-            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap());
-        let bad = Literal::new_typed_literal("not-a-date",
-            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap());
+        let good = Literal::new_typed_literal(
+            "2020-01-01",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap(),
+        );
+        let bad = Literal::new_typed_literal(
+            "not-a-date",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#date").unwrap(),
+        );
         assert!(valid_lexical_form(&good));
         assert!(!valid_lexical_form(&bad));
     }
 
     #[test]
     fn valid_lexical_form_duration() {
-        let good = Literal::new_typed_literal("P1Y2M3DT4H",
-            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#duration").unwrap());
-        let bad = Literal::new_typed_literal("not-a-duration",
-            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#duration").unwrap());
+        let good = Literal::new_typed_literal(
+            "P1Y2M3DT4H",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#duration").unwrap(),
+        );
+        let bad = Literal::new_typed_literal(
+            "not-a-duration",
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#duration").unwrap(),
+        );
         assert!(valid_lexical_form(&good));
         assert!(!valid_lexical_form(&bad));
     }

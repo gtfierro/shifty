@@ -19,12 +19,36 @@ pub struct NodeKindSet {
 }
 
 impl NodeKindSet {
-    pub const IRI: Self = Self { iri: true, blank: false, literal: false };
-    pub const BLANK_NODE: Self = Self { iri: false, blank: true, literal: false };
-    pub const LITERAL: Self = Self { iri: false, blank: false, literal: true };
-    pub const BLANK_NODE_OR_IRI: Self = Self { iri: true, blank: true, literal: false };
-    pub const BLANK_NODE_OR_LITERAL: Self = Self { iri: false, blank: true, literal: true };
-    pub const IRI_OR_LITERAL: Self = Self { iri: true, blank: false, literal: true };
+    pub const IRI: Self = Self {
+        iri: true,
+        blank: false,
+        literal: false,
+    };
+    pub const BLANK_NODE: Self = Self {
+        iri: false,
+        blank: true,
+        literal: false,
+    };
+    pub const LITERAL: Self = Self {
+        iri: false,
+        blank: false,
+        literal: true,
+    };
+    pub const BLANK_NODE_OR_IRI: Self = Self {
+        iri: true,
+        blank: true,
+        literal: false,
+    };
+    pub const BLANK_NODE_OR_LITERAL: Self = Self {
+        iri: false,
+        blank: true,
+        literal: true,
+    };
+    pub const IRI_OR_LITERAL: Self = Self {
+        iri: true,
+        blank: false,
+        literal: true,
+    };
 
     /// Does `term` have one of the kinds in this set?
     pub fn matches(&self, term: &Term) -> bool {

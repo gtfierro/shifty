@@ -33,7 +33,12 @@ fn report_validates_sparql_target_focus_nodes() {
     // ex:w1 (a Widget without ex:name) is the only violation; ex:w2 conforms
     // and ex:other is not a Widget so it is never selected as a focus node.
     assert!(!report.conforms, "graph should not conform");
-    assert_eq!(report.results.len(), 1, "exactly one result: {:?}", report.results);
+    assert_eq!(
+        report.results.len(),
+        1,
+        "exactly one result: {:?}",
+        report.results
+    );
 
     let result = &report.results[0];
     assert_eq!(result.focus, iri("http://example.org/w1"));
@@ -44,7 +49,10 @@ fn report_validates_sparql_target_focus_nodes() {
     );
 
     // Sanity: no result mentions the conforming or untargeted nodes.
-    for focus in [iri("http://example.org/w2"), iri("http://example.org/other")] {
+    for focus in [
+        iri("http://example.org/w2"),
+        iri("http://example.org/other"),
+    ] {
         assert!(
             report.results.iter().all(|r| r.focus != focus),
             "{focus:?} should not appear in results"

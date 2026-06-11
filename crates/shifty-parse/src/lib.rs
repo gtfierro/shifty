@@ -111,7 +111,11 @@ mod tests {
         assert_eq!(r.conditions.len(), 1);
         use shifty_algebra::{NodeExpr, RuleHead};
         match &r.head {
-            RuleHead::Triple { subject, predicate, object } => {
+            RuleHead::Triple {
+                subject,
+                predicate,
+                object,
+            } => {
                 assert!(matches!(subject, NodeExpr::This));
                 assert!(matches!(predicate, NodeExpr::Constant(_)));
                 assert!(matches!(object, NodeExpr::Path(_)));
@@ -131,7 +135,10 @@ mod tests {
         "#;
         let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         assert_eq!(out.schema.rules.len(), 1);
-        assert!(matches!(out.schema.rules[0].head, shifty_algebra::RuleHead::Sparql(_)));
+        assert!(matches!(
+            out.schema.rules[0].head,
+            shifty_algebra::RuleHead::Sparql(_)
+        ));
     }
 
     #[test]
@@ -146,7 +153,10 @@ mod tests {
         let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         assert!(out.diagnostics.is_empty(), "diags: {:?}", out.diagnostics);
         let root = out.schema.statements[0].shape;
-        assert!(matches!(out.schema.arena.get(root), shifty_algebra::Shape::Sparql(_)));
+        assert!(matches!(
+            out.schema.arena.get(root),
+            shifty_algebra::Shape::Sparql(_)
+        ));
     }
 
     #[test]

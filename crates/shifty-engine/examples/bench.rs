@@ -25,7 +25,9 @@ fn main() {
            sh:property [ sh:path ex:age ; sh:datatype xsd:integer ] .\n",
     );
     for i in 0..persons {
-        ttl.push_str(&format!("ex:p{i} a ex:Person ; ex:name \"P{i}\" ; ex:age {i} .\n"));
+        ttl.push_str(&format!(
+            "ex:p{i} a ex:Person ; ex:name \"P{i}\" ; ex:age {i} .\n"
+        ));
     }
     for i in 0..decoys {
         ttl.push_str(&format!("ex:d{i} a ex:Thing ; ex:label \"D{i}\" .\n"));
@@ -39,14 +41,18 @@ fn main() {
     let mut reference_conforms = true;
     let t = Instant::now();
     for _ in 0..runs {
-        reference_conforms = shifty_engine::validate(&loaded.graph, &parsed.schema).unwrap().conforms;
+        reference_conforms = shifty_engine::validate(&loaded.graph, &parsed.schema)
+            .unwrap()
+            .conforms;
     }
     let reference = t.elapsed() / runs;
 
     let mut planned_conforms = true;
     let t = Instant::now();
     for _ in 0..runs {
-        planned_conforms = shifty_engine::validate_plan(&loaded.graph, &physical).unwrap().conforms;
+        planned_conforms = shifty_engine::validate_plan(&loaded.graph, &physical)
+            .unwrap()
+            .conforms;
     }
     let planned = t.elapsed() / runs;
 

@@ -148,7 +148,10 @@ pub(crate) fn delta_focus_ids(
         return Some(HashSet::new());
     }
 
-    let encoded: Vec<_> = delta.iter().map(|triple| ds.encode_triple(triple)).collect();
+    let encoded: Vec<_> = delta
+        .iter()
+        .map(|triple| ds.encode_triple(triple))
+        .collect();
     let exec = NativeExecutor::new(plan, ds);
     let mut foci = HashSet::new();
 
@@ -167,8 +170,9 @@ pub(crate) fn delta_focus_ids(
         }
 
         let mut bound = scan_variables(delta_scan);
-        let mut remaining: Vec<usize> =
-            (0..scans.len()).filter(|&index| index != delta_index).collect();
+        let mut remaining: Vec<usize> = (0..scans.len())
+            .filter(|&index| index != delta_index)
+            .collect();
         while !remaining.is_empty() {
             let Some((position, _)) = remaining
                 .iter()
@@ -244,10 +248,7 @@ impl NativeExecutor<'_> {
             let o = self.resolve(&pattern.object, sol);
             for [ts, tp, to] in self.ds.scan(s.probe(), p.probe(), o.probe(), graph) {
                 let mut next = sol.clone();
-                if bind(&mut next, &s, ts)
-                    && bind(&mut next, &p, tp)
-                    && bind(&mut next, &o, to)
-                {
+                if bind(&mut next, &s, ts) && bind(&mut next, &p, tp) && bind(&mut next, &o, to) {
                     out.push(next);
                 }
             }
@@ -274,10 +275,7 @@ impl NativeExecutor<'_> {
                     continue;
                 }
                 let mut next = sol.clone();
-                if bind(&mut next, &s, ts)
-                    && bind(&mut next, &p, tp)
-                    && bind(&mut next, &o, to)
-                {
+                if bind(&mut next, &s, ts) && bind(&mut next, &p, tp) && bind(&mut next, &o, to) {
                     out.push(next);
                 }
             }
@@ -830,11 +828,7 @@ mod tests {
 
     #[test]
     fn delta_join_derives_focus_through_another_scan() {
-        let delta = t(
-            "http://ex/p",
-            "http://ex/inverseOf",
-            "http://ex/inverseP",
-        );
+        let delta = t("http://ex/p", "http://ex/inverseOf", "http://ex/inverseP");
         let mut graph = Graph::new();
         graph.insert(t("http://ex/a", "http://ex/p", "http://ex/b").as_ref());
         graph.insert(delta.as_ref());

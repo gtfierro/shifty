@@ -1,6 +1,6 @@
 use shifty_engine::{
-    validate_graphs, validate_graphs_with_mode, validate_plan_graphs, validate_report,
-    ValidationGraphMode,
+    ValidationGraphMode, validate_graphs, validate_graphs_with_mode, validate_plan_graphs,
+    validate_report,
 };
 
 #[test]
@@ -32,15 +32,13 @@ fn validation_graph_modes_have_distinct_scope() {
     .unwrap();
     assert!(data_only.conforms);
 
-    let union = validate_graphs(
-        &data.graph,
-        &shapes.graph,
-        &parsed.schema,
-    )
-    .unwrap();
+    let union = validate_graphs(&data.graph, &shapes.graph, &parsed.schema).unwrap();
     assert!(!union.conforms);
     assert_eq!(union.violations.len(), 1);
-    assert_eq!(union.violations[0].focus.to_string(), "<http://ex/dataItem>");
+    assert_eq!(
+        union.violations[0].focus.to_string(),
+        "<http://ex/dataItem>"
+    );
 
     let plan = shifty_opt::plan(&parsed.schema);
     let planned_union = validate_plan_graphs(&data.graph, &shapes.graph, &plan).unwrap();

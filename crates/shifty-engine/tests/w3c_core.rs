@@ -9,7 +9,8 @@
 use oxrdf::{Graph, NamedNodeRef, Term};
 use std::path::{Path, PathBuf};
 
-const SH_CONFORMS: NamedNodeRef = NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#conforms");
+const SH_CONFORMS: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#conforms");
 
 /// Predicates whose presence means the test exercises a feature we don't
 /// support yet; skip rather than report a spurious failure.

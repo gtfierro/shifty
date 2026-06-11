@@ -690,13 +690,16 @@ pub(crate) fn apply_message_template(
     bindings: &HashMap<String, Term>,
 ) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"\{(\$[A-Za-z_]\w*|\?[A-Za-z_]\w*)\}").expect("static regex")
-    });
+    let re = RE
+        .get_or_init(|| Regex::new(r"\{(\$[A-Za-z_]\w*|\?[A-Za-z_]\w*)\}").expect("static regex"));
     re.replace_all(template, |caps: &regex::Captures| {
         let placeholder = &caps[1];
         let name = &placeholder[1..]; // strip leading `$` or `?`
-        let term = if name == "this" { Some(focus) } else { bindings.get(name) };
+        let term = if name == "this" {
+            Some(focus)
+        } else {
+            bindings.get(name)
+        };
         term.map(|t| match t {
             Term::NamedNode(n) => format!("<{}>", n.as_str()),
             Term::BlankNode(b) => format!("_:{}", b.as_str()),
@@ -736,7 +739,13 @@ fn leaf(
     }
 }
 
-fn all_pairs_ordered(g: &dyn PathBackend, v: &Term, path: &Path, p: &NamedNode, allow_eq: bool) -> bool {
+fn all_pairs_ordered(
+    g: &dyn PathBackend,
+    v: &Term,
+    path: &Path,
+    p: &NamedNode,
+    allow_eq: bool,
+) -> bool {
     let lhs = succ(g, v, path);
     let rhs = objects(g, v, p);
     for a in &lhs {
@@ -756,7 +765,11 @@ fn objects(g: &dyn PathBackend, v: &Term, p: &NamedNode) -> HashSet<Term> {
 }
 
 /// Predicates on `node` not allowed by a closed shape's set `q`.
-fn closed_offenders(g: &dyn PathBackend, node: &Term, q: &BTreeSet<NamedNode>) -> BTreeSet<NamedNode> {
+fn closed_offenders(
+    g: &dyn PathBackend,
+    node: &Term,
+    q: &BTreeSet<NamedNode>,
+) -> BTreeSet<NamedNode> {
     g.out_predicates(node)
         .into_iter()
         .filter(|p| !q.contains(p))

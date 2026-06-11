@@ -2,8 +2,8 @@ use oxrdf::{Graph, Term};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use shifty_engine::{
-    ValidationGraphMode, ValidationReport,
-    report_to_graph, validate_plan_graphs_with_mode, validate_report_graphs_with_mode,
+    ValidationGraphMode, ValidationReport, report_to_graph, validate_plan_graphs_with_mode,
+    validate_report_graphs_with_mode,
 };
 
 // ── Algebra-path types ────────────────────────────────────────────────────────
@@ -75,7 +75,10 @@ impl AlgebraResult {
         if self.conforms {
             "AlgebraResult(conforms=True)".to_string()
         } else {
-            format!("AlgebraResult(conforms=False, violations={})", self.violations.len())
+            format!(
+                "AlgebraResult(conforms=False, violations={})",
+                self.violations.len()
+            )
         }
     }
 }
@@ -148,7 +151,11 @@ fn load_turtle(data: &[u8], base: Option<&str>) -> PyResult<shifty_parse::Loaded
 fn prepare_shapes(
     shapes_data: &[u8],
     base: Option<&str>,
-) -> PyResult<(shifty_parse::Loaded, shifty_algebra::Schema, shifty_opt::PhysicalPlan)> {
+) -> PyResult<(
+    shifty_parse::Loaded,
+    shifty_algebra::Schema,
+    shifty_opt::PhysicalPlan,
+)> {
     let loaded = load_turtle(shapes_data, base)?;
     let parse_out = shifty_parse::parse_loaded(&loaded);
     let schema = shifty_opt::normalize(&parse_out.schema);
@@ -184,10 +191,14 @@ fn graph_to_ntriples(graph: &Graph) -> String {
 
 fn graph_to_turtle(graph: &Graph) -> String {
     let ser = oxttl::TurtleSerializer::new()
-        .with_prefix("sh", "http://www.w3.org/ns/shacl#").unwrap()
-        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#").unwrap()
-        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#").unwrap()
-        .with_prefix("xsd", "http://www.w3.org/2001/XMLSchema#").unwrap();
+        .with_prefix("sh", "http://www.w3.org/ns/shacl#")
+        .unwrap()
+        .with_prefix("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+        .unwrap()
+        .with_prefix("rdfs", "http://www.w3.org/2000/01/rdf-schema#")
+        .unwrap()
+        .with_prefix("xsd", "http://www.w3.org/2001/XMLSchema#")
+        .unwrap();
     let bytes = graph
         .iter()
         .try_fold(ser.for_writer(Vec::new()), |mut s, triple| {
@@ -210,7 +221,12 @@ fn format_report_text(report: &ValidationReport) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     writeln!(out, "Validation Report").unwrap();
-    writeln!(out, "Conforms: {}", if report.conforms { "True" } else { "False" }).unwrap();
+    writeln!(
+        out,
+        "Conforms: {}",
+        if report.conforms { "True" } else { "False" }
+    )
+    .unwrap();
     if report.results.is_empty() {
         return out;
     }
@@ -248,10 +264,7 @@ fn format_report_text(report: &ValidationReport) -> String {
     out
 }
 
-fn build_w3c_result(
-    report: &ValidationReport,
-    report_graph: &Graph,
-) -> W3cResult {
+fn build_w3c_result(report: &ValidationReport, report_graph: &Graph) -> W3cResult {
     W3cResult {
         conforms: report.conforms,
         report_turtle: graph_to_turtle(report_graph),
@@ -259,10 +272,7 @@ fn build_w3c_result(
     }
 }
 
-fn shape_name_for(
-    v: &shifty_engine::Violation,
-    schema: &shifty_algebra::Schema,
-) -> Option<String> {
+fn shape_name_for(v: &shifty_engine::Violation, schema: &shifty_algebra::Schema) -> Option<String> {
     let shape_id = schema.statements.get(v.statement)?.shape;
     schema.names.get(&shape_id).cloned()
 }
@@ -286,14 +296,14 @@ pub fn _validate_algebra(
     let data_loaded = load_turtle(data, base)?;
     let mode = parse_mode(graph_mode)?;
 
-    let eval_data = match maybe_infer(&data_loaded.graph, &shapes_loaded.graph, &schema, run_infer)? {
+    let eval_data = match maybe_infer(&data_loaded.graph, &shapes_loaded.graph, &schema, run_infer)?
+    {
         Some(g) => g,
         None => data_loaded.graph.clone(),
     };
 
-    let outcome =
-        validate_plan_graphs_with_mode(&eval_data, &shapes_loaded.graph, &plan, mode)
-            .map_err(|e| PyValueError::new_err(format!("non-stratifiable schema: {e}")))?;
+    let outcome = validate_plan_graphs_with_mode(&eval_data, &shapes_loaded.graph, &plan, mode)
+        .map_err(|e| PyValueError::new_err(format!("non-stratifiable schema: {e}")))?;
 
     let violations = outcome
         .violations
@@ -326,7 +336,10 @@ pub fn _validate_algebra(
         })
         .collect::<Vec<_>>();
 
-    Ok(AlgebraResult { conforms: outcome.conforms, violations })
+    Ok(AlgebraResult {
+        conforms: outcome.conforms,
+        violations,
+    })
 }
 
 /// Run W3C-report-path validation. Returns a `W3cResult` whose `report_turtle`
@@ -368,11 +381,7 @@ pub fn _validate_w3c(
 /// `InferResult` with the full graph (as N-Triples) and inferred triple count.
 #[pyfunction]
 #[pyo3(signature = (data, shapes=None, base=None))]
-pub fn _infer(
-    data: &[u8],
-    shapes: Option<&[u8]>,
-    base: Option<&str>,
-) -> PyResult<InferResult> {
+pub fn _infer(data: &[u8], shapes: Option<&[u8]>, base: Option<&str>) -> PyResult<InferResult> {
     let shapes_data = shapes.unwrap_or(data);
     let shapes_loaded = load_turtle(shapes_data, base)?;
     let data_loaded = load_turtle(data, base)?;

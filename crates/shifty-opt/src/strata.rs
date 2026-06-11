@@ -8,7 +8,7 @@
 //! positive (`docs/03-recursion-semantics.md`). A non-stratifiable SCC is a
 //! recursion through genuine negation (e.g. `S := ¬∃p.S`) and is reported.
 
-use crate::deps::{dependency_edges, DepEdge};
+use crate::deps::{DepEdge, dependency_edges};
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use serde::{Deserialize, Serialize};
@@ -67,8 +67,11 @@ pub fn analyze(arena: &ShapeArena) -> Stratification {
         }
     }
 
-    let self_loops: HashSet<ShapeId> =
-        edges.iter().filter(|e| e.from == e.to).map(|e| e.from).collect();
+    let self_loops: HashSet<ShapeId> = edges
+        .iter()
+        .filter(|e| e.from == e.to)
+        .map(|e| e.from)
+        .collect();
 
     // depth of each SCC = longest dependency chain to a dependee (dependees = 0)
     let depths = scc_depths(&sccs, &edges, &scc_of);
@@ -82,7 +85,14 @@ pub fn analyze(arena: &ShapeArena) -> Stratification {
             let recursive = shapes.len() > 1 || shapes.iter().any(|s| self_loops.contains(s));
             let members: HashSet<ShapeId> = shapes.iter().copied().collect();
             let stratifiable = !recursive || sign_balanced(&members, &edges);
-            (depths[i], Stratum { shapes, recursive, stratifiable })
+            (
+                depths[i],
+                Stratum {
+                    shapes,
+                    recursive,
+                    stratifiable,
+                },
+            )
         })
         .collect();
 
@@ -90,7 +100,10 @@ pub fn analyze(arena: &ShapeArena) -> Stratification {
     let strata: Vec<Stratum> = indexed.into_iter().map(|(_, s)| s).collect();
     let stratifiable = strata.iter().all(|s| s.stratifiable);
 
-    Stratification { strata, stratifiable }
+    Stratification {
+        strata,
+        stratifiable,
+    }
 }
 
 /// Longest dependency-chain depth of each SCC (an SCC with no out-edges to other
@@ -185,7 +198,12 @@ mod tests {
         let ns = arena.insert(Shape::Not(s));
         arena.set(
             s,
-            Shape::Count { path: Path::Pred(pred()), min: None, max: Some(0), qualifier: ns },
+            Shape::Count {
+                path: Path::Pred(pred()),
+                min: None,
+                max: Some(0),
+                qualifier: ns,
+            },
         );
 
         let strat = analyze(&arena);

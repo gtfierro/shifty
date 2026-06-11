@@ -64,10 +64,10 @@ type Key = (String, Option<String>, Option<String>, String, String);
 /// - Blank node as a shape or data node: wildcard ("_:BLANK") because
 ///   expected results sometimes use empty placeholder blank nodes.
 fn path_term_key(loaded: &shifty_parse::Loaded, t: &Term) -> String {
-    if matches!(t, Term::BlankNode(_)) {
-        if let Ok(p) = shifty_parse::path::parse_path(loaded, t) {
-            return path_to_string(&p);
-        }
+    if matches!(t, Term::BlankNode(_))
+        && let Ok(p) = shifty_parse::path::parse_path(loaded, t)
+    {
+        return path_to_string(&p);
     }
     t.to_string()
 }
@@ -104,14 +104,22 @@ fn expected_keys(loaded: &shifty_parse::Loaded) -> Option<(bool, Vec<Key>)> {
 
     let mut keys = Vec::new();
     for res in loaded.objects(&report, vocab::SH_RESULT) {
-        let Some(rn) = shifty_parse::graph::term_to_node(&res) else { continue };
+        let Some(rn) = shifty_parse::graph::term_to_node(&res) else {
+            continue;
+        };
         let focus = loaded.object(&rn, vocab::SH_FOCUS_NODE)?;
         let component = loaded.object(&rn, vocab::SH_SOURCE_CONSTRAINT_COMPONENT)?;
         let source = loaded.object(&rn, vocab::SH_SOURCE_SHAPE)?;
         keys.push((
             focus.to_string(),
-            loaded.object(&rn, vocab::SH_RESULT_PATH).as_ref().map(|p| path_term_key(loaded, p)),
-            loaded.object(&rn, vocab::SH_VALUE).as_ref().map(|v| v.to_string()),
+            loaded
+                .object(&rn, vocab::SH_RESULT_PATH)
+                .as_ref()
+                .map(|p| path_term_key(loaded, p)),
+            loaded
+                .object(&rn, vocab::SH_VALUE)
+                .as_ref()
+                .map(|v| v.to_string()),
             component.to_string(),
             shape_term_key(&source),
         ));
@@ -149,7 +157,11 @@ fn data_shapes_core_reports() {
         };
 
         let report = shifty_engine::validate_report(&loaded, &loaded.graph);
-        let mut got: Vec<Key> = report.results.iter().map(|r| result_key(&loaded, r)).collect();
+        let mut got: Vec<Key> = report
+            .results
+            .iter()
+            .map(|r| result_key(&loaded, r))
+            .collect();
         exp.sort();
         got.sort();
 

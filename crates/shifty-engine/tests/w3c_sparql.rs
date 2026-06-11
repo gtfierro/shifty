@@ -12,7 +12,8 @@
 use oxrdf::{Graph, NamedNodeRef, Term};
 use std::path::{Path, PathBuf};
 
-const SH_CONFORMS: NamedNodeRef = NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#conforms");
+const SH_CONFORMS: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#conforms");
 
 /// Predicates whose presence means the test exercises a feature we don't
 /// support yet. SHACL-SPARQL constraints/targets/prefixes ARE supported, so
@@ -66,7 +67,6 @@ fn uses_unsupported(g: &Graph) -> bool {
     g.iter()
         .any(|t| UNSUPPORTED_PREDICATES.contains(&t.predicate.as_str()))
 }
-
 
 #[test]
 fn w3c_sparql_conformance() {
@@ -137,7 +137,10 @@ fn w3c_sparql_conformance() {
         eprintln!("  FAIL {f}");
     }
 
-    assert!(failures.is_empty(), "supported sparql tests regressed: {failures:#?}");
+    assert!(
+        failures.is_empty(),
+        "supported sparql tests regressed: {failures:#?}"
+    );
     assert!(
         algebra_pass >= 12 && report_pass >= 12,
         "coverage dropped: algebra={algebra_pass}, report={report_pass}"

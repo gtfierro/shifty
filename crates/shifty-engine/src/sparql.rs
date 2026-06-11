@@ -255,7 +255,9 @@ impl SparqlExecutor {
                 ),
                 complex => {
                     let sparql_path = path_to_property_path(complex).ok_or_else(|| {
-                        format!("SHACL path cannot be expressed as a SPARQL property path: {complex:?}")
+                        format!(
+                            "SHACL path cannot be expressed as a SPARQL property path: {complex:?}"
+                        )
                     })?;
                     query = rewrite_path_query(query, &sparql_path);
                 }
@@ -334,15 +336,20 @@ impl SparqlExecutor {
         };
         match query_result {
             QueryResults::Solutions(solutions) => {
-                let vars: Vec<String> =
-                    solutions.variables().iter().map(|v| v.as_str().to_string()).collect();
+                let vars: Vec<String> = solutions
+                    .variables()
+                    .iter()
+                    .map(|v| v.as_str().to_string())
+                    .collect();
                 solutions
                     .map(|solution| {
                         let solution = solution.map_err(err)?;
                         let bindings = vars
                             .iter()
                             .filter_map(|name| {
-                                solution.get(name.as_str()).map(|t| (name.clone(), t.clone()))
+                                solution
+                                    .get(name.as_str())
+                                    .map(|t| (name.clone(), t.clone()))
                             })
                             .collect();
                         Ok(SparqlViolation {
@@ -439,11 +446,13 @@ impl SparqlExecutor {
         let (Some(plan), Some(frozen)) = (&compiled.plan, frozen) else {
             return Ok(None);
         };
-        Ok(native_exec::delta_focus_ids(plan, frozen, delta).map(|ids| {
-            ids.into_iter()
-                .filter_map(|id| frozen.externalize(id))
-                .collect()
-        }))
+        Ok(
+            native_exec::delta_focus_ids(plan, frozen, delta).map(|ids| {
+                ids.into_iter()
+                    .filter_map(|id| frozen.externalize(id))
+                    .collect()
+            }),
+        )
     }
 
     fn compile_construct(&self, query: &str) -> Result<Rc<CompiledConstruct>, String> {
@@ -528,8 +537,7 @@ fn instantiate_template(
     out: &mut Vec<Triple>,
 ) {
     for triple in template {
-        let Some(subject_id) =
-            resolve_template_id(&triple.subject, plan, frozen, focus, bindings)
+        let Some(subject_id) = resolve_template_id(&triple.subject, plan, frozen, focus, bindings)
         else {
             continue;
         };
@@ -538,8 +546,7 @@ fn instantiate_template(
         else {
             continue;
         };
-        let Some(object_id) =
-            resolve_template_id(&triple.object, plan, frozen, focus, bindings)
+        let Some(object_id) = resolve_template_id(&triple.object, plan, frozen, focus, bindings)
         else {
             continue;
         };
@@ -614,8 +621,9 @@ fn path_to_property_path(path: &Path) -> Option<PropertyPathExpression> {
     match path {
         Path::Id => None,
         Path::Pred(n) => Some(PropertyPathExpression::NamedNode(n.clone())),
-        Path::Inverse(inner) => path_to_property_path(inner)
-            .map(|p| PropertyPathExpression::Reverse(Box::new(p))),
+        Path::Inverse(inner) => {
+            path_to_property_path(inner).map(|p| PropertyPathExpression::Reverse(Box::new(p)))
+        }
         Path::Seq(parts) => {
             let sparql: Vec<_> = parts
                 .iter()
@@ -646,8 +654,9 @@ fn path_to_property_path(path: &Path) -> Option<PropertyPathExpression> {
                 Some(base)
             }
         }
-        Path::Star(inner) => path_to_property_path(inner)
-            .map(|p| PropertyPathExpression::ZeroOrMore(Box::new(p))),
+        Path::Star(inner) => {
+            path_to_property_path(inner).map(|p| PropertyPathExpression::ZeroOrMore(Box::new(p)))
+        }
     }
 }
 
@@ -656,12 +665,20 @@ fn path_to_property_path(path: &Path) -> Option<PropertyPathExpression> {
 /// treatment for SHACL `$PATH` pre-binding when the path is complex (non-pred).
 fn rewrite_path_query(query: Query, path: &PropertyPathExpression) -> Query {
     match query {
-        Query::Select { dataset, pattern, base_iri } => Query::Select {
+        Query::Select {
+            dataset,
+            pattern,
+            base_iri,
+        } => Query::Select {
             dataset,
             pattern: rewrite_path_pattern(pattern, path),
             base_iri,
         },
-        Query::Ask { dataset, pattern, base_iri } => Query::Ask {
+        Query::Ask {
+            dataset,
+            pattern,
+            base_iri,
+        } => Query::Ask {
             dataset,
             pattern: rewrite_path_pattern(pattern, path),
             base_iri,
@@ -694,7 +711,9 @@ fn rewrite_path_pattern(pattern: GraphPattern, path: &PropertyPathExpression) ->
             if remaining.is_empty() {
                 result
             } else {
-                let bgp = GraphPattern::Bgp { patterns: remaining };
+                let bgp = GraphPattern::Bgp {
+                    patterns: remaining,
+                };
                 GraphPattern::Join {
                     left: Box::new(bgp),
                     right: Box::new(result),
@@ -719,7 +738,11 @@ fn rewrite_path_pattern(pattern: GraphPattern, path: &PropertyPathExpression) ->
             left: Box::new(rewrite_path_pattern(*left, path)),
             right: Box::new(rewrite_path_pattern(*right, path)),
         },
-        GraphPattern::LeftJoin { left, right, expression } => GraphPattern::LeftJoin {
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => GraphPattern::LeftJoin {
             left: Box::new(rewrite_path_pattern(*left, path)),
             right: Box::new(rewrite_path_pattern(*right, path)),
             expression,
@@ -732,7 +755,11 @@ fn rewrite_path_pattern(pattern: GraphPattern, path: &PropertyPathExpression) ->
             name,
             inner: Box::new(rewrite_path_pattern(*inner, path)),
         },
-        GraphPattern::Extend { inner, variable, expression } => GraphPattern::Extend {
+        GraphPattern::Extend {
+            inner,
+            variable,
+            expression,
+        } => GraphPattern::Extend {
             inner: Box::new(rewrite_path_pattern(*inner, path)),
             variable,
             expression,
@@ -751,17 +778,29 @@ fn rewrite_path_pattern(pattern: GraphPattern, path: &PropertyPathExpression) ->
         GraphPattern::Reduced { inner } => GraphPattern::Reduced {
             inner: Box::new(rewrite_path_pattern(*inner, path)),
         },
-        GraphPattern::Slice { inner, start, length } => GraphPattern::Slice {
+        GraphPattern::Slice {
+            inner,
+            start,
+            length,
+        } => GraphPattern::Slice {
             inner: Box::new(rewrite_path_pattern(*inner, path)),
             start,
             length,
         },
-        GraphPattern::Group { inner, variables, aggregates } => GraphPattern::Group {
+        GraphPattern::Group {
+            inner,
+            variables,
+            aggregates,
+        } => GraphPattern::Group {
             inner: Box::new(rewrite_path_pattern(*inner, path)),
             variables,
             aggregates,
         },
-        GraphPattern::Service { name, inner, silent } => GraphPattern::Service {
+        GraphPattern::Service {
+            name,
+            inner,
+            silent,
+        } => GraphPattern::Service {
             name,
             inner: Box::new(rewrite_path_pattern(*inner, path)),
             silent,
