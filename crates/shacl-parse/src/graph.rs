@@ -4,6 +4,7 @@ use crate::diagnostics::ParseError;
 use crate::vocab;
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term};
 use oxttl::TurtleParser;
+use std::collections::HashSet;
 
 /// A loaded shapes graph plus the prefixes declared in the document.
 pub struct Loaded {
@@ -55,6 +56,39 @@ impl Loaded {
         self.objects(subject, vocab::RDF_TYPE)
             .iter()
             .any(|t| matches!(t, Term::NamedNode(n) if n.as_ref() == ty))
+    }
+
+    /// Does the subject have `ty` through `rdf:type/rdfs:subClassOf*`?
+    pub fn is_instance_of(&self, subject: &NamedOrBlankNode, ty: NamedNodeRef) -> bool {
+        let mut pending: Vec<NamedNode> = self
+            .objects(subject, vocab::RDF_TYPE)
+            .into_iter()
+            .filter_map(|term| match term {
+                Term::NamedNode(node) => Some(node),
+                _ => None,
+            })
+            .collect();
+        let mut seen = HashSet::new();
+        while let Some(class) = pending.pop() {
+            if class.as_ref() == ty {
+                return true;
+            }
+            if !seen.insert(class.clone()) {
+                continue;
+            }
+            pending.extend(
+                self.objects(
+                    &NamedOrBlankNode::NamedNode(class),
+                    vocab::RDFS_SUBCLASSOF,
+                )
+                .into_iter()
+                .filter_map(|term| match term {
+                    Term::NamedNode(node) => Some(node),
+                    _ => None,
+                }),
+            );
+        }
+        false
     }
 
     /// Merge all triples from `other` into this graph.

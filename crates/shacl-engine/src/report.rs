@@ -224,10 +224,8 @@ impl Reporter<'_> {
             }
             // implicit class target: a shape that is also an rdfs:Class / owl:Class
             if p == vocab::RDF_TYPE {
-                let is_class = matches!(&t.object, oxrdf::TermRef::NamedNode(c)
-                    if *c == vocab::RDFS_CLASS || *c == vocab::OWL_CLASS);
                 let s = t.subject.into_owned();
-                if is_class && self.is_shape(&s) {
+                if self.is_class(&s) && self.is_shape(&s) {
                     found.insert(s);
                 }
             }
@@ -260,7 +258,8 @@ impl Reporter<'_> {
     }
 
     fn is_class(&self, n: &NamedOrBlankNode) -> bool {
-        self.shapes.has_type(n, vocab::RDFS_CLASS) || self.shapes.has_type(n, vocab::OWL_CLASS)
+        self.shapes.is_instance_of(n, vocab::RDFS_CLASS)
+            || self.shapes.is_instance_of(n, vocab::OWL_CLASS)
     }
 
     fn deactivated(&self, n: &NamedOrBlankNode) -> bool {
