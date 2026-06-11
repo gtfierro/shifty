@@ -856,6 +856,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pyshifty"
+version = "0.1.0"
+dependencies = [
+ "oxrdf",
+ "oxttl",
+ "pyo3",
+ "shacl-algebra",
+ "shacl-engine",
+ "shacl-opt",
+ "shacl-parse",
+]
+
+[[package]]
 name = "quick-xml"
 version = "0.37.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1149,19 +1162,6 @@ dependencies = [
  "serde_json",
  "shacl-algebra",
  "spargebra",
-]
-
-[[package]]
-name = "shacl-py"
-version = "0.1.0"
-dependencies = [
- "oxrdf",
- "oxttl",
- "pyo3",
- "shacl-algebra",
- "shacl-engine",
- "shacl-opt",
- "shacl-parse",
 ]
 
 [[package]]
