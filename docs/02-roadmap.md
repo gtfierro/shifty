@@ -23,15 +23,15 @@ Guiding principles:
   `shacl-core-inmemory`, `shacl-core-cli`, `shacl-core-oxigraph`) — kept on the
   `bluesky-shacl-core` branch as reference, removed here.
 - Crate skeleton:
-  - `shacl-algebra` — the core IR + reference semantics (Layers 1, 3).
-  - `shacl-parse` — RDF shapes graph → IR lowering (Layer 2).
-  - `shacl-opt` — static analysis, normalization, planning (Layers 4–5).
-  - `shacl-engine` — validation + AF inference execution (Layers 3, 6, 7).
-  - `shacl-cli` — inspection / validate / infer commands.
+  - `shifty-algebra` — the core IR + reference semantics (Layers 1, 3).
+  - `shifty-parse` — RDF shapes graph → IR lowering (Layer 2).
+  - `shifty-opt` — static analysis, normalization, planning (Layers 4–5).
+  - `shifty-engine` — validation + AF inference execution (Layers 3, 6, 7).
+  - `shifty-cli` — inspection / validate / infer commands.
 - Pull in the W3C test-suite manifests as a git submodule or vendored corpus.
 - **Deliverable:** workspace builds empty; CI runs `cargo test` (no tests yet).
 
-## Layer 1 — Core algebra IR  (`shacl-algebra`)
+## Layer 1 — Core algebra IR  (`shifty-algebra`)
 
 - Implement `Term`, `Path`, `ValueType`, `Shape`, `Selector`, `Schema`,
   `NodeExpr`, and the `Rule` skeleton from doc 00 §2–§4 and gap **AF-E/AF-R**.
@@ -40,7 +40,7 @@ Guiding principles:
   `Seq`/`Alt` normalization).
 - **Deliverable:** IR types + builders + unit tests; `serde` round-trip.
 
-## Layer 2 — Parser & lowering  (`shacl-parse`)
+## Layer 2 — Parser & lowering  (`shifty-parse`)
 
 - Read shapes graph with `oxrdf` (Turtle/N-Triples first).
 - Shape discovery (explicit `sh:NodeShape`/`sh:PropertyShape` + implicit-by-usage).
@@ -55,7 +55,7 @@ Guiding principles:
 - **Deliverable:** shapes-graph → `Schema`; diagnostics for unsupported; golden
   round-trip tests on hand-written shapes covering each gap-analysis row.
 
-## Layer 3 — Reference semantics & conformance oracle  (`shacl-algebra` + `shacl-engine`)
+## Layer 3 — Reference semantics & conformance oracle  (`shifty-algebra` + `shifty-engine`)
 
 - Naive denotational evaluator: relational `⟦π⟧` over an in-memory triple store,
   structural `G,v ⊨ φ`, schema validation `G ⊨ S` producing a SHACL
@@ -65,7 +65,7 @@ Guiding principles:
 - **Deliverable:** correctness oracle; documented conformance matrix. Speed does
   not matter yet.
 
-## Layer 4 — Static analysis, recursion semantics & normalization  (`shacl-opt`)
+## Layer 4 — Static analysis, recursion semantics & normalization  (`shifty-opt`)
 
 - Shape dependency graph with **polarity-aware** edges (un-fuse `Count` min/max);
   SCC + **stratification** per the *decided* semantics in
@@ -80,7 +80,7 @@ Guiding principles:
 - **Deliverable:** normalizer + analyzer; rewrites proven semantics-preserving
   against the Layer 3 oracle (property tests: optimize-then-validate ≡ validate).
 
-## Layer 5 — Logical → physical planning  (`shacl-opt`)
+## Layer 5 — Logical → physical planning  (`shifty-opt`)
 
 - Per `(selector, φ)`: choose evaluation strategy. Target-driven seeding (pull
   focus nodes from selectors) vs. graph scan.
@@ -96,7 +96,7 @@ Guiding principles:
 - **Deliverable:** physical plan IR + plan-inspection CLI; benchmarked speedups
   with identical conformance results.
 
-## Layer 6 — SHACL-AF inference  (`shacl-engine`)  **(AF-R / AF-E)**
+## Layer 6 — SHACL-AF inference  (`shifty-engine`)  **(AF-R / AF-E)**
 
 - Node-expression evaluator (reuses `Path` + functions).
 - Rule engine: evaluate body (selector + condition shapes), materialize head
@@ -110,7 +110,7 @@ Guiding principles:
 - **Deliverable:** AF rule conformance; fixpoint termination guarantees
   documented.
 
-## Layer 7 — Compilation / JIT  (`shacl-engine`)
+## Layer 7 — Compilation / JIT  (`shifty-engine`)
 
 - Compile shapes/plans to specialized executors: staged closures first, then
   optional codegen (Cranelift JIT) for hot validators; batch/vectorized
@@ -134,13 +134,13 @@ Guiding principles:
 | 6 AF inference | 🔨 rule lowering + global lfp fixpoint engine (`shacl infer`); TripleRules, SPARQLRules, node exprs, and predicate-delta scheduling. Functions next |
 | 7 Compilation/JIT | ⬜ not started |
 
-Layer 1 landed in `shacl-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
+Layer 1 landed in `shifty-algebra`: `Term`/`NodeKindSet`, the `Path` algebra,
 `ValueType` facets, the `Shape` grammar over a cyclic-capable `ShapeArena`,
 `Selector`, `NodeExpr`, the `Rule` skeleton, opaque SPARQL leaves, and `Schema`
 — with light always-sound smart constructors and serde round-trip (cycles
 encoded as indices).
 
-Layer 2 landed in `shacl-parse`: Turtle loading (`oxttl`/`oxrdf`), shape
+Layer 2 landed in `shifty-parse`: Turtle loading (`oxttl`/`oxrdf`), shape
 discovery, full path parsing (incl. inverse/alt/seq lists and the `*`/`+`/`?`
 operators), and lowering of Core constraints, targets, qualified counts,
 property pairs, and `closed` into the IR — with per-value constraints encoded as
@@ -153,7 +153,7 @@ Not yet lowered (tracked for later in Layer 2 / Layer 6): SHACL-AF rules and
 node expressions, SPARQL constraints/targets, and custom constraint components —
 all currently diagnosed rather than dropped.
 
-Layer 3 landed in `shacl-engine`: a naive denotational evaluator — relational
+Layer 3 landed in `shifty-engine`: a naive denotational evaluator — relational
 path evaluation (`succ`/`pred` with `Inverse` swapping direction), value-type /
 ordering checks, and shape/schema satisfaction `G ⊨ S` with a cycle-breaking
 stack guard for recursive schemas (provisional pending Layer 4). `shacl validate

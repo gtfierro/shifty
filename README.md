@@ -9,21 +9,21 @@ A formalism-first SHACL validation and SHACL-AF inference engine written in Rust
 - **Algebraic IR** — shapes are lowered to a path algebra (π) and shape grammar (φ) before evaluation; the same IR drives both validation and inference
 - **Native SPARQL execution** — a subset of `sh:sparql` constraints and SPARQL Construct rules runs directly over an indexed dataset without a full SPARQL engine, with automatic fallback to Spareval for unsupported constructs
 - **Multi-layer pipeline** — parsing → algebraic lowering → normalization/CSE → physical planning → execution; each layer is independently inspectable
-- **pyshacl-compatible Python API** — `validate()` returns `(conforms, report_graph, results_text)` matching pyshacl's interface
+- **pyshifty-compatible Python API** — `validate()` returns `(conforms, report_graph, results_text)` matching pyshifty's interface
 
 ## Installation
 
 ### CLI
 
 ```sh
-cargo install --path crates/shacl-cli
+cargo install --path crates/shifty-cli
 ```
 
 Or build from source:
 
 ```sh
-cargo build --release -p shacl-cli
-# binary at target/release/shacl
+cargo build --release -p shifty-cli
+# binary at target/release/shifty
 ```
 
 ### Python
@@ -51,7 +51,7 @@ maturin develop
 ### Validate
 
 ```sh
-shacl validate --shapes shapes.ttl --data data.ttl
+shifty validate --shapes shapes.ttl --data data.ttl
 ```
 
 ```
@@ -64,26 +64,26 @@ violations: 1
 Emit a W3C `sh:ValidationReport` in Turtle:
 
 ```sh
-shacl validate --shapes shapes.ttl --data data.ttl --report
+shifty validate --shapes shapes.ttl --data data.ttl --report
 ```
 
 JSON output:
 
 ```sh
-shacl validate --shapes shapes.ttl --data data.ttl --format json
+shifty validate --shapes shapes.ttl --data data.ttl --format json
 ```
 
 Graph mode controls which triples are visible to path traversal and SPARQL evaluation:
 
 ```sh
 # default: focus nodes from data; paths/SPARQL use data ∪ shapes
-shacl validate --shapes shapes.ttl --data data.ttl --graph-mode union
+shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union
 
 # focus nodes and evaluation use data only
-shacl validate --shapes shapes.ttl --data data.ttl --graph-mode data
+shifty validate --shapes shapes.ttl --data data.ttl --graph-mode data
 
 # focus nodes and evaluation both use data ∪ shapes
-shacl validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
+shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
 ```
 
 ### Infer
@@ -91,7 +91,7 @@ shacl validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
 Run SHACL-AF rules to a fixed point, then print the derived triples:
 
 ```sh
-shacl infer --shapes rules.ttl --data data.ttl
+shifty infer --shapes rules.ttl --data data.ttl
 ```
 
 ```
@@ -106,22 +106,22 @@ Inspect how a shapes graph looks at each stage of the pipeline:
 
 ```sh
 # Raw triples after parsing
-shacl inspect --stage rdf shapes.ttl
+shifty inspect --stage rdf shapes.ttl
 
 # Lowered algebraic IR (φ/π notation)
-shacl inspect --stage algebra shapes.ttl
+shifty inspect --stage algebra shapes.ttl
 
 # After normalization and common-subexpression elimination
-shacl inspect --stage normalized shapes.ttl
+shifty inspect --stage normalized shapes.ttl
 
 # Stratification analysis (recursion detection)
-shacl inspect --stage strata shapes.ttl
+shifty inspect --stage strata shapes.ttl
 
 # Physical plan: focus sources + cost-ordered shape checks
-shacl inspect --stage plan shapes.ttl
+shifty inspect --stage plan shapes.ttl
 
 # SPARQL constraint capability: which queries run native vs. Spareval
-shacl inspect --stage capability shapes.ttl
+shifty inspect --stage capability shapes.ttl
 ```
 
 All stages support `--format text` (default), `--format json`; the `algebra` and `normalized` stages also support `--format dot` for Graphviz output.
@@ -134,11 +134,11 @@ Shapes files and data files may be local paths or HTTP/HTTPS URLs. Both `--shape
 import shifty
 ```
 
-### Validate (pyshacl-compatible)
+### Validate (pyshifty-compatible)
 
 ```python
 shapes = """
-@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix sh:  <http://www.w3.org/ns/shifty#> .
 @prefix ex:  <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
@@ -192,7 +192,7 @@ Run SHACL-AF rules to a fixed point:
 
 ```python
 rules = """
-@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sh: <http://www.w3.org/ns/shifty#> .
 @prefix ex: <http://example.org/> .
 
 ex:RectangleShape a sh:NodeShape ;
@@ -240,11 +240,11 @@ conforms, report, text = shifty.validate(
 
 | crate | role |
 |---|---|
-| `shacl-algebra` | path algebra π, shape grammar φ, schema arena, rendering |
-| `shacl-parse` | Turtle/RDF → algebraic IR lowering |
-| `shacl-opt` | normalization, stratification, physical planning, native SPARQL lowering |
-| `shacl-engine` | validation + AF inference execution, SPARQL executor |
-| `shacl-cli` | `shacl` binary |
+| `shifty-algebra` | path algebra π, shape grammar φ, schema arena, rendering |
+| `shifty-parse` | Turtle/RDF → algebraic IR lowering |
+| `shifty-opt` | normalization, stratification, physical planning, native SPARQL lowering |
+| `shifty-engine` | validation + AF inference execution, SPARQL executor |
+| `shifty-cli` | `shifty` binary |
 | `pyshifty` (python/) | PyO3 bindings, published as `pyshifty` on PyPI |
 
 ## Design docs

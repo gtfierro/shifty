@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "shacl-formalism" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "shacl-formalism" ]
 
 jobs:
   build:

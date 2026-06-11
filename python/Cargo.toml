@@ -9,9 +9,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.23", features = ["extension-module"] }
-shacl-algebra.workspace = true
-shacl-parse.workspace = true
-shacl-opt.workspace = true
-shacl-engine.workspace = true
+shifty-algebra.workspace = true
+shifty-parse.workspace = true
+shifty-opt.workspace = true
+shifty-engine.workspace = true
 oxrdf.workspace = true
 oxttl.workspace = true

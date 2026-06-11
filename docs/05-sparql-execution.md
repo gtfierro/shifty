@@ -66,8 +66,8 @@ capability + demand analysis
                               FrozenIndexedDataset
 ```
 
-Parsing and prefix resolution remain in `shacl-parse`. Planning belongs in
-`shacl-opt`; indexed storage and execution belong in `shacl-engine`.
+Parsing and prefix resolution remain in `shifty-parse`. Planning belongs in
+`shifty-opt`; indexed storage and execution belong in `shifty-engine`.
 
 Each canonical query is parsed once. The compilation cache key contains the
 canonical query, static SHACL substitutions, graph mode, and index-plan version.

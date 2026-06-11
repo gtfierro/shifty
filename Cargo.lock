@@ -862,10 +862,10 @@ dependencies = [
  "oxrdf",
  "oxttl",
  "pyo3",
- "shacl-algebra",
- "shacl-engine",
- "shacl-opt",
- "shacl-parse",
+ "shifty-algebra",
+ "shifty-engine",
+ "shifty-opt",
+ "shifty-parse",
 ]
 
 [[package]]
@@ -1098,7 +1098,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shacl-algebra"
+name = "shifty-algebra"
 version = "0.1.0"
 dependencies = [
  "oxrdf",
@@ -1108,7 +1108,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shacl-cli"
+name = "shifty-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -1116,16 +1116,16 @@ dependencies = [
  "log",
  "oxttl",
  "serde_json",
- "shacl-algebra",
- "shacl-engine",
- "shacl-opt",
- "shacl-parse",
+ "shifty-algebra",
+ "shifty-engine",
+ "shifty-opt",
+ "shifty-parse",
  "spargebra",
  "ureq",
 ]
 
 [[package]]
-name = "shacl-engine"
+name = "shifty-engine"
 version = "0.1.0"
 dependencies = [
  "log",
@@ -1135,32 +1135,32 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "shacl-algebra",
- "shacl-opt",
- "shacl-parse",
+ "shifty-algebra",
+ "shifty-opt",
+ "shifty-parse",
  "spareval",
  "spargebra",
 ]
 
 [[package]]
-name = "shacl-opt"
+name = "shifty-opt"
 version = "0.1.0"
 dependencies = [
  "petgraph",
  "serde",
- "shacl-algebra",
+ "shifty-algebra",
  "spargebra",
 ]
 
 [[package]]
-name = "shacl-parse"
+name = "shifty-parse"
 version = "0.1.0"
 dependencies = [
  "oxrdf",
  "oxttl",
  "serde",
  "serde_json",
- "shacl-algebra",
+ "shifty-algebra",
  "spargebra",
 ]
 

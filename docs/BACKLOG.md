@@ -64,7 +64,7 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `sh:sourceShape` blank nodes are still wildcarded (expected results use empty
   `[ ]` placeholders for anonymous shapes).
 - **[done]** W3C SHACL-AF **advanced** suite harness
-  (`crates/shacl-engine/tests/w3c_advanced.rs`) over
+  (`crates/shifty-engine/tests/w3c_advanced.rs`) over
   `testdata/test-suite/advanced/`, decoding the DASH test vocabulary:
   `dash:InferencingTestCase` → `infer` + expected-triple check;
   `sht:Validate` / `dash:GraphValidationTestCase` → `validate_report` result-set

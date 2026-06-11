@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "crates/shacl-algebra",
-    "crates/shacl-parse",
-    "crates/shacl-opt",
-    "crates/shacl-engine",
-    "crates/shacl-cli",
+    "crates/shifty-algebra",
+    "crates/shifty-parse",
+    "crates/shifty-opt",
+    "crates/shifty-engine",
+    "crates/shifty-cli",
     "python",
 ]
 resolver = "2"
@@ -22,10 +22,10 @@ documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
 # internal crates
-shacl-algebra = { path = "crates/shacl-algebra" }
-shacl-parse = { path = "crates/shacl-parse" }
-shacl-opt = { path = "crates/shacl-opt" }
-shacl-engine = { path = "crates/shacl-engine" }
+shifty-algebra = { path = "crates/shifty-algebra" }
+shifty-parse = { path = "crates/shifty-parse" }
+shifty-opt = { path = "crates/shifty-opt" }
+shifty-engine = { path = "crates/shifty-engine" }
 
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
