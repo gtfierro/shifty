@@ -1,6 +1,7 @@
 use oxrdf::{Graph, Term};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use std::sync::OnceLock;
 use shifty_engine::{
     ValidationGraphMode, ValidationReport, report_to_graph, validate_plan_graphs_with_mode,
     validate_report_graphs_with_mode,
@@ -58,6 +59,7 @@ pub struct AlgebraResult {
     #[pyo3(get)]
     pub conforms: bool,
     violations: Vec<Py<Violation>>,
+    results_text_cache: OnceLock<String>,
 }
 
 #[pymethods]
@@ -80,6 +82,35 @@ impl AlgebraResult {
                 self.violations.len()
             )
         }
+    }
+
+    #[getter]
+    fn results_text(&self, py: Python<'_>) -> String {
+        self.results_text_cache
+            .get_or_init(|| {
+                if self.conforms {
+                    return "Validation Report\nConforms: True".to_string();
+                }
+                let mut out = String::from("Validation Report\nConforms: False\n");
+                for v in &self.violations {
+                    let v = v.borrow(py);
+                    let shape = v.shape_name.as_deref().unwrap_or("<anonymous>");
+                    out.push_str(&format!(
+                        "\nConstraint Violation in {} ({}):\n",
+                        shape, v.focus_node
+                    ));
+                    for r in &v.reasons {
+                        let r = r.borrow(py);
+                        if let Some(path) = &r.path {
+                            out.push_str(&format!("  Path: {path}\n"));
+                        }
+                        out.push_str(&format!("  Value: {}\n", r.value));
+                        out.push_str(&format!("  Message: {}\n", r.message));
+                    }
+                }
+                out
+            })
+            .clone()
     }
 }
 
@@ -339,6 +370,7 @@ pub fn _validate_algebra(
     Ok(AlgebraResult {
         conforms: outcome.conforms,
         violations,
+        results_text_cache: OnceLock::new(),
     })
 }
 
