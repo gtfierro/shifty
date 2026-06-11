@@ -32,7 +32,7 @@ mkdir -p "$(dirname "$output")"
 
 cargo flamegraph \
   --package shifty-cli \
-  --bin shacl \
+  --bin shifty \
   --cmd "record -e cpu-clock -F $frequency --call-graph dwarf,$stack_size -g" \
   --no-inline \
   --deterministic \

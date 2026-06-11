@@ -27,7 +27,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build CLI
-        run: cargo build -p shacl-cli --release
+        run: cargo build -p shifty-cli --release
       - name: Package CLI (unix)
         if: runner.os != 'Windows'
         run: |
@@ -226,7 +226,7 @@ jobs:
           skip-existing: true
 
   publish_crates:
-    name: Publish shacl-parse to crates.io
+    name: Publish shifty-parse to crates.io
     runs-on: ubuntu-latest
     needs:
       - build-cli

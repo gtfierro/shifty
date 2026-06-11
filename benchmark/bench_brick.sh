@@ -9,7 +9,7 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SHAPES="$SCRIPT_DIR/brick/Brick-closure.ttl"
 MODELS_DIR="$SCRIPT_DIR/brick/models"
-BINARY="$ROOT/target/release/shacl"
+BINARY="$ROOT/target/release/shifty"
 
 ITERATIONS="${BENCH_ITERS:-3}"
 

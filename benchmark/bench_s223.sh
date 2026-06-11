@@ -9,7 +9,7 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SHAPES="$SCRIPT_DIR/s223/223p-closure.ttl"
 MODELS_DIR="$SCRIPT_DIR/s223/models"
-BINARY="$ROOT/target/release/shacl"
+BINARY="$ROOT/target/release/shifty"
 
 ITERATIONS="${BENCH_ITERS:-3}"
 
