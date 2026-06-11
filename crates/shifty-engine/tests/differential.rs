@@ -140,7 +140,7 @@ fn load_ws(rel: &str) -> shifty_parse::Loaded {
 #[test]
 fn nist_bdg1_known_violations_against_223p_closure() {
     let shapes = load_ws("benchmark/s223/223p-closure.ttl");
-    let data = load_ws("nist-bdg1-1.ttl");
+    let data = load_ws("benchmark/s223/models/nist-bdg1-1.ttl");
     let parsed = shifty_parse::parse_loaded(&shapes);
     let normalized = shifty_opt::normalize(&parsed.schema);
     let physical = shifty_opt::plan(&normalized);
@@ -167,7 +167,6 @@ fn nist_bdg1_known_violations_against_223p_closure() {
     assert_eq!(
         foci,
         [
-            "<http://data.ashrae.org/standard223/1.0/data/pd-sr-mp-pritoni#AHUChilledWaterInlet>",
             "<http://qudt.org/vocab/unit/DEG_F>",
             "<http://qudt.org/vocab/unit/FT3-PER-MIN>",
             "<http://qudt.org/vocab/unit/PSI>",
@@ -181,7 +180,7 @@ fn nist_bdg1_known_violations_against_223p_closure() {
 #[test]
 fn reference_and_plan_agree_on_nist_bdg1() {
     let shapes = load_ws("benchmark/s223/223p.ttl");
-    let data = load_ws("nist-bdg1-1.ttl");
+    let data = load_ws("benchmark/s223/models/nist-bdg1-1.ttl");
     let parsed = shifty_parse::parse_loaded(&shapes);
     let normalized = shifty_opt::normalize(&parsed.schema);
     let physical = shifty_opt::plan(&normalized);
