@@ -56,14 +56,13 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: 3.x
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.12
           args: >-
             --release --out dist --manifest-path python/Cargo.toml${{ matrix.platform.use_zig && ' --zig' || '' }}
           manylinux: auto
@@ -73,9 +72,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.13t
           args: >-
-            --release --out dist --manifest-path python/Cargo.toml${{ matrix.platform.use_zig && ' --zig' || '' }}
+            --release --out dist --manifest-path python/Cargo.toml -i python3.13t${{ matrix.platform.use_zig && ' --zig' || '' }}
           manylinux: auto
         env:
           RUSTFLAGS: ${{ matrix.platform.use_zig && '-C link-arg=-lc++ -C link-arg=-lc++abi' || '' }}
@@ -98,16 +96,13 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: 3.x
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform.target }}-unknown-linux-musl
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.12
           args: --release --out dist --manifest-path python/Cargo.toml --zig
           manylinux: musllinux_1_2
         env:
@@ -116,8 +111,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.13t
-          args: --release --out dist --manifest-path python/Cargo.toml --zig
+          args: --release --out dist --manifest-path python/Cargo.toml --zig -i python3.13t
           manylinux: musllinux_1_2
         env:
           RUSTFLAGS: -C link-arg=-lc++ -C link-arg=-lc++abi
@@ -138,7 +132,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: 3.x
           architecture: ${{ matrix.platform.target }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -146,7 +140,6 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.12
           args: --release --out dist --manifest-path python/Cargo.toml
       - uses: actions/setup-python@v6
         with:
@@ -156,8 +149,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.13t
-          args: --release --out dist --manifest-path python/Cargo.toml
+          args: --release --out dist --manifest-path python/Cargo.toml -i python3.13t
       - name: Upload wheels
         uses: actions/upload-artifact@v6
         with:
@@ -179,21 +171,19 @@ jobs:
         run: echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}" >> $GITHUB_ENV
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: 3.x
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.12
           args: --release --out dist --manifest-path python/Cargo.toml
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          interpreter: python3.13t
-          args: --release --out dist --manifest-path python/Cargo.toml
+          args: --release --out dist --manifest-path python/Cargo.toml -i python3.13t
       - name: Upload wheels
         uses: actions/upload-artifact@v6
         with:
@@ -208,7 +198,6 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
-          interpreter: python3.12
           args: --out dist --manifest-path python/Cargo.toml
       - name: Upload sdist
         uses: actions/upload-artifact@v6
