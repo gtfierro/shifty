@@ -1,0 +1,257 @@
+"""
+Integration tests for the shifty Python bindings.
+
+This module provides comprehensive integration tests covering:
+- validate() function (pyshacl-compatible W3C report interface)
+- validate_algebra() function (structured algebraic result interface)
+- infer() function (SHACL-AF forward-chaining inference)
+- graph_mode parameter (union, data, union-all modes)
+- Various input types (bytes, str, pathlib.Path, rdflib.Graph)
+- File-based operations
+- Type coercion and boolean evaluation
+"""
+
+import pathlib
+import textwrap
+
+import pytest
+import rdflib
+
+import shifty
+from shifty import AlgebraResult, InferResult, validate, validate_algebra
+
+PREFIXES = textwrap.dedent("""\
+    @prefix sh:  <http://www.w3.org/ns/shacl#> .
+    @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+    @prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    @prefix ex:  <http://example.org/> .
+""")
+
+SHAPES = PREFIXES + textwrap.dedent("""\
+    ex:PersonShape a sh:NodeShape ;
+        sh:targetClass ex:Person ;
+        sh:property [
+            sh:path ex:name ;
+            sh:minCount 1 ;
+            sh:datatype xsd:string ;
+        ] ;
+        sh:property [
+            sh:path ex:age ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:integer ;
+        ] .
+""")
+
+CONFORMS_DATA = PREFIXES + textwrap.dedent("""\
+    ex:Alice a ex:Person ;
+        ex:name "Alice" ;
+        ex:age 30 .
+""")
+
+VIOLATION_DATA = PREFIXES + textwrap.dedent("""\
+    ex:Bob a ex:Person .
+""")
+
+MULTI_VIOLATION_DATA = PREFIXES + textwrap.dedent("""\
+    ex:Bob   a ex:Person .
+    ex:Carol a ex:Person ; ex:name "Carol" ; ex:age 1 ; ex:age 2 .
+""")
+
+
+# ── validate() — pyshacl-compatible ──────────────────────────────────────────
+
+class TestValidatePyshacl:
+    def test_returns_tuple(self):
+        result = validate(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert isinstance(result, tuple) and len(result) == 3
+
+    def test_conforms_true(self):
+        conforms, report_graph, text = validate(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert conforms is True
+
+    def test_conforms_false(self):
+        conforms, _, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert conforms is False
+
+    def test_report_graph_is_rdflib(self):
+        _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert isinstance(report_graph, rdflib.Graph)
+
+    def test_report_graph_has_validation_report(self):
+        SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+        _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        reports = list(report_graph.subjects(rdflib.RDF.type, SH.ValidationReport))
+        assert len(reports) == 1
+
+    def test_report_graph_conforms_false(self):
+        SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+        _, report_graph, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        conforms_vals = list(
+            report_graph.objects(None, SH.conforms)
+        )
+        assert any(str(v) == "false" for v in conforms_vals)
+
+    def test_results_text_contains_summary(self):
+        _, _, text = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert "Validation Report" in text
+        assert "Conforms: False" in text
+
+    def test_results_text_empty_when_conforms(self):
+        _, _, text = validate(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert "Conforms: True" in text
+
+    def test_shapes_none_uses_data(self):
+        # When shapes=None the data graph should be used as the shapes graph too.
+        combined = SHAPES + "\n" + CONFORMS_DATA
+        conforms, _, _ = validate(combined.encode())
+        assert conforms is True
+
+    def test_accepts_file_path(self, tmp_path):
+        data_file = tmp_path / "data.ttl"
+        shapes_file = tmp_path / "shapes.ttl"
+        data_file.write_text(CONFORMS_DATA)
+        shapes_file.write_text(SHAPES)
+        conforms, _, _ = validate(data_file, shapes_file)
+        assert conforms is True
+
+    def test_accepts_pathlib_path(self, tmp_path):
+        data_file = tmp_path / "data.ttl"
+        shapes_file = tmp_path / "shapes.ttl"
+        data_file.write_text(CONFORMS_DATA)
+        shapes_file.write_text(SHAPES)
+        conforms, _, _ = validate(pathlib.Path(data_file), pathlib.Path(shapes_file))
+        assert conforms is True
+
+    def test_accepts_rdflib_graph(self):
+        data_g = rdflib.Graph()
+        data_g.parse(data=CONFORMS_DATA, format="turtle")
+        shapes_g = rdflib.Graph()
+        shapes_g.parse(data=SHAPES, format="turtle")
+        conforms, _, _ = validate(data_g, shapes_g)
+        assert conforms is True
+
+    def test_bool_coercion(self):
+        conforms, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert conforms
+        conforms, _, _ = validate(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert not conforms
+
+
+# ── validate_algebra() — structured violations ───────────────────────────────
+
+class TestValidateAlgebra:
+    def test_returns_algebra_result(self):
+        result = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert isinstance(result, AlgebraResult)
+
+    def test_conforms_true(self):
+        result = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert result.conforms is True
+        assert result.violations == []
+
+    def test_conforms_false(self):
+        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert result.conforms is False
+        assert len(result.violations) > 0
+
+    def test_violation_has_focus_node(self):
+        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+        focus_nodes = [v.focus_node for v in result.violations]
+        assert any("Bob" in fn for fn in focus_nodes)
+
+    def test_violation_has_reasons(self):
+        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert all(len(v.reasons) > 0 for v in result.violations)
+
+    def test_reason_has_message(self):
+        result = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+        all_messages = [r.message for v in result.violations for r in v.reasons]
+        assert any("name" in m.lower() or "minCount" in m or "1" in m
+                   for m in all_messages)
+
+    def test_multi_violation(self):
+        result = validate_algebra(MULTI_VIOLATION_DATA.encode(), SHAPES.encode())
+        assert not result.conforms
+        # Bob (no name) and Carol (age > maxCount 1) both violate
+        focus_nodes = {v.focus_node for v in result.violations}
+        assert any("Bob" in fn for fn in focus_nodes)
+        assert any("Carol" in fn for fn in focus_nodes)
+
+    def test_bool_coercion(self):
+        assert validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert not validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+
+    def test_repr(self):
+        r = validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
+        assert "conforms=True" in repr(r)
+        r = validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+        assert "conforms=False" in repr(r)
+
+    def test_graph_mode_data(self):
+        # "data" mode: shapes are embedded in data, class target found
+        combined = SHAPES + "\n" + VIOLATION_DATA
+        result = validate_algebra(combined.encode(), graph_mode="data")
+        assert not result.conforms
+
+
+# ── infer() ───────────────────────────────────────────────────────────────────
+
+INFER_SHAPES = PREFIXES + textwrap.dedent("""\
+    ex:S a sh:NodeShape ;
+        sh:targetClass ex:Thing ;
+        sh:rule [
+            a sh:TripleRule ;
+            sh:subject sh:this ;
+            sh:predicate ex:knows2 ;
+            sh:object [ sh:path ex:knows ]
+        ] .
+""")
+
+INFER_DATA = PREFIXES + textwrap.dedent("""\
+    ex:a a ex:Thing ; ex:knows ex:b .
+""")
+
+
+class TestInfer:
+    def test_returns_infer_result(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        assert isinstance(result, InferResult)
+
+    def test_inferred_count(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        assert result.inferred_count == 1
+
+    def test_graph_ntriples_is_string(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        assert isinstance(result.graph_ntriples, str)
+        assert "knows2" in result.graph_ntriples
+
+    def test_graph_returns_rdflib(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        g = result.graph()
+        assert isinstance(g, rdflib.Graph)
+        EX = rdflib.Namespace("http://example.org/")
+        assert (EX.a, EX.knows2, EX.b) in g
+
+    def test_repr(self):
+        result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
+        assert "inferred=1" in repr(result)
+
+
+# ── graph_mode variants ───────────────────────────────────────────────────────
+
+class TestGraphMode:
+    def test_union_mode(self):
+        conforms, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode(),
+                                  graph_mode="union")
+        assert conforms
+
+    def test_data_mode(self):
+        conforms, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode(),
+                                  graph_mode="data")
+        assert conforms
+
+    def test_unknown_mode_raises(self):
+        with pytest.raises(ValueError, match="graph_mode"):
+            validate(CONFORMS_DATA.encode(), SHAPES.encode(), graph_mode="bad")

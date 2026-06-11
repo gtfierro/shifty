@@ -1,0 +1,46 @@
+digraph shacl_algebra_ast {
+  rankdir=TB;
+  node [shape=box, style=rounded, fontname=monospace];
+
+  shape_0 [shape=box, style="rounded,filled", fillcolor=lightblue, label="@0\n<http://example.org/PersonShape>\n∧ (5)"];
+  shape_1 [shape=box, style="rounded,filled", fillcolor=lightgreen, label="@1\n∃[..0] <http://example.org/knows>/<http://example.org/knows>*"];
+  shape_2 [label="@2\nnodeKind(IRI)"];
+  shape_3 [shape=box, style="rounded,filled", fillcolor=lightblue, label="@3\n∧ (2)"];
+  shape_4 [shape=ellipse, style="rounded,filled", fillcolor=lightsalmon, label="@4\n¬"];
+  shape_7 [label="@7\ntest(datatype(xsd:integer))"];
+  shape_8 [label="@8\ntest(range(≥\"0\"^^<http://www.w3.org/2001/XMLSchema#integer>))"];
+  shape_9 [shape=box, style="rounded,filled", fillcolor=lightblue, label="@9\n∧ (2)"];
+  shape_10 [shape=ellipse, style="rounded,filled", fillcolor=lightsalmon, label="@10\n¬"];
+  shape_11 [shape=box, style="rounded,filled", fillcolor=lightgreen, label="@11\n∃[..0] <http://example.org/age>"];
+  shape_12 [shape=ellipse, style="rounded,filled", fillcolor=lightgray, label="@12\n⊤"];
+  shape_13 [shape=box, style="rounded,filled", fillcolor=lightgreen, label="@13\n∃[..1] <http://example.org/age>"];
+  shape_15 [label="@15\ntest(datatype(xsd:string))"];
+  shape_16 [shape=ellipse, style="rounded,filled", fillcolor=lightsalmon, label="@16\n¬"];
+  shape_17 [shape=box, style="rounded,filled", fillcolor=lightgreen, label="@17\n∃[..0] <http://example.org/name>"];
+  shape_18 [shape=ellipse, style="rounded,filled", fillcolor=lightgray, label="@18\n⊤"];
+  shape_19 [shape=box, style="rounded,filled", fillcolor=lightgreen, label="@19\n∃[1..1] <http://example.org/name>"];
+  shape_21 [label="@21\ntest(<http://example.org/Person>)"];
+
+  shape_0 -> shape_1 [label="0"];
+  shape_0 -> shape_11 [label="1"];
+  shape_0 -> shape_13 [label="2"];
+  shape_0 -> shape_17 [label="3"];
+  shape_0 -> shape_19 [label="4"];
+  shape_1 -> shape_4 [label="qualifier", style=dashed, color=darkgreen];
+  shape_3 -> shape_2 [label="0"];
+  shape_3 -> shape_0 [label="1"];
+  shape_4 -> shape_3 [label="¬"];
+  shape_9 -> shape_7 [label="0"];
+  shape_9 -> shape_8 [label="1"];
+  shape_10 -> shape_9 [label="¬"];
+  shape_11 -> shape_10 [label="qualifier", style=dashed, color=darkgreen];
+  shape_13 -> shape_12 [label="qualifier", style=dashed, color=darkgreen];
+  shape_16 -> shape_15 [label="¬"];
+  shape_17 -> shape_16 [label="qualifier", style=dashed, color=darkgreen];
+  shape_19 -> shape_18 [label="qualifier", style=dashed, color=darkgreen];
+
+  stmt_0 [shape=diamond, style=filled, fillcolor=lightyellow, label="stmt:0\n∃≥1 rdf:type/rdfs:subClassOf* . φ"];
+  stmt_0 -> shape_0;
+  stmt_0 -> shape_21 [style=dashed, color=gray50, label="path-shape"];
+
+}

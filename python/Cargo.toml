@@ -1,25 +1,22 @@
 [package]
-name = "python"
+name = "pyshifty"
 version.workspace = true
-authors.workspace = true
-license.workspace = true
 edition.workspace = true
-description.workspace = true
-repository.workspace = true
-homepage.workspace = true
-documentation.workspace = true
-readme = "README.md"
+description = "Python bindings for the shifty SHACL engine"
+license = "BSD-3-Clause"
+documentation = "https://github.com/gtfierro/shifty#readme"
+homepage = "https://github.com/gtfierro/shifty"
+repository = "https://github.com/gtfierro/shifty"
 
 [lib]
-name = "shifty"
+name = "_shifty"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py311"] }
-shifty = { path = "../lib", package = "shifty-shacl" }
-oxigraph.workspace = true
-ontoenv = { git = "https://github.com/gtfierro/ontoenv-rs" }
-tempfile = "3"
-serde_json.workspace = true
-env_logger.workspace = true
-once_cell = "1"
+pyo3 = { version = "0.23", features = ["extension-module"] }
+shifty-algebra.workspace = true
+shifty-parse.workspace = true
+shifty-opt.workspace = true
+shifty-engine.workspace = true
+oxrdf.workspace = true
+oxttl.workspace = true

@@ -3,3 +3,7 @@
 PKG_CONFIG_PATH = "/usr/lib/x86_64-linux-gnu/pkgconfig"
 ROCKSDB_DYNAMIC = "1"
 RUST_MIN_STACK = "16777216"
+
+# Rust 1.90+ uses lld on Linux. perf needs this layout for accurate call stacks.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-Clink-arg=-Wl,--no-rosegment"]

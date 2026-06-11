@@ -1,42 +1,49 @@
 [build-system]
-requires = ["maturin>=1.5,<2.0"]
+requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "pyshifty"
-version = "0.0.13"
-description = "Python bindings for the shifty validation engine"
+dynamic = ["version"]
+requires-python = ">=3.9"
+description = "Python bindings for the shifty SHACL engine"
 authors = [{ name = "Gabe Fierro", email = "gtfierro@mines.edu" }]
-requires-python = ">=3.11"
-readme = "README.md"
-dependencies = [
-    "maturin>=1.9.6",
-    "ontoenv>=0.5.1",
-    "rdflib>=7.4.0",
+license = "BSD-3-Clause"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering",
 ]
+readme = "README.md"
+keywords = ["shacl", "rdf", "validation", "knowledge-graph", "semantic-web"]
+dependencies = []
 
 [project.optional-dependencies]
-docs = [
-    "sphinx>=7.2",
-]
+rdflib = ["rdflib>=6.0"]
 
 [project.urls]
 Repository = "https://github.com/gtfierro/shifty"
+Homepage = "https://github.com/gtfierro/shifty"
+Documentation = "https://github.com/gtfierro/shifty#readme"
 
 [tool.maturin]
-bindings = "pyo3"
-module-name = "shifty"
+features = ["pyo3/extension-module"]
+module-name = "shifty._shifty"
+python-source = "."
 
-[tool.maturin.sdist]
-include = [
-    "README.md",
-    "Cargo.toml",
-    "pyproject.toml",
-    "src/**",
-    "build.rs",
-    "shifty.pyi",
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "rdflib>=6.0",
+    "maturin>=1.7",
 ]
-
-[tool.uv]
-# Rebuild package when any rust files change
-cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = "**/*.rs"}, {file = "../lib/Cargo.toml"}, {file = "../lib/**/*.rs"}]

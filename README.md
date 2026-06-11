@@ -1,341 +1,260 @@
-*Note*:  This is a nearly 100% GenAI generated codebase. The initial work was done with Gemini 2.5 Pro, and the later work was done with ChatGPT 5 with the Codex tool.
-This is an experiment to see how well I could create a SHACL/SHACL-AF implementation in Rust using AI tools. The "sh" in "shifty" comes from the fact it is a SHACL 
-implementation, and the overall name is a pun on how shifty it is to vibecode a gigantic Rust project and use that for something as critical as "validation."
-
----
-
 # shifty
 
-`shifty` is a Rust implementation of the Shapes Constraint Language (SHACL) with two crates:
+A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool and as Python bindings (`pyshifty`).
 
-- `lib/`: reusable validation engine
-- `cli/`: end-user binary that wraps the engine with visualization and debugging tools
+## Features
 
-The workspace also ships with Python bindings (`python/`) so the same validator can run inside a notebook or existing RDFlib pipeline.
+- **Full SHACL Core validation** — node and property shapes, all standard constraint components
+- **SHACL-AF inference** — forward-chaining `sh:rule` evaluation (Triple Rules, SPARQL Construct Rules) to a fixed point, with stratification analysis for recursive rulesets
+- **Algebraic IR** — shapes are lowered to a path algebra (π) and shape grammar (φ) before evaluation; the same IR drives both validation and inference
+- **Native SPARQL execution** — a subset of `sh:sparql` constraints and SPARQL Construct rules runs directly over an indexed dataset without a full SPARQL engine, with automatic fallback to Spareval for unsupported constructs
+- **Multi-layer pipeline** — parsing → algebraic lowering → normalization/CSE → physical planning → execution; each layer is independently inspectable
+- **pyshifty-compatible Python API** — `validate()` returns `(conforms, report_graph, results_text)` matching pyshifty's interface
 
-## Highlights
-
-- `generate-ir` writes a `SHACL-IR` cache so every invocation of `validate` or `infer` can skip reparsing the shapes graph and reuse the cached `ShapeIR`; the cache now includes the shapes graph (and resolved imports) so downstream runs don't need to reload shapes separately.
-- `heat`, `trace`, `visualize-heatmap`, and `pdf-heatmap` commands expose component frequencies, execution traces, and heatmap diagnostics for validation runs.
-- Validation and inference run against the union of the data graph **and** shapes graph by default; disable with `--no-union-graphs` if you want to keep them separate.
-- For data-bearing workflows (`validate`, `infer`, `heat`, `trace`, `visualize`, `visualize-heatmap`), the shapes input is optional; if omitted, Shifty treats the data graph as the shapes graph.
-- All CLI subcommands support `--skip-invalid-rules`, `--warnings-are-errors`, `--no-imports`, and `--no-union-graphs`; the Graphviz/PDF helpers can run against shapes-only inputs while `validate`/`infer` can load the cached `--shacl-ir` artifact to avoid repeated parsing.
-- `ARCHITECTURE.md` documents the validation pipeline end-to-end, and `AGENTS.md` captures the repository contribution guidelines.
-
-Graph loading policy:
-- OntoEnv is the cached source of shapes/data graphs and resolved `owl:imports` closures.
-- `--force-refresh` is the mechanism that should bypass cached OntoEnv entries.
-- Persistent OntoEnv workspaces are treated as read-mostly caches; validation builds a mutable working store from those loaded graphs.
-- After a successful OntoEnv load, Shifty does not reparse the root RDF sources again just to overwrite those graphs in the working store.
-
-## Building
-
-```bash
-cargo build --workspace
-```
-
-To enable the optional SHACL compiler (`compile` subcommand), build the CLI with the feature flag:
-
-```bash
-cargo build -p cli --features srcgen-compiler
-```
-
-Format, lint, and test when contributing:
-
-```bash
-cargo fmt --all
-cargo clippy --workspace --all-targets --all-features
-cargo test --workspace
-```
-
-## Usage examples
+## Installation
 
 ### CLI
 
-Basic validation with Turtle inputs:
-
-```bash
-shifty \
-  validate \
-  --shapes-file examples/shapes.ttl \
-  --data-file examples/data.ttl \
-  --format turtle
+```sh
+cargo install --path crates/shifty-cli
 ```
 
-You can omit `--shapes-file`/`--shapes-graph`; in that case Shifty assumes all required SHACL triples are already present in the data graph.
+Or build from source:
 
-Reuse a cached ShapeIR for faster repeated runs:
-
-```bash
-shifty generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
-shifty validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
+```sh
+cargo build --release -p shifty-cli
+# binary at target/release/shifty
 ```
 
 ### Python
 
-Minimal end-to-end validation:
-
-```python
-from rdflib import Graph
-import shifty
-
-data_graph = Graph().parse("examples/data.ttl", format="turtle")
-shapes_graph = Graph().parse("examples/shapes.ttl", format="turtle")
-
-conforms, results_graph, report_text = shifty.validate(
-    data_graph,
-    shapes_graph,
-    run_inference=False,
-)
-print(conforms)
-print(report_text)
+```sh
+pip install pyshifty
 ```
 
-Cached shapes reuse (mirrors the CLI `generate-ir` workflow):
+The package installs as `pyshifty` but is imported as `shifty`:
 
 ```python
 import shifty
-
-cache = shifty.generate_ir(shapes_graph)
-conforms, results_graph, report_text, diag = cache.validate(
-    data_graph,
-    run_inference=True,
-    inference={"min_iterations": 1, "max_iterations": 8},
-)
 ```
 
-## CLI Overview
+To build from source (requires Rust and [maturin](https://github.com/PyO3/maturin)):
 
-Run `shifty --help` to see every subcommand. The most common entry points are:
-
-- `validate`: run SHACL validation (optionally with rule inference) and optionally emit reports, DOT graphs, or traces.
-- `infer`: emit the triples inferred by SHACL rules (Graphviz and PDF outputs are also supported).
-- `visualize`: dump the DOT for the shapes (add `--pdf <FILE>` to render that DOT directly to PDF instead).
-- `visualize-heatmap`: dump the execution heatmap DOT (add `--pdf <FILE>` to render the heatmap to PDF, optionally including non-executed nodes via `--all`).
-- `heat`: validate the data and print a table of component/node/property invocation frequencies.
-- `trace`: validate the data and dump every execution trace collected during validation.
-- `generate-ir`: parse a shapes graph and write the `SHACL-IR` artifact that other commands can reuse via `--shacl-ir path/to/cache`.
-- `compile`: generate and build a specialized SHACL executable (requires `--features srcgen-compiler` when building the CLI).
-
-You can now request the visualization artifacts directly from `validate` or `infer` by appending:
-
-- `--graphviz` to print the DOT description after execution
-- `--pdf-heatmap heatmap.pdf [--pdf-heatmap-all]` to write the heatmap PDF (the `infer` command will trigger a validation pass when this flag is set)
-
-All commands accept the shared `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports` flags so you can skip problematic constructs, treat warnings as failures, or avoid resolving `owl:imports` when working in offline environments.
-`validate`, `infer`, and other data-bearing commands additionally accept `--no-union-graphs` to keep shapes and data separate (the default is to union them so targets and rules can see shapes triples alongside data). These commands can also omit explicit shapes input and will treat the data graph as the shapes graph.
-
-### Validation example
-
-```bash
-shifty \
-  validate \
-  --shapes-file examples/shapes.ttl \
-  --data-file examples/data.ttl \
-  --format turtle \
-  --run-inference \
-  --inference-min-iterations 1 \
-  --inference-max-iterations 8 \
-  --inference-debug
+```sh
+cd python
+pip install maturin
+maturin develop
 ```
 
-- `--format` chooses the report output (`turtle`, `rdf-xml`, `ntriples`, or `dump`).
-- Inference flags mirror the standalone `inference` subcommand (`--inference-no-converge`, `--inference-error-on-blank-nodes`, etc.).
+## CLI usage
 
-### Inference example
+### Validate
 
-```bash
-shifty \
-  inference \
-  --shapes-file examples/shapes.ttl \
-  --data-file examples/data.ttl \
-  --min-iterations 1 \
-  --max-iterations 12 \
-  --debug \
-  --output-file inferred.ttl
+```sh
+shifty validate --shapes shapes.ttl --data data.ttl
 ```
 
-Use `--union` to emit the original data plus inferred triples.
-
-## SHACL-IR caching
-
-The CLI ships with a `generate-ir` subcommand that parses the shapes graph, serializes the resulting `ShapeIR`, and writes it to disk. This makes repeated validations much faster because `validate`, `inference`, `heat`, and `trace` can all consume the `--shacl-ir cache.ttl` artifact instead of reparsing the shapes every time. The `shifty::shacl_ir` module defines the serde-friendly IR data structures, so the cache can also be shared between the CLI and other embedders.
-
-```bash
-shifty generate-ir --shapes-file examples/shapes.ttl --output-file /tmp/shape-cache.ttl
-shifty validate --shacl-ir /tmp/shape-cache.ttl --data-file examples/data.ttl --run-inference
+```
+conforms: false
+violations: 1
+  <http://example.org/bob>  [target: ∃ rdf:type .⊤]
+      - (ex:name) 123 → expected datatype xsd:string
 ```
 
-When you reuse a cached IR, validation and inference still run over the union of the shapes graph (captured in the cache) and the supplied data graph unless you pass `--no-union-graphs`.
+Emit a W3C `sh:ValidationReport` in Turtle:
 
-## Diagnostics & tracing
+```sh
+shifty validate --shapes shapes.ttl --data data.ttl --report
+```
 
-The CLI offers several commands to inspect validation behavior without rerunning validation from scratch:
+JSON output:
 
-- `heat` prints a tab-separated table of component/node/property invocation counts so you can find the hot spots that fired most frequently.
-- `trace` dumps every execution trace recorded during validation, which prints the per-shape/component path that led to each failure.
-`visualize-heatmap` reuses the same execution trace buffer to visualize how shapes were hit across the validator; add `--pdf <FILE>` to the command to render the heatmap to a PDF instead of printing the DOT.
+```sh
+shifty validate --shapes shapes.ttl --data data.ttl --format json
+```
 
-Both `visualize` and `visualize-heatmap` expose a `--pdf` option so you can produce PDFs from the same DOT stream (the Graphviz output is still the default when `--pdf` is not provided). Every command still respects the shared `--skip-invalid-rules`, `--warnings-are-errors`, and `--no-imports` flags so you can treat warnings as failures or run without resolving `owl:imports`.
+Graph mode controls which triples are visible to path traversal and SPARQL evaluation:
 
-Both `validate` and `infer` can emit Graphviz (`--graphviz`) or PDF heatmaps (`--pdf-heatmap`) on demand.
+```sh
+# default: focus nodes from data; paths/SPARQL use data ∪ shapes
+shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union
 
-## Python API
+# focus nodes and evaluation use data only
+shifty validate --shapes shapes.ttl --data data.ttl --graph-mode data
 
-Install the extension module from PyPI as `pyshifty` (import it as `shifty`), or use `uvx maturin develop` (or `maturin develop --release`) inside `python/`. The module mirrors the CLI workflow:
+# focus nodes and evaluation both use data ∪ shapes
+shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
+```
 
-- `generate_ir(shapes_graph, ...)` parses the shapes once and returns a `CompiledShapeGraph` Python object.
-- `CompiledShapeGraph.validate` / `.infer` reuse the cached IR and accept the same flags as the CLI `validate`/`infer` commands.
-- One-off helpers `shifty.validate` and `shifty.infer` still exist for quick runs when you don't need caching; `shapes_graph` is optional and defaults to `data_graph`.
+### Infer
+
+Run SHACL-AF rules to a fixed point, then print the derived triples:
+
+```sh
+shifty infer --shapes rules.ttl --data data.ttl
+```
+
+```
+inferred 3 triple(s):
+  <http://example.org/r1> <http://example.org/area> "6"^^<http://www.w3.org/2001/XMLSchema#integer>
+  ...
+```
+
+### Inspect
+
+Inspect how a shapes graph looks at each stage of the pipeline:
+
+```sh
+# Raw triples after parsing
+shifty inspect --stage rdf shapes.ttl
+
+# Lowered algebraic IR (φ/π notation)
+shifty inspect --stage algebra shapes.ttl
+
+# After normalization and common-subexpression elimination
+shifty inspect --stage normalized shapes.ttl
+
+# Stratification analysis (recursion detection)
+shifty inspect --stage strata shapes.ttl
+
+# Physical plan: focus sources + cost-ordered shape checks
+shifty inspect --stage plan shapes.ttl
+
+# SPARQL constraint capability: which queries run native vs. Spareval
+shifty inspect --stage capability shapes.ttl
+```
+
+All stages support `--format text` (default), `--format json`; the `algebra` and `normalized` stages also support `--format dot` for Graphviz output.
+
+Shapes files and data files may be local paths or HTTP/HTTPS URLs. Both `--shapes` and `--data` are repeatable to merge multiple files.
+
+## Python usage
 
 ```python
 import shifty
-
-cache = shifty.generate_ir(
-    shapes_graph,
-    skip_invalid_rules=True,
-    warnings_are_errors=False,
-    do_imports=True,
-)
-
-conforms, report_graph, report_text, diag = cache.validate(
-    data_graph,
-    run_inference=True,
-    inference={"min_iterations": 1, "max_iterations": 8},
-    graphviz=True,
-    heatmap=True,
-    trace_events=True,
-)
-cached_inferred, cached_diag = cache.infer(
-    data_graph,
-    run_until_converged=True,
-    graphviz=True,
-    return_inference_outcome=True,
-)
 ```
 
-The standalone functions expose the same signatures:
+### Validate (pyshifty-compatible)
 
 ```python
-import shifty
+shapes = """
+@prefix sh:  <http://www.w3.org/ns/shifty#> .
+@prefix ex:  <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-# Requesting diagnostics returns a second item; otherwise you get just the graph.
-inferred_graph, diag = shifty.infer(
-    data_graph,
-    shapes_graph,
-    min_iterations=None,
-    max_iterations=None,
-    run_until_converged=None,
-    no_converge=None,
-    error_on_blank_nodes=None,
-    enable_af=True,
-    enable_rules=True,
-    debug=None,
-    skip_invalid_rules=False,
-    warnings_are_errors=False,
-    do_imports=True,
-    graphviz=True,
-    heatmap=False,
-    heatmap_all=False,
-    trace_events=False,
-    trace_file=None,
-    trace_jsonl=None,
-    return_inference_outcome=True,
-)
+ex:PersonShape a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:property [
+        sh:path ex:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path ex:age ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+    ] .
+"""
 
-conforms, results_graph, report_text, diag = shifty.validate(
-    data_graph,
-    shapes_graph,
-    run_inference=False,
-    inference=None,
-    min_iterations=None,
-    max_iterations=None,
-    run_until_converged=None,
-    no_converge=None,
-    inference_min_iterations=None,
-    inference_max_iterations=None,
-    inference_no_converge=None,
-    error_on_blank_nodes=None,
-    inference_error_on_blank_nodes=None,
-    enable_af=True,
-    enable_rules=True,
-    debug=None,
-    inference_debug=None,
-    skip_invalid_rules=False,
-    warnings_are_errors=False,
-    do_imports=True,
-    follow_bnodes=False,
-    graphviz=False,
-    heatmap=False,
-    heatmap_all=False,
-    trace_events=False,
-    trace_file=None,
-    trace_jsonl=None,
-    return_inference_outcome=False,
-)
+data = """
+@prefix ex: <http://example.org/> .
+
+ex:Alice a ex:Person ; ex:name "Alice" ; ex:age 30 .
+ex:Bob   a ex:Person .
+"""
+
+conforms, report_graph, results_text = shifty.validate(data, shapes)
+# conforms → False
+# report_graph → rdflib.Graph with sh:ValidationReport
+# results_text → human-readable summary
 ```
 
-- `infer` still returns only the new triples unless you request diagnostics, in which case you get `(graph, diag)` where `diag` may contain `graphviz`, `heatmap`, `trace_events`, and/or `inference_outcome`.
-- `validate` returns `(conforms, results_graph, report_turtle)` by default or a fourth diagnostics dict when any of the diagnostic flags are set.
-- `inference` can be `True`/`False` or a dict that groups inference options (e.g. `{"min_iterations": 2, "debug": True}`) so you don't have to repeat CLI-style flags in Python. Explicit keyword arguments still work and continue to accept their `inference_*` aliases for backward compatibility.
+Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted, shapes are expected to be embedded in the data graph.
 
-Example:
+### Validate with structured result
+
+`validate_algebra` returns an `AlgebraResult` with typed `Violation` objects instead of an RDF report graph:
 
 ```python
-conforms, results_graph, report_text, diag = shifty.validate(
-    data_graph,
-    shapes_graph,
-    inference={"min_iterations": 2, "max_iterations": 6, "debug": True},
-    graphviz=True,
-    heatmap=True,
-    trace_events=True,
-    return_inference_outcome=True,
-)
-print(diag["graphviz"])
-print(diag["heatmap"])
-print(diag["inference_outcome"]["triples_added"])
+result = shifty.validate_algebra(data, shapes)
+print(result.conforms)        # False
+for v in result.violations:
+    print(v.focus)            # IRI of the failing focus node
+    for r in v.reasons:
+        print(r.message)      # human-readable failure description
+        print(r.path)         # path that was checked, if applicable
+        print(r.value)        # the offending value node
 ```
 
-### Python example (adapted from `python/brick.py`)
+### Infer
+
+Run SHACL-AF rules to a fixed point:
 
 ```python
-from rdflib import Graph
-from ontoenv import OntoEnv
-import shifty
+rules = """
+@prefix sh: <http://www.w3.org/ns/shifty#> .
+@prefix ex: <http://example.org/> .
 
-env = OntoEnv()
-model_iri = env.add("https://example.com/model.ttl")
-data_graph = env.get_graph(model_iri)
-shapes_graph, imports = env.get_closure(model_iri)
+ex:RectangleShape a sh:NodeShape ;
+    sh:targetClass ex:Rectangle ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:area ;
+        sh:object [ sh:path ex:width ] ;
+    ] .
+"""
 
-print(f"SHACL graph imports: {imports}")
+data = """
+@prefix ex: <http://example.org/> .
+ex:r1 a ex:Rectangle ; ex:width 3 ; ex:height 2 .
+"""
 
-inferred = shifty.infer(data_graph, shapes_graph, debug=True)
-print(inferred.serialize(format="turtle"))
+result = shifty.infer(data, rules)
+print(result.inferred_count)    # number of newly derived triples
+g = result.graph()              # rdflib.Graph with original + inferred data
+```
 
-conforms, results_graph, report_text = shifty.validate(
-    data_graph,
-    shapes_graph,
-    inference={"max_iterations": 12, "debug": True},
+### graph_mode
+
+All three functions accept a `graph_mode` keyword argument:
+
+```python
+shifty.validate(data, shapes, graph_mode="union")      # default
+shifty.validate(data, shapes, graph_mode="data")
+shifty.validate(data, shapes, graph_mode="union-all")
+```
+
+### File inputs
+
+```python
+import pathlib
+
+conforms, report, text = shifty.validate(
+    pathlib.Path("data.ttl"),
+    pathlib.Path("shapes.ttl"),
 )
-print(f"Model conforms: {conforms}")
-print(report_text)
 ```
 
-## Repository layout
+## Crate structure
 
-```
-lib/      # core validator crate (exported as `shacl`)
-cli/      # command-line interface
-python/   # PyO3 bindings and RDFlib examples
-docs/     # additional design docs and profiles
-lib/src/shacl_ir.rs # serde-backed ShapeIR module for caching parsed shapes
-scripts/  # helper scripts (Python tooling, benchmarks, etc.)
-```
+| crate | role |
+|---|---|
+| `shifty-algebra` | path algebra π, shape grammar φ, schema arena, rendering |
+| `shifty-parse` | Turtle/RDF → algebraic IR lowering |
+| `shifty-opt` | normalization, stratification, physical planning, native SPARQL lowering |
+| `shifty-engine` | validation + AF inference execution, SPARQL executor |
+| `shifty-cli` | `shifty` binary |
+| `pyshifty` (python/) | PyO3 bindings, published as `pyshifty` on PyPI |
 
-Need help? Open an issue or discussion in this repo with the failing SHACL shapes and data.
+## Design docs
 
-## Docs & guidelines
+The `docs/` directory contains the full design:
 
-- `ARCHITECTURE.md` describes the full validation lifecycle, the component wiring, and the instrumentation pipeline.
-- `AGENTS.md` captures the current repository guidelines, coding expectations, and testing commands for contributors.
+- [`docs/00-formalism.md`](docs/00-formalism.md) — path algebra π, shape grammar φ, selectors, reference semantics
+- [`docs/01-gap-analysis.md`](docs/01-gap-analysis.md) — W3C SHACL/SHACL-AF coverage and known gaps
+- [`docs/02-roadmap.md`](docs/02-roadmap.md) — layered build plan (Layer 0 → 7)
+
+## License
+
+BSD-3-Clause

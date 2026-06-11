@@ -1,0 +1,415 @@
+# Static Analysis Plan
+
+## Goal
+
+Build backend-agnostic static analysis over `ShapeProgram` that can:
+
+- slice irrelevant shapes, rules, constraints, targets, and components away
+- classify the graph/context footprint of each shape and rule
+- identify recursive regions and dependency structure
+- detect structurally duplicate constraints, targets, and rules
+- surface the results in a dedicated inspection CLI command
+- drive conservative semantics-preserving rewrites over normalized shape programs
+
+For the next planning phase, extend that analysis with advisory data-graph knowledge so logical plans can:
+
+- estimate target and path selectivity from the current dataset
+- recognize empty or trivially small evaluation frontiers
+- prioritize cheap and selective scans before broad fanout work
+- expose expected work sizes to backends without baking in backend-specific execution
+
+## Decisions
+
+- [x] Put the checklist plan in `docs/`
+- [x] Prioritize slicing and context reduction before deeper equivalence work
+- [x] Add a new `static-analyze` CLI command instead of overloading `analyze`
+- [x] Keep the APIs backend-agnostic and operate only on normalized `ShapeProgram`
+
+## Phase 1 Checklist
+
+- [x] Create the static-analysis checklist document
+- [x] Add a dedicated static-analysis module in `shacl-core`
+- [x] Define `StaticAnalysisSummary`
+- [x] Define `SliceRoots` and `ProgramSlice`
+- [x] Define `ContextFootprint` and `ContextFootprintReport`
+- [x] Define `FingerprintReport`
+- [x] Implement target-root slicing
+- [x] Implement retained vs dropped inventory for shapes, rules, constraints, targets, and components
+- [x] Implement reduced-program construction for slices
+- [x] Implement shape context-footprint classification
+- [x] Implement rule context-footprint classification
+- [x] Reuse dependency components/SCCs in static analysis output
+- [x] Implement stable structural fingerprints for constraints
+- [x] Implement stable structural fingerprints for targets
+- [x] Implement stable structural fingerprints for rules
+- [x] Add duplicate-group reporting from fingerprints
+- [x] Export the static-analysis APIs from `shacl-core`
+- [x] Add a `static-analyze` CLI subcommand
+- [x] Add text output for slice/context/fingerprint summaries
+- [x] Add JSON output for the full static-analysis payload
+- [x] Add `--prune-deactivated`
+- [x] Add fixture-backed regression tests
+
+## Phase 2 Checklist
+
+- [x] Add explicit root-shape slicing in the library API
+- [x] Add CLI root selection by shape IRI / normalized key
+- [x] Record dropped-item reasons in `ProgramSlice`
+- [x] Record retained-item inclusion reasons for slice explainability
+- [x] Preserve per-root reachability summaries for explicit root sets
+- [x] Refine context classes beyond `PathLocal`
+- [x] Distinguish single-hop path access from bounded traversal
+- [x] Distinguish shape-reference traversal from simple property access
+- [x] Add shared-work candidate analysis on duplicate fingerprints
+- [x] Report duplicate instantiated custom-component uses explicitly
+- [x] Report duplicate SPARQL constraints and rules explicitly
+- [x] Add backend-agnostic static cost hints per shape and rule
+- [x] Surface slice reasons and cost hints in `static-analyze`
+- [x] Add JSON fields for shared-work candidates and cost hints
+- [x] Add fixture-backed tests for explicit-root slicing
+- [x] Add fixture-backed tests for dropped-item reasons
+- [x] Add fixture-backed tests for refined context classification
+- [x] Add fixture-backed tests for shared-work candidate reporting
+
+## Phase 3 Checklist
+
+- [x] Add an explicit rewrite-pass API over `ShapeProgram`
+- [x] Define `RewriteOptions` and `RewriteSummary`
+- [x] Add a reusable root-slice rewrite pass
+- [x] Add dead-structure elimination after slicing
+- [x] Prune unreferenced components after slicing
+- [x] Prune unreferenced rules after slicing when their owner shapes are dropped
+- [x] Preserve provenance and diagnostics through rewrite passes
+- [x] Rebuild indexes and inspection graphs after rewrites
+- [x] Add analysis-informed deterministic constraint ordering
+- [x] Add analysis-informed deterministic rule ordering
+- [x] Prioritize local/cheap constraints ahead of global/SPARQL constraints
+- [x] Prioritize local/cheap rules ahead of global/SPARQL rules
+- [x] Add explicit recursive-region annotations or groups in rewritten programs
+- [x] Surface rewrite summaries in CLI inspection output
+- [x] Add JSON output for rewrite summaries
+- [x] Add fixture-backed tests for slice-driven rewriting
+- [x] Add fixture-backed tests for dead-structure elimination
+- [x] Add fixture-backed tests for ordering rewrites
+- [x] Add fixture-backed tests for recursive-region annotation
+
+## Phase 4 Checklist
+
+- [x] Add explicit backend-facing validation views
+- [x] Add explicit backend-facing inference views
+- [x] Keep validation and inference views derived from the same rewritten program
+- [x] Partition shapes into backend-facing buckets
+- [x] Partition inference rules into backend-facing buckets
+- [x] Surface entry/helper shape inventories for validation
+- [x] Surface rule-owner, condition-shape, and target-seed inventories for inference
+- [x] Preserve rewrite summaries alongside backend views
+- [x] Add a CLI inspection command for backend views
+- [x] Add JSON output for backend views
+- [x] Add fixture-backed tests for validation views
+- [x] Add fixture-backed tests for inference views
+
+## Phase 5 Checklist
+
+- [x] Materialize explicit shared work units from duplicate fingerprints
+- [x] Add shared work units for repeated custom-component constraints
+- [x] Add shared work units for repeated SPARQL constraints
+- [x] Add shared work units for repeated rule bodies
+- [x] Add explicit closure modes for backend views
+- [x] Separate validation closure from inference closure
+- [x] Add dependency classes for validation-only, inference-only, and shared edges
+- [x] Surface dependency classes in backend views
+- [x] Add per-view work inventories for validation
+- [x] Add per-view work inventories for inference
+- [x] Surface shared work units in CLI inspection output
+- [x] Surface closure modes and dependency classes in CLI inspection output
+- [x] Add JSON output for shared work units and work inventories
+- [x] Add fixture-backed tests for shared work unit derivation
+- [x] Add fixture-backed tests for validation vs inference closure differences
+- [x] Add fixture-backed tests for dependency classification
+
+## Phase 6 Checklist
+
+- [x] Add a backend-agnostic logical planning module
+- [x] Define explicit validation logical plan types
+- [x] Define explicit inference logical plan types
+- [x] Derive validation plans from `ValidationView`
+- [x] Derive inference plans from `InferenceView`
+- [x] Represent shared work units directly in logical plans
+- [x] Represent recursive regions directly in logical plans
+- [x] Add CLI inspection for logical plans
+- [x] Add text output for logical plans
+- [x] Add JSON output for logical plans
+- [x] Add fixture-backed tests for validation planning
+- [x] Add fixture-backed tests for inference planning
+
+## Phase 7 Checklist
+
+- [x] Add a validation backend trait over logical validation plans
+- [x] Add an in-memory quad index for executable backends
+- [x] Execute target scans for node/class/subjects-of/objects-of targets
+- [x] Execute local constraint batches
+- [x] Execute bounded property-path traversal for validation
+- [x] Add structured validation result types
+- [x] Add structured trace events for validation execution
+- [x] Add heatmap-style execution counters
+- [x] Add a CLI command for executing validation
+- [x] Add text output for validation results
+- [x] Add JSON output for validation results
+- [x] Add fixture-backed tests for target resolution
+- [x] Add fixture-backed tests for local/path validation execution
+
+## Phase 8 Checklist
+
+- [x] Execute core numeric range constraints
+- [x] Execute property comparison constraints
+- [x] Execute closed-shape constraints
+- [x] Execute `sh:not`
+- [x] Execute logical `sh:and`, `sh:or`, and `sh:xone`
+- [x] Execute `sh:qualifiedValueShape`
+- [x] Carry shape severity into validation violations
+- [x] Carry provenance/source references into validation results
+- [x] Distinguish unsupported constraints from failing constraints
+- [x] Surface execution coverage explicitly in text and JSON output
+- [x] Tighten recursive validation handling for speculative shape checks
+- [x] Add fixture-backed tests for new core execution coverage
+
+## Phase 9 Checklist
+
+- [x] Execute `sh:languageIn`
+- [x] Execute `sh:uniqueLang`
+- [x] Execute zero-or-more property paths
+- [x] Execute one-or-more property paths
+- [x] Preserve deterministic path traversal output under repetition
+- [x] Add fixture-backed tests for language-tag constraints
+- [x] Add fixture-backed tests for transitive path traversal
+- [x] Keep unsupported-path reporting explicit for still-unhandled path forms
+
+## Phase 10 Checklist
+
+- [x] Execute regex semantics for `sh:pattern`
+- [x] Execute inverse paths for all currently represented executable path forms
+- [x] Preserve deterministic inverse-path traversal output
+- [x] Add fixture-backed tests for regex pattern execution
+- [x] Add fixture-backed tests for nested inverse/transitive path execution
+
+## Phase 11 Checklist
+
+- [x] Resolve advanced targets in the in-memory validation backend
+- [x] Execute `sh:sparql` constraints in the in-memory validation backend
+- [x] Execute SPARQL-backed custom constraint components in the in-memory validation backend
+- [x] Bind `$this`, `$PATH`, `?value`, `?currentShape`, and component parameters for supported SPARQL execution
+- [x] Render templated custom-component messages from bound/default parameter values
+- [x] Surface explicit unsupported results for SHACL-AF rule execution until an inference executor exists
+- [x] Add fixture-backed tests for advanced-target validation
+- [x] Add fixture-backed tests for SPARQL constraint validation
+- [x] Add fixture-backed tests for custom-component SPARQL validation
+
+## Phase 12 Checklist
+
+- [x] Add a SHACL validation-report builder in `shacl-core`
+- [x] Preserve enough validation result metadata for `sh:sourceShape`, `sh:sourceConstraint`, `sh:sourceConstraintComponent`, `sh:resultPath`, and `sh:value`
+- [x] Serialize validation reports to RDF output formats for CLI use
+- [x] Add validation CLI report output modes
+- [x] Add fixture-backed tests for report construction over core and SPARQL validation cases
+- [x] Add a narrow W3C manifest harness for self-contained SHACL validation tests
+- [x] Assert expected `sh:conforms` on initial manifest-backed tests
+- [x] Assert expected validation-result counts on initial manifest-backed tests
+
+## Phase 13 Checklist
+
+- [x] Add AF rule execution to the in-memory validation backend
+- [x] Replace retained-rule unsupported reporting with executable rule saturation
+- [x] Execute SHACL-AF triple rules over retained validation-plan shapes
+- [x] Execute SHACL-AF SPARQL rules over retained validation-plan shapes
+- [x] Preserve SHACL prefix declarations for SPARQL rules
+- [x] Re-run rule targets against inferred triples until a fixed point is reached
+- [x] Respect rule conditions during execution
+- [x] Update the in-memory quad index and SPARQL store with inferred triples
+
+## Phase 17 Checklist
+
+- [x] Extract the in-memory validation backend into its own crate
+- [x] Keep `shacl-core` as the backend-agnostic validation contract crate
+- [x] Rewire the CLI to depend on the extracted in-memory backend crate
+- [x] Rewire manifest and core integration tests to use the extracted backend crate
+- [x] Preserve existing validation/report APIs across the crate split
+- [x] Add workspace membership and crate metadata for the extracted backend crate
+- [x] Re-run core, CLI, and manifest test suites after the crate split
+- [ ] Burn down remaining manifest divergences from the shared harness
+- [x] Remove fixed manifest divergence cases from backend conformance metadata
+- [ ] Keep backend conformance metadata aligned with actual remaining gaps
+- [x] Surface inference iterations and inferred triple counts in validation coverage
+- [x] Surface rule execution hits in validation heatmaps / traces
+- [x] Keep unsupported reporting explicit for generic or still-unhandled rule forms
+- [x] Add fixture-backed tests for triple-rule execution
+- [x] Add fixture-backed tests for SPARQL-rule execution
+- [ ] Add a Brick smoke test assertion that AF rules no longer remain unsupported
+
+## Phase 18 Checklist
+
+- [x] Add a data-graph analysis module for backend-agnostic planning inputs
+- [x] Define `DataGraphSummary` for dataset-wide planning signals
+- [x] Define `ShapeDataSummary` for shape-local planning signals
+- [x] Collect target cardinality estimates for target-bearing shapes
+- [x] Collect predicate cardinality and distinct subject/object counts
+- [x] Collect observed node-kind and datatype distributions per predicate
+- [x] Collect simple class-membership counts and subclass-expanded counts
+- [x] Classify property paths by observed selectivity and fanout
+- [x] Mark empty / unsatisfiable target scans from the current data graph
+- [x] Detect obviously dead constraints against the current data graph
+- [x] Detect obviously vacuous constraints against the current data graph
+- [x] Surface data-aware selectivity hints into validation logical plans
+- [x] Surface data-aware batching / scan ordering hints into validation logical plans
+- [x] Add plan annotations for target-scan cost, expected focus count, and expected path fanout
+- [x] Keep all data-aware annotations advisory, not semantics-changing
+- [x] Add a CLI inspection command for data-graph summaries and plan annotations
+- [x] Add JSON output for data-graph summaries and annotations
+- [x] Add fixture-backed tests for empty-target detection
+- [x] Add fixture-backed tests for selectivity-aware ordering hints
+- [x] Add fixture-backed tests proving data-aware planning does not change conformance
+
+## Phase 14 Checklist
+
+- [x] Replace the narrow manifest smoke test file with a recursive W3C manifest harness
+- [x] Crawl `mf:include` trees and `mf:entries` lists rather than hard-coding individual cases
+- [x] Support self-contained and split data/shapes graph manifest actions
+- [x] Add a backend-facing manifest test abstraction so each evaluation backend can share the same suite runner
+- [x] Add in-memory backend coverage over the `core`, `sparql`, and `advanced` root manifests
+- [x] Add explicit backend skip reasons for manifest regions whose semantics are not modeled yet
+- [x] Keep report-count assertions on manifest-backed validation runs
+
+## Phase 15 Checklist
+
+- [x] Add explicit backend manifest-conformance metadata
+- [x] Separate supported manifest regions from skipped regions and known divergence cases
+- [x] Derive case support from backend metadata instead of ad hoc skip logic
+- [x] Assert backend conformance metadata in manifest integration tests
+- [x] Keep per-skip reasons visible in suite outcomes for future backend comparisons
+
+## Phase 16 Checklist
+
+- [x] Fix self-contained manifest execution so shapes/data blank nodes are not duplicated
+- [x] Deduplicate overlapping target resolutions per shape during validation execution
+- [x] Skip deactivated shapes and rules during validation execution
+- [x] Support `sh:flags` for in-memory `sh:pattern` execution
+- [x] Deduplicate sequence-path traversal results
+- [x] Expand string-based constraint execution to treat IRIs as executable string values
+- [x] Evaluate nested `sh:property` constraints hanging off property shapes
+- [x] Lower multi-valued `sh:class` constraints as independent checks
+- [x] Remove fixed core manifest cases from known divergence metadata
+
+## Data Types / APIs
+
+- `analyze_static(program: &ShapeProgram) -> StaticAnalysisSummary`
+- `slice_program(program: &ShapeProgram, roots: SliceRoots) -> ProgramSlice`
+- `context_requirements(program: &ShapeProgram) -> ContextFootprintReport`
+- `fingerprint_program(program: &ShapeProgram) -> FingerprintReport`
+
+Planned additions:
+
+- `slice_program` support for explicit root shape sets
+- dropped/retained reason types on `ProgramSlice`
+- refined context categories and explanation payloads
+- shared-work candidate report derived from fingerprints
+- static cost-hint report for shapes and rules
+
+Rewrite-phase additions:
+
+- `rewrite_program(program: &ShapeProgram, options: RewriteOptions) -> RewrittenProgram`
+- explicit rewrite passes for:
+  - root slicing
+  - dead-structure elimination
+  - unreferenced-component pruning
+  - analysis-informed ordering
+  - recursive-region annotation
+- rewrite summaries that explain which passes ran and what they changed
+
+Execution-phase additions:
+
+- broaden the in-memory validation backend over SHACL Core constraints
+- add explicit execution coverage and unsupported-constraint reporting
+- enrich validation violations with severity and provenance
+- add speculative nested conformance checks for logical and qualified constraints
+
+Phase 9 additions:
+
+- broaden executable string constraints to language-tag semantics
+- broaden executable path traversal to transitive closures
+- keep remaining unsupported path forms explicit in execution coverage
+
+## CLI Output
+
+- text summary
+- JSON
+- target-root slice by default
+- optional deactivation pruning before static analysis
+
+Planned additions:
+
+- explicit `--root-shape` selection
+- slice inclusion/exclusion reasons
+- refined context histogram
+- shared-work candidate summary
+- static cost-hint summary
+
+Rewrite-phase additions:
+
+- rewrite summary output in text mode
+- rewrite summary output in JSON mode
+- optional inspection command support for rewritten-program output
+
+Execution-phase additions:
+
+- validation coverage summary in text output
+- unsupported-constraint inventory in text and JSON output
+- richer violation metadata in text and JSON output
+
+Phase 9 additions:
+
+- validation traces and coverage for language-tag and transitive-path execution
+
+## Tests
+
+- slicing from target-bearing roots removes irrelevant subgraphs
+- recursive SCCs remain intact in slices
+- SPARQL features classify as global context
+- local scalar constraints classify as node-local context
+- path/property/reference constraints classify as path-local context
+- identical instantiated custom-component constraints land in duplicate groups
+- changed bindings produce different fingerprints
+
+Planned additions:
+
+- explicit-root slicing by shape IRI
+- explicit-root slicing by normalized key for anonymous shapes
+- dropped-item reasons for unreachable and pruned items
+- refined context buckets for single-hop vs traversal-heavy shapes
+- shared-work candidate summaries for duplicate SPARQL and component uses
+
+Rewrite-phase additions:
+
+- root-slice rewrites preserve the expected reachable subgraph
+- dead-structure elimination removes dropped owners and dangling references
+- rewritten programs rebuild indexes consistently
+- ordering rewrites are deterministic and analysis-informed
+- recursive-region annotations match SCC analysis
+
+Execution-phase additions:
+
+- numeric-range and property-comparison execution fixtures
+- logical/not/qualified execution fixtures
+- closed-shape execution fixtures
+- unsupported-constraint reporting fixtures
+
+Phase 9 additions:
+
+- languageIn and uniqueLang execution fixtures
+- zero-or-more and one-or-more path execution fixtures
+
+## Deferred Work
+
+- semantic subsumption and implication analysis
+- duplicate-shape merging or semantic factoring
+- proof-oriented equivalence instead of candidate duplicate groups
+- backend-specific planning heuristics beyond backend-agnostic cost hints
+- backend-specific execution rewrites or physical planning

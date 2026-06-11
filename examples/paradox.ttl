@@ -1,0 +1,11 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+
+# S := ¬ ∃p. S   — recursion through negation (no consistent 2-valued model)
+ex:S a sh:NodeShape ;
+    sh:targetNode ex:x ;
+    sh:not [
+        sh:path ex:p ;
+        sh:qualifiedValueShape ex:S ;
+        sh:qualifiedMinCount 1 ;
+    ] .

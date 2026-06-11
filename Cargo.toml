@@ -1,39 +1,47 @@
 [workspace]
 members = [
-    "lib",
-    "cli",
+    "crates/shifty-algebra",
+    "crates/shifty-parse",
+    "crates/shifty-opt",
+    "crates/shifty-engine",
+    "crates/shifty-cli",
     "python",
-    "crates/shacl-srcgen-compiler"
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.13"
+version = "0.1.0"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
-description = "A Shapes Constraint Language (SHACL) validator written in Rust"
+description = "Formalism-first SHACL + SHACL-AF engine (inference + validation) in Rust"
 readme = "README.md"
 repository = "https://github.com/gtfierro/shifty"
 homepage = "https://github.com/gtfierro/shifty"
 documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
+# internal crates
+shifty-algebra = { path = "crates/shifty-algebra" }
+shifty-parse = { path = "crates/shifty-parse" }
+shifty-opt = { path = "crates/shifty-opt" }
+shifty-engine = { path = "crates/shifty-engine" }
+
+# external
+oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
+oxsdatatypes = "0.2.2"
+oxttl = "0.2.3"
 oxigraph = { version = "0.5.5", default-features = false }
+spargebra = { version = "=0.4.6", features = ["sep-0006"] }
+spareval = "=0.2.6"
 petgraph = "0.6"
-shifty = { version = "0.0.13", path = "lib", package = "shifty-shacl" }
 clap = { version = "4.5.39", features = ["derive"] }
-graphviz-rust = "0.9.5"
+ureq = { version = "2", features = ["tls"] }
 regex = "1"
 log = "0.4"
 env_logger = "0.11"
-url = "2"
-sha2 = "0.10.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-bincode = { version = "2.0.1", features = ["serde"] }
-tempfile = "3"
-oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 
 [profile.release]
 debug = true

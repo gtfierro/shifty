@@ -1,0 +1,12 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+
+ex:RectangleShape a sh:NodeShape ;
+    sh:targetClass ex:Rectangle ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate ex:area ;
+        sh:object [ sh:path ex:width ] ;
+        sh:order 1 ;
+    ] .
