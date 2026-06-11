@@ -8,7 +8,7 @@ dynamic = ["version"]
 requires-python = ">=3.9"
 description = "Python bindings for the shifty SHACL engine"
 authors = [{ name = "Gabe Fierro", email = "gtfierro@mines.edu" }]
-license = { text = "BSD-3-Clause" }
+license = "BSD-3-Clause"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Topic :: Scientific/Engineering",
 ]
-readme = "../README.md"
+readme = "README.md"
 keywords = ["shacl", "rdf", "validation", "knowledge-graph", "semantic-web"]
 dependencies = []
 
