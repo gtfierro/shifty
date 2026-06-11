@@ -21,7 +21,7 @@
 .
 psm:AHUChilledWaterInlet
   a s223:InletConnectionPoint ;
-  s223:hasMedium s223:Water-ChilledWater ;
+#  s223:hasMedium s223:Water-ChilledWater ;
   rdfs:label "AHUChilled water inlet" ;
 .
 psm:AHUChilledWaterOutlet
