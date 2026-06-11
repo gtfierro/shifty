@@ -74,6 +74,10 @@ struct CompiledConstruct {
 pub(crate) struct SparqlViolation {
     pub value: Option<Term>,
     pub path: Option<Term>,
+    /// The `?message` solution binding (SHACL §5.2.1) — a per-result, human
+    /// authored explanation. `None` for `ASK` constraints and `SELECT` queries
+    /// that do not project `?message`.
+    pub message: Option<Term>,
 }
 
 impl SparqlExecutor {
@@ -294,6 +298,7 @@ impl SparqlExecutor {
                     vec![SparqlViolation {
                         value: None,
                         path: None,
+                        message: None,
                     }]
                 }
             }
@@ -302,6 +307,7 @@ impl SparqlExecutor {
                 .map(|b| SparqlViolation {
                     value: b.get("value").cloned(),
                     path: b.get("path").cloned(),
+                    message: b.get("message").cloned(),
                 })
                 .collect(),
         }
@@ -328,6 +334,7 @@ impl SparqlExecutor {
                     Ok(SparqlViolation {
                         value: solution.get("value").cloned(),
                         path: solution.get("path").cloned(),
+                        message: solution.get("message").cloned(),
                     })
                 })
                 .collect(),
@@ -335,6 +342,7 @@ impl SparqlExecutor {
                 vec![SparqlViolation {
                     value: None,
                     path: None,
+                    message: None,
                 }]
             } else {
                 Vec::new()

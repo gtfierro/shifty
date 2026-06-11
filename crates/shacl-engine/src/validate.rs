@@ -11,12 +11,12 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, pred, succ};
-use crate::sparql::SparqlExecutor;
+use crate::sparql::{SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
 use serde::{Deserialize, Serialize};
 use shacl_algebra::render::{path_to_string, shape_to_string};
-use shacl_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId};
+use shacl_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlConstraint};
 use shacl_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
@@ -464,15 +464,20 @@ fn explain(
         Shape::Sparql(constraint) => match sparql.constraint_violations(constraint, node) {
             Ok(violations) => violations
                 .into_iter()
-                .map(|violation| Reason {
-                    value: violation.value.unwrap_or_else(|| node.clone()),
-                    path: violation
-                        .path
-                        .map(|path| path.to_string())
-                        .or_else(|| path_ctx.map(str::to_string))
-                        .or_else(|| constraint.path.as_ref().map(path_to_string)),
-                    shape: id,
-                    message: "SPARQL constraint produced a violation".to_string(),
+                .map(|violation| {
+                    // Compute the message before the value/path fields are moved
+                    // out of `violation`.
+                    let message = sparql_violation_message(&violation, constraint);
+                    Reason {
+                        value: violation.value.unwrap_or_else(|| node.clone()),
+                        path: violation
+                            .path
+                            .map(|path| path.to_string())
+                            .or_else(|| path_ctx.map(str::to_string))
+                            .or_else(|| constraint.path.as_ref().map(path_to_string)),
+                        message,
+                        shape: id,
+                    }
                 })
                 .collect(),
             Err(error) => vec![Reason {
@@ -616,6 +621,40 @@ fn explain_count(
     }
 
     reasons
+}
+
+/// The message for a `sh:sparql` violation, by SHACL §5.2.1 precedence: the
+/// result's own `?message` binding, then the constraint's (or shape's)
+/// `sh:message`, then a constructed description naming the shape and value.
+fn sparql_violation_message(violation: &SparqlViolation, constraint: &SparqlConstraint) -> String {
+    if let Some(message) = &violation.message {
+        return term_text(message);
+    }
+    if !constraint.messages.is_empty() {
+        return constraint
+            .messages
+            .iter()
+            .map(term_text)
+            .collect::<Vec<_>>()
+            .join("; ");
+    }
+    let mut message = match &constraint.shape {
+        Some(shape) => format!("SPARQL constraint at {shape} not satisfied"),
+        None => "SPARQL constraint not satisfied".to_string(),
+    };
+    if let Some(value) = &violation.value {
+        message.push_str(&format!(" (value: {value})"));
+    }
+    message
+}
+
+/// A term's human-facing text: a literal's lexical value, otherwise its RDF
+/// rendering (`<iri>` / `_:id`).
+fn term_text(term: &Term) -> String {
+    match term {
+        Term::Literal(literal) => literal.value().to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn leaf(

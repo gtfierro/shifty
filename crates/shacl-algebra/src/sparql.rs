@@ -26,6 +26,10 @@ pub struct SparqlConstraint {
     /// The RDF node of the shape that declares this constraint, pre-bound to
     /// `$currentShape`. `None` when provenance is unavailable.
     pub shape: Option<Term>,
+    /// `sh:message` literals declared on the SPARQL constraint (falling back to
+    /// the owning shape). Used as the violation message when a `SELECT` result
+    /// does not bind its own `?message`. Empty when none is declared.
+    pub messages: Vec<Term>,
 }
 
 /// `sh:target` + `sh:select` — a SPARQL-based target.

@@ -238,3 +238,75 @@ fn construct_blank_nodes_are_rejected_to_preserve_termination() {
     assert!(outcome.inferred.is_empty());
     assert!(outcome.diagnostics.iter().any(|message| message.contains("blank nodes")));
 }
+
+/// All reason messages produced by the plan-path validator for `ttl`.
+fn reason_messages(ttl: &[u8]) -> Vec<String> {
+    let loaded = shacl_parse::load_turtle(ttl, None).expect("valid Turtle");
+    let parsed = shacl_parse::parse_turtle(ttl, None).expect("valid shapes");
+    assert!(parsed.diagnostics.is_empty(), "diags: {:?}", parsed.diagnostics);
+    let outcome = validate(&loaded.graph, &parsed.schema).expect("stratifiable");
+    assert!(!outcome.conforms);
+    outcome
+        .violations
+        .iter()
+        .flat_map(|v| v.reasons.iter().map(|r| r.message.clone()))
+        .collect()
+}
+
+#[test]
+fn sparql_violation_uses_message_binding() {
+    // A `?message` binding in the SELECT result is the violation message.
+    let ttl = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:AgeShape a sh:NodeShape ;
+            sh:targetNode ex:bob ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:select "SELECT $this ?value ?message WHERE { $this <http://ex/age> ?value . FILTER(?value < 0) BIND(CONCAT('age is negative: ', STR(?value)) AS ?message) }"
+            ] .
+        ex:bob <http://ex/age> -5 .
+    "#;
+    assert_eq!(reason_messages(ttl), vec!["age is negative: -5"]);
+}
+
+#[test]
+fn sparql_violation_falls_back_to_sh_message() {
+    // No `?message` binding → the constraint's `sh:message` is used.
+    let ttl = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:AgeShape a sh:NodeShape ;
+            sh:targetNode ex:bob ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "Age must not be negative" ;
+                sh:select "SELECT $this ?value WHERE { $this <http://ex/age> ?value . FILTER(?value < 0) }"
+            ] .
+        ex:bob <http://ex/age> -5 .
+    "#;
+    assert_eq!(reason_messages(ttl), vec!["Age must not be negative"]);
+}
+
+#[test]
+fn sparql_violation_default_names_shape() {
+    // Neither `?message` nor `sh:message` → a constructed message naming the shape.
+    let ttl = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:AgeShape a sh:NodeShape ;
+            sh:targetNode ex:bob ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:select "SELECT $this ?value WHERE { $this <http://ex/age> ?value . FILTER(?value < 0) }"
+            ] .
+        ex:bob <http://ex/age> -5 .
+    "#;
+    let messages = reason_messages(ttl);
+    assert_eq!(messages.len(), 1);
+    assert!(
+        messages[0].contains("SPARQL constraint at") && messages[0].contains("http://ex/AgeShape"),
+        "unexpected default message: {}",
+        messages[0]
+    );
+}

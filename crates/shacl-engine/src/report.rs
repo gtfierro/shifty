@@ -468,6 +468,9 @@ impl Reporter<'_> {
                 query,
                 path: parsed_path.clone(),
                 shape: Some(node_term_ref(shape)),
+                // The report path resolves messages itself (`self.messages`), so
+                // the constraint's own message slot is left empty here.
+                messages: Vec::new(),
             };
             let messages = self.messages(shape);
             match sparql.constraint_violations(&constraint, focus) {

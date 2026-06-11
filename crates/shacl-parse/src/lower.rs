@@ -176,11 +176,18 @@ impl Lowerer<'_> {
                     NamedOrBlankNode::NamedNode(n) => Term::NamedNode(n.clone()),
                     NamedOrBlankNode::BlankNode(b) => Term::BlankNode(b.clone()),
                 });
+                // `sh:message` on the SPARQL constraint takes precedence; absent
+                // that, fall back to the owning shape's `sh:message` (SHACL §5.2.1).
+                let mut messages: Vec<Term> = self.g.objects(&constraint_node, vocab::SH_MESSAGE);
+                if messages.is_empty() {
+                    messages = self.g.objects(s, vocab::SH_MESSAGE);
+                }
                 let constraint = SparqlConstraint {
                     kind,
                     query,
                     path: path.clone(),
                     shape,
+                    messages,
                 };
                 conjuncts.push(self.arena.insert(Shape::Sparql(constraint)));
             }
