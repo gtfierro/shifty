@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.x
+          python-version: "3.12"
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.x
+          python-version: "3.12"
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
@@ -167,7 +167,7 @@ jobs:
         run: echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}" >> $GITHUB_ENV
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.x
+          python-version: "3.12"
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
