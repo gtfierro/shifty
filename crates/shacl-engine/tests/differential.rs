@@ -3,9 +3,11 @@
 //! ## Role of this file
 //!
 //! **Stage 1 (this file):** Establishes:
-//! 1. `assert_same_outcome` — canonical comparison of two `ValidationOutcome`
-//!    values (normalised, order-independent). Stages 2–3 use this to prove the
-//!    frozen-dataset and native-executor paths agree with the Spareval oracle.
+//! 1. `assert_same_verdict` (conformance + violating focus set) and the stricter
+//!    `assert_same_outcome` (also reason text), order-independent. The verdict
+//!    form is for comparisons across `normalize` (which rewrites shapes); the
+//!    strict form is for stages 2–3 proving the frozen-dataset and
+//!    native-executor paths agree with the Spareval oracle over identical shapes.
 //! 2. The 223P/NIST baseline test — asserts the current validation result for
 //!    the NIST building model against the 223P shapes does not regress as later
 //!    stages land.
@@ -22,9 +24,19 @@ use std::path::Path;
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-/// Compare two `ValidationOutcome` values in a canonical, order-independent
-/// way. Panics with a diff if they disagree.
-pub fn assert_same_outcome(
+/// Assert two outcomes reach the same *verdict*: identical `conforms` flag and
+/// identical sets of violating focus nodes. This is the semantic invariant that
+/// `normalize`/`plan` must preserve.
+///
+/// It deliberately does NOT compare reason text. The algebra path's reasons are
+/// intentionally coarse (the RDF-driven report validator is the W3C-faithful
+/// reasons path — see `docs/BACKLOG.md`), and normalization legitimately changes
+/// their granularity: e.g. NNF-rewriting a `∀path.sh:class` qualifier
+/// (`∃≤0 π . ¬(∃≥1 subClassOf.{=C})`) drops the `Not(inner)` form that
+/// `explain_count` drills into, so the same violation is reported at the outer
+/// count level instead of the inner `sh:class` level. The conformance verdict is
+/// unchanged either way.
+pub fn assert_same_verdict(
     label: &str,
     left: &shacl_engine::ValidationOutcome,
     right: &shacl_engine::ValidationOutcome,
@@ -46,15 +58,34 @@ pub fn assert_same_outcome(
         .map(|v| v.focus.to_string())
         .collect();
     left_foci.sort();
+    left_foci.dedup();
     right_foci.sort();
+    right_foci.dedup();
 
     assert_eq!(
         left_foci, right_foci,
         "{label}: violation focus sets differ\n  left:  {left_foci:?}\n  right: {right_foci:?}",
     );
+}
 
-    // For each focus node, compare the multiset of (path, message) reason pairs.
-    for focus in &left_foci {
+/// Like [`assert_same_verdict`] but additionally requires identical per-focus
+/// `(path, message)` reason sets. Use this to compare two evaluators over the
+/// *same* shape representation (e.g. frozen-dataset vs Store, native vs
+/// Spareval — stages 2–3), where reason text must match exactly. Not suitable
+/// for comparing across `normalize`, which rewrites shapes (see
+/// [`assert_same_verdict`]).
+#[allow(dead_code)] // reserved for the stage 2/3 executor-backend differentials
+pub fn assert_same_outcome(
+    label: &str,
+    left: &shacl_engine::ValidationOutcome,
+    right: &shacl_engine::ValidationOutcome,
+) {
+    assert_same_verdict(label, left, right);
+
+    let mut foci: Vec<String> = left.violations.iter().map(|v| v.focus.to_string()).collect();
+    foci.sort();
+    foci.dedup();
+    for focus in &foci {
         let left_reasons = reason_set(left, focus);
         let right_reasons = reason_set(right, focus);
         assert_eq!(
@@ -157,7 +188,11 @@ fn reference_and_plan_agree_on_nist_bdg1() {
     )
     .expect("stratifiable");
 
-    assert_same_outcome("223P/NIST bdg1-1", &ref_outcome, &plan_outcome);
+    // Compare verdicts only: the reference uses the logical schema and the plan
+    // the NNF-normalized one, so the algebra path's (coarse) reason text can
+    // legitimately differ even though conformance and the violating focus set
+    // must match. See `assert_same_verdict`.
+    assert_same_verdict("223P/NIST bdg1-1", &ref_outcome, &plan_outcome);
 }
 
 // ── Stage 3: native executor ─────────────────────────────────────────────────
