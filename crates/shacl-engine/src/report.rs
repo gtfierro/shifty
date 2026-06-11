@@ -15,7 +15,7 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::SparqlExecutor;
-use crate::validate::{graph_union, ValidationGraphMode};
+use crate::validate::{ValidationGraphMode, apply_message_template, graph_union};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shacl_algebra::value_type::{Bound, ValueType};
@@ -184,6 +184,32 @@ pub fn report_to_graph(report: &ValidationReport) -> Graph {
         g.insert(&t(rn.into(), vocab::SH_SOURCE_SHAPE, r.source_shape.clone()));
     }
     g
+}
+
+/// Substitute `{$varName}` / `{?varName}` placeholders in `sh:message` literals.
+///
+/// `$this` is resolved from `focus`; all other names are looked up in
+/// `bindings` (keyed without the `$`/`?` sigil). Unresolved placeholders are
+/// left as-is. Only `sh:Literal` messages are processed; IRI/blank-node
+/// message terms pass through unchanged.
+fn substitute_messages(
+    messages: &[Term],
+    focus: &Term,
+    bindings: &HashMap<String, Term>,
+) -> Vec<Term> {
+    messages
+        .iter()
+        .map(|msg| {
+            let Term::Literal(lit) = msg else { return msg.clone() };
+            let text = lit.value();
+            let substituted = apply_message_template(text, focus, bindings);
+            if substituted == text {
+                msg.clone()
+            } else {
+                Term::Literal(Literal::new_simple_literal(&substituted))
+            }
+        })
+        .collect()
 }
 
 struct Reporter<'a> {
@@ -467,14 +493,21 @@ impl Reporter<'_> {
                 query,
                 path: parsed_path.clone(),
                 shape: Some(node_term_ref(shape)),
-                // The report path resolves messages itself (`self.messages`), so
-                // the constraint's own message slot is left empty here.
+                // The report path resolves messages itself, so the constraint's
+                // own message slot is left empty here.
                 messages: Vec::new(),
             };
-            let messages = self.messages(shape);
+            // Mirror lower.rs §179-184: constraint-node sh:message takes
+            // precedence; absent that, fall back to the owning shape's sh:message.
+            let raw_messages = {
+                let on_constraint = self.shapes.objects(&constraint_node, vocab::SH_MESSAGE);
+                if on_constraint.is_empty() { self.messages(shape) } else { on_constraint }
+            };
             match sparql.constraint_violations(&constraint, focus) {
                 Ok(violations) => {
                     for violation in violations {
+                        let messages =
+                            substitute_messages(&raw_messages, focus, &violation.bindings);
                         out.push(ValidationResult {
                             focus: focus.clone(),
                             path: violation.path.or_else(|| path_term.clone()),
@@ -482,7 +515,7 @@ impl Reporter<'_> {
                             component: vocab::SH_CC_SPARQL.into_owned(),
                             source_shape: node_term_ref(shape),
                             severity: severity.clone(),
-                            messages: messages.clone(),
+                            messages,
                         });
                     }
                 }
@@ -495,7 +528,7 @@ impl Reporter<'_> {
                     component: vocab::SH_CC_SPARQL.into_owned(),
                     source_shape: node_term_ref(shape),
                     severity: severity.clone(),
-                    messages: messages.clone(),
+                    messages: raw_messages,
                 }),
             }
         }
@@ -730,6 +763,15 @@ impl Reporter<'_> {
         value: Option<Term>,
         component: NamedNodeRef<'static>,
     ) {
+        let mut bindings = HashMap::new();
+        if let Some(v) = &value {
+            bindings.insert("value".to_string(), v.clone());
+        }
+        if let Some(p) = &path {
+            bindings.insert("path".to_string(), p.clone());
+        }
+        let raw = self.messages(shape);
+        let messages = substitute_messages(&raw, focus, &bindings);
         out.push(ValidationResult {
             focus: focus.clone(),
             path,
@@ -737,7 +779,7 @@ impl Reporter<'_> {
             component: component.into_owned(),
             source_shape: node_term_ref(shape),
             severity: self.severity(shape),
-            messages: self.messages(shape),
+            messages,
         });
     }
 

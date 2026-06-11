@@ -5,6 +5,7 @@ members = [
     "crates/shacl-opt",
     "crates/shacl-engine",
     "crates/shacl-cli",
+    "python",
 ]
 resolver = "2"
 

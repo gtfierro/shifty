@@ -14,13 +14,15 @@ use crate::path::{PathBackend, node_of, pred, succ};
 use crate::sparql::{SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shacl_algebra::render::{path_to_string, shape_to_string};
 use shacl_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlConstraint};
 use shacl_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
+use std::sync::OnceLock;
 
 /// A single failed atomic constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +35,10 @@ pub struct Reason {
     /// The failing constraint's arena slot (cross-references the algebra dump).
     pub shape: ShapeId,
     pub message: String,
+    /// Non-empty when this reason is an `sh:or` group: one entry per OR branch
+    /// that failed, so the caller can tell "fix any one of these."
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sub_reasons: Vec<Reason>,
 }
 
 /// One focus node that failed its statement's shape, with the reasons why.
@@ -467,7 +473,7 @@ fn explain(
                 .map(|violation| {
                     // Compute the message before the value/path fields are moved
                     // out of `violation`.
-                    let message = sparql_violation_message(&violation, constraint);
+                    let message = sparql_violation_message(&violation, constraint, node);
                     Reason {
                         value: violation.value.unwrap_or_else(|| node.clone()),
                         path: violation
@@ -477,6 +483,7 @@ fn explain(
                             .or_else(|| constraint.path.as_ref().map(path_to_string)),
                         message,
                         shape: id,
+                        sub_reasons: Vec::new(),
                     }
                 })
                 .collect(),
@@ -485,6 +492,7 @@ fn explain(
                 path: path_ctx.map(str::to_string),
                 shape: id,
                 message: format!("SPARQL constraint evaluation failed: {error}"),
+                sub_reasons: Vec::new(),
             }],
         },
         Shape::TestConst(_)
@@ -515,6 +523,7 @@ fn explain(
                     path: path_ctx.map(str::to_string),
                     shape: id,
                     message: format!("closed: unexpected predicate(s) {}", preds.join(", ")),
+                    sub_reasons: Vec::new(),
                 }]
             }
         }
@@ -525,6 +534,7 @@ fn explain(
                     path: path_ctx.map(str::to_string),
                     shape: id,
                     message: "negated shape unexpectedly held".to_string(),
+                    sub_reasons: Vec::new(),
                 }]
             } else {
                 Vec::new()
@@ -535,7 +545,7 @@ fn explain(
             .flat_map(|c| explain(g, arena, node, *c, path_ctx, stack, sparql))
             .collect(),
         Shape::Or(cs) => {
-            let mut acc = Vec::new();
+            let mut sub_reasons = Vec::new();
             let mut satisfied = false;
             for c in cs {
                 let sub = explain(g, arena, node, *c, path_ctx, stack, sparql);
@@ -543,7 +553,7 @@ fn explain(
                     satisfied = true;
                     break;
                 }
-                acc.extend(sub);
+                sub_reasons.extend(sub);
             }
             if satisfied {
                 Vec::new()
@@ -552,7 +562,8 @@ fn explain(
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
                     shape: id,
-                    message: "no alternative satisfied".to_string(),
+                    message: format!("none of {} alternative(s) satisfied", cs.len()),
+                    sub_reasons,
                 }]
             }
         }
@@ -605,6 +616,7 @@ fn explain_count(
                 path: Some(path_str.clone()),
                 shape: id,
                 message: format!("at most {mx} value(s) may match along {path_str}, found {n}"),
+                sub_reasons: Vec::new(),
             }),
         }
     }
@@ -617,6 +629,7 @@ fn explain_count(
             path: Some(path_str.clone()),
             shape: id,
             message: format!("at least {mn} value(s) required along {path_str}, found {n}"),
+            sub_reasons: Vec::new(),
         });
     }
 
@@ -625,8 +638,13 @@ fn explain_count(
 
 /// The message for a `sh:sparql` violation, by SHACL §5.2.1 precedence: the
 /// result's own `?message` binding, then the constraint's (or shape's)
-/// `sh:message`, then a constructed description naming the shape and value.
-fn sparql_violation_message(violation: &SparqlViolation, constraint: &SparqlConstraint) -> String {
+/// `sh:message` (with `{$this}`/`{?var}` substitution), then a constructed
+/// description naming the shape and value.
+fn sparql_violation_message(
+    violation: &SparqlViolation,
+    constraint: &SparqlConstraint,
+    node: &Term,
+) -> String {
     if let Some(message) = &violation.message {
         return term_text(message);
     }
@@ -634,7 +652,7 @@ fn sparql_violation_message(violation: &SparqlViolation, constraint: &SparqlCons
         return constraint
             .messages
             .iter()
-            .map(term_text)
+            .map(|m| apply_message_template(&term_text(m), node, &violation.bindings))
             .collect::<Vec<_>>()
             .join("; ");
     }
@@ -646,6 +664,33 @@ fn sparql_violation_message(violation: &SparqlViolation, constraint: &SparqlCons
         message.push_str(&format!(" (value: {value})"));
     }
     message
+}
+
+/// Substitute `{$varName}` / `{?varName}` placeholders in a message template.
+///
+/// `$this` resolves to `focus`; all other names are looked up in `bindings`
+/// (keyed without the `$`/`?` sigil). Unresolved placeholders are left as-is.
+pub(crate) fn apply_message_template(
+    template: &str,
+    focus: &Term,
+    bindings: &HashMap<String, Term>,
+) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"\{(\$[A-Za-z_]\w*|\?[A-Za-z_]\w*)\}").expect("static regex")
+    });
+    re.replace_all(template, |caps: &regex::Captures| {
+        let placeholder = &caps[1];
+        let name = &placeholder[1..]; // strip leading `$` or `?`
+        let term = if name == "this" { Some(focus) } else { bindings.get(name) };
+        term.map(|t| match t {
+            Term::NamedNode(n) => format!("<{}>", n.as_str()),
+            Term::BlankNode(b) => format!("_:{}", b.as_str()),
+            Term::Literal(l) => l.value().to_string(),
+        })
+        .unwrap_or_else(|| placeholder.to_string())
+    })
+    .to_string()
 }
 
 /// A term's human-facing text: a literal's lexical value, otherwise its RDF
@@ -672,6 +717,7 @@ fn leaf(
             path: path_ctx.map(str::to_string),
             shape: id,
             message,
+            sub_reasons: Vec::new(),
         }]
     }
 }

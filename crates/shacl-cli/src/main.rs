@@ -234,6 +234,19 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn render_reason(r: &shacl_engine::Reason, indent: usize) -> Vec<String> {
+    let pad = " ".repeat(indent);
+    let header = match &r.path {
+        Some(p) => format!("{pad}- ({p}) {} → {}", r.value, r.message),
+        None => format!("{pad}- {}", r.message),
+    };
+    let mut lines = vec![header];
+    for sub in &r.sub_reasons {
+        lines.extend(render_reason(sub, indent + 4));
+    }
+    lines
+}
+
 fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     if args.profile {
         shacl_engine::profile::enable();
@@ -342,17 +355,16 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
                         v.focus,
                         shacl_algebra::render::selector_to_string(&st.selector)
                     );
-                    let mut reasons: Vec<String> = v
+                    let mut groups: Vec<Vec<String>> = v
                         .reasons
                         .iter()
-                        .map(|r| match &r.path {
-                            Some(p) => format!("      - ({p}) {} → {}", r.value, r.message),
-                            None => format!("      - {}", r.message),
-                        })
+                        .map(|r| render_reason(r, 6))
                         .collect();
-                    reasons.sort();
-                    for line in reasons {
-                        println!("{line}");
+                    groups.sort_by(|a, b| a[0].cmp(&b[0]));
+                    for group in groups {
+                        for line in group {
+                            println!("{line}");
+                        }
                     }
                 }
             }

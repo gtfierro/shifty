@@ -78,6 +78,9 @@ pub(crate) struct SparqlViolation {
     /// authored explanation. `None` for `ASK` constraints and `SELECT` queries
     /// that do not project `?message`.
     pub message: Option<Term>,
+    /// All projected solution bindings, keyed by variable name (without `?`).
+    /// Used to substitute `{?varName}` placeholders in `sh:message` templates.
+    pub bindings: HashMap<String, Term>,
 }
 
 impl SparqlExecutor {
@@ -299,6 +302,7 @@ impl SparqlExecutor {
                         value: None,
                         path: None,
                         message: None,
+                        bindings: HashMap::new(),
                     }]
                 }
             }
@@ -308,6 +312,7 @@ impl SparqlExecutor {
                     value: b.get("value").cloned(),
                     path: b.get("path").cloned(),
                     message: b.get("message").cloned(),
+                    bindings: b.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
                 })
                 .collect(),
         }
@@ -328,21 +333,33 @@ impl SparqlExecutor {
             prepared.on_store(&self.store).execute().map_err(err)?
         };
         match query_result {
-            QueryResults::Solutions(solutions) => solutions
-                .map(|solution| {
-                    let solution = solution.map_err(err)?;
-                    Ok(SparqlViolation {
-                        value: solution.get("value").cloned(),
-                        path: solution.get("path").cloned(),
-                        message: solution.get("message").cloned(),
+            QueryResults::Solutions(solutions) => {
+                let vars: Vec<String> =
+                    solutions.variables().iter().map(|v| v.as_str().to_string()).collect();
+                solutions
+                    .map(|solution| {
+                        let solution = solution.map_err(err)?;
+                        let bindings = vars
+                            .iter()
+                            .filter_map(|name| {
+                                solution.get(name.as_str()).map(|t| (name.clone(), t.clone()))
+                            })
+                            .collect();
+                        Ok(SparqlViolation {
+                            value: solution.get("value").cloned(),
+                            path: solution.get("path").cloned(),
+                            message: solution.get("message").cloned(),
+                            bindings,
+                        })
                     })
-                })
-                .collect(),
+                    .collect()
+            }
             QueryResults::Boolean(violates) => Ok(if violates {
                 vec![SparqlViolation {
                     value: None,
                     path: None,
                     message: None,
+                    bindings: HashMap::new(),
                 }]
             } else {
                 Vec::new()

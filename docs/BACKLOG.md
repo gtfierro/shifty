@@ -119,12 +119,24 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 - **[do]** **Data-aware statistics**: predicate counts → real selectivity
   ordering (cost is a static proxy today).
 - **[do]** Memoize / share shape evaluation across focus nodes within a run.
-- **[do]** Implement the staged native SPARQL design in
-  [`05-sparql-execution.md`](05-sparql-execution.md): per-query instrumentation
-  and capability analysis; immutable `QueryableDataset` indexes; native BGP
-  execution with batched `$this`; indexed paths and correlated anti-joins; then
-  data-aware join planning. Unsupported whole queries continue through
-  Oxigraph/Spareval.
+- **[done]** Staged native SPARQL design, stages 1–4
+  ([`05-sparql-execution.md`](05-sparql-execution.md)):
+  capability analysis (`sparql_native/capability.rs`), per-query profiling
+  (`profile.rs`), path demand extraction (`sparql_native/demand.rs`),
+  `FrozenIndexedDataset` + `QueryableDataset` impl (`frozen.rs`), native BGP
+  executor with batched `$this`, safe-boolean `ExprPlan`, property paths in all
+  4 binding modes, compiled `ReachStep` traversal, correlated
+  `EXISTS`/`NOT EXISTS`, and debug-build differential testing.
+  Unsupported queries fall back to Spareval over the same frozen dataset.
+- **[do]** Native SPARQL stage 5 — data-aware planning: `DatasetStatistics`
+  (`predicate_cardinality`) is collected in `frozen.rs` but never consulted;
+  joins are left-deep with no selectivity ordering; `PathDemand` structs are
+  extracted but have no consumer; no Memoized/Materialized/SccClosure path
+  index strategies implemented (all paths use `Traverse`).
+- **[todo]** Native SPARQL stage 6 — broaden coverage: OPTIONAL, MINUS,
+  aggregates, arithmetic/comparison expressions, `IN`, `ORDER BY`/`LIMIT`,
+  negated property sets. Deferred until stage 5 lands and measured demand
+  drives priorities.
 - **[todo]** Incremental / focus-delta scheduling.
 
 ## Layer 7 (not started)
