@@ -1,0 +1,47 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pyshifty"
+dynamic = ["version"]
+requires-python = ">=3.9"
+description = "Python bindings for the shifty SHACL engine"
+authors = [{ name = "Gabe Fierro", email = "gtfierro@mines.edu" }]
+license = { text = "BSD-3-Clause" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering",
+]
+keywords = ["shacl", "rdf", "validation", "knowledge-graph", "semantic-web"]
+dependencies = []
+
+[project.optional-dependencies]
+rdflib = ["rdflib>=6.0"]
+
+[project.urls]
+Repository = "https://github.com/gtfierro/shifty"
+Homepage = "https://github.com/gtfierro/shifty"
+Documentation = "https://github.com/gtfierro/shifty#readme"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "shifty._shifty"
+python-source = "."
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "rdflib>=6.0",
+    "maturin>=1.7",
+]
