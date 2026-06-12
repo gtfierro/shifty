@@ -243,7 +243,10 @@ impl Builder {
     }
 
     fn focus_var(&self) -> VarId {
-        *self.var_ids.get(FOCUS_VAR).expect("focus var registered first")
+        *self
+            .var_ids
+            .get(FOCUS_VAR)
+            .expect("focus var registered first")
     }
 }
 
@@ -443,9 +446,7 @@ fn estimate_scan_cost(scan: &TripleScan, bound: &HashSet<VarId>, stats: &PlanSta
             // SP range: predicate_card / distinct_subjects per predicate group
             pred_card(&scan.predicate, stats).unwrap_or(total / dp) / ds + 1
         }
-        (false, true, true) => {
-            pred_card(&scan.predicate, stats).unwrap_or(total / dp) / dobj + 1
-        }
+        (false, true, true) => pred_card(&scan.predicate, stats).unwrap_or(total / dp) / dobj + 1,
         (false, true, false) => pred_card(&scan.predicate, stats).unwrap_or(total / dp),
         (true, false, false) => total / ds,
         (false, false, true) => total / dobj,
@@ -782,9 +783,7 @@ mod tests {
         // rare-predicate-scan is second. With stats that give <rare> cardinality
         // 1 (vs. the first scan which has an unbound predicate, cost = total),
         // the planner should move the rare scan first.
-        let q = parse(
-            "SELECT ?x WHERE { ?x ?y ?z . ?this <http://ex/rare> ?x }",
-        );
+        let q = parse("SELECT ?x WHERE { ?x ?y ?z . ?this <http://ex/rare> ?x }");
         let rare = Term::NamedNode(NamedNode::new_unchecked("http://ex/rare"));
         let mut pcard = HashMap::new();
         pcard.insert(rare.clone(), 1u64);

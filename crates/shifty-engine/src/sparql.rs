@@ -428,8 +428,7 @@ impl SparqlExecutor {
                 .filter(|f| matches!(f, Term::BlankNode(_)))
                 .collect();
             if !blank_foci.is_empty() {
-                let foci_set: HashSet<Term> =
-                    blank_foci.iter().map(|&f| f.clone()).collect();
+                let foci_set: HashSet<Term> = blank_foci.iter().map(|&f| f.clone()).collect();
                 let store = self.store()?;
                 let raw_triples: Vec<Triple> = match SparqlEvaluator::new()
                     .for_query(self.parse(query)?)
@@ -585,7 +584,6 @@ fn triple_has_blank_node(triple: &TriplePattern) -> bool {
     matches!(triple.subject, TermPattern::BlankNode(_))
         || matches!(triple.object, TermPattern::BlankNode(_))
 }
-
 
 fn instantiate_template(
     template: &[TriplePattern],
