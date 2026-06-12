@@ -576,6 +576,7 @@ fn load_validation_inputs(
 
 /// Run algebra-path validation. Returns an `AlgebraResult` with structured
 /// `Violation`/`Reason` objects representing the algebraic failure AST.
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (
     data=None,
@@ -631,6 +632,7 @@ pub fn _validate_algebra(
 /// Run W3C-report-path validation. Returns a `W3cResult` whose `report_turtle`
 /// is a full `sh:ValidationReport` Turtle document (same as pyshacl's second
 /// return value) and `results_text` is a human-readable summary.
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (
     data=None,
@@ -678,6 +680,7 @@ pub fn _validate_w3c(
 
 /// Run SHACL-AF forward-chaining rules to a fixed point. Returns an
 /// `InferResult` with the full graph (as N-Triples) and inferred triple count.
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (
     data=None,

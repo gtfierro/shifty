@@ -568,18 +568,6 @@ impl SparqlExecutor {
     }
 }
 
-#[cfg(test)]
-mod storage_tests {
-    use super::*;
-
-    #[test]
-    fn validation_executor_does_not_allocate_mutable_store() {
-        let executor =
-            SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&Graph::new()), false);
-        assert!(!executor.has_store());
-    }
-}
-
 fn triple_has_blank_node(triple: &TriplePattern) -> bool {
     matches!(triple.subject, TermPattern::BlankNode(_))
         || matches!(triple.object, TermPattern::BlankNode(_))
@@ -1097,4 +1085,16 @@ fn assert_violations_match(
         native, reference,
         "native vs Spareval disagreement for focus {focus}\n  query: {query}\n  native:   {native:?}\n  spareval: {reference:?}",
     );
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn validation_executor_does_not_allocate_mutable_store() {
+        let executor =
+            SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&Graph::new()), false);
+        assert!(!executor.has_store());
+    }
 }
