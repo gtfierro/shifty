@@ -16,6 +16,7 @@ import textwrap
 
 import pytest
 import rdflib
+from rdflib.compare import isomorphic
 
 import shifty
 from shifty import AlgebraResult, InferResult, validate, validate_algebra
@@ -106,6 +107,14 @@ class TestValidatePyshacl:
         combined = SHAPES + "\n" + CONFORMS_DATA
         conforms, _, _ = validate(combined.encode())
         assert conforms is True
+
+    def test_embedded_graph_matches_explicit_self_validation(self):
+        combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
+        embedded = validate(combined, infer=False)
+        explicit = validate(combined, combined, infer=False)
+
+        assert embedded[0] == explicit[0]
+        assert isomorphic(embedded[1], explicit[1])
 
     def test_accepts_file_path(self, tmp_path):
         data_file = tmp_path / "data.ttl"

@@ -177,6 +177,7 @@ graphs:
 
 ```python
 result = shifty.validate_algebra("shapes.ttl", infer=False)
+conforms, report_graph, results_text = shifty.validate("shapes.ttl", infer=False)
 ```
 
 `pathlib.Path` inputs are parsed directly in Rust. `rdflib.Graph` inputs are

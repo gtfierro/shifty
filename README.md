@@ -181,6 +181,7 @@ graphs:
 
 ```python
 result = shifty.validate_algebra("shapes.ttl", infer=False)
+conforms, report_graph, results_text = shifty.validate("shapes.ttl", infer=False)
 ```
 
 For repeated validation, prepare the shapes graph once:

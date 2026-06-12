@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
     ValidationGraphMode, ValidationReport, report_to_graph, validate_plan,
-    validate_plan_graphs_with_mode, validate_report_graphs_with_mode,
+    validate_plan_graphs_with_mode, validate_report, validate_report_graphs_with_mode,
 };
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -532,6 +532,26 @@ fn validate_w3c_loaded(
     Ok(build_w3c_result(&report, &report_graph))
 }
 
+fn validate_w3c_embedded(
+    loaded: &shifty_parse::Loaded,
+    schema: &shifty_algebra::Schema,
+    run_infer: bool,
+) -> Result<W3cResult, String> {
+    let inferred = if run_infer && !schema.rules.is_empty() {
+        Some(
+            shifty_engine::infer(&loaded.graph, schema)
+                .map_err(|e| format!("non-stratifiable schema: {e}"))?
+                .graph,
+        )
+    } else {
+        None
+    };
+    let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
+    let report = validate_report(loaded, eval_data);
+    let report_graph = report_to_graph(&report);
+    Ok(build_w3c_result(&report, &report_graph))
+}
+
 fn load_validation_inputs(
     data: InputSpec,
     shapes: Option<InputSpec>,
@@ -648,8 +668,12 @@ pub fn _validate_w3c(
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
-        let shapes_ref = shapes_loaded.as_ref().unwrap_or(&data_loaded);
-        validate_w3c_loaded(&data_loaded, shapes_ref, &schema, mode, run_infer)
+        match shapes_loaded.as_ref() {
+            Some(shapes_loaded) => {
+                validate_w3c_loaded(&data_loaded, shapes_loaded, &schema, mode, run_infer)
+            }
+            None => validate_w3c_embedded(&data_loaded, &schema, run_infer),
+        }
     })
     .map_err(py_value_error)
 }
