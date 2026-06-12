@@ -14,7 +14,7 @@ use oxrdf::{
     Triple, Variable,
 };
 use shifty_algebra::{Path, SparqlConstraint};
-use shifty_opt::{NativeQueryPlan, QueryForm, lower_query};
+use shifty_opt::{NativeQueryPlan, QueryForm, lower_query_with_stats};
 use spargebra::algebra::{
     AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
 };
@@ -276,7 +276,7 @@ impl SparqlExecutor {
 
         // Native execution requires the frozen dataset as its storage backend.
         let plan = match &self.frozen {
-            Some(_) => lower_query(&query).ok(),
+            Some(frozen) => lower_query_with_stats(&query, Some(&frozen.plan_stats())).ok(),
             None => None,
         };
         let compiled = Rc::new(Compiled { plan, query });
@@ -412,6 +412,10 @@ impl SparqlExecutor {
             }
             profile::ExecutorKind::Native
         } else {
+            // Fallback: run per-focus with ?this substituted directly. Direct
+            // substitution propagates the binding into nested GRAPH/OPTIONAL
+            // patterns before evaluation, allowing Oxigraph to use index
+            // lookups instead of a full graph scan.
             for focus in foci {
                 triples.extend(self.construct_one(query, focus)?);
             }
@@ -471,11 +475,15 @@ impl SparqlExecutor {
         };
 
         let plan = if dataset.is_none() && !template.iter().any(triple_has_blank_node) {
-            lower_query(&Query::Select {
-                dataset: None,
-                pattern,
-                base_iri,
-            })
+            let stats = self.frozen.as_ref().map(|f| f.plan_stats());
+            lower_query_with_stats(
+                &Query::Select {
+                    dataset: None,
+                    pattern,
+                    base_iri,
+                },
+                stats.as_ref(),
+            )
             .ok()
         } else {
             None
@@ -550,6 +558,7 @@ fn triple_has_blank_node(triple: &TriplePattern) -> bool {
     matches!(triple.subject, TermPattern::BlankNode(_))
         || matches!(triple.object, TermPattern::BlankNode(_))
 }
+
 
 fn instantiate_template(
     template: &[TriplePattern],
