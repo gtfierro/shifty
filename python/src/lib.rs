@@ -1,11 +1,11 @@
 use oxrdf::{Graph, Term};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::sync::OnceLock;
 use shifty_engine::{
     ValidationGraphMode, ValidationReport, report_to_graph, validate_plan_graphs_with_mode,
     validate_report_graphs_with_mode,
 };
+use std::sync::OnceLock;
 
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
