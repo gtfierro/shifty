@@ -3,8 +3,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
-    ValidationGraphMode, ValidationReport, report_to_graph, validate_plan_graphs_with_mode,
-    validate_report_graphs_with_mode,
+    ValidationGraphMode, ValidationReport, report_to_graph, validate_plan,
+    validate_plan_graphs_with_mode, validate_report_graphs_with_mode,
 };
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -497,6 +497,27 @@ fn validate_algebra_loaded(
     Ok(raw_algebra_result(outcome, schema))
 }
 
+fn validate_algebra_embedded(
+    loaded: &shifty_parse::Loaded,
+    schema: &shifty_algebra::Schema,
+    plan: &shifty_opt::PhysicalPlan,
+    run_infer: bool,
+) -> Result<RawAlgebraResult, String> {
+    let inferred = if run_infer && !schema.rules.is_empty() {
+        Some(
+            shifty_engine::infer(&loaded.graph, schema)
+                .map_err(|e| format!("non-stratifiable schema: {e}"))?
+                .graph,
+        )
+    } else {
+        None
+    };
+    let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
+    let outcome =
+        validate_plan(eval_data, plan).map_err(|e| format!("non-stratifiable schema: {e}"))?;
+    Ok(raw_algebra_result(outcome, schema))
+}
+
 fn validate_w3c_loaded(
     data_loaded: &shifty_parse::Loaded,
     shapes_loaded: &shifty_parse::Loaded,
@@ -573,8 +594,17 @@ pub fn _validate_algebra(
         .allow_threads(move || {
             let (data_loaded, shapes_loaded, schema, plan) =
                 load_validation_inputs(data, shapes, base.as_deref())?;
-            let shapes_ref = shapes_loaded.as_ref().unwrap_or(&data_loaded);
-            validate_algebra_loaded(&data_loaded, shapes_ref, &schema, &plan, mode, run_infer)
+            match shapes_loaded.as_ref() {
+                Some(shapes_loaded) => validate_algebra_loaded(
+                    &data_loaded,
+                    shapes_loaded,
+                    &schema,
+                    &plan,
+                    mode,
+                    run_infer,
+                ),
+                None => validate_algebra_embedded(&data_loaded, &schema, &plan, run_infer),
+            }
         })
         .map_err(py_value_error)?;
     raw.into_python(py)

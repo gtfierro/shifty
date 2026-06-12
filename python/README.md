@@ -171,6 +171,14 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 
 Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted, shapes are expected to be embedded in the data graph.
 
+To validate a shapes graph against itself, pass it once. The embedded path
+parses and plans one graph without constructing separate data and shapes
+graphs:
+
+```python
+result = shifty.validate_algebra("shapes.ttl", infer=False)
+```
+
 `pathlib.Path` inputs are parsed directly in Rust. `rdflib.Graph` inputs are
 transferred as N-Triples.
 
@@ -202,6 +210,9 @@ for v in result.violations:
         print(r.path)         # path that was checked, if applicable
         print(r.value)        # the offending value node
 ```
+
+Set `infer=False` when validation should not first run embedded SHACL-AF rules
+to a fixed point.
 
 ### Infer
 

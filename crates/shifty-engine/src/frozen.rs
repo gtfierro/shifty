@@ -7,8 +7,11 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::rc::Rc;
 
+use crate::path_plan::ReachStep;
 use oxrdf::{Graph, NamedNode, Term};
+use shifty_opt::ClosureKind;
 use spareval::{InternalQuad, QueryableDataset};
 
 /// IRI under which the shapes graph is loaded into the named-graph slot.
@@ -19,7 +22,7 @@ pub(crate) const SHAPES_GRAPH_IRI: &str = "urn:x-shacl:shapes-graph";
 pub type TermId = u32;
 
 /// Which graph a scan reads from.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum GraphSel {
     /// The default (data) graph.
     Default,
@@ -207,7 +210,24 @@ pub struct FrozenIndexedDataset {
     /// Named graphs keyed by the graph-IRI's TermId. Each value is a
     /// simple SPO-sorted vec (named graphs are typically small).
     named_graphs: HashMap<TermId, Vec<[TermId; 3]>>,
+    reach_cache: RefCell<ReachCache>,
     pub stats: DatasetStatistics,
+}
+
+const MAX_CACHED_REACH_IDS: usize = 1_000_000;
+
+#[derive(PartialEq, Eq, Hash)]
+struct ReachCacheKey {
+    node: TermId,
+    step: ReachStep,
+    kind: ClosureKind,
+    graph: GraphSel,
+}
+
+#[derive(Default)]
+struct ReachCache {
+    entries: HashMap<ReachCacheKey, Rc<HashSet<TermId>>>,
+    cached_ids: usize,
 }
 
 impl FrozenIndexedDataset {
@@ -221,6 +241,7 @@ impl FrozenIndexedDataset {
             terms,
             default_graph,
             named_graphs: HashMap::new(),
+            reach_cache: RefCell::new(ReachCache::default()),
             stats,
         }
     }
@@ -237,6 +258,7 @@ impl FrozenIndexedDataset {
             terms,
             default_graph,
             named_graphs: HashMap::new(),
+            reach_cache: RefCell::new(ReachCache::default()),
             stats,
         }
     }
@@ -273,6 +295,50 @@ impl FrozenIndexedDataset {
             self.terms.intern(Term::NamedNode(triple.predicate.clone())),
             self.terms.intern(triple.object.clone()),
         ]
+    }
+
+    pub(crate) fn cached_reach(
+        &self,
+        node: TermId,
+        step: &ReachStep,
+        kind: ClosureKind,
+        graph: GraphSel,
+    ) -> Option<Rc<HashSet<TermId>>> {
+        self.reach_cache
+            .borrow()
+            .entries
+            .get(&ReachCacheKey {
+                node,
+                step: step.clone(),
+                kind,
+                graph,
+            })
+            .cloned()
+    }
+
+    pub(crate) fn cache_reach(
+        &self,
+        node: TermId,
+        step: &ReachStep,
+        kind: ClosureKind,
+        graph: GraphSel,
+        result: Rc<HashSet<TermId>>,
+    ) {
+        let mut cache = self.reach_cache.borrow_mut();
+        if cache.cached_ids.saturating_add(result.len()) > MAX_CACHED_REACH_IDS {
+            return;
+        }
+        let key = ReachCacheKey {
+            node,
+            step: step.clone(),
+            kind,
+            graph,
+        };
+        if cache.entries.contains_key(&key) {
+            return;
+        }
+        cache.cached_ids += result.len();
+        cache.entries.insert(key, result);
     }
 
     /// Scan triples in the selected graph matching an optional S/P/O pattern,
@@ -338,6 +404,7 @@ impl FrozenIndexedDataset {
         encoded.retain(|&[s, p, o]| !self.default_graph.contains(s, p, o));
         self.stats.extend(&encoded);
         self.default_graph.extend(encoded);
+        *self.reach_cache.borrow_mut() = ReachCache::default();
     }
 
     /// Build with `context` in the default graph and `shapes` in the named
@@ -362,6 +429,7 @@ impl FrozenIndexedDataset {
             terms,
             default_graph,
             named_graphs,
+            reach_cache: RefCell::new(ReachCache::default()),
             stats,
         }
     }
@@ -387,6 +455,7 @@ impl FrozenIndexedDataset {
             terms,
             default_graph,
             named_graphs,
+            reach_cache: RefCell::new(ReachCache::default()),
             stats,
         }
     }

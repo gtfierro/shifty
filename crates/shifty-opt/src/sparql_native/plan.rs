@@ -8,19 +8,20 @@
 //! (`docs/05-sparql-execution.md §46`, §263): a query is never half-evaluated by
 //! both engines.
 //!
-//! ## Subset (stage 3)
+//! ## Native subset
 //!
 //! - `SELECT` / `ASK`;
 //! - basic graph patterns and fixed `GRAPH <iri> {…}` blocks;
 //! - `JOIN`, `UNION`, `PROJECT`, `DISTINCT`;
 //! - `FILTER` over the provably-safe boolean subset (`BOUND`, `&&`, `||`, `!`,
-//!   `sameTerm`) and `BIND` of a variable/constant.
+//!   `sameTerm`, safe equality, `STR`, `STRSTARTS`);
+//! - property paths and correlated `EXISTS` / `NOT EXISTS`;
+//! - `BIND` of supported expressions.
 //!
-//! Property paths, `EXISTS`, ordered/value comparisons (`=`, `<`, `IN`),
-//! arithmetic, function calls, aggregates, `OPTIONAL`, `MINUS`, `VALUES`,
-//! `ORDER BY`, `LIMIT`, and variable graph names all fall back. These are added
-//! in later stages with their exact Spareval semantics — stage 3 only lowers
-//! constructs it can evaluate identically to the oracle.
+//! Ordered comparisons, `IN`, arithmetic, most function calls, aggregates,
+//! `OPTIONAL`, `MINUS`, `VALUES`, `ORDER BY`, `LIMIT`, and variable graph names
+//! all fall back. New constructs are lowered only when they can be evaluated
+//! identically to the Spareval oracle.
 //!
 //! ## Execution model
 //!
@@ -35,7 +36,7 @@
 use super::property_path_to_algebra;
 use shifty_algebra::Path;
 use spargebra::Query;
-use spargebra::algebra::{Expression, GraphPattern, PropertyPathExpression};
+use spargebra::algebra::{Expression, Function, GraphPattern, PropertyPathExpression};
 use spargebra::term::{NamedNode, NamedNodePattern, Term, TermPattern, TriplePattern};
 use std::collections::HashMap;
 
@@ -73,7 +74,7 @@ pub struct TripleScan {
 /// SPARQL operators use *distinct* (set) semantics, unlike the translatable
 /// connectives (sequence, alternative, inverse, predicate) which are lowered to
 /// `Scan`/`Join`/`Union` and keep multiset semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClosureKind {
     /// `p*` — reflexive-transitive closure (includes the start node).
     Star,
@@ -110,6 +111,10 @@ pub enum ExprPlan {
     And(Box<ExprPlan>, Box<ExprPlan>),
     Or(Box<ExprPlan>, Box<ExprPlan>),
     SameTerm(Box<ExprPlan>, Box<ExprPlan>),
+    /// SPARQL `STR`, producing the lexical form of an IRI or literal.
+    Str(Box<ExprPlan>),
+    /// SPARQL `STRSTARTS` over argument-compatible strings.
+    StrStarts(Box<ExprPlan>, Box<ExprPlan>),
     /// SPARQL value equality (`=`). Uses term-id identity as the fast path.
     /// Returns `None` (type error) for cross-type numeric comparisons rather
     /// than implementing full numeric promotion — those queries fall through
@@ -489,7 +494,14 @@ fn lower_expr(b: &mut Builder, expr: &Expression, graph: &GraphScan) -> Result<E
         | Expression::UnaryMinus(_) => Err("arithmetic".into()),
         Expression::If(..) => Err("IF".into()),
         Expression::Coalesce(_) => Err("COALESCE".into()),
-        Expression::FunctionCall(..) => Err("function call".into()),
+        Expression::FunctionCall(function, args) => match (function, args.as_slice()) {
+            (Function::Str, [arg]) => Ok(ExprPlan::Str(Box::new(lower_expr(b, arg, graph)?))),
+            (Function::StrStarts, [text, prefix]) => Ok(ExprPlan::StrStarts(
+                Box::new(lower_expr(b, text, graph)?),
+                Box::new(lower_expr(b, prefix, graph)?),
+            )),
+            _ => Err("function call".into()),
+        },
     }
 }
 
@@ -546,6 +558,12 @@ mod tests {
                 .iter()
                 .any(|op| matches!(op, NativeOp::Filter { .. }))
         );
+    }
+
+    #[test]
+    fn lowers_strstarts_over_str() {
+        let q = parse("ASK { ?this ?p ?o FILTER (STRSTARTS(STR(?p), \"http://ex/\")) }");
+        lower_query(&q).expect("STRSTARTS(STR(...), literal) should lower");
     }
 
     #[test]

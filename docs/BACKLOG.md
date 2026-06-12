@@ -140,10 +140,14 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   cycle-dependent non-cacheable evaluations, entry count, and estimated bytes.
   Use benchmark evidence to choose an optional entry/byte budget or selective
   admission policy for high-cardinality workloads.
-- **[do]** Memoize repeated path/reachability results by
-  `(direction, start TermId, compiled path)` within an immutable run. Consume
-  `PathDemand` to choose between traversal, per-start memoization, whole-relation
-  materialization, and SCC closure for repeated transitive paths.
+- **[done]** Memoize repeated native property-path closures by
+  `(start TermId, compiled ReachStep, closure kind, graph)` within an immutable
+  `FrozenIndexedDataset`. Cached endpoint sets are shared across probes, bounded
+  to one million stored endpoint IDs, and invalidated when inference extends the
+  dataset.
+- **[next]** Consume `PathDemand` to choose between traversal, per-start
+  memoization, whole-relation materialization, and SCC closure for repeated
+  transitive paths.
 - **[done]** Staged native SPARQL design, stages 1–4
   ([`05-sparql-execution.md`](05-sparql-execution.md)):
   capability analysis (`sparql_native/capability.rs`), per-query profiling
@@ -151,17 +155,19 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `FrozenIndexedDataset` + `QueryableDataset` impl (`frozen.rs`), native BGP
   executor with batched `$this`, safe-boolean `ExprPlan`, property paths in all
   4 binding modes, compiled `ReachStep` traversal, correlated
-  `EXISTS`/`NOT EXISTS`, and debug-build differential testing.
+  `EXISTS`/`NOT EXISTS`, native `STR`/`STRSTARTS`, and debug-build differential
+  testing.
   Unsupported queries fall back to Spareval over the same frozen dataset.
 - **[next]** Native SPARQL stage 5 — data-aware planning: `DatasetStatistics`
   (`predicate_cardinality`) is collected in `frozen.rs` but never consulted;
   joins are left-deep with no selectivity ordering; `PathDemand` structs are
-  extracted but have no consumer; no Memoized/Materialized/SccClosure path
-  index strategies implemented (all paths use `Traverse`).
+  extracted but have no consumer; bounded per-start memoization exists, but
+  there is no demand-driven strategy selection or Materialized/SccClosure path
+  index implementation.
 - **[todo]** Native SPARQL stage 6 — broaden coverage: OPTIONAL, MINUS,
   aggregates, arithmetic/comparison expressions, `IN`, `ORDER BY`/`LIMIT`,
-  negated property sets. Deferred until stage 5 lands and measured demand
-  drives priorities.
+  negated property sets, and remaining functions. Deferred until stage 5 lands
+  and measured demand drives priorities.
 - **[do]** Finer inference deltas: replace rule-level predicate invalidation
   with affected-focus and relational deltas where dependency analysis can prove
   them sound; retain wildcard rescheduling for opaque/domain-sensitive rules.

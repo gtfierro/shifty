@@ -459,14 +459,14 @@ impl NativeExecutor<'_> {
                 }
             }
             (Resolved::Bound(start), Resolved::Free(ov)) => {
-                for end in apply_closure(start, fwd, scan.kind, self.ds, graph) {
+                for &end in apply_closure(start, fwd, scan.kind, self.ds, graph).iter() {
                     let mut next = sol.clone();
                     next.bindings.insert(ov, end);
                     out.push(next);
                 }
             }
             (Resolved::Free(sv), Resolved::Bound(end)) => {
-                for start in apply_closure(end, bwd, scan.kind, self.ds, graph) {
+                for &start in apply_closure(end, bwd, scan.kind, self.ds, graph).iter() {
                     let mut next = sol.clone();
                     next.bindings.insert(sv, start);
                     out.push(next);
@@ -477,7 +477,7 @@ impl NativeExecutor<'_> {
                 // free only for unconstrained ?s p* ?o). If this becomes common,
                 // precompute a node-domain index in FrozenIndexedDataset at build time.
                 for start in self.node_domain(graph) {
-                    for end in apply_closure(start, fwd, scan.kind, self.ds, graph) {
+                    for &end in apply_closure(start, fwd, scan.kind, self.ds, graph).iter() {
                         let mut next = sol.clone();
                         // sv and ov may be the same variable ⇒ require start == end.
                         if sv == ov {
@@ -532,6 +532,16 @@ impl NativeExecutor<'_> {
                 let tb = self.eval_value(b, sol)?;
                 Some(ta == tb)
             }
+            ExprPlan::StrStarts(text, prefix) => {
+                let (text, text_lang) = self.eval_string_literal(text, sol)?;
+                let (prefix, prefix_lang) = self.eval_string_literal(prefix, sol)?;
+                if let Some(prefix_lang) = prefix_lang
+                    && text_lang.as_deref() != Some(prefix_lang.as_str())
+                {
+                    return None;
+                }
+                Some(text.starts_with(&prefix))
+            }
             // value equality (=): fast path is term-id identity, which covers
             // IRIs, blank nodes, and same-type same-lexical-form literals.
             // For different-id literals, we return None (type error) whenever
@@ -577,6 +587,7 @@ impl NativeExecutor<'_> {
                 let id = sol.bindings.get(v)?;
                 term_ebv(&self.ds.externalize(*id)?)
             }
+            ExprPlan::Str(_) => term_ebv(&self.ds.externalize(self.eval_value(expr, sol)?)?),
             ExprPlan::Const(term) => term_ebv(term),
         }
     }
@@ -586,18 +597,50 @@ impl NativeExecutor<'_> {
         match expr {
             ExprPlan::Var(v) => sol.bindings.get(v).copied(),
             ExprPlan::Const(term) => Some(self.ds.intern(term)),
+            ExprPlan::Str(arg) => {
+                let value = self.eval_str(arg, sol)?;
+                Some(
+                    self.ds
+                        .intern(&Term::Literal(Literal::new_simple_literal(value))),
+                )
+            }
             // Boolean-valued forms: materialize their EBV as an xsd:boolean term.
             ExprPlan::Bound(_)
             | ExprPlan::Not(_)
             | ExprPlan::And(..)
             | ExprPlan::Or(..)
             | ExprPlan::SameTerm(..)
+            | ExprPlan::StrStarts(..)
             | ExprPlan::Equal(..)
             | ExprPlan::Exists(_) => {
                 let b = self.ebv(expr, sol)?;
                 Some(self.ds.intern(&Term::Literal(Literal::from(b))))
             }
         }
+    }
+
+    fn eval_str(&self, expr: &ExprPlan, sol: &Solution) -> Option<String> {
+        let term = self.ds.externalize(self.eval_value(expr, sol)?)?;
+        match term {
+            Term::NamedNode(node) => Some(node.as_str().to_string()),
+            Term::Literal(literal) => Some(literal.value().to_string()),
+            Term::BlankNode(_) => None,
+        }
+    }
+
+    fn eval_string_literal(
+        &self,
+        expr: &ExprPlan,
+        sol: &Solution,
+    ) -> Option<(String, Option<String>)> {
+        let Term::Literal(literal) = self.ds.externalize(self.eval_value(expr, sol)?)? else {
+            return None;
+        };
+        let language = literal.language().map(str::to_ascii_lowercase);
+        if language.is_none() && literal.datatype() != xsd::STRING {
+            return None;
+        }
+        Some((literal.value().to_string(), language))
     }
 }
 
@@ -789,6 +832,33 @@ mod tests {
     fn safe_filter_matches_spareval() {
         assert_agrees(
             "SELECT ?value WHERE { $this <http://ex/p> ?value FILTER (!sameTerm(?value, <http://ex/b>)) }",
+            "http://ex/a",
+        );
+    }
+
+    #[test]
+    fn strstarts_over_str_matches_spareval() {
+        assert_agrees(
+            "SELECT ?p WHERE { $this ?p ?o FILTER (STRSTARTS(STR(?p), \"http://ex/\")) }",
+            "http://ex/a",
+        );
+    }
+
+    #[test]
+    fn strstarts_rejects_non_literal_arguments_like_spareval() {
+        assert_agrees(
+            "SELECT ?p WHERE { $this ?p ?o FILTER (STRSTARTS(?p, \"http://ex/\")) }",
+            "http://ex/a",
+        );
+    }
+
+    #[test]
+    fn strstarts_checks_language_compatibility_like_spareval() {
+        assert_agrees(
+            "SELECT ?p WHERE {
+                $this ?p ?o
+                FILTER (STRSTARTS(\"water\"@en, \"wa\"@fr))
+            }",
             "http://ex/a",
         );
     }

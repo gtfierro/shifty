@@ -194,6 +194,20 @@ class TestValidateAlgebra:
         result = validate_algebra(combined.encode(), graph_mode="data")
         assert not result.conforms
 
+    def test_embedded_graph_matches_explicit_self_validation(self):
+        combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
+        embedded = validate_algebra(combined, infer=False)
+        explicit = validate_algebra(combined, combined, infer=False)
+
+        assert embedded.conforms == explicit.conforms
+        assert [
+            (violation.focus_node, violation.shape_name)
+            for violation in embedded.violations
+        ] == [
+            (violation.focus_node, violation.shape_name)
+            for violation in explicit.violations
+        ]
+
 
 # ── infer() ───────────────────────────────────────────────────────────────────
 

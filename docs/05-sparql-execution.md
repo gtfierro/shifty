@@ -133,13 +133,12 @@ The first native capability set is:
 - joins, unions, projection, and `DISTINCT`;
 - property paths: predicate, reverse, sequence, alternative, `*`, `+`, and `?`;
 - correlated `EXISTS` and `NOT EXISTS`;
-- boolean connectives, `BOUND`, equality and inequality, ordered comparisons,
-  `IN`, and the string functions observed in 223P;
+- boolean connectives, `BOUND`, safe equality, `STR`, and `STRSTARTS`;
 - simple `BIND` expressions.
 
-Aggregates, subqueries, ordering, service calls, and unsupported functions
-initially select fallback execution. Capability analysis records the first
-unsupported AST node for inspection and telemetry.
+Aggregates, subqueries, ordering, service calls, ordered comparisons, `IN`, and
+unsupported functions select fallback execution. Capability analysis records
+the first unsupported AST node for inspection and telemetry.
 
 ## Frozen indexed dataset
 
@@ -217,6 +216,13 @@ The initial specializations are:
 4. Small fixed sequences such as `sh:property/sh:path`: materialize when the
    estimated output is bounded and reused.
 
+The current executor implements bounded per-start memoization for native `*`
+and `+` closures. Cache keys include the start term, compiled reachability step,
+closure kind, and graph selection. Endpoint sets are shared between repeated
+probes, capped at one million stored endpoint IDs, and cleared if inference
+extends the dataset. Demand-driven promotion to materialized or SCC indexes
+remains planned work.
+
 Index selection is budgeted. The planner estimates construction work and
 relation size, ranks candidates by avoided traversal work per byte, and admits
 them until the configured memory budget is exhausted. `Traverse` is always the
@@ -289,7 +295,8 @@ demands, selected indexes, estimated cardinalities, and memory estimates.
 3. **Native BGP subset.** Add scans, joins, projection, filters, batched
    `$this`, and conformance early exit.
 4. **Paths and anti-joins.** Add `PathScan`, subclass/type indexes, correlated
-   `EXISTS` / `NOT EXISTS`, and lazy transitive caches.
+   `EXISTS` / `NOT EXISTS`, measured string functions, and lazy transitive
+   caches.
 5. **Data-aware planning.** Add join selection, budgeted materialization, plan
    inspection, and adaptive promotion based on measured demand.
 6. **Broaden coverage.** Add expressions and operators in measured priority

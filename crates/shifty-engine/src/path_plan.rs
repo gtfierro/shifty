@@ -23,9 +23,11 @@ use oxrdf::Term;
 use shifty_algebra::Path;
 use shifty_opt::ClosureKind;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 /// A compiled, direction-resolved reachability step. `Inverse` never appears
 /// here — it is folded into `FwdPred` ↔ `BwdPred` during compilation.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ReachStep {
     Id,
     /// `scan(node, q, _)` → objects — uses SPO range.
@@ -152,8 +154,11 @@ pub(crate) fn apply_closure(
     kind: ClosureKind,
     ds: &FrozenIndexedDataset,
     g: GraphSel,
-) -> HashSet<TermId> {
-    match kind {
+) -> Rc<HashSet<TermId>> {
+    if let Some(cached) = ds.cached_reach(node, step, kind, g) {
+        return cached;
+    }
+    let result = Rc::new(match kind {
         ClosureKind::Star => star_closure(node, step, ds, g),
         ClosureKind::Plus => plus_closure(node, step, ds, g),
         ClosureKind::Opt => {
@@ -161,7 +166,9 @@ pub(crate) fn apply_closure(
             r.insert(node);
             r
         }
-    }
+    });
+    ds.cache_reach(node, step, kind, g, result.clone());
+    result
 }
 
 #[cfg(test)]
@@ -296,5 +303,38 @@ mod tests {
         assert!(!result.contains(&a)); // not reflexive
         assert!(result.contains(&b));
         assert!(result.contains(&c));
+    }
+
+    #[test]
+    fn apply_closure_reuses_cached_result() {
+        let ds = sample_ds();
+        let p_id = id("http://ex/p", &ds);
+        let a = id("http://ex/a", &ds);
+        let step = ReachStep::FwdPred(p_id);
+
+        let first = apply_closure(a, &step, ClosureKind::Star, &ds, GraphSel::Default);
+        let second = apply_closure(a, &step, ClosureKind::Star, &ds, GraphSel::Default);
+
+        assert!(Rc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn extending_dataset_invalidates_cached_closure() {
+        let mut ds = sample_ds();
+        let p_id = id("http://ex/p", &ds);
+        let a = id("http://ex/a", &ds);
+        let c = id("http://ex/c", &ds);
+        let step = ReachStep::FwdPred(p_id);
+        let before = apply_closure(a, &step, ClosureKind::Plus, &ds, GraphSel::Default);
+        assert!(before.contains(&c));
+
+        let d = nn("http://ex/d");
+        let added = Triple::new(nn("http://ex/c"), nn("http://ex/p"), d);
+        ds.extend_triples([&added]);
+
+        let d_id = id("http://ex/d", &ds);
+        let after = apply_closure(a, &step, ClosureKind::Plus, &ds, GraphSel::Default);
+        assert!(after.contains(&d_id));
+        assert!(!Rc::ptr_eq(&before, &after));
     }
 }
