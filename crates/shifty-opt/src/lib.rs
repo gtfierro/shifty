@@ -20,7 +20,8 @@ pub use rule_deps::{
 };
 pub use sparql_native::{
     Capability, ClosureKind, ExprPlan, GraphScan, NativeOp, NativeQueryPlan, OpId, PathDemand,
-    PathId, PathScan, QueryForm, ScanTerm, TripleScan, VarId, analyze_capability,
-    extract_algebra_demand, extract_sparql_demand, lower_query, property_path_to_algebra,
+    PathId, PathScan, PlanStats, QueryForm, ScanTerm, TripleScan, VarId, analyze_capability,
+    extract_algebra_demand, extract_sparql_demand, lower_query, lower_query_with_stats,
+    property_path_to_algebra,
 };
 pub use strata::{Stratification, Stratum, analyze};

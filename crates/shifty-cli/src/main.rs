@@ -40,7 +40,7 @@ struct InferArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
-    /// Print per-query SPARQL telemetry after inference.
+    /// Print shape, cache, and SPARQL execution telemetry after inference.
     #[arg(long)]
     profile: bool,
 }
@@ -62,10 +62,13 @@ struct ValidateArgs {
     /// Emit a W3C `sh:ValidationReport` graph (N-Triples) instead of a summary.
     #[arg(long)]
     report: bool,
+    /// Skip SHACL-AF rule inference before validation.
+    #[arg(long)]
+    no_infer: bool,
     /// RDF graph scope used during validation.
     #[arg(long, visible_alias = "graph-scope", value_enum, default_value_t = GraphMode::Union)]
     graph_mode: GraphMode,
-    /// Print per-query SPARQL telemetry after validation.
+    /// Print shape, cache, and SPARQL execution telemetry after validation.
     #[arg(long)]
     profile: bool,
 }
@@ -265,28 +268,46 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     } else {
         Some(load_sources(&args.data, base)?)
     };
-    let inference = match data_loaded.as_ref() {
-        Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized),
-        None => shifty_engine::infer(&shapes_loaded.graph, &normalized),
-    };
-    let inference = match inference {
-        Ok(outcome) => outcome,
-        Err(e) => {
-            return Err(format!(
-                "{e}; cannot infer before validation (see `inspect --stage strata`)"
-            )
-            .into());
+    let inference = if args.no_infer {
+        None
+    } else {
+        let outcome = match data_loaded.as_ref() {
+            Some(data) => {
+                shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, &normalized)
+            }
+            None => shifty_engine::infer(&shapes_loaded.graph, &normalized),
+        };
+        match outcome {
+            Ok(outcome) => Some(outcome),
+            Err(e) => {
+                return Err(format!(
+                    "{e}; cannot infer before validation (see `inspect --stage strata`)"
+                )
+                .into());
+            }
         }
     };
-    for d in &inference.diagnostics {
-        eprintln!("warning: {d}");
+    if let Some(inference) = &inference {
+        for d in &inference.diagnostics {
+            eprintln!("warning: {d}");
+        }
     }
-    let data_graph = &inference.graph;
+    let data_graph = inference.as_ref().map_or_else(
+        || {
+            data_loaded
+                .as_ref()
+                .map_or(&shapes_loaded.graph, |data| &data.graph)
+        },
+        |inference| &inference.graph,
+    );
 
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
-        let report =
-            shifty_engine::validate_report_graphs_with_mode(&shapes_loaded, data_graph, graph_mode);
+        let report = if data_loaded.is_some() {
+            shifty_engine::validate_report_graphs_with_mode(&shapes_loaded, data_graph, graph_mode)
+        } else {
+            shifty_engine::validate_report(&shapes_loaded, data_graph)
+        };
         let graph = shifty_engine::report_to_graph(&report);
         // Collect prefixes from shapes + data, deduplicating by name.
         // Fall back to standard entries for sh:/rdf:/xsd: if not declared.
@@ -327,12 +348,16 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     }
 
     let physical = shifty_opt::plan(&normalized);
-    let outcome = match shifty_engine::validate_plan_graphs_with_mode(
-        data_graph,
-        &shapes_loaded.graph,
-        &physical,
-        graph_mode,
-    ) {
+    let outcome = match if data_loaded.is_some() {
+        shifty_engine::validate_plan_graphs_with_mode(
+            data_graph,
+            &shapes_loaded.graph,
+            &physical,
+            graph_mode,
+        )
+    } else {
+        shifty_engine::validate_plan(data_graph, &physical)
+    } {
         Ok(o) => o,
         Err(e) => {
             return Err(format!("{e}; cannot validate (see `inspect --stage strata`)").into());

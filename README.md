@@ -77,6 +77,13 @@ JSON output:
 shifty validate --shapes shapes.ttl --data data.ttl --format json
 ```
 
+Validation runs SHACL-AF rules to a fixed point by default. Skip rule inference
+when validating shapes directly:
+
+```sh
+shifty validate --shapes shapes.ttl --no-infer
+```
+
 Graph mode controls which triples are visible to path traversal and SPARQL evaluation:
 
 ```sh

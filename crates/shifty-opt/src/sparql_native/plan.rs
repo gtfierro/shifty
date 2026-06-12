@@ -38,7 +38,7 @@ use shifty_algebra::Path;
 use spargebra::Query;
 use spargebra::algebra::{Expression, Function, GraphPattern, PropertyPathExpression};
 use spargebra::term::{NamedNode, NamedNodePattern, Term, TermPattern, TriplePattern};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Index into [`NativeQueryPlan::nodes`].
 pub type OpId = u32;
@@ -160,6 +160,19 @@ pub enum QueryForm {
     Ask,
 }
 
+/// Dataset statistics passed from `FrozenIndexedDataset` to guide BGP
+/// scan reordering at plan-compilation time. Keyed by RDF `Term` so the
+/// planner can look up constants without touching the frozen dictionary.
+#[derive(Debug, Clone, Default)]
+pub struct PlanStats {
+    pub total_triples: u64,
+    pub distinct_subjects: u64,
+    pub distinct_objects: u64,
+    pub distinct_predicates: u64,
+    /// Triples per predicate IRI.
+    pub predicate_cardinality: HashMap<Term, u64>,
+}
+
 /// A lowered native query plan over a `FrozenIndexedDataset`.
 #[derive(Debug, Clone)]
 pub struct NativeQueryPlan {
@@ -228,12 +241,30 @@ impl Builder {
         self.nodes.push(op);
         id
     }
+
+    fn focus_var(&self) -> VarId {
+        *self.var_ids.get(FOCUS_VAR).expect("focus var registered first")
+    }
 }
 
 /// Lower a statically substituted query into a native plan, or return a fallback
 /// reason. `$this` must remain a free variable in `query` (it is bound per focus
 /// by the executor); all other SHACL parameters should already be substituted.
 pub fn lower_query(query: &Query) -> Result<NativeQueryPlan, String> {
+    lower_query_with_stats(query, None)
+}
+
+/// Like [`lower_query`] but with optional dataset statistics. When `stats` is
+/// `Some`, BGP triple patterns within each `GraphPattern::Bgp` block are
+/// reordered greedily by estimated output cardinality before lowering: the
+/// most selective scan (smallest expected row count given currently bound
+/// variables) is placed first. The plan's semantics are unchanged — BGP join
+/// is commutative — but the left-deep pipeline evaluates fewer intermediate
+/// rows.
+pub fn lower_query_with_stats(
+    query: &Query,
+    stats: Option<&PlanStats>,
+) -> Result<NativeQueryPlan, String> {
     let (pattern, form) = match query {
         Query::Select { pattern, .. } => (pattern, QueryForm::Select),
         Query::Ask { pattern, .. } => (pattern, QueryForm::Ask),
@@ -244,7 +275,7 @@ pub fn lower_query(query: &Query) -> Result<NativeQueryPlan, String> {
     let mut b = Builder::new();
     let focus_var = b.var(FOCUS_VAR);
     let input = b.push(NativeOp::InputFocus);
-    let root = lower_pattern(&mut b, pattern, input, &GraphScan::Default)?;
+    let root = lower_pattern(&mut b, pattern, input, &GraphScan::Default, stats)?;
 
     Ok(NativeQueryPlan {
         nodes: b.nodes,
@@ -262,12 +293,19 @@ fn lower_pattern(
     pattern: &GraphPattern,
     input: OpId,
     graph: &GraphScan,
+    stats: Option<&PlanStats>,
 ) -> Result<OpId, String> {
     match pattern {
         GraphPattern::Bgp { patterns } => {
+            let mut scans: Vec<TripleScan> = patterns
+                .iter()
+                .map(|tp| lower_triple(b, tp, graph))
+                .collect::<Result<_, _>>()?;
+            if let Some(s) = stats {
+                reorder_bgp(&mut scans, b.focus_var(), s);
+            }
             let mut current = input;
-            for tp in patterns {
-                let scan = lower_triple(b, tp, graph)?;
+            for scan in scans {
                 current = b.push(NativeOp::Scan {
                     input: current,
                     pattern: scan,
@@ -276,17 +314,17 @@ fn lower_pattern(
             Ok(current)
         }
         GraphPattern::Join { left, right } => {
-            let l = lower_pattern(b, left, input, graph)?;
-            lower_pattern(b, right, l, graph)
+            let l = lower_pattern(b, left, input, graph, stats)?;
+            lower_pattern(b, right, l, graph, stats)
         }
         GraphPattern::Union { left, right } => {
-            let l = lower_pattern(b, left, input, graph)?;
-            let r = lower_pattern(b, right, input, graph)?;
+            let l = lower_pattern(b, left, input, graph, stats)?;
+            let r = lower_pattern(b, right, input, graph, stats)?;
             Ok(b.push(NativeOp::Union { left: l, right: r }))
         }
         GraphPattern::Filter { expr, inner } => {
-            let i = lower_pattern(b, inner, input, graph)?;
-            let e = lower_expr(b, expr, graph)?;
+            let i = lower_pattern(b, inner, input, graph, stats)?;
+            let e = lower_expr(b, expr, graph, stats)?;
             Ok(b.push(NativeOp::Filter { input: i, expr: e }))
         }
         GraphPattern::Extend {
@@ -294,8 +332,8 @@ fn lower_pattern(
             variable,
             expression,
         } => {
-            let i = lower_pattern(b, inner, input, graph)?;
-            let e = lower_expr(b, expression, graph)?;
+            let i = lower_pattern(b, inner, input, graph, stats)?;
+            let e = lower_expr(b, expression, graph, stats)?;
             let var = b.var(variable.as_str());
             Ok(b.push(NativeOp::Extend {
                 input: i,
@@ -304,17 +342,17 @@ fn lower_pattern(
             }))
         }
         GraphPattern::Project { inner, variables } => {
-            let i = lower_pattern(b, inner, input, graph)?;
+            let i = lower_pattern(b, inner, input, graph, stats)?;
             let vars = variables.iter().map(|v| b.var(v.as_str())).collect();
             Ok(b.push(NativeOp::Project { input: i, vars }))
         }
         GraphPattern::Distinct { inner } => {
-            let i = lower_pattern(b, inner, input, graph)?;
+            let i = lower_pattern(b, inner, input, graph, stats)?;
             Ok(b.push(NativeOp::Distinct { input: i }))
         }
         GraphPattern::Graph { name, inner } => match name {
             NamedNodePattern::NamedNode(nn) => {
-                lower_pattern(b, inner, input, &GraphScan::Named(nn.clone()))
+                lower_pattern(b, inner, input, &GraphScan::Named(nn.clone()), stats)
             }
             NamedNodePattern::Variable(_) => Err("variable GRAPH name".into()),
         },
@@ -336,6 +374,100 @@ fn lower_pattern(
         GraphPattern::LeftJoin { .. } => Err("OPTIONAL".into()),
         GraphPattern::Minus { .. } => Err("MINUS".into()),
         GraphPattern::Lateral { .. } => Err("LATERAL".into()),
+    }
+}
+
+// ── BGP scan reordering ───────────────────────────────────────────────────────
+
+/// Reorder `scans` in-place using a greedy minimum-cost algorithm.
+///
+/// Starting from the set of variables bound by `InputFocus` (just `?this`),
+/// at each step we pick the scan with the lowest estimated output cardinality
+/// given the variables bound so far, then add that scan's output variables to
+/// the bound set. BGP join is commutative so the final result set is unchanged.
+fn reorder_bgp(scans: &mut Vec<TripleScan>, focus_var: VarId, stats: &PlanStats) {
+    if scans.len() < 2 {
+        return;
+    }
+    let mut bound: HashSet<VarId> = std::iter::once(focus_var).collect();
+    let mut ordered: Vec<TripleScan> = Vec::with_capacity(scans.len());
+    let mut remaining: Vec<TripleScan> = std::mem::take(scans);
+
+    while !remaining.is_empty() {
+        let best = remaining
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, s)| estimate_scan_cost(s, &bound, stats))
+            .map(|(i, _)| i)
+            .unwrap();
+        let scan = remaining.remove(best);
+        for v in scan_free_vars(&scan, &bound) {
+            bound.insert(v);
+        }
+        ordered.push(scan);
+    }
+    *scans = ordered;
+}
+
+/// Variables in `scan` that are not yet in `bound` (they become bound after
+/// this scan executes).
+fn scan_free_vars(scan: &TripleScan, bound: &HashSet<VarId>) -> Vec<VarId> {
+    [&scan.subject, &scan.predicate, &scan.object]
+        .into_iter()
+        .filter_map(|t| {
+            if let ScanTerm::Var(v) = t {
+                (!bound.contains(v)).then_some(*v)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Estimated output row count for `scan` given `bound`. Uses a tiered model:
+/// membership check → SP/PO range → predicate-only → subject/object range
+/// → full scan. Constant predicates are looked up in `stats.predicate_cardinality`;
+/// bound-variable predicates use the average cardinality.
+fn estimate_scan_cost(scan: &TripleScan, bound: &HashSet<VarId>, stats: &PlanStats) -> u64 {
+    let s = is_bound(&scan.subject, bound);
+    let p = is_bound(&scan.predicate, bound);
+    let o = is_bound(&scan.object, bound);
+    let total = stats.total_triples.max(1);
+    let ds = stats.distinct_subjects.max(1);
+    let dp = stats.distinct_predicates.max(1);
+    let dobj = stats.distinct_objects.max(1);
+
+    match (s, p, o) {
+        (true, true, true) => 1,
+        (true, true, false) => {
+            // SP range: predicate_card / distinct_subjects per predicate group
+            pred_card(&scan.predicate, stats).unwrap_or(total / dp) / ds + 1
+        }
+        (false, true, true) => {
+            pred_card(&scan.predicate, stats).unwrap_or(total / dp) / dobj + 1
+        }
+        (false, true, false) => pred_card(&scan.predicate, stats).unwrap_or(total / dp),
+        (true, false, false) => total / ds,
+        (false, false, true) => total / dobj,
+        // S+O with free P, or fully free: treat as full scan
+        (true, false, true) | (false, false, false) => total,
+    }
+}
+
+fn is_bound(term: &ScanTerm, bound: &HashSet<VarId>) -> bool {
+    match term {
+        ScanTerm::Const(_) => true,
+        ScanTerm::Var(v) => bound.contains(v),
+    }
+}
+
+/// Predicate cardinality for a constant-predicate scan term, `None` for
+/// variable predicates (caller uses average) or unknown predicates (cost = 0,
+/// the scan will immediately produce no rows — pick it first).
+fn pred_card(term: &ScanTerm, stats: &PlanStats) -> Option<u64> {
+    match term {
+        ScanTerm::Const(t) => Some(*stats.predicate_cardinality.get(t).unwrap_or(&0)),
+        ScanTerm::Var(_) => None,
     }
 }
 
@@ -450,35 +582,40 @@ fn lower_closure(
 /// comparison, arithmetic, `IN`, functions) forces whole-query fallback rather
 /// than risk a silent disagreement. `graph` is the enclosing graph scope, used
 /// for the `EXISTS` sub-pattern.
-fn lower_expr(b: &mut Builder, expr: &Expression, graph: &GraphScan) -> Result<ExprPlan, String> {
+fn lower_expr(
+    b: &mut Builder,
+    expr: &Expression,
+    graph: &GraphScan,
+    stats: Option<&PlanStats>,
+) -> Result<ExprPlan, String> {
     match expr {
         Expression::Variable(v) => Ok(ExprPlan::Var(b.var(v.as_str()))),
         Expression::NamedNode(n) => Ok(ExprPlan::Const(Term::NamedNode(n.clone()))),
         Expression::Literal(l) => Ok(ExprPlan::Const(Term::Literal(l.clone()))),
         Expression::Bound(v) => Ok(ExprPlan::Bound(b.var(v.as_str()))),
-        Expression::Not(a) => Ok(ExprPlan::Not(Box::new(lower_expr(b, a, graph)?))),
+        Expression::Not(a) => Ok(ExprPlan::Not(Box::new(lower_expr(b, a, graph, stats)?))),
         Expression::And(a, c) => Ok(ExprPlan::And(
-            Box::new(lower_expr(b, a, graph)?),
-            Box::new(lower_expr(b, c, graph)?),
+            Box::new(lower_expr(b, a, graph, stats)?),
+            Box::new(lower_expr(b, c, graph, stats)?),
         )),
         Expression::Or(a, c) => Ok(ExprPlan::Or(
-            Box::new(lower_expr(b, a, graph)?),
-            Box::new(lower_expr(b, c, graph)?),
+            Box::new(lower_expr(b, a, graph, stats)?),
+            Box::new(lower_expr(b, c, graph, stats)?),
         )),
         Expression::SameTerm(a, c) => Ok(ExprPlan::SameTerm(
-            Box::new(lower_expr(b, a, graph)?),
-            Box::new(lower_expr(b, c, graph)?),
+            Box::new(lower_expr(b, a, graph, stats)?),
+            Box::new(lower_expr(b, c, graph, stats)?),
         )),
         Expression::Equal(a, c) => Ok(ExprPlan::Equal(
-            Box::new(lower_expr(b, a, graph)?),
-            Box::new(lower_expr(b, c, graph)?),
+            Box::new(lower_expr(b, a, graph, stats)?),
+            Box::new(lower_expr(b, c, graph, stats)?),
         )),
         // Correlated EXISTS / NOT EXISTS: lower the sub-pattern into the same
         // arena, rooted at its own InputFocus (seeded with the current solution
         // at evaluation time). NOT EXISTS arrives as Not(Exists(..)).
         Expression::Exists(pattern) => {
             let leaf = b.push(NativeOp::InputFocus);
-            let root = lower_pattern(b, pattern, leaf, graph)?;
+            let root = lower_pattern(b, pattern, leaf, graph, stats)?;
             Ok(ExprPlan::Exists(root))
         }
         Expression::Greater(..)
@@ -495,10 +632,12 @@ fn lower_expr(b: &mut Builder, expr: &Expression, graph: &GraphScan) -> Result<E
         Expression::If(..) => Err("IF".into()),
         Expression::Coalesce(_) => Err("COALESCE".into()),
         Expression::FunctionCall(function, args) => match (function, args.as_slice()) {
-            (Function::Str, [arg]) => Ok(ExprPlan::Str(Box::new(lower_expr(b, arg, graph)?))),
+            (Function::Str, [arg]) => {
+                Ok(ExprPlan::Str(Box::new(lower_expr(b, arg, graph, stats)?)))
+            }
             (Function::StrStarts, [text, prefix]) => Ok(ExprPlan::StrStarts(
-                Box::new(lower_expr(b, text, graph)?),
-                Box::new(lower_expr(b, prefix, graph)?),
+                Box::new(lower_expr(b, text, graph, stats)?),
+                Box::new(lower_expr(b, prefix, graph, stats)?),
             )),
             _ => Err("function call".into()),
         },
@@ -633,5 +772,52 @@ mod tests {
         assert!(plan.nodes.iter().any(
             |op| matches!(op, NativeOp::Scan { pattern, .. } if matches!(pattern.graph, GraphScan::Named(_)))
         ));
+    }
+
+    /// A two-triple BGP where the second pattern has a rare predicate should be
+    /// reordered first when statistics say so.
+    #[test]
+    fn bgp_reorder_moves_selective_scan_first() {
+        // ?x ?y ?z . ?this <rare> ?x — without stats: $this-scan is first,
+        // rare-predicate-scan is second. With stats that give <rare> cardinality
+        // 1 (vs. the first scan which has an unbound predicate, cost = total),
+        // the planner should move the rare scan first.
+        let q = parse(
+            "SELECT ?x WHERE { ?x ?y ?z . ?this <http://ex/rare> ?x }",
+        );
+        let rare = Term::NamedNode(NamedNode::new_unchecked("http://ex/rare"));
+        let mut pcard = HashMap::new();
+        pcard.insert(rare.clone(), 1u64);
+        let stats = PlanStats {
+            total_triples: 100_000,
+            distinct_subjects: 10_000,
+            distinct_objects: 10_000,
+            distinct_predicates: 50,
+            predicate_cardinality: pcard,
+        };
+        let plan = lower_query_with_stats(&q, Some(&stats)).expect("should lower");
+        // Collect scans in pipeline order (InputFocus → first Scan → second Scan …)
+        let scans: Vec<&TripleScan> = plan
+            .nodes
+            .iter()
+            .filter_map(|op| {
+                if let NativeOp::Scan { pattern, .. } = op {
+                    Some(pattern)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // The rare predicate scan must come before the free-predicate scan.
+        let rare_pos = scans
+            .iter()
+            .position(|s| matches!(&s.predicate, ScanTerm::Const(t) if t == &rare));
+        let free_pos = scans
+            .iter()
+            .position(|s| matches!(&s.predicate, ScanTerm::Var(_)));
+        assert!(
+            rare_pos < free_pos,
+            "expected rare-predicate scan first; got rare={rare_pos:?} free={free_pos:?}",
+        );
     }
 }

@@ -270,6 +270,26 @@ impl FrozenIndexedDataset {
         self.terms.intern(term.clone())
     }
 
+    /// Build a [`PlanStats`] for use by the query planner. Converts TermId-keyed
+    /// statistics to Term-keyed form so the planner can look up predicate
+    /// cardinalities without touching the dictionary directly.
+    pub(crate) fn plan_stats(&self) -> shifty_opt::PlanStats {
+        let predicate_cardinality: HashMap<Term, u64> = self
+            .stats
+            .predicate_cardinality
+            .iter()
+            .filter_map(|(&id, &count)| Some((self.externalize(id)?, count)))
+            .collect();
+        let distinct_predicates = predicate_cardinality.len() as u64;
+        shifty_opt::PlanStats {
+            total_triples: self.stats.triple_count,
+            distinct_subjects: self.stats.distinct_subjects,
+            distinct_objects: self.stats.distinct_objects,
+            distinct_predicates,
+            predicate_cardinality,
+        }
+    }
+
     /// Map a `TermId` back to its RDF term. Returns `None` only for ids that did
     /// not originate from this dataset.
     pub(crate) fn externalize(&self, id: TermId) -> Option<Term> {

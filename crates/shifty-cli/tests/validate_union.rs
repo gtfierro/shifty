@@ -259,6 +259,70 @@ fn validation_runs_inference_first() {
     assert!(stdout.contains("conforms: false"), "stdout: {stdout}");
     assert!(stdout.contains("at most 0 value(s)"), "stdout: {stdout}");
 
+    let no_infer = Command::new(env!("CARGO_BIN_EXE_shifty"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--data",
+            data.to_str().unwrap(),
+            "--no-infer",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        no_infer.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&no_infer.stderr)
+    );
+    let no_infer_stdout = String::from_utf8(no_infer.stdout).unwrap();
+    assert!(
+        no_infer_stdout.contains("conforms: true"),
+        "stdout: {no_infer_stdout}"
+    );
+
+    let embedded_no_infer = Command::new(env!("CARGO_BIN_EXE_shifty"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--no-infer",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        embedded_no_infer.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&embedded_no_infer.stderr)
+    );
+    let embedded_no_infer_stdout = String::from_utf8(embedded_no_infer.stdout).unwrap();
+    assert!(
+        embedded_no_infer_stdout.contains("conforms: true"),
+        "stdout: {embedded_no_infer_stdout}"
+    );
+
+    let embedded_report_no_infer = Command::new(env!("CARGO_BIN_EXE_shifty"))
+        .args([
+            "validate",
+            "--shapes",
+            shapes.to_str().unwrap(),
+            "--no-infer",
+            "--report",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        embedded_report_no_infer.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&embedded_report_no_infer.stderr)
+    );
+    let embedded_report_no_infer_stdout =
+        String::from_utf8(embedded_report_no_infer.stdout).unwrap();
+    assert!(
+        embedded_report_no_infer_stdout.contains("sh:conforms true"),
+        "stdout: {embedded_report_no_infer_stdout}"
+    );
+
     let report = Command::new(env!("CARGO_BIN_EXE_shifty"))
         .args([
             "validate",

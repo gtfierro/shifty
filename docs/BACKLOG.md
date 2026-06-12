@@ -33,7 +33,8 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `$this` prebinding; CONSTRUCT blank-node output is rejected to preserve
   termination for the supported subset. Still to do: **[do]** finer focus-node
   / relational-delta evaluation; **[do]** function node expressions;
-  **[done]** CLI validation runs inference first; **[do]** predicate-level
+  **[done]** CLI validation runs inference first with a `--no-infer` opt-out;
+  **[do]** predicate-level
   logical stratification for non-monotone rule conditions (the current analyzer
   stratifies shape SCCs).
 - **[done]** Initial SPARQL execution backend: one Oxigraph store per validation
@@ -136,10 +137,14 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   observe a coinductive recursion back-edge remain uncached because their
   provisional truth is call-context-dependent; inference creates a fresh cache
   for each rule firing so graph mutations cannot leave stale entries.
-- **[next]** Add shape-cache telemetry and memory controls: hits/misses,
-  cycle-dependent non-cacheable evaluations, entry count, and estimated bytes.
-  Use benchmark evidence to choose an optional entry/byte budget or selective
-  admission policy for high-cardinality workloads.
+- **[done]** Shape-cache telemetry is exposed through the existing opt-in
+  profiler: evaluator count, hits/misses and hit rate, insertions, recursion
+  back-edges, cycle-dependent non-cacheable results, peak entries, and
+  approximate peak bytes. Evaluators aggregate locally and publish once on
+  drop, avoiding a thread-local operation per cache lookup.
+- **[do]** Benchmark cache retention on Brick and 223P, then use the evidence
+  to choose an optional entry/byte budget or selective admission policy for
+  high-cardinality workloads.
 - **[done]** Memoize repeated native property-path closures by
   `(start TermId, compiled ReachStep, closure kind, graph)` within an immutable
   `FrozenIndexedDataset`. Cached endpoint sets are shared across probes, bounded
@@ -168,6 +173,57 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   aggregates, arithmetic/comparison expressions, `IN`, `ORDER BY`/`LIMIT`,
   negated property sets, and remaining functions. Deferred until stage 5 lands
   and measured demand drives priorities.
+- **[done]** Blank-node focus term dispatch in CONSTRUCT fallback: `sparopt`
+  converts `TermPattern::BlankNode` to a fresh query variable (SPARQL semantics:
+  blank nodes in patterns are existential), so pre-binding `?this` to a blank
+  node focus via algebra substitution degrades to a full predicate scan instead
+  of an SP lookup.  For named-node foci the per-focus algebra substitution
+  works correctly; blank-node foci now fall back to one global CONSTRUCT run
+  (without `?this` bound) whose triples are filtered by blank-node subject
+  identity.  Measured speedup on `water-closure.ttl`:
+  `ns3:QuantifiablePropertyShape` rule (GROUP BY / COUNT DISTINCT) 33 s → 1.8 s;
+  total 39 s → 7.6 s.
+- **[next]** Bulk fallback SELECT validation via `VALUES` injection: the SELECT
+  analog of the global CONSTRUCT fix above. `constraint_violations` currently
+  calls `run_fallback` once per focus node (clone query, substitute `$this`,
+  execute Spareval). When the plan is `None` and the focus set has more than one
+  node, instead inject `VALUES (?this) { (<f1>) (<f2>) … }` at the top of the
+  WHERE clause and execute once; demultiplex violations by the `?this` binding
+  in each result row. Correctness requires that `?this` is a genuine SELECT
+  variable (not already substituted as a constant). Profiled bottleneck:
+  `DontReferToDeprecatedConceptConstraint` 24 614 calls × 48 µs = 1.2 s total;
+  one query should reduce that to < 50 ms. Also applies to other OPTIONAL-using
+  constraints that currently can't go native.
+- **[next]** BGP scan reordering by predicate cardinality in the native
+  executor: `execute_ids` evaluates scans left-deep in textual order;
+  `DatasetStatistics.predicate_cardinality` is already computed but never
+  consulted. At plan time, sort scans by estimated output cardinality: bound
+  predicate → cardinality table lookup; bound subject → S-range size from the
+  SPO index; fully free → full scan cost. Profiled bottleneck:
+  `ClosedWorld223Shape` (`?p a/rdfs:subClassOf* s223:Relation . $this ?p ?o .
+  FILTER NOT EXISTS …`) runs 766 calls × 3 179 µs = 2.4 s; enumerating the
+  small predicate set first and probing `$this ?p ?o` by predicate should
+  collapse it significantly.
+- **[do]** OSP-index prefilter for `$this`-as-object constraints: when the
+  first meaningful triple pattern in a constraint's WHERE clause is `?s ?p
+  $this` (focus node appears as the object), use the OSP index to restrict the
+  focus set to nodes that have at least one inbound edge before entering the
+  full constraint evaluation. Removes the overhead of evaluating all focus nodes
+  (e.g. all `qudt:Concept` instances) when only a small subset are referenced
+  as objects.
+- **[do]** Whole-relation transitive-closure index: materialize `rdfs:subClassOf*`
+  (and other frequently-queried transitive predicates) as a
+  `HashMap<TermId, HashSet<TermId>>` once per frozen snapshot. The per-start
+  memoization cache is the building block; promote to whole-relation when
+  `PathDemand` shows the full relation is probed from > T distinct starts (T
+  tunable). Eliminates repeated BFS/DFS inside `ClosedWorld` and deprecated-
+  concept constraints that both walk `rdfs:subClassOf*`.
+- **[do]** Hash-join for large probe sets in the native executor: `extend_scan`
+  is a nested-loop probe against the sorted triple indexes. When the build side
+  (bound variable range) is large and the probe side is small (e.g. a filtered
+  predicate set), build a hash set from the smaller side and use it as a
+  membership filter during the scan rather than relying on sort-merge range
+  lookups. Pairs naturally with BGP reordering above.
 - **[do]** Finer inference deltas: replace rule-level predicate invalidation
   with affected-focus and relational deltas where dependency analysis can prove
   them sound; retain wildcard rescheduling for opaque/domain-sensitive rules.

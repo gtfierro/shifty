@@ -412,13 +412,40 @@ impl SparqlExecutor {
             }
             profile::ExecutorKind::Native
         } else {
-            // Fallback: run per-focus with ?this substituted directly. Direct
-            // substitution propagates the binding into nested GRAPH/OPTIONAL
-            // patterns before evaluation, allowing Oxigraph to use index
-            // lookups instead of a full graph scan.
-            for focus in foci {
+            // Named-node foci: pre-bind ?this via algebra substitution before
+            // evaluation, so Oxigraph can use subject–predicate index lookups.
+            for focus in foci.iter().filter(|f| !matches!(f, Term::BlankNode(_))) {
                 triples.extend(self.construct_one(query, focus)?);
             }
+
+            // Blank-node foci: sparopt converts TermPattern::BlankNode to a
+            // fresh query variable rather than a constant, so per-focus
+            // substitution degrades to a full predicate scan. Run the CONSTRUCT
+            // once with ?this free and filter the results by blank-node subject
+            // identity instead.
+            let blank_foci: Vec<&Term> = foci
+                .iter()
+                .filter(|f| matches!(f, Term::BlankNode(_)))
+                .collect();
+            if !blank_foci.is_empty() {
+                let foci_set: HashSet<Term> =
+                    blank_foci.iter().map(|&f| f.clone()).collect();
+                let store = self.store()?;
+                let raw_triples: Vec<Triple> = match SparqlEvaluator::new()
+                    .for_query(self.parse(query)?)
+                    .on_store(store)
+                    .execute()
+                    .map_err(err)?
+                {
+                    QueryResults::Graph(iter) => iter
+                        .filter_map(|t| t.ok())
+                        .filter(|t| foci_set.contains(&Term::from(t.subject.clone())))
+                        .collect(),
+                    _ => return Err("SPARQL rule did not produce CONSTRUCT graph results".into()),
+                };
+                triples.extend(raw_triples);
+            }
+
             let store = self.store()?;
             triples.retain(|triple| {
                 !store

@@ -11,6 +11,7 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, pred, succ};
+use crate::profile::ShapeCacheSample;
 use crate::sparql::{SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
@@ -34,8 +35,7 @@ struct EvalResult {
 struct EvalState {
     memo: HashMap<(ShapeId, Term), bool>,
     active: HashSet<(ShapeId, Term)>,
-    #[cfg(test)]
-    cache_hits: usize,
+    telemetry: Option<ShapeCacheSample>,
 }
 
 /// Per-graph-snapshot shape evaluator.
@@ -60,12 +60,26 @@ impl<'a> ShapeEvaluator<'a> {
             g,
             arena,
             sparql,
-            state: EvalState::default(),
+            state: EvalState {
+                telemetry: crate::profile::is_enabled().then(ShapeCacheSample::default),
+                ..EvalState::default()
+            },
         }
     }
 
     pub(crate) fn holds(&mut self, node: &Term, id: ShapeId) -> bool {
         holds_memoized(self.g, self.arena, node, id, self.sparql, &mut self.state).holds
+    }
+}
+
+impl Drop for ShapeEvaluator<'_> {
+    fn drop(&mut self) {
+        let Some(mut sample) = self.state.telemetry else {
+            return;
+        };
+        sample.entries = self.state.memo.len();
+        sample.estimated_bytes = estimated_memo_bytes(&self.state.memo);
+        crate::profile::record_shape_cache(sample);
     }
 }
 
@@ -500,16 +514,21 @@ fn holds_memoized(
 ) -> EvalResult {
     let key = (id, v.clone());
     if let Some(&holds) = state.memo.get(&key) {
-        #[cfg(test)]
-        {
-            state.cache_hits += 1;
+        if let Some(telemetry) = state.telemetry.as_mut() {
+            telemetry.hits += 1;
         }
         return EvalResult {
             holds,
             cacheable: true,
         };
     }
+    if let Some(telemetry) = state.telemetry.as_mut() {
+        telemetry.misses += 1;
+    }
     if !state.active.insert(key.clone()) {
+        if let Some(telemetry) = state.telemetry.as_mut() {
+            telemetry.recursion_back_edges += 1;
+        }
         return EvalResult {
             holds: true,
             cacheable: false,
@@ -621,8 +640,45 @@ fn holds_memoized(
     state.active.remove(&key);
     if result.cacheable {
         state.memo.insert(key, result.holds);
+        if let Some(telemetry) = state.telemetry.as_mut() {
+            telemetry.insertions += 1;
+        }
+    } else if let Some(telemetry) = state.telemetry.as_mut() {
+        telemetry.non_cacheable_results += 1;
     }
     result
+}
+
+fn estimated_memo_bytes(memo: &HashMap<(ShapeId, Term), bool>) -> usize {
+    const CONTROL_BYTE_ESTIMATE: usize = 1;
+    let bucket_bytes =
+        memo.capacity() * (std::mem::size_of::<((ShapeId, Term), bool)>() + CONTROL_BYTE_ESTIMATE);
+    bucket_bytes
+        + memo
+            .keys()
+            .map(|(_, term)| estimated_term_heap_bytes(term))
+            .sum::<usize>()
+}
+
+fn estimated_term_heap_bytes(term: &Term) -> usize {
+    match term {
+        Term::NamedNode(node) => node.as_str().len(),
+        Term::BlankNode(node) => node.as_str().len(),
+        Term::Literal(literal) => {
+            literal.value().len()
+                + literal.language().map_or_else(
+                    || {
+                        let datatype = literal.datatype();
+                        if datatype.as_str() == "http://www.w3.org/2001/XMLSchema#string" {
+                            0
+                        } else {
+                            datatype.as_str().len()
+                        }
+                    },
+                    str::len,
+                )
+        }
+    }
 }
 
 /// The reasons `φ` (slot `id`) fails at `node`. Empty iff it holds. `path_ctx`
@@ -1024,15 +1080,18 @@ mod tests {
             qualifier,
         });
         let sparql = SparqlExecutor::new(&graph).unwrap();
-        let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
-
-        assert!(evaluator.holds(&term("a"), root));
-        let hits_before = evaluator.state.cache_hits;
-        assert!(evaluator.holds(&term("b"), root));
-        assert!(
-            evaluator.state.cache_hits > hits_before,
-            "the shared qualifier/value check should come from the run cache"
-        );
+        crate::profile::enable();
+        {
+            let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
+            assert!(evaluator.holds(&term("a"), root));
+            assert!(evaluator.holds(&term("b"), root));
+        }
+        let profile = crate::profile::take().unwrap();
+        let cache = profile.shape_cache();
+        assert_eq!(cache.evaluators, 1);
+        assert!(cache.hits >= 1, "shared qualifier should hit the cache");
+        assert_eq!(cache.peak_entries, 3);
+        assert!(cache.estimated_peak_bytes > 0);
     }
 
     #[test]
@@ -1049,10 +1108,17 @@ mod tests {
 
         let graph = Graph::new();
         let sparql = SparqlExecutor::new(&graph).unwrap();
-        let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
         let node = term("x");
 
-        assert!(!evaluator.holds(&node, a));
-        assert!(!evaluator.holds(&node, b));
+        crate::profile::enable();
+        {
+            let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
+            assert!(!evaluator.holds(&node, a));
+            assert!(!evaluator.holds(&node, b));
+        }
+        let profile = crate::profile::take().unwrap();
+        let cache = profile.shape_cache();
+        assert!(cache.recursion_back_edges > 0);
+        assert!(cache.non_cacheable_results > 0);
     }
 }
