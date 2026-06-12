@@ -171,6 +171,21 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 
 Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted, shapes are expected to be embedded in the data graph.
 
+`pathlib.Path` inputs are parsed directly in Rust. `rdflib.Graph` inputs are
+transferred as N-Triples.
+
+### Reuse prepared shapes
+
+For multiple data graphs using the same shapes, cache parsing, normalization,
+and planning with `PreparedValidator`:
+
+```python
+validator = shifty.PreparedValidator(shapes)
+
+result = validator.validate_algebra(data, infer=False)
+conforms, report_graph, results_text = validator.validate(data)
+```
+
 ### Validate with structured result
 
 `validate_algebra` returns an `AlgebraResult` with typed `Violation` objects instead of an RDF report graph:

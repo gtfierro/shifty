@@ -16,7 +16,7 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{node_of, succ};
 use crate::sparql::SparqlExecutor;
-use crate::validate::{NonStratifiable, focus_nodes_with, graph_union, holds};
+use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, graph_union};
 use oxrdf::{Graph, NamedNode, Term, Triple};
 use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, ShapeArena};
 use shifty_opt::{RuleDependencies, analyze, rule_dependencies, rule_guard_dependencies};
@@ -266,14 +266,10 @@ fn fire_rule(
     out: &mut HashSet<Triple>,
     diags: &mut BTreeSet<String>,
 ) {
+    let mut evaluator = ShapeEvaluator::new(context, arena, sparql);
     let eligible: Vec<&Term> = focus_nodes
         .iter()
-        .filter(|v| {
-            rule.conditions.iter().all(|c| {
-                let mut stack = HashSet::new();
-                holds(context, arena, v, *c, &mut stack, sparql)
-            })
-        })
+        .filter(|v| rule.conditions.iter().all(|c| evaluator.holds(v, *c)))
         .collect();
 
     match &rule.head {
@@ -283,9 +279,9 @@ fn fire_rule(
             object,
         } => {
             for v in eligible {
-                let subjects = eval_node_expr(context, arena, v, subject, sparql, diags);
-                let predicates = eval_node_expr(context, arena, v, predicate, sparql, diags);
-                let objects = eval_node_expr(context, arena, v, object, sparql, diags);
+                let subjects = eval_node_expr(context, v, subject, &mut evaluator, diags);
+                let predicates = eval_node_expr(context, v, predicate, &mut evaluator, diags);
+                let objects = eval_node_expr(context, v, object, &mut evaluator, diags);
                 for s in &subjects {
                     let Some(subj) = node_of(s) else { continue };
                     for p in &predicates {
@@ -329,30 +325,26 @@ fn fire_rule(
 /// Evaluate a node expression at focus node `v` to its set of result terms.
 fn eval_node_expr(
     g: &Graph,
-    arena: &ShapeArena,
     v: &Term,
     expr: &NodeExpr,
-    sparql: &SparqlExecutor,
+    evaluator: &mut ShapeEvaluator<'_>,
     diags: &mut BTreeSet<String>,
 ) -> HashSet<Term> {
     match expr {
         NodeExpr::This => once(v.clone()),
         NodeExpr::Constant(t) => once(t.clone()),
         NodeExpr::Path(p) => succ(g, v, p),
-        NodeExpr::Filter { input, shape } => eval_node_expr(g, arena, v, input, sparql, diags)
+        NodeExpr::Filter { input, shape } => eval_node_expr(g, v, input, evaluator, diags)
             .into_iter()
-            .filter(|x| {
-                let mut stack = HashSet::new();
-                holds(g, arena, x, *shape, &mut stack, sparql)
-            })
+            .filter(|x| evaluator.holds(x, *shape))
             .collect(),
         NodeExpr::Intersection(es) => {
             let mut iter = es.iter();
             match iter.next() {
                 Some(first) => {
-                    let mut acc = eval_node_expr(g, arena, v, first, sparql, diags);
+                    let mut acc = eval_node_expr(g, v, first, evaluator, diags);
                     for e in iter {
-                        let s = eval_node_expr(g, arena, v, e, sparql, diags);
+                        let s = eval_node_expr(g, v, e, evaluator, diags);
                         acc.retain(|x| s.contains(x));
                     }
                     acc
@@ -363,7 +355,7 @@ fn eval_node_expr(
         NodeExpr::Union(es) => {
             let mut acc = HashSet::new();
             for e in es {
-                acc.extend(eval_node_expr(g, arena, v, e, sparql, diags));
+                acc.extend(eval_node_expr(g, v, e, evaluator, diags));
             }
             acc
         }

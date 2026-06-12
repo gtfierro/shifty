@@ -24,6 +24,51 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::OnceLock;
 
+#[derive(Debug, Clone, Copy)]
+struct EvalResult {
+    holds: bool,
+    cacheable: bool,
+}
+
+#[derive(Default)]
+struct EvalState {
+    memo: HashMap<(ShapeId, Term), bool>,
+    active: HashSet<(ShapeId, Term)>,
+    #[cfg(test)]
+    cache_hits: usize,
+}
+
+/// Per-graph-snapshot shape evaluator.
+///
+/// Completed checks are shared across statements and focus nodes. Results that
+/// depend on the coinductive recursion back-edge are deliberately not cached:
+/// their provisional `true` may only be valid in the active call context.
+pub(crate) struct ShapeEvaluator<'a> {
+    g: &'a dyn PathBackend,
+    arena: &'a ShapeArena,
+    sparql: &'a SparqlExecutor,
+    state: EvalState,
+}
+
+impl<'a> ShapeEvaluator<'a> {
+    pub(crate) fn new(
+        g: &'a dyn PathBackend,
+        arena: &'a ShapeArena,
+        sparql: &'a SparqlExecutor,
+    ) -> Self {
+        Self {
+            g,
+            arena,
+            sparql,
+            state: EvalState::default(),
+        }
+    }
+
+    pub(crate) fn holds(&mut self, node: &Term, id: ShapeId) -> bool {
+        holds_memoized(self.g, self.arena, node, id, self.sparql, &mut self.state).holds
+    }
+}
+
 /// A single failed atomic constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reason {
@@ -123,10 +168,23 @@ pub fn validate_graphs_with_mode(
     mode: ValidationGraphMode,
 ) -> Result<ValidationOutcome, NonStratifiable> {
     match mode {
-        ValidationGraphMode::Data => validate_with_context(data, data, schema),
+        ValidationGraphMode::Data => {
+            let uses_shapes = uses_shapes_graph(&schema.arena);
+            let frozen = if uses_shapes {
+                FrozenIndexedDataset::from_graphs(data, shapes)
+            } else {
+                FrozenIndexedDataset::from_graph(data)
+            };
+            validate_with_frozen(data, schema, frozen, uses_shapes)
+        }
         ValidationGraphMode::Union => {
-            let union = graph_union(data, shapes);
-            validate_with_context(data, &union, schema)
+            let uses_shapes = uses_shapes_graph(&schema.arena);
+            let frozen = if uses_shapes {
+                FrozenIndexedDataset::from_graph_union_with_shapes(data, shapes)
+            } else {
+                FrozenIndexedDataset::from_graph_union(data, shapes)
+            };
+            validate_with_frozen(data, schema, frozen, uses_shapes)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, shapes);
@@ -143,6 +201,21 @@ pub fn validate_with_context(
     context: &Graph,
     schema: &Schema,
 ) -> Result<ValidationOutcome, NonStratifiable> {
+    let uses_shapes = uses_shapes_graph(&schema.arena);
+    let frozen = if uses_shapes {
+        FrozenIndexedDataset::from_graphs(context, context)
+    } else {
+        FrozenIndexedDataset::from_graph(context)
+    };
+    validate_with_frozen(data, schema, frozen, uses_shapes)
+}
+
+fn validate_with_frozen(
+    data: &Graph,
+    schema: &Schema,
+    frozen: FrozenIndexedDataset,
+    has_shapes_graph: bool,
+) -> Result<ValidationOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -154,21 +227,11 @@ pub fn validate_with_context(
         return Err(NonStratifiable { components });
     }
 
-    // Mirror the context into a named shapes graph only when a `sh:sparql`
-    // query references `$shapesGraph` (rare), so the common path stays cheap.
-    let sparql = if uses_shapes_graph(&schema.arena) {
-        SparqlExecutor::new_with_shapes(context, context)
-            .expect("building an in-memory Oxigraph store should succeed")
-            .with_frozen(FrozenIndexedDataset::from_graphs(context, context))
-    } else {
-        SparqlExecutor::new(context)
-            .expect("building an in-memory Oxigraph store should succeed")
-            .with_frozen(FrozenIndexedDataset::from_graph(context))
-    };
-    // Path / shape evaluation runs over the indexed frozen snapshot built above;
-    // `context` (the mutable-free Graph) is only the fallback for callers without
-    // a snapshot (none here — `with_frozen` always ran).
-    let backend = path_backend(&sparql, context);
+    let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+    let backend = sparql
+        .frozen()
+        .expect("validation executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
         let label = schema
@@ -176,18 +239,10 @@ pub fn validate_with_context(
             .get(&st.shape)
             .cloned()
             .unwrap_or_else(|| format!("@{}", st.shape.0));
-        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+        for v in focus_nodes_with_evaluator(data, &st.selector, &mut evaluator) {
             let t = std::time::Instant::now();
             let mut stack = HashSet::new();
-            let mut reasons = explain(
-                backend,
-                &schema.arena,
-                &v,
-                st.shape,
-                None,
-                &mut stack,
-                &sparql,
-            );
+            let mut reasons = explain(&mut evaluator, &v, st.shape, None, &mut stack);
             crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
@@ -250,10 +305,23 @@ pub fn validate_plan_graphs_with_mode(
     mode: ValidationGraphMode,
 ) -> Result<ValidationOutcome, NonStratifiable> {
     match mode {
-        ValidationGraphMode::Data => validate_plan_with_context(data, data, plan),
+        ValidationGraphMode::Data => {
+            let uses_shapes = uses_shapes_graph(&plan.arena);
+            let frozen = if uses_shapes {
+                FrozenIndexedDataset::from_graphs(data, shapes)
+            } else {
+                FrozenIndexedDataset::from_graph(data)
+            };
+            validate_plan_with_frozen(data, plan, frozen, uses_shapes)
+        }
         ValidationGraphMode::Union => {
-            let union = graph_union(data, shapes);
-            validate_plan_with_context(data, &union, plan)
+            let uses_shapes = uses_shapes_graph(&plan.arena);
+            let frozen = if uses_shapes {
+                FrozenIndexedDataset::from_graph_union_with_shapes(data, shapes)
+            } else {
+                FrozenIndexedDataset::from_graph_union(data, shapes)
+            };
+            validate_plan_with_frozen(data, plan, frozen, uses_shapes)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, shapes);
@@ -268,6 +336,21 @@ pub fn validate_plan_with_context(
     context: &Graph,
     plan: &PhysicalPlan,
 ) -> Result<ValidationOutcome, NonStratifiable> {
+    let uses_shapes = uses_shapes_graph(&plan.arena);
+    let frozen = if uses_shapes {
+        FrozenIndexedDataset::from_graphs(context, context)
+    } else {
+        FrozenIndexedDataset::from_graph(context)
+    };
+    validate_plan_with_frozen(data, plan, frozen, uses_shapes)
+}
+
+fn validate_plan_with_frozen(
+    data: &Graph,
+    plan: &PhysicalPlan,
+    frozen: FrozenIndexedDataset,
+    has_shapes_graph: bool,
+) -> Result<ValidationOutcome, NonStratifiable> {
     let strat = analyze(&plan.arena);
     if !strat.stratifiable {
         let components = strat
@@ -279,10 +362,11 @@ pub fn validate_plan_with_context(
         return Err(NonStratifiable { components });
     }
 
-    let sparql = SparqlExecutor::new(context)
-        .expect("building an in-memory Oxigraph store should succeed")
-        .with_frozen(FrozenIndexedDataset::from_graph(context));
-    let backend = path_backend(&sparql, context);
+    let sparql = SparqlExecutor::from_frozen(frozen, has_shapes_graph);
+    let backend = sparql
+        .frozen()
+        .expect("validation executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &sparql);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
         let label = plan
@@ -290,18 +374,10 @@ pub fn validate_plan_with_context(
             .get(&sp.shape)
             .cloned()
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
-        for v in focus_for_source(data, backend, &sp.source, &plan.arena, &sparql) {
+        for v in focus_for_source(data, &sp.source, &mut evaluator) {
             let t = std::time::Instant::now();
             let mut stack = HashSet::new();
-            let mut reasons = explain(
-                backend,
-                &plan.arena,
-                &v,
-                sp.shape,
-                None,
-                &mut stack,
-                &sparql,
-            );
+            let mut reasons = explain(&mut evaluator, &v, sp.shape, None, &mut stack);
             crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
@@ -319,45 +395,33 @@ pub fn validate_plan_with_context(
     })
 }
 
-/// The path-evaluation backend for a validation run: the indexed frozen snapshot
-/// when present (always so on the validation paths), else the context `Graph`
-/// (the inference / standalone-target fallback). See [`crate::path::PathBackend`].
-fn path_backend<'a>(sparql: &'a SparqlExecutor, context: &'a Graph) -> &'a dyn PathBackend {
-    match sparql.frozen() {
-        Some(frozen) => frozen,
-        None => context,
-    }
-}
-
 /// Focus nodes for a compiled [`FocusSource`].
 fn focus_for_source(
     data: &Graph,
-    backend: &dyn PathBackend,
     source: &FocusSource,
-    arena: &ShapeArena,
-    sparql: &SparqlExecutor,
+    evaluator: &mut ShapeEvaluator<'_>,
 ) -> Vec<Term> {
     match source {
         FocusSource::SubjectsOf(p) => subjects_of(data, p),
         FocusSource::ObjectsOf(p) => objects_of(data, p),
         FocusSource::Node(c) => vec![c.clone()],
         // the optimization: seed backward from the constant, no full scan
-        FocusSource::PathToConst { path, target } => pred(backend, target, path)
+        FocusSource::PathToConst { path, target } => pred(evaluator.g, target, path)
             .into_iter()
             .filter(|node| graph_contains_term(data, node))
             .collect(),
         FocusSource::ScanFilter { path, qualifier } => all_nodes(data)
             .into_iter()
             .filter(|v| {
-                let mut stack = HashSet::new();
-                succ(backend, v, path)
+                succ(evaluator.g, v, path)
                     .iter()
-                    .any(|u| holds(backend, arena, u, *qualifier, &mut stack, sparql))
+                    .any(|u| evaluator.holds(u, *qualifier))
             })
             .collect(),
         FocusSource::Sparql(target) => {
             let candidates = all_nodes(data);
-            sparql
+            evaluator
+                .sparql
                 .target_nodes(&target.query)
                 .unwrap_or_default()
                 .into_iter()
@@ -371,7 +435,8 @@ fn focus_for_source(
 pub fn focus_nodes(data: &Graph, sel: &Selector, arena: &ShapeArena) -> Vec<Term> {
     let sparql =
         SparqlExecutor::new(data).expect("building an in-memory Oxigraph store should succeed");
-    focus_nodes_with(data, data, sel, arena, &sparql)
+    let mut evaluator = ShapeEvaluator::new(data, arena, &sparql);
+    focus_nodes_with_evaluator(data, sel, &mut evaluator)
 }
 
 pub(crate) fn focus_nodes_with(
@@ -381,32 +446,41 @@ pub(crate) fn focus_nodes_with(
     arena: &ShapeArena,
     sparql: &SparqlExecutor,
 ) -> Vec<Term> {
+    let mut evaluator = ShapeEvaluator::new(backend, arena, sparql);
+    focus_nodes_with_evaluator(data, sel, &mut evaluator)
+}
+
+fn focus_nodes_with_evaluator(
+    data: &Graph,
+    sel: &Selector,
+    evaluator: &mut ShapeEvaluator<'_>,
+) -> Vec<Term> {
     match sel {
         Selector::HasOut(q) => subjects_of(data, q),
         Selector::HasIn(q) => objects_of(data, q),
         Selector::IsConst(c) => vec![c.clone()],
-        Selector::HasPath(path, qual) => match arena.get(*qual) {
+        Selector::HasPath(path, qual) => match evaluator.arena.get(*qual) {
             // Class targets are lowered to
             // rdf:type/rdfs:subClassOf* ending at a constant. Searching
             // backward from that constant avoids traversing the hierarchy once
             // for every node in the data graph.
-            Shape::TestConst(target) => pred(backend, target, path)
+            Shape::TestConst(target) => pred(evaluator.g, target, path)
                 .into_iter()
                 .filter(|node| graph_contains_term(data, node))
                 .collect(),
             _ => all_nodes(data)
                 .into_iter()
                 .filter(|v| {
-                    let mut stack = HashSet::new();
-                    succ(backend, v, path)
+                    succ(evaluator.g, v, path)
                         .iter()
-                        .any(|u| holds(backend, arena, u, *qual, &mut stack, sparql))
+                        .any(|u| evaluator.holds(u, *qual))
                 })
                 .collect(),
         },
         Selector::Sparql(target) => {
             let candidates = all_nodes(data);
-            sparql
+            evaluator
+                .sparql
                 .target_nodes(&target.query)
                 .unwrap_or_default()
                 .into_iter()
@@ -416,99 +490,190 @@ pub(crate) fn focus_nodes_with(
     }
 }
 
-/// `G, v ⊨ φ` (bare bool). Used for target selection, qualifier counting, and
-/// rule conditions (`crate::infer`).
-pub(crate) fn holds(
+fn holds_memoized(
     g: &dyn PathBackend,
     arena: &ShapeArena,
     v: &Term,
     id: ShapeId,
-    stack: &mut HashSet<(ShapeId, Term)>,
     sparql: &SparqlExecutor,
-) -> bool {
+    state: &mut EvalState,
+) -> EvalResult {
     let key = (id, v.clone());
-    if !stack.insert(key.clone()) {
-        return true; // back-edge ⇒ assume conforming: the gfp choice (doc 03)
+    if let Some(&holds) = state.memo.get(&key) {
+        #[cfg(test)]
+        {
+            state.cache_hits += 1;
+        }
+        return EvalResult {
+            holds,
+            cacheable: true,
+        };
+    }
+    if !state.active.insert(key.clone()) {
+        return EvalResult {
+            holds: true,
+            cacheable: false,
+        }; // back-edge ⇒ assume conforming: the gfp choice (doc 03)
     }
     let result = match arena.get(id) {
-        Shape::Top | Shape::Pending => true,
-        Shape::Sparql(constraint) => sparql
-            .constraint_violations(constraint, v)
-            .is_ok_and(|violations| violations.is_empty()),
-        Shape::TestConst(c) => v == c,
-        Shape::TestType(t) => value_type_holds(t, v),
-        Shape::TestKind(k) => k.matches(v),
-        Shape::Closed(q) => closed_offenders(g, v, q).is_empty(),
-        Shape::Eq(path, p) => succ(g, v, path) == objects(g, v, p),
-        Shape::Disj(path, p) => succ(g, v, path).is_disjoint(&objects(g, v, p)),
-        Shape::Lt(path, p) => all_pairs_ordered(g, v, path, p, false),
-        Shape::Le(path, p) => all_pairs_ordered(g, v, path, p, true),
-        Shape::UniqueLang(path) => unique_lang(&succ(g, v, path)),
-        Shape::Not(c) => !holds(g, arena, v, *c, stack, sparql),
-        Shape::And(cs) => cs.iter().all(|c| holds(g, arena, v, *c, stack, sparql)),
-        Shape::Or(cs) => cs.iter().any(|c| holds(g, arena, v, *c, stack, sparql)),
+        Shape::Top | Shape::Pending => EvalResult {
+            holds: true,
+            cacheable: true,
+        },
+        Shape::Sparql(constraint) => EvalResult {
+            holds: sparql
+                .constraint_violations(constraint, v)
+                .is_ok_and(|violations| violations.is_empty()),
+            cacheable: true,
+        },
+        Shape::TestConst(c) => EvalResult {
+            holds: v == c,
+            cacheable: true,
+        },
+        Shape::TestType(t) => EvalResult {
+            holds: value_type_holds(t, v),
+            cacheable: true,
+        },
+        Shape::TestKind(k) => EvalResult {
+            holds: k.matches(v),
+            cacheable: true,
+        },
+        Shape::Closed(q) => EvalResult {
+            holds: closed_offenders(g, v, q).is_empty(),
+            cacheable: true,
+        },
+        Shape::Eq(path, p) => EvalResult {
+            holds: succ(g, v, path) == objects(g, v, p),
+            cacheable: true,
+        },
+        Shape::Disj(path, p) => EvalResult {
+            holds: succ(g, v, path).is_disjoint(&objects(g, v, p)),
+            cacheable: true,
+        },
+        Shape::Lt(path, p) => EvalResult {
+            holds: all_pairs_ordered(g, v, path, p, false),
+            cacheable: true,
+        },
+        Shape::Le(path, p) => EvalResult {
+            holds: all_pairs_ordered(g, v, path, p, true),
+            cacheable: true,
+        },
+        Shape::UniqueLang(path) => EvalResult {
+            holds: unique_lang(&succ(g, v, path)),
+            cacheable: true,
+        },
+        Shape::Not(c) => {
+            let child = holds_memoized(g, arena, v, *c, sparql, state);
+            EvalResult {
+                holds: !child.holds,
+                cacheable: child.cacheable,
+            }
+        }
+        Shape::And(cs) => {
+            let mut result = EvalResult {
+                holds: true,
+                cacheable: true,
+            };
+            for child in cs {
+                let child = holds_memoized(g, arena, v, *child, sparql, state);
+                result.cacheable &= child.cacheable;
+                if !child.holds {
+                    result.holds = false;
+                    break;
+                }
+            }
+            result
+        }
+        Shape::Or(cs) => {
+            let mut result = EvalResult {
+                holds: false,
+                cacheable: true,
+            };
+            for child in cs {
+                let child = holds_memoized(g, arena, v, *child, sparql, state);
+                result.cacheable &= child.cacheable;
+                if child.holds {
+                    result.holds = true;
+                    break;
+                }
+            }
+            result
+        }
         Shape::Count {
             path,
             min,
             max,
             qualifier,
         } => {
-            let n = succ(g, v, path)
-                .iter()
-                .filter(|u| holds(g, arena, u, *qualifier, stack, sparql))
-                .count() as u64;
-            min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m)
+            let mut n = 0;
+            let mut cacheable = true;
+            for value in succ(g, v, path) {
+                let qualified = holds_memoized(g, arena, &value, *qualifier, sparql, state);
+                cacheable &= qualified.cacheable;
+                n += u64::from(qualified.holds);
+            }
+            EvalResult {
+                holds: min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m),
+                cacheable,
+            }
         }
     };
-    stack.remove(&key);
+    state.active.remove(&key);
+    if result.cacheable {
+        state.memo.insert(key, result.holds);
+    }
     result
 }
 
 /// The reasons `φ` (slot `id`) fails at `node`. Empty iff it holds. `path_ctx`
 /// is the rendered path by which `node` was reached from the enclosing focus.
 fn explain(
-    g: &dyn PathBackend,
-    arena: &ShapeArena,
+    evaluator: &mut ShapeEvaluator<'_>,
     node: &Term,
     id: ShapeId,
     path_ctx: Option<&str>,
     stack: &mut HashSet<(ShapeId, Term)>,
-    sparql: &SparqlExecutor,
 ) -> Vec<Reason> {
     let key = (id, node.clone());
     if !stack.insert(key.clone()) {
         return Vec::new(); // back-edge ⇒ assume conforming (gfp, doc 03)
     }
-    let reasons = match arena.get(id) {
+    if evaluator.holds(node, id) {
+        stack.remove(&key);
+        return Vec::new();
+    }
+    let reasons = match evaluator.arena.get(id).clone() {
         Shape::Top | Shape::Pending => Vec::new(),
-        Shape::Sparql(constraint) => match sparql.constraint_violations(constraint, node) {
-            Ok(violations) => violations
-                .into_iter()
-                .map(|violation| {
-                    // Compute the message before the value/path fields are moved
-                    // out of `violation`.
-                    let message = sparql_violation_message(&violation, constraint, node);
-                    Reason {
-                        value: violation.value.unwrap_or_else(|| node.clone()),
-                        path: violation
-                            .path
-                            .map(|path| path.to_string())
-                            .or_else(|| path_ctx.map(str::to_string))
-                            .or_else(|| constraint.path.as_ref().map(path_to_string)),
-                        message,
-                        shape: id,
-                        sub_reasons: Vec::new(),
-                    }
-                })
-                .collect(),
-            Err(error) => vec![Reason {
-                value: node.clone(),
-                path: path_ctx.map(str::to_string),
-                shape: id,
-                message: format!("SPARQL constraint evaluation failed: {error}"),
-                sub_reasons: Vec::new(),
-            }],
-        },
+        Shape::Sparql(constraint) => {
+            match evaluator.sparql.constraint_violations(&constraint, node) {
+                Ok(violations) => violations
+                    .into_iter()
+                    .map(|violation| {
+                        // Compute the message before the value/path fields are moved
+                        // out of `violation`.
+                        let message = sparql_violation_message(&violation, &constraint, node);
+                        Reason {
+                            value: violation.value.unwrap_or_else(|| node.clone()),
+                            path: violation
+                                .path
+                                .map(|path| path.to_string())
+                                .or_else(|| path_ctx.map(str::to_string))
+                                .or_else(|| constraint.path.as_ref().map(path_to_string)),
+                            message,
+                            shape: id,
+                            sub_reasons: Vec::new(),
+                        }
+                    })
+                    .collect(),
+                Err(error) => vec![Reason {
+                    value: node.clone(),
+                    path: path_ctx.map(str::to_string),
+                    shape: id,
+                    message: format!("SPARQL constraint evaluation failed: {error}"),
+                    sub_reasons: Vec::new(),
+                }],
+            }
+        }
         Shape::TestConst(_)
         | Shape::TestType(_)
         | Shape::TestKind(_)
@@ -516,18 +681,15 @@ fn explain(
         | Shape::Disj(..)
         | Shape::Lt(..)
         | Shape::Le(..)
-        | Shape::UniqueLang(_) => {
-            let mut s = HashSet::new();
-            leaf(
-                holds(g, arena, node, id, &mut s, sparql),
-                node,
-                id,
-                path_ctx,
-                format!("{} not satisfied", shape_to_string(arena, id)),
-            )
-        }
+        | Shape::UniqueLang(_) => leaf(
+            evaluator.holds(node, id),
+            node,
+            id,
+            path_ctx,
+            format!("{} not satisfied", shape_to_string(evaluator.arena, id)),
+        ),
         Shape::Closed(q) => {
-            let bad = closed_offenders(g, node, q);
+            let bad = closed_offenders(evaluator.g, node, &q);
             if bad.is_empty() {
                 Vec::new()
             } else {
@@ -542,7 +704,7 @@ fn explain(
             }
         }
         Shape::Not(c) => {
-            if explain(g, arena, node, *c, path_ctx, stack, sparql).is_empty() {
+            if explain(evaluator, node, c, path_ctx, stack).is_empty() {
                 vec![Reason {
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
@@ -556,13 +718,13 @@ fn explain(
         }
         Shape::And(cs) => cs
             .iter()
-            .flat_map(|c| explain(g, arena, node, *c, path_ctx, stack, sparql))
+            .flat_map(|c| explain(evaluator, node, *c, path_ctx, stack))
             .collect(),
         Shape::Or(cs) => {
             let mut sub_reasons = Vec::new();
             let mut satisfied = false;
-            for c in cs {
-                let sub = explain(g, arena, node, *c, path_ctx, stack, sparql);
+            for c in &cs {
+                let sub = explain(evaluator, node, *c, path_ctx, stack);
                 if sub.is_empty() {
                     satisfied = true;
                     break;
@@ -586,9 +748,7 @@ fn explain(
             min,
             max,
             qualifier,
-        } => explain_count(
-            g, arena, node, id, path, *min, *max, *qualifier, stack, sparql,
-        ),
+        } => explain_count(evaluator, node, id, &path, min, max, qualifier, stack),
     };
     stack.remove(&key);
     reasons
@@ -596,8 +756,7 @@ fn explain(
 
 #[allow(clippy::too_many_arguments)]
 fn explain_count(
-    g: &dyn PathBackend,
-    arena: &ShapeArena,
+    evaluator: &mut ShapeEvaluator<'_>,
     node: &Term,
     id: ShapeId,
     path: &Path,
@@ -605,12 +764,11 @@ fn explain_count(
     max: Option<u64>,
     qualifier: ShapeId,
     stack: &mut HashSet<(ShapeId, Term)>,
-    sparql: &SparqlExecutor,
 ) -> Vec<Reason> {
     let path_str = path_to_string(path);
-    let matched: Vec<Term> = succ(g, node, path)
+    let matched: Vec<Term> = succ(evaluator.g, node, path)
         .into_iter()
-        .filter(|u| holds(g, arena, u, qualifier, stack, sparql))
+        .filter(|u| evaluator.holds(u, qualifier))
         .collect();
     let n = matched.len() as u64;
     let mut reasons = Vec::new();
@@ -618,11 +776,11 @@ fn explain_count(
     if let Some(mx) = max
         && n > mx
     {
-        match arena.get(qualifier) {
+        match evaluator.arena.get(qualifier).clone() {
             // ∀path.inner encoded as ∃≤0 path.¬inner: drill into the offenders.
             Shape::Not(inner) if mx == 0 => {
                 for u in &matched {
-                    reasons.extend(explain(g, arena, u, *inner, Some(&path_str), stack, sparql));
+                    reasons.extend(explain(evaluator, u, inner, Some(&path_str), stack));
                 }
             }
             _ => reasons.push(Reason {
@@ -834,4 +992,67 @@ fn all_nodes(g: &Graph) -> HashSet<Term> {
 fn graph_contains_term(g: &Graph, term: &Term) -> bool {
     node_of(term).is_some_and(|node| g.triples_for_subject(&node).next().is_some())
         || g.triples_for_object(term).next().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxrdf::{NamedNode, Triple};
+
+    fn iri(local: &str) -> NamedNode {
+        NamedNode::new(format!("http://ex/{local}")).unwrap()
+    }
+
+    fn term(local: &str) -> Term {
+        Term::NamedNode(iri(local))
+    }
+
+    #[test]
+    fn memoizes_shared_value_checks_across_focus_nodes() {
+        let p = iri("p");
+        let shared = term("shared");
+        let mut graph = Graph::new();
+        graph.insert(&Triple::new(iri("a"), p.clone(), shared.clone()));
+        graph.insert(&Triple::new(iri("b"), p.clone(), shared.clone()));
+
+        let mut arena = ShapeArena::new();
+        let qualifier = arena.insert(Shape::TestConst(shared));
+        let root = arena.insert(Shape::Count {
+            path: Path::Pred(p),
+            min: Some(1),
+            max: None,
+            qualifier,
+        });
+        let sparql = SparqlExecutor::new(&graph).unwrap();
+        let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
+
+        assert!(evaluator.holds(&term("a"), root));
+        let hits_before = evaluator.state.cache_hits;
+        assert!(evaluator.holds(&term("b"), root));
+        assert!(
+            evaluator.state.cache_hits > hits_before,
+            "the shared qualifier/value check should come from the run cache"
+        );
+    }
+
+    #[test]
+    fn does_not_cache_cycle_dependent_results() {
+        // A := B ∧ false; B := A. While evaluating A, the B result is
+        // provisionally true through the A back-edge, but the gfp solution is
+        // A=false, B=false. Caching that provisional B=true would be unsound.
+        let mut arena = ShapeArena::new();
+        let a = arena.reserve();
+        let b = arena.reserve();
+        let bottom = arena.insert(Shape::Or(Vec::new()));
+        arena.set(a, Shape::And(vec![b, bottom]));
+        arena.set(b, Shape::And(vec![a]));
+
+        let graph = Graph::new();
+        let sparql = SparqlExecutor::new(&graph).unwrap();
+        let mut evaluator = ShapeEvaluator::new(&graph, &arena, &sparql);
+        let node = term("x");
+
+        assert!(!evaluator.holds(&node, a));
+        assert!(!evaluator.holds(&node, b));
+    }
 }

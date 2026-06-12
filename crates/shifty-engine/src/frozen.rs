@@ -225,6 +225,22 @@ impl FrozenIndexedDataset {
         }
     }
 
+    /// Build a default graph from the set union of two source graphs without
+    /// materializing an intermediate `Graph`.
+    pub fn from_graph_union(left: &Graph, right: &Graph) -> Self {
+        let terms = TermDictionary::new();
+        let mut triples = intern_graph(left, &terms);
+        triples.extend(intern_graph(right, &terms));
+        let default_graph = TripleIndex::build(triples);
+        let stats = DatasetStatistics::compute(&default_graph);
+        Self {
+            terms,
+            default_graph,
+            named_graphs: HashMap::new(),
+            stats,
+        }
+    }
+
     /// Intern a term against this dataset's dictionary, returning its `TermId`.
     /// Unknown terms (e.g. query constants absent from the data) receive a fresh
     /// id that matches no stored triple — exactly the semantics a scan needs.
@@ -279,6 +295,35 @@ impl FrozenIndexedDataset {
         }))
     }
 
+    pub(crate) fn triples_for_predicate(
+        &self,
+        predicate: &NamedNode,
+    ) -> Box<dyn Iterator<Item = (Term, Term)> + '_> {
+        let p = self.intern(&Term::NamedNode(predicate.clone()));
+        Box::new(
+            self.scan(None, Some(p), None, GraphSel::Default)
+                .map(|[subject, _, object]| {
+                    (self.externalize_id(subject), self.externalize_id(object))
+                }),
+        )
+    }
+
+    pub(crate) fn outgoing(
+        &self,
+        subject: &Term,
+    ) -> Box<dyn Iterator<Item = (NamedNode, Term)> + '_> {
+        let s = self.intern(subject);
+        Box::new(
+            self.scan(Some(s), None, None, GraphSel::Default)
+                .filter_map(|[_, predicate, object]| {
+                    let Term::NamedNode(predicate) = self.externalize_id(predicate) else {
+                        return None;
+                    };
+                    Some((predicate, self.externalize_id(object)))
+                }),
+        )
+    }
+
     /// Add a committed inference batch to the default-graph indexes.
     pub(crate) fn extend_triples<'a>(
         &mut self,
@@ -310,6 +355,31 @@ impl FrozenIndexedDataset {
         named_triples.sort_unstable();
         named_triples.dedup();
 
+        let mut named_graphs = HashMap::new();
+        named_graphs.insert(graph_id, named_triples);
+
+        Self {
+            terms,
+            default_graph,
+            named_graphs,
+            stats,
+        }
+    }
+
+    /// Build a union default graph while also exposing `shapes` through the
+    /// named `$shapesGraph` slot.
+    pub fn from_graph_union_with_shapes(data: &Graph, shapes: &Graph) -> Self {
+        let terms = TermDictionary::new();
+        let mut triples = intern_graph(data, &terms);
+        triples.extend(intern_graph(shapes, &terms));
+        let default_graph = TripleIndex::build(triples);
+        let stats = DatasetStatistics::compute(&default_graph);
+
+        let shapes_iri = NamedNode::new(SHAPES_GRAPH_IRI).expect("static IRI is valid");
+        let graph_id = terms.intern(Term::NamedNode(shapes_iri));
+        let mut named_triples = intern_graph(shapes, &terms);
+        named_triples.sort_unstable();
+        named_triples.dedup();
         let mut named_graphs = HashMap::new();
         named_graphs.insert(graph_id, named_triples);
 
@@ -637,5 +707,17 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         assert_eq!(named_quads.len(), 1);
+    }
+
+    #[test]
+    fn graph_union_builds_one_deduplicated_default_graph() {
+        let left = small_graph();
+        let mut right = Graph::new();
+        right.insert(triple_nnn("http://ex/a", "http://ex/p", "http://ex/b").as_ref());
+        right.insert(triple_nnn("http://ex/new", "http://ex/p", "http://ex/b").as_ref());
+
+        let ds = FrozenIndexedDataset::from_graph_union(&left, &right);
+
+        assert_eq!(ds.stats.triple_count, 4);
     }
 }

@@ -13,7 +13,7 @@ pub mod path;
 pub mod vocab;
 
 pub use diagnostics::{DiagLevel, Diagnostic, ParseError};
-pub use graph::Loaded;
+pub use graph::{Loaded, RdfFormat};
 
 use shifty_algebra::Schema;
 
@@ -26,6 +26,10 @@ pub struct ParseOutput {
 /// Load a Turtle shapes graph (for inspecting the raw RDF stage).
 pub fn load_turtle(data: &[u8], base: Option<&str>) -> Result<Loaded, ParseError> {
     Loaded::from_turtle(data, base)
+}
+
+pub fn load_ntriples(data: &[u8]) -> Result<Loaded, ParseError> {
+    Loaded::from_ntriples(data)
 }
 
 /// Parse and lower a Turtle shapes graph into the algebra IR.

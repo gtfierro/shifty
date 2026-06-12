@@ -22,8 +22,8 @@ Graph inputs
 ~~~~~~~~~~~~
 All three functions accept any of:
 
-* :class:`rdflib.Graph`       — serialized to Turtle automatically
-* :class:`pathlib.Path`       — read as a Turtle/N-Triples file
+* :class:`rdflib.Graph`       — serialized to N-Triples automatically
+* :class:`pathlib.Path`       — parsed directly as Turtle or N-Triples
 * ``str``                     — treated as a file path if the path exists,
                                 otherwise as raw Turtle text
 * ``bytes``                   — raw Turtle bytes passed directly to the parser
@@ -39,11 +39,12 @@ All three functions accept any of:
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 
 from ._shifty import (
     AlgebraResult,
     InferResult as _RustInferResult,
+    PreparedValidator as _RustPreparedValidator,
     Reason,
     Violation,
     W3cResult,
@@ -63,34 +64,57 @@ __all__ = [
     "Violation",
     "Reason",
     "InferResult",
+    "PreparedValidator",
 ]
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
 
 
-def _to_turtle_bytes(graph: GraphInput) -> bytes:
-    """Convert any supported graph input type to Turtle bytes."""
+class _RdfInput(NamedTuple):
+    data: Optional[bytes]
+    path: Optional[str]
+    format: str
+
+
+def _path_format(path: pathlib.Path) -> str:
+    return "nt" if path.suffix.lower() in {".nt", ".ntriples"} else "turtle"
+
+
+def _to_rdf_input(graph: GraphInput) -> _RdfInput:
+    """Convert a public graph input into the native binding's input descriptor."""
     if isinstance(graph, bytes):
-        return graph
+        return _RdfInput(graph, None, "turtle")
     if isinstance(graph, pathlib.Path):
-        return graph.read_bytes()
+        if not graph.exists():
+            raise FileNotFoundError(graph)
+        if not graph.is_file():
+            raise IsADirectoryError(graph)
+        return _RdfInput(None, str(graph), _path_format(graph))
     if isinstance(graph, str):
-        p = pathlib.Path(graph)
-        if p.exists():
-            return p.read_bytes()
-        return graph.encode("utf-8")
-    # Duck-type for rdflib.Graph (and any object with a .serialize method)
+        path = pathlib.Path(graph)
+        if path.is_file():
+            return _RdfInput(None, str(path), _path_format(path))
+        return _RdfInput(graph.encode("utf-8"), None, "turtle")
     serialize = getattr(graph, "serialize", None)
     if serialize is not None:
-        result = serialize(format="turtle")
+        result = serialize(format="nt", encoding="utf-8")
         if isinstance(result, str):
-            return result.encode("utf-8")
+            result = result.encode("utf-8")
         if isinstance(result, bytes):
-            return result
+            return _RdfInput(result, None, "nt")
     raise TypeError(
         f"Cannot convert {type(graph).__name__!r} to RDF data. "
         "Expected rdflib.Graph, pathlib.Path, str (path or Turtle), or bytes."
     )
+
+
+def _to_turtle_bytes(graph: GraphInput) -> bytes:
+    """Compatibility helper that materializes the input as RDF bytes."""
+    source = _to_rdf_input(graph)
+    if source.data is not None:
+        return source.data
+    assert source.path is not None
+    return pathlib.Path(source.path).read_bytes()
 
 
 class InferResult:
@@ -124,6 +148,64 @@ class InferResult:
 
     def __repr__(self) -> str:
         return f"InferResult(inferred={self.inferred_count})"
+
+
+class PreparedValidator:
+    """Parsed and planned SHACL shapes reusable across data graphs."""
+
+    def __init__(self, shacl_graph: GraphInput, *, base: Optional[str] = None) -> None:
+        shapes = _to_rdf_input(shacl_graph)
+        self._inner = _RustPreparedValidator(
+            shapes.data,
+            shapes.path,
+            shapes.format,
+            base,
+        )
+
+    @property
+    def diagnostics(self) -> list[str]:
+        """Warnings produced while lowering the shapes graph."""
+        return self._inner.diagnostics
+
+    def validate(
+        self,
+        data_graph: GraphInput,
+        *,
+        graph_mode: str = "union",
+        infer: bool = True,
+    ) -> "tuple[bool, rdflib.Graph, str]":
+        import rdflib
+
+        data = _to_rdf_input(data_graph)
+        result: W3cResult = self._inner.validate_w3c(
+            data.data,
+            data.path,
+            data.format,
+            graph_mode,
+            infer,
+        )
+        graph = rdflib.Graph()
+        graph.parse(data=result.report_turtle, format="turtle")
+        return (result.conforms, graph, result.results_text)
+
+    def validate_algebra(
+        self,
+        data_graph: GraphInput,
+        *,
+        graph_mode: str = "union",
+        infer: bool = True,
+    ) -> AlgebraResult:
+        data = _to_rdf_input(data_graph)
+        return self._inner.validate_algebra(
+            data.data,
+            data.path,
+            data.format,
+            graph_mode,
+            infer,
+        )
+
+    def __repr__(self) -> str:
+        return repr(self._inner)
 
 
 def validate(
@@ -160,9 +242,19 @@ def validate(
     """
     import rdflib
 
-    data_bytes = _to_turtle_bytes(data_graph)
-    shapes_bytes = _to_turtle_bytes(shacl_graph) if shacl_graph is not None else None
-    result: W3cResult = _validate_w3c(data_bytes, shapes_bytes, graph_mode, infer, base)
+    data = _to_rdf_input(data_graph)
+    shapes = _to_rdf_input(shacl_graph) if shacl_graph is not None else _RdfInput(None, None, "turtle")
+    result: W3cResult = _validate_w3c(
+        data.data,
+        data.path,
+        data.format,
+        shapes.data,
+        shapes.path,
+        shapes.format,
+        graph_mode,
+        infer,
+        base,
+    )
 
     g = rdflib.Graph()
     g.parse(data=result.report_turtle, format="turtle")
@@ -197,9 +289,19 @@ def validate_algebra(
         ``.conforms`` is ``True`` when no violations were found.
         ``.violations`` lists each failing focus node with reasons.
     """
-    data_bytes = _to_turtle_bytes(data_graph)
-    shapes_bytes = _to_turtle_bytes(shacl_graph) if shacl_graph is not None else None
-    return _validate_algebra(data_bytes, shapes_bytes, graph_mode, infer, base)
+    data = _to_rdf_input(data_graph)
+    shapes = _to_rdf_input(shacl_graph) if shacl_graph is not None else _RdfInput(None, None, "turtle")
+    return _validate_algebra(
+        data.data,
+        data.path,
+        data.format,
+        shapes.data,
+        shapes.path,
+        shapes.format,
+        graph_mode,
+        infer,
+        base,
+    )
 
 
 def infer(
@@ -226,7 +328,15 @@ def infer(
         Call ``.graph()`` to get the result as an :class:`rdflib.Graph`,
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
-    data_bytes = _to_turtle_bytes(data_graph)
-    shapes_bytes = _to_turtle_bytes(shapes_graph) if shapes_graph is not None else None
-    inner = _infer(data_bytes, shapes_bytes, base)
+    data = _to_rdf_input(data_graph)
+    shapes = _to_rdf_input(shapes_graph) if shapes_graph is not None else _RdfInput(None, None, "turtle")
+    inner = _infer(
+        data.data,
+        data.path,
+        data.format,
+        shapes.data,
+        shapes.path,
+        shapes.format,
+        base,
+    )
     return InferResult(inner)

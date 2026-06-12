@@ -52,7 +52,13 @@ pub struct ValidationReport {
 
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
 pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
-    validate_report_context(shapes, data, data)
+    let has_shapes_graph = shapes_reference_shapes_graph(shapes);
+    let frozen = if has_shapes_graph {
+        FrozenIndexedDataset::from_graphs(data, &shapes.graph)
+    } else {
+        FrozenIndexedDataset::from_graph(data)
+    };
+    validate_report_context(shapes, data, frozen, has_shapes_graph)
 }
 
 /// Validate split data and shapes graphs using the selected graph mode.
@@ -66,15 +72,32 @@ pub fn validate_report_graphs_with_mode(
     data: &Graph,
     mode: ValidationGraphMode,
 ) -> ValidationReport {
+    let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     match mode {
-        ValidationGraphMode::Data => validate_report_context(shapes, data, data),
+        ValidationGraphMode::Data => {
+            let frozen = if has_shapes_graph {
+                FrozenIndexedDataset::from_graphs(data, &shapes.graph)
+            } else {
+                FrozenIndexedDataset::from_graph(data)
+            };
+            validate_report_context(shapes, data, frozen, has_shapes_graph)
+        }
         ValidationGraphMode::Union => {
-            let union = graph_union(data, &shapes.graph);
-            validate_report_context(shapes, data, &union)
+            let frozen = if has_shapes_graph {
+                FrozenIndexedDataset::from_graph_union_with_shapes(data, &shapes.graph)
+            } else {
+                FrozenIndexedDataset::from_graph_union(data, &shapes.graph)
+            };
+            validate_report_context(shapes, data, frozen, has_shapes_graph)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, &shapes.graph);
-            validate_report_context(shapes, &union, &union)
+            let frozen = if has_shapes_graph {
+                FrozenIndexedDataset::from_graphs(&union, &shapes.graph)
+            } else {
+                FrozenIndexedDataset::from_graph(&union)
+            };
+            validate_report_context(shapes, &union, frozen, has_shapes_graph)
         }
     }
 }
@@ -82,12 +105,11 @@ pub fn validate_report_graphs_with_mode(
 fn validate_report_context(
     shapes: &Loaded,
     focus_data: &Graph,
-    context: &Graph,
+    frozen: FrozenIndexedDataset,
+    has_shapes_graph: bool,
 ) -> ValidationReport {
-    // SHACL-SPARQL constraints and SPARQL-based targets execute against an
-    // in-memory store over the context graph. Build it once, and only when some
-    // shape actually carries a `sh:sparql` constraint or a `sh:target`, so the
-    // common case pays nothing.
+    // Only execute SPARQL target/constraint work when the shapes graph contains
+    // those features. Query execution shares the frozen validation dataset.
     let needs_sparql = shapes
         .graph
         .triples_for_predicate(vocab::SH_SPARQL)
@@ -98,36 +120,37 @@ fn validate_report_context(
             .triples_for_predicate(vocab::SH_TARGET)
             .next()
             .is_some();
-    let sparql = if needs_sparql {
-        // Only mirror the shapes into a named graph (for `$shapesGraph`) when a
-        // query actually references it — otherwise skip the extra copy.
-        if shapes_reference_shapes_graph(shapes) {
-            SparqlExecutor::new_with_shapes(context, &shapes.graph)
-                .ok()
-                .map(|s| s.with_frozen(FrozenIndexedDataset::from_graphs(context, &shapes.graph)))
-        } else {
-            SparqlExecutor::new(context)
-                .ok()
-                .map(|s| s.with_frozen(FrozenIndexedDataset::from_graph(context)))
-        }
-    } else {
-        None
-    };
-    // Dictionary-encoded snapshot of the context, used as the indexed backend
-    // for every `sh:path` / `rdfs:subClassOf*` traversal below. Built once and
-    // shared across all (shape, focus) visits — the report-path analogue of the
-    // algebra path's `FrozenIndexedDataset` reachability backend.
-    let frozen = FrozenIndexedDataset::from_graph(context);
+    let sparql = SparqlExecutor::from_frozen(frozen, needs_sparql && has_shapes_graph);
     // Index class membership once (instead of a forward scan over every node per
     // class-target shape): this is the report path's analogue of the plan's
     // backward `PathToConst` focus source, amortized across all shapes.
-    let class_index = build_class_index(context, focus_data, &frozen);
+    let has_explicit_class_target = shapes
+        .graph
+        .triples_for_predicate(vocab::SH_TARGET_CLASS)
+        .next()
+        .is_some();
+    let has_implicit_class_target = shapes.graph.iter().any(|triple| {
+        let subject = triple.subject.into_owned();
+        is_shape_node(shapes, &subject)
+            && (shapes.is_instance_of(&subject, vocab::RDFS_CLASS)
+                || shapes.is_instance_of(&subject, vocab::OWL_CLASS))
+    });
+    let needs_class_index = has_explicit_class_target || has_implicit_class_target;
+    let class_index = if needs_class_index {
+        build_class_index(
+            focus_data,
+            sparql
+                .frozen()
+                .expect("report validation always has a frozen dataset"),
+        )
+    } else {
+        HashMap::new()
+    };
     let r = Reporter {
         shapes,
         focus_data,
-        context,
-        frozen,
         sparql,
+        needs_sparql,
         class_index,
         path_cache: RefCell::new(HashMap::new()),
     };
@@ -229,10 +252,8 @@ fn substitute_messages(
 struct Reporter<'a> {
     shapes: &'a Loaded,
     focus_data: &'a Graph,
-    context: &'a Graph,
-    /// Indexed snapshot of `context` for path / class-hierarchy traversal.
-    frozen: FrozenIndexedDataset,
-    sparql: Option<SparqlExecutor>,
+    sparql: SparqlExecutor,
+    needs_sparql: bool,
     /// `class → focus-data instances` under `rdf:type / rdfs:subClassOf*`, built
     /// once and shared by every `sh:targetClass` / implicit-class lookup.
     class_index: HashMap<Term, Vec<Term>>,
@@ -247,6 +268,12 @@ type Visited = HashSet<(NamedOrBlankNode, Term)>;
 type PathCacheEntry = (Option<Term>, Option<Path>);
 
 impl Reporter<'_> {
+    fn frozen(&self) -> &FrozenIndexedDataset {
+        self.sparql
+            .frozen()
+            .expect("report validation always has a frozen dataset")
+    }
+
     fn target_shapes(&self) -> Vec<NamedOrBlankNode> {
         let mut found: HashSet<NamedOrBlankNode> = HashSet::new();
         for t in self.shapes.graph.iter() {
@@ -280,24 +307,7 @@ impl Reporter<'_> {
 
     /// Does this node look like a SHACL shape (so its class-ness implies a target)?
     fn is_shape(&self, n: &NamedOrBlankNode) -> bool {
-        self.shapes.has_type(n, vocab::SH_NODE_SHAPE)
-            || self.shapes.has_type(n, vocab::SH_PROPERTY_SHAPE)
-            || [
-                vocab::SH_PROPERTY,
-                vocab::SH_NODE,
-                vocab::SH_AND,
-                vocab::SH_OR,
-                vocab::SH_NOT,
-                vocab::SH_XONE,
-                vocab::SH_DATATYPE,
-                vocab::SH_CLASS,
-                vocab::SH_NODE_KIND,
-                vocab::SH_IN,
-                vocab::SH_HAS_VALUE,
-                vocab::SH_PROPERTY,
-            ]
-            .iter()
-            .any(|p| self.shapes.object(n, *p).is_some())
+        is_shape_node(self.shapes, n)
     }
 
     fn is_class(&self, n: &NamedOrBlankNode) -> bool {
@@ -338,7 +348,8 @@ impl Reporter<'_> {
         }
         // SPARQL-based targets: sh:target [ sh:select "…" ]. The query selects
         // `?this` focus nodes from the context store.
-        if let Some(exec) = &self.sparql {
+        if self.needs_sparql {
+            let exec = &self.sparql;
             for target in self.shapes.objects(shape, vocab::SH_TARGET) {
                 let Some(target_node) = term_to_node(&target) else {
                     continue;
@@ -407,7 +418,7 @@ impl Reporter<'_> {
 
         let (path_term, parsed) = self.shape_path(shape);
         let value_nodes: Vec<Term> = match &parsed {
-            Some(p) => succ(&self.frozen, focus, p).into_iter().collect(),
+            Some(p) => succ(self.frozen(), focus, p).into_iter().collect(),
             None => vec![focus.clone()],
         };
         let severity = self.severity(shape);
@@ -485,7 +496,10 @@ impl Reporter<'_> {
         parsed_path: &Option<Path>,
         out: &mut Vec<ValidationResult>,
     ) {
-        let Some(sparql) = &self.sparql else { return };
+        if !self.needs_sparql {
+            return;
+        }
+        let sparql = &self.sparql;
         let severity = self.severity(shape);
         for constraint_term in self.shapes.objects(shape, vocab::SH_SPARQL) {
             let Some(constraint_node) = term_to_node(&constraint_term) else {
@@ -585,17 +599,14 @@ impl Reporter<'_> {
             }
         }
         for value_node in value_nodes {
-            let Some(node) = term_to_node(value_node) else {
-                continue;
-            };
-            for triple in self.context.triples_for_subject(node.as_ref()) {
-                if allowed.contains(&triple.predicate.into_owned()) {
+            for (predicate, object) in self.frozen().outgoing(value_node) {
+                if allowed.contains(&predicate) {
                     continue;
                 }
                 out.push(ValidationResult {
                     focus: focus.clone(),
-                    path: Some(Term::NamedNode(triple.predicate.into_owned())),
-                    value: Some(triple.object.into_owned()),
+                    path: Some(Term::NamedNode(predicate)),
+                    value: Some(object),
                     component: vocab::SH_CC_CLOSED.into_owned(),
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
@@ -617,7 +628,7 @@ impl Reporter<'_> {
             let Term::NamedNode(predicate) = predicate else {
                 continue;
             };
-            let other = succ(&self.frozen, focus, &Path::Pred(predicate));
+            let other = succ(self.frozen(), focus, &Path::Pred(predicate));
             for value in value_nodes.iter().filter(|value| !other.contains(*value)) {
                 self.push(
                     out,
@@ -643,7 +654,7 @@ impl Reporter<'_> {
             let Term::NamedNode(predicate) = predicate else {
                 continue;
             };
-            let other = succ(&self.frozen, focus, &Path::Pred(predicate));
+            let other = succ(self.frozen(), focus, &Path::Pred(predicate));
             for value in value_nodes.iter().filter(|value| other.contains(*value)) {
                 self.push(
                     out,
@@ -668,7 +679,7 @@ impl Reporter<'_> {
                     continue;
                 };
                 for left in value_nodes {
-                    for right in succ(&self.frozen, focus, &Path::Pred(predicate.clone())) {
+                    for right in succ(self.frozen(), focus, &Path::Pred(predicate.clone())) {
                         let ordering = compare_terms(left, &right);
                         let passes = ordering == Some(Ordering::Less)
                             || inclusive && ordering == Some(Ordering::Equal);
@@ -1005,7 +1016,7 @@ impl Reporter<'_> {
     }
 
     fn is_instance(&self, u: &Term, class: &Term) -> bool {
-        succ(&self.frozen, u, &class_path()).contains(class)
+        succ(self.frozen(), u, &class_path()).contains(class)
     }
 
     fn int(&self, s: &NamedOrBlankNode, p: NamedNodeRef) -> Option<u64> {
@@ -1030,6 +1041,27 @@ impl Reporter<'_> {
             _ => vocab::SH_VIOLATION.into_owned(),
         }
     }
+}
+
+fn is_shape_node(shapes: &Loaded, node: &NamedOrBlankNode) -> bool {
+    shapes.has_type(node, vocab::SH_NODE_SHAPE)
+        || shapes.has_type(node, vocab::SH_PROPERTY_SHAPE)
+        || [
+            vocab::SH_PROPERTY,
+            vocab::SH_NODE,
+            vocab::SH_AND,
+            vocab::SH_OR,
+            vocab::SH_NOT,
+            vocab::SH_XONE,
+            vocab::SH_DATATYPE,
+            vocab::SH_CLASS,
+            vocab::SH_NODE_KIND,
+            vocab::SH_IN,
+            vocab::SH_HAS_VALUE,
+            vocab::SH_PROPERTY,
+        ]
+        .iter()
+        .any(|predicate| shapes.object(node, *predicate).is_some())
 }
 
 /// Whether any `sh:select` / `sh:ask` query references `$shapesGraph`, so the
@@ -1058,7 +1090,6 @@ fn class_path() -> Path {
 /// each distinct type is computed at most once. Only nodes present in the focus
 /// (data) graph are indexed, matching the original target-selection semantics.
 fn build_class_index(
-    context: &Graph,
     focus_data: &Graph,
     frozen: &FrozenIndexedDataset,
 ) -> HashMap<Term, Vec<Term>> {
@@ -1067,12 +1098,10 @@ fn build_class_index(
     let mut supers: HashMap<Term, Vec<Term>> = HashMap::new();
     let mut index: HashMap<Term, Vec<Term>> = HashMap::new();
     let mut seen: HashSet<(Term, Term)> = HashSet::new();
-    for triple in context.triples_for_predicate(vocab::RDF_TYPE) {
-        let node = node_term(triple.subject);
+    for (node, ty) in frozen.triples_for_predicate(&vocab::rdf_type()) {
         if !focus_nodes.contains(&node) {
             continue;
         }
-        let ty = triple.object.into_owned();
         let classes = supers
             .entry(ty.clone())
             .or_insert_with(|| succ(frozen, &ty, &subclass_star).into_iter().collect());

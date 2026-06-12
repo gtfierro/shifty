@@ -3,8 +3,17 @@
 use crate::diagnostics::ParseError;
 use crate::vocab;
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term};
-use oxttl::TurtleParser;
+use oxttl::{NTriplesParser, TurtleParser};
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RdfFormat {
+    Turtle,
+    NTriples,
+}
 
 /// A loaded shapes graph plus the prefixes declared in the document.
 pub struct Loaded {
@@ -16,13 +25,35 @@ pub struct Loaded {
 impl Loaded {
     /// Parse a Turtle document into an in-memory graph.
     pub fn from_turtle(data: &[u8], base: Option<&str>) -> Result<Self, ParseError> {
+        Self::from_turtle_reader(data, base)
+    }
+
+    pub fn from_ntriples(data: &[u8]) -> Result<Self, ParseError> {
+        Self::from_ntriples_reader(data)
+    }
+
+    pub fn from_path(
+        path: &Path,
+        format: RdfFormat,
+        base: Option<&str>,
+    ) -> Result<Self, ParseError> {
+        let file = File::open(path)
+            .map_err(|e| ParseError(format!("failed to open {}: {e}", path.display())))?;
+        let reader = BufReader::new(file);
+        match format {
+            RdfFormat::Turtle => Self::from_turtle_reader(reader, base),
+            RdfFormat::NTriples => Self::from_ntriples_reader(reader),
+        }
+    }
+
+    fn from_turtle_reader(reader: impl Read, base: Option<&str>) -> Result<Self, ParseError> {
         let mut parser = TurtleParser::new();
         if let Some(b) = base {
             parser = parser
                 .with_base_iri(b)
                 .map_err(|e| ParseError(format!("invalid base IRI: {e}")))?;
         }
-        let mut reader = parser.for_slice(data);
+        let mut reader = parser.for_reader(reader);
         let mut graph = Graph::new();
         for triple in reader.by_ref() {
             let triple = triple.map_err(|e| ParseError(format!("turtle syntax error: {e}")))?;
@@ -37,6 +68,19 @@ impl Loaded {
             graph,
             prefixes,
             base,
+        })
+    }
+
+    fn from_ntriples_reader(reader: impl Read) -> Result<Self, ParseError> {
+        let mut graph = Graph::new();
+        for triple in NTriplesParser::new().for_reader(reader) {
+            let triple = triple.map_err(|e| ParseError(format!("N-Triples syntax error: {e}")))?;
+            graph.insert(&triple);
+        }
+        Ok(Self {
+            graph,
+            prefixes: Vec::new(),
+            base: None,
         })
     }
 

@@ -1,11 +1,11 @@
 """
 Unit tests for type conversion functions in shifty.
 
-This module tests the `_to_turtle_bytes()` function which handles:
+This module tests the graph input conversion functions which handle:
 - bytes input (passthrough)
 - pathlib.Path input (file reading)
 - str input (file path or raw Turtle text)
-- rdflib.Graph input (Turtle serialization)
+- rdflib.Graph input (N-Triples serialization)
 - Error cases for unsupported types
 """
 
@@ -16,7 +16,7 @@ import pytest
 import rdflib
 
 import shifty
-from shifty import _to_turtle_bytes
+from shifty import _to_rdf_input, _to_turtle_bytes
 
 
 # ── _to_turtle_bytes() tests ─────────────────────────────────────────────────
@@ -64,12 +64,20 @@ class TestToTurtleBytes:
         assert result == ttl_text.encode("utf-8")
 
     def test_string_empty_graph(self):
-        ttl_text = ""
-        # Empty string is treated as a path (current directory), which exists
-        # This is a limitation of the current implementation
-        # In practice, empty graph data should use b""
-        with pytest.raises(IsADirectoryError):
-            _to_turtle_bytes(ttl_text)
+        assert _to_turtle_bytes("") == b""
+
+    def test_path_is_passed_to_native_layer(self, tmp_path):
+        test_file = tmp_path / "data.ttl"
+        test_file.write_text("@prefix ex: <http://example.org/> .")
+        result = _to_rdf_input(test_file)
+        assert result.data is None
+        assert result.path == str(test_file)
+        assert result.format == "turtle"
+
+    def test_ntriples_path_format(self, tmp_path):
+        test_file = tmp_path / "data.nt"
+        test_file.write_text("<http://ex/s> <http://ex/p> <http://ex/o> .")
+        assert _to_rdf_input(test_file).format == "nt"
 
     def test_rdflib_graph(self):
         g = rdflib.Graph()
@@ -78,7 +86,7 @@ class TestToTurtleBytes:
         
         result = _to_turtle_bytes(g)
         assert isinstance(result, bytes)
-        # Should contain some turtle serialization of the graph
+        # Should contain an N-Triples serialization of the graph
         assert b"example.org" in result
 
     def test_rdflib_graph_preserves_content(self):
@@ -87,9 +95,9 @@ class TestToTurtleBytes:
         g.add((EX.a, EX.b, EX.c))
         
         result = _to_turtle_bytes(g)
-        # The serialization should be valid Turtle
+        # The serialization should be valid N-Triples
         g2 = rdflib.Graph()
-        g2.parse(data=result, format="turtle")
+        g2.parse(data=result, format="nt")
         assert (EX.a, EX.b, EX.c) in g2
 
     def test_rdflib_graph_string_serialization(self):
@@ -98,9 +106,10 @@ class TestToTurtleBytes:
         g.add((EX.a, EX.b, EX.c))
         
         # Mock a graph that returns string from serialize
-        with mock.patch.object(g, 'serialize', return_value="ex:a ex:b ex:c ."):
+        with mock.patch.object(g, 'serialize', return_value="ex:a ex:b ex:c .") as serialize:
             result = _to_turtle_bytes(g)
             assert result == b"ex:a ex:b ex:c ."
+            serialize.assert_called_once_with(format="nt", encoding="utf-8")
 
     def test_rdflib_graph_bytes_serialization(self):
         g = rdflib.Graph()
@@ -108,9 +117,10 @@ class TestToTurtleBytes:
         g.add((EX.a, EX.b, EX.c))
         
         # Mock a graph that returns bytes from serialize
-        with mock.patch.object(g, 'serialize', return_value=b"ex:a ex:b ex:c ."):
+        with mock.patch.object(g, 'serialize', return_value=b"ex:a ex:b ex:c .") as serialize:
             result = _to_turtle_bytes(g)
             assert result == b"ex:a ex:b ex:c ."
+            serialize.assert_called_once_with(format="nt", encoding="utf-8")
 
     def test_unsupported_type_int(self):
         with pytest.raises(TypeError, match="Cannot convert"):

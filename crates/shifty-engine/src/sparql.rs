@@ -29,7 +29,9 @@ use std::rc::Rc;
 pub(crate) use crate::frozen::SHAPES_GRAPH_IRI;
 
 pub(crate) struct SparqlExecutor {
-    store: Store,
+    /// Mutable store used by inference. Validation evaluates directly over
+    /// `frozen`, so it does not allocate this second indexed representation.
+    store: Option<Store>,
     /// Frozen dataset used for constraint/target SPARQL during validation. `None`
     /// during inference (where the store mutates between rule firings).
     frozen: Option<FrozenIndexedDataset>,
@@ -88,12 +90,6 @@ impl SparqlExecutor {
         Self::build(graph, None)
     }
 
-    /// Like [`new`], but also loads `shapes` into a named graph so SHACL-SPARQL
-    /// `$shapesGraph` / `GRAPH $shapesGraph {…}` can be evaluated.
-    pub fn new_with_shapes(context: &Graph, shapes: &Graph) -> Result<Self, String> {
-        Self::build(context, Some(shapes))
-    }
-
     fn build(context: &Graph, shapes: Option<&Graph>) -> Result<Self, String> {
         let store = Store::new().map_err(|e| e.to_string())?;
         store
@@ -124,7 +120,7 @@ impl SparqlExecutor {
             None => None,
         };
         Ok(Self {
-            store,
+            store: Some(store),
             frozen: None,
             prepared: RefCell::new(HashMap::new()),
             parsed: RefCell::new(HashMap::new()),
@@ -134,13 +130,17 @@ impl SparqlExecutor {
         })
     }
 
-    /// Attach a frozen dataset snapshot for use during validation. When set,
-    /// `target_nodes` and `constraint_violations` evaluate against the frozen
-    /// dataset instead of the mutable Store. Do NOT call during inference (where
-    /// the Store mutates between rule firings and must remain the source of truth).
-    pub fn with_frozen(mut self, frozen: FrozenIndexedDataset) -> Self {
-        self.frozen = Some(frozen);
-        self
+    pub fn from_frozen(frozen: FrozenIndexedDataset, has_shapes_graph: bool) -> Self {
+        Self {
+            store: None,
+            frozen: Some(frozen),
+            prepared: RefCell::new(HashMap::new()),
+            parsed: RefCell::new(HashMap::new()),
+            compiled: RefCell::new(HashMap::new()),
+            constructs: RefCell::new(HashMap::new()),
+            shapes_graph: has_shapes_graph
+                .then(|| NamedNode::new(SHAPES_GRAPH_IRI).expect("static IRI is valid")),
+        }
     }
 
     /// The attached frozen snapshot, if any. Validation uses it as the indexed
@@ -151,7 +151,7 @@ impl SparqlExecutor {
     }
 
     pub fn insert(&self, triple: &Triple) -> Result<(), String> {
-        self.store
+        self.store()?
             .insert(QuadRef::new(
                 triple.subject.as_ref(),
                 triple.predicate.as_ref(),
@@ -171,7 +171,7 @@ impl SparqlExecutor {
                 .map_err(err)?
         } else {
             self.prepared(query)?
-                .on_store(&self.store)
+                .on_store(self.store()?)
                 .execute()
                 .map_err(err)?
         };
@@ -332,7 +332,7 @@ impl SparqlExecutor {
                 .execute()
                 .map_err(err)?
         } else {
-            prepared.on_store(&self.store).execute().map_err(err)?
+            prepared.on_store(self.store()?).execute().map_err(err)?
         };
         match query_result {
             QueryResults::Solutions(solutions) => {
@@ -415,9 +415,9 @@ impl SparqlExecutor {
             for focus in foci {
                 triples.extend(self.construct_one(query, focus)?);
             }
+            let store = self.store()?;
             triples.retain(|triple| {
-                !self
-                    .store
+                !store
                     .contains(QuadRef::new(
                         triple.subject.as_ref(),
                         triple.predicate.as_ref(),
@@ -491,7 +491,7 @@ impl SparqlExecutor {
         let mut query = self.parse(query)?;
         substitute_query(&mut query, &variable("this"), focus);
         let prepared = SparqlEvaluator::new().for_query(query);
-        match prepared.on_store(&self.store).execute().map_err(err)? {
+        match prepared.on_store(self.store()?).execute().map_err(err)? {
             QueryResults::Graph(triples) => triples.map(|triple| triple.map_err(err)).collect(),
             _ => Err("SPARQL rule did not produce CONSTRUCT graph results".to_string()),
         }
@@ -520,6 +520,29 @@ impl SparqlExecutor {
             .borrow_mut()
             .insert(query.to_string(), parsed.clone());
         Ok(parsed)
+    }
+
+    fn store(&self) -> Result<&Store, String> {
+        self.store
+            .as_ref()
+            .ok_or_else(|| "mutable SPARQL store is unavailable during validation".to_string())
+    }
+
+    #[cfg(test)]
+    fn has_store(&self) -> bool {
+        self.store.is_some()
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn validation_executor_does_not_allocate_mutable_store() {
+        let executor =
+            SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&Graph::new()), false);
+        assert!(!executor.has_store());
     }
 }
 

@@ -124,9 +124,26 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   Still naive `Term`-space (re-interns each frontier node); folding into
   `TermId`-space compiled `ReachStep` plans is the staged native SPARQL design
   below.
-- **[do]** **Data-aware statistics**: predicate counts → real selectivity
-  ordering (cost is a static proxy today).
-- **[do]** Memoize / share shape evaluation across focus nodes within a run.
+- **[next]** **Data-aware planning**: consume the predicate cardinality and
+  distinct subject/object statistics already collected by
+  `FrozenIndexedDataset`. Reorder native BGP joins and shape conjunctions using
+  estimated rows/fanout instead of the current static cost proxy. Expose
+  estimated versus actual rows in plan/profile output and benchmark index-build
+  time, execution time, and peak memory on Brick and 223P.
+- **[done]** Shape evaluation is memoized per immutable graph snapshot by
+  `(ShapeId, Term)` and shared across statements, focus nodes, target filters,
+  qualified counts, and rule conditions/node-expression filters. Results that
+  observe a coinductive recursion back-edge remain uncached because their
+  provisional truth is call-context-dependent; inference creates a fresh cache
+  for each rule firing so graph mutations cannot leave stale entries.
+- **[next]** Add shape-cache telemetry and memory controls: hits/misses,
+  cycle-dependent non-cacheable evaluations, entry count, and estimated bytes.
+  Use benchmark evidence to choose an optional entry/byte budget or selective
+  admission policy for high-cardinality workloads.
+- **[do]** Memoize repeated path/reachability results by
+  `(direction, start TermId, compiled path)` within an immutable run. Consume
+  `PathDemand` to choose between traversal, per-start memoization, whole-relation
+  materialization, and SCC closure for repeated transitive paths.
 - **[done]** Staged native SPARQL design, stages 1–4
   ([`05-sparql-execution.md`](05-sparql-execution.md)):
   capability analysis (`sparql_native/capability.rs`), per-query profiling
@@ -136,7 +153,7 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   4 binding modes, compiled `ReachStep` traversal, correlated
   `EXISTS`/`NOT EXISTS`, and debug-build differential testing.
   Unsupported queries fall back to Spareval over the same frozen dataset.
-- **[do]** Native SPARQL stage 5 — data-aware planning: `DatasetStatistics`
+- **[next]** Native SPARQL stage 5 — data-aware planning: `DatasetStatistics`
   (`predicate_cardinality`) is collected in `frozen.rs` but never consulted;
   joins are left-deep with no selectivity ordering; `PathDemand` structs are
   extracted but have no consumer; no Memoized/Materialized/SccClosure path
@@ -145,10 +162,17 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   aggregates, arithmetic/comparison expressions, `IN`, `ORDER BY`/`LIMIT`,
   negated property sets. Deferred until stage 5 lands and measured demand
   drives priorities.
-- **[todo]** Incremental / focus-delta scheduling.
+- **[do]** Finer inference deltas: replace rule-level predicate invalidation
+  with affected-focus and relational deltas where dependency analysis can prove
+  them sound; retain wildcard rescheduling for opaque/domain-sensitive rules.
+- **[todo]** Incremental validation / focus-delta scheduling across graph
+  updates, including cache invalidation by changed predicate and affected path.
 
 ## Layer 7 (not started)
-- **[todo]** Compilation / JIT of plans; batch/vectorized evaluation.
+- **[todo]** Batch/vectorized shape evaluation over `TermId` columns to reduce
+  RDF-term cloning, hashing, and repeated dictionary translation.
+- **[todo]** Compilation / JIT of plans after profiling shows dispatch or
+  expression evaluation is a material bottleneck.
 
 ## Tooling / scripts
 - **[done]** `benchmark/bench_brick.sh` and `benchmark/bench_s223.sh`: aligned
