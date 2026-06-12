@@ -34,6 +34,10 @@ All three functions accept any of:
                                data ∪ shapes (standard SHACL default)
 * ``"data"``       — focus nodes and evaluation use the data graph only
 * ``"union-all"``  — focus nodes and evaluation both use data ∪ shapes
+
+``graph_mode`` applies to ``validate`` and ``validate_algebra``. When the
+shapes graph is omitted, all modes are equivalent because data and shapes are
+the same embedded graph. ``infer`` does not accept ``graph_mode``.
 """
 
 from __future__ import annotations

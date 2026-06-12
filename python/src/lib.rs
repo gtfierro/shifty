@@ -302,6 +302,20 @@ fn maybe_infer(
     }
 }
 
+fn maybe_infer_embedded(
+    data: &Graph,
+    schema: &shifty_algebra::Schema,
+    run_infer: bool,
+) -> Result<Option<Graph>, String> {
+    if run_infer && !schema.rules.is_empty() {
+        let out = shifty_engine::infer(data, schema)
+            .map_err(|e| format!("non-stratifiable schema: {e}"))?;
+        Ok(Some(out.graph))
+    } else {
+        Ok(None)
+    }
+}
+
 fn graph_to_ntriples(graph: &Graph) -> String {
     let mut writer = oxttl::NTriplesSerializer::new().for_writer(Vec::new());
     for triple in graph {
@@ -503,15 +517,7 @@ fn validate_algebra_embedded(
     plan: &shifty_opt::PhysicalPlan,
     run_infer: bool,
 ) -> Result<RawAlgebraResult, String> {
-    let inferred = if run_infer && !schema.rules.is_empty() {
-        Some(
-            shifty_engine::infer(&loaded.graph, schema)
-                .map_err(|e| format!("non-stratifiable schema: {e}"))?
-                .graph,
-        )
-    } else {
-        None
-    };
+    let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
     let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
     let outcome =
         validate_plan(eval_data, plan).map_err(|e| format!("non-stratifiable schema: {e}"))?;
@@ -537,15 +543,7 @@ fn validate_w3c_embedded(
     schema: &shifty_algebra::Schema,
     run_infer: bool,
 ) -> Result<W3cResult, String> {
-    let inferred = if run_infer && !schema.rules.is_empty() {
-        Some(
-            shifty_engine::infer(&loaded.graph, schema)
-                .map_err(|e| format!("non-stratifiable schema: {e}"))?
-                .graph,
-        )
-    } else {
-        None
-    };
+    let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
     let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
     let report = validate_report(loaded, eval_data);
     let report_graph = report_to_graph(&report);
@@ -710,9 +708,13 @@ pub fn _infer(
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
-        let shapes_ref = shapes_loaded.as_ref().unwrap_or(&data_loaded);
-        let outcome = shifty_engine::infer_graphs(&data_loaded.graph, &shapes_ref.graph, &schema)
-            .map_err(|e| format!("non-stratifiable schema: {e}"))?;
+        let outcome = match shapes_loaded.as_ref() {
+            Some(shapes_loaded) => {
+                shifty_engine::infer_graphs(&data_loaded.graph, &shapes_loaded.graph, &schema)
+            }
+            None => shifty_engine::infer(&data_loaded.graph, &schema),
+        }
+        .map_err(|e| format!("non-stratifiable schema: {e}"))?;
         Ok(InferResult {
             inferred_count: outcome.inferred.len(),
             diagnostics: outcome.diagnostics,

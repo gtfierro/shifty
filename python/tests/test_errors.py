@@ -59,6 +59,16 @@ class TestInvalidGraphMode:
         with pytest.raises(ValueError, match="graph_mode"):
             shifty.validate_algebra(VALID_DATA.encode(), SHAPES.encode(), graph_mode="bad")
 
+    def test_embedded_validate_invalid_graph_mode(self):
+        """Embedded validate() still validates graph_mode."""
+        with pytest.raises(ValueError, match="graph_mode"):
+            shifty.validate((SHAPES + VALID_DATA).encode(), graph_mode="invalid")
+
+    def test_embedded_validate_algebra_invalid_graph_mode(self):
+        """Embedded validate_algebra() still validates graph_mode."""
+        with pytest.raises(ValueError, match="graph_mode"):
+            shifty.validate_algebra((SHAPES + VALID_DATA).encode(), graph_mode="bad")
+
     def test_infer_invalid_graph_mode_not_accepted(self):
         """infer() raises TypeError when given graph_mode parameter."""
         with pytest.raises(TypeError):

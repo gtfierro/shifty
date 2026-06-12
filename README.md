@@ -245,13 +245,17 @@ g = result.graph()              # rdflib.Graph with original + inferred data
 
 ### graph_mode
 
-All three functions accept a `graph_mode` keyword argument:
+`validate()` and `validate_algebra()` accept a `graph_mode` keyword argument:
 
 ```python
 shifty.validate(data, shapes, graph_mode="union")      # default
 shifty.validate(data, shapes, graph_mode="data")
 shifty.validate(data, shapes, graph_mode="union-all")
 ```
+
+When `shacl_graph` is omitted, all three modes are equivalent because focus
+discovery and evaluation use the same embedded graph. `infer()` does not accept
+`graph_mode`.
 
 ### File inputs
 

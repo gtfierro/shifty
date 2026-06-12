@@ -116,6 +116,21 @@ class TestValidatePyshacl:
         assert embedded[0] == explicit[0]
         assert isomorphic(embedded[1], explicit[1])
 
+    @pytest.mark.parametrize("graph_mode", ["union", "data", "union-all"])
+    def test_embedded_graph_modes_are_equivalent(self, graph_mode):
+        combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
+        result = validate(combined, graph_mode=graph_mode, infer=False)
+
+        assert result[0] is False
+
+    def test_embedded_file_path(self, tmp_path):
+        combined_file = tmp_path / "combined.ttl"
+        combined_file.write_text(SHAPES + "\n" + CONFORMS_DATA)
+
+        conforms, _, _ = validate(combined_file, infer=False)
+
+        assert conforms is True
+
     def test_accepts_file_path(self, tmp_path):
         data_file = tmp_path / "data.ttl"
         shapes_file = tmp_path / "shapes.ttl"
@@ -217,6 +232,21 @@ class TestValidateAlgebra:
             for violation in explicit.violations
         ]
 
+    @pytest.mark.parametrize("graph_mode", ["union", "data", "union-all"])
+    def test_embedded_graph_modes_are_equivalent(self, graph_mode):
+        combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
+        result = validate_algebra(combined, graph_mode=graph_mode, infer=False)
+
+        assert result.conforms is False
+
+    def test_embedded_rdflib_graph(self):
+        combined = rdflib.Graph()
+        combined.parse(data=SHAPES + "\n" + CONFORMS_DATA, format="turtle")
+
+        result = validate_algebra(combined, infer=False)
+
+        assert result.conforms is True
+
 
 # ── infer() ───────────────────────────────────────────────────────────────────
 
@@ -256,6 +286,14 @@ class TestInfer:
         assert isinstance(g, rdflib.Graph)
         EX = rdflib.Namespace("http://example.org/")
         assert (EX.a, EX.knows2, EX.b) in g
+
+    def test_embedded_graph_matches_explicit_self_inference(self):
+        combined = (INFER_SHAPES + "\n" + INFER_DATA).encode()
+        embedded = shifty.infer(combined)
+        explicit = shifty.infer(combined, combined)
+
+        assert embedded.inferred_count == explicit.inferred_count
+        assert isomorphic(embedded.graph(), explicit.graph())
 
     def test_repr(self):
         result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())
