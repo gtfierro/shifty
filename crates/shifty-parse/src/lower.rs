@@ -422,8 +422,15 @@ impl Lowerer<'_> {
                 let qmax = self.int(s, vocab::SH_QUALIFIED_MAX_COUNT);
                 match path {
                     Some(p) => {
-                        let phi = self.lower_shape(&qn);
-                        let c = self.arena.count(p.clone(), qmin, qmax, phi);
+                        let mut qualifiers = vec![self.lower_shape(&qn)];
+                        if self.bool_prop(s, vocab::SH_QUALIFIED_VALUE_SHAPES_DISJOINT) {
+                            for sibling in self.sibling_qualified_shapes(s, &qn) {
+                                let sibling = self.lower_shape(&sibling);
+                                qualifiers.push(self.arena.not(sibling));
+                            }
+                        }
+                        let qualifier = self.arena.and(qualifiers);
+                        let c = self.arena.count(p.clone(), qmin, qmax, qualifier);
                         conjuncts.push(c);
                     }
                     None => need_path(self, "sh:qualifiedValueShape"),
@@ -448,6 +455,15 @@ impl Lowerer<'_> {
                             "disjoint" => Shape::Disj(p.clone(), op),
                             "lessThan" => Shape::Lt(p.clone(), op),
                             _ => Shape::Le(p.clone(), op),
+                        };
+                        let c = self.arena.insert(shape);
+                        conjuncts.push(c);
+                    }
+                    None if matches!(name, "equals" | "disjoint") => {
+                        let shape = if name == "equals" {
+                            Shape::Eq(Path::Id, op)
+                        } else {
+                            Shape::Disj(Path::Id, op)
                         };
                         let c = self.arena.insert(shape);
                         conjuncts.push(c);
@@ -553,6 +569,36 @@ impl Lowerer<'_> {
                 });
             }
         }
+    }
+
+    /// Qualified value shapes attached through the same parent `sh:property`
+    /// declaration, excluding the current qualified shape itself.
+    fn sibling_qualified_shapes(
+        &self,
+        shape: &NamedOrBlankNode,
+        qualifier: &NamedOrBlankNode,
+    ) -> Vec<NamedOrBlankNode> {
+        let mut siblings = HashSet::new();
+        for triple in self.g.graph.triples_for_predicate(vocab::SH_PROPERTY) {
+            if term_to_node(&triple.object.into_owned()).as_ref() != Some(shape) {
+                continue;
+            }
+            let parent = triple.subject.into_owned();
+            for property in self.g.objects(&parent, vocab::SH_PROPERTY) {
+                let Some(property) = term_to_node(&property) else {
+                    continue;
+                };
+                for sibling in self.g.objects(&property, vocab::SH_QUALIFIED_VALUE_SHAPE) {
+                    if let Some(sibling) = term_to_node(&sibling) {
+                        siblings.insert(sibling);
+                    }
+                }
+            }
+        }
+        siblings.remove(qualifier);
+        let mut siblings: Vec<_> = siblings.into_iter().collect();
+        siblings.sort_by_key(|node| node.to_string());
+        siblings
     }
 
     fn parse_rule_head(&mut self, rn: &NamedOrBlankNode) -> Option<RuleHead> {

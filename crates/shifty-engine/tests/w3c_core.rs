@@ -26,8 +26,6 @@ const UNSUPPORTED_PREDICATES: &[&str] = &[
     "http://www.w3.org/ns/shacl#jsLibrary",
     "http://www.w3.org/ns/shacl#jsFunctionName",
     "http://www.w3.org/ns/shacl#declare",
-    // the disjoint flag on qualified value shapes is not modelled in the IR
-    "http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint",
 ];
 
 fn suite_dir() -> PathBuf {

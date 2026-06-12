@@ -107,6 +107,141 @@ mod tests {
     }
 
     #[test]
+    fn qualified_value_shape_disjoint_uses_all_sibling_property_shapes() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:property ex:A, ex:B .
+            ex:A a sh:PropertyShape ;
+                sh:path ex:p ;
+                sh:qualifiedValueShape [ sh:class ex:TypeA ] ;
+                sh:qualifiedValueShapesDisjoint true ;
+                sh:qualifiedMinCount 1 .
+            ex:B a sh:PropertyShape ;
+                sh:path ex:q ;
+                sh:qualifiedValueShape [ sh:class ex:TypeB ] ;
+                sh:qualifiedValueShapesDisjoint true ;
+                sh:qualifiedMaxCount 10 .
+            ex:x ex:p ex:value .
+            ex:value a ex:TypeA, ex:TypeB .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "diags: {:?}",
+            parsed.diagnostics
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+
+        let algebra = validate(&loaded.graph, &parsed.schema).unwrap();
+        assert!(!algebra.conforms);
+
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(
+            report.results[0].component.as_str(),
+            "http://www.w3.org/ns/shacl#QualifiedMinCountConstraintComponent"
+        );
+    }
+
+    #[test]
+    fn disjoint_on_node_shape_uses_the_focus_node_as_the_value() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:valid, ex:invalid ;
+                sh:disjoint ex:p .
+            ex:valid ex:p ex:other .
+            ex:invalid ex:p ex:invalid .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "diags: {:?}",
+            parsed.diagnostics
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+
+        let algebra = validate(&loaded.graph, &parsed.schema).unwrap();
+        assert!(!algebra.conforms);
+        assert_eq!(algebra.violations.len(), 1);
+        assert_eq!(
+            algebra.violations[0].focus.to_string(),
+            "<http://ex/invalid>"
+        );
+
+        let normalized = shifty_opt::normalize(&parsed.schema);
+        let plan = shifty_opt::plan(&normalized);
+        let planned = validate_plan(&loaded.graph, &plan).unwrap();
+        assert_eq!(planned.conforms, algebra.conforms);
+        assert_eq!(planned.violations.len(), algebra.violations.len());
+
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(
+            report.results[0].component.as_str(),
+            "http://www.w3.org/ns/shacl#DisjointConstraintComponent"
+        );
+        assert_eq!(
+            report.results[0].value.as_ref().map(ToString::to_string),
+            Some("<http://ex/invalid>".to_string())
+        );
+    }
+
+    #[test]
+    fn equals_on_node_shape_uses_the_focus_node_as_the_value() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:valid, ex:extra, ex:missing ;
+                sh:equals ex:p .
+            ex:valid ex:p ex:valid .
+            ex:extra ex:p ex:extra, ex:other .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "diags: {:?}",
+            parsed.diagnostics
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+
+        let algebra = validate(&loaded.graph, &parsed.schema).unwrap();
+        assert!(!algebra.conforms);
+        let mut foci: Vec<_> = algebra
+            .violations
+            .iter()
+            .map(|violation| violation.focus.to_string())
+            .collect();
+        foci.sort();
+        assert_eq!(
+            foci,
+            [
+                "<http://ex/extra>".to_string(),
+                "<http://ex/missing>".to_string()
+            ]
+        );
+
+        let normalized = shifty_opt::normalize(&parsed.schema);
+        let plan = shifty_opt::plan(&normalized);
+        let planned = validate_plan(&loaded.graph, &plan).unwrap();
+        assert_eq!(planned.conforms, algebra.conforms);
+        assert_eq!(planned.violations.len(), algebra.violations.len());
+
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 2);
+        assert!(report.results.iter().all(|result| result.component.as_str()
+            == "http://www.w3.org/ns/shacl#EqualsConstraintComponent"));
+    }
+
+    #[test]
     fn datatype_violation() {
         let ttl = format!(
             "{PREFIXES}

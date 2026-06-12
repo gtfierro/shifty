@@ -27,7 +27,6 @@ const UNSUPPORTED_PREDICATES: &[&str] = &[
     "http://www.w3.org/ns/shacl#js",
     "http://www.w3.org/ns/shacl#jsLibrary",
     "http://www.w3.org/ns/shacl#jsFunctionName",
-    "http://www.w3.org/ns/shacl#qualifiedValueShapesDisjoint",
 ];
 
 fn suite_dir() -> PathBuf {

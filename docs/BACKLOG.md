@@ -14,8 +14,16 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   (AF-C), including `sh:prefixes` resolution and query-kind validation.
 - **[todo]** Custom constraint **components** (`sh:parameter`+`sh:validator`) (AF-CC).
 - **[todo]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F); JS features unsupported.
-- **[todo]** Lower `sh:qualifiedValueShapesDisjoint` into the algebra path; the
-  RDF-driven report validator already implements it and passes its core cases.
+- **[done]** `sh:qualifiedValueShapesDisjoint` is lowered into the algebra count
+  qualifier as the qualified shape conjoined with the negation of every sibling
+  qualified shape. The RDF-driven report path uses the same parent-based sibling
+  definition, including sibling property shapes with different paths.
+- **[done]** `sh:disjoint` is supported on property shapes and node shapes; node
+  shapes lower through the identity path so the focus node is compared with the
+  values of the named predicate.
+- **[done]** `sh:equals` is supported on property shapes and node shapes; node
+  shapes lower through the identity path so the focus node singleton must equal
+  the values of the named predicate.
 
 ## Engine / semantics (Layers 3, 6)
 - **[done]** Rule **execution** (Layer 6): lfp forward chaining, `sh:order`

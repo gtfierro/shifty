@@ -128,7 +128,7 @@ Guiding principles:
 | 0 Scaffolding | ✅ workspace builds; old crates retired; 5 crates stubbed |
 | 1 Core algebra IR | ✅ IR types, smart constructors, cyclic arena, serde round-trip |
 | 2 Parser & lowering | ✅ Turtle → IR for Core + targets + paths; AF/SPARQL diagnosed; `shacl inspect` stage viewer |
-| 3 Reference semantics | ✅ denotational evaluator (`G ⊨ S`); `shacl validate`; W3C core 89/113 pass, 0 fail, 24 skip |
+| 3 Reference semantics | ✅ denotational evaluator (`G ⊨ S`); `shacl validate`; W3C core 94/113 pass, 0 fail, 19 skip |
 | 4 Static analysis & recursion | 🔨 stratification + gfp semantics wired; normalization Tier-1 (CSE, compaction, Boolean, NNF, count-merge — see [`04-normalization.md`](04-normalization.md)) |
 | 5 Planning | 🔨 plan IR + planner + executor (`validate_plan`); class-target seeding ≈23× vs scan on a synthetic graph; W3C cross-checked. Indexed paths and native Spargebra execution are designed in [`05-sparql-execution.md`](05-sparql-execution.md) |
 | 6 AF inference | 🔨 rule lowering + global lfp fixpoint engine (`shacl infer`); TripleRules, SPARQLRules, node exprs, and predicate-delta scheduling. Functions next |
@@ -158,10 +158,10 @@ path evaluation (`succ`/`pred` with `Inverse` swapping direction), value-type /
 ordering checks, and shape/schema satisfaction `G ⊨ S` with a cycle-breaking
 stack guard for recursive schemas (provisional pending Layer 4). `shacl validate
 --shapes … --data …` runs it. The vendored **W3C core suite** is wired as a
-conformance gate (`tests/w3c_core.rs`): 89 pass, 0 fail, 24 skip — skips are
+conformance gate (`tests/w3c_core.rs`): 94 pass, 0 fail, 19 skip — skips are
 tests using features we diagnose as unsupported (SPARQL/rules/custom
-components/JS) or the `qualifiedValueShapesDisjoint` flag. A bug surfaced and was
-fixed: nested `sh:property` is value-scoped (under `∀path`), not focus-scoped.
+components/JS). A bug surfaced and was fixed: nested `sh:property` is value-scoped
+(under `∀path`), not focus-scoped.
 
 Known oracle limitations (deferred): validation *reports* are focus-node level,
 not full `sh:ValidationResult` provenance (needs a provenance side-table, since

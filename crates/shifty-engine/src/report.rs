@@ -735,7 +735,7 @@ impl Reporter<'_> {
                 continue;
             };
             let siblings = if self.bool(shape, vocab::SH_QUALIFIED_VALUE_SHAPES_DISJOINT) {
-                self.sibling_qualified_shapes(shape, path.as_ref())
+                self.sibling_qualified_shapes(shape, &qualifier)
             } else {
                 Vec::new()
             };
@@ -778,7 +778,7 @@ impl Reporter<'_> {
     fn sibling_qualified_shapes(
         &self,
         shape: &NamedOrBlankNode,
-        path: Option<&Term>,
+        qualifier: &NamedOrBlankNode,
     ) -> Vec<NamedOrBlankNode> {
         let shape_term = node_term_ref(shape);
         let mut siblings = HashSet::new();
@@ -791,11 +791,6 @@ impl Reporter<'_> {
                 let Some(property) = term_to_node(&property) else {
                     continue;
                 };
-                if property == *shape
-                    || self.shapes.object(&property, vocab::SH_PATH).as_ref() != path
-                {
-                    continue;
-                }
                 for qualifier in self
                     .shapes
                     .objects(&property, vocab::SH_QUALIFIED_VALUE_SHAPE)
@@ -806,6 +801,7 @@ impl Reporter<'_> {
                 }
             }
         }
+        siblings.remove(qualifier);
         siblings.into_iter().collect()
     }
 
