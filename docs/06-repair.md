@@ -534,7 +534,8 @@ emits concrete `ΔG`s.
   choice atoms, `Repeat{min,max}` → cardinality rules `{...} = n`, `Not`/maxCount
   → integrity constraints, parsimony → `#minimize`. Answer sets *are* the
   repairs. The only backend that solves **all of a focus node's constraints
-  jointly** (§8), so it handles cross-constraint interaction natively.
+  jointly** (§8), so it handles cross-constraint interaction natively. Lowering
+  detail in §9.
 - **LLM.** Serialize the template + surrounding graph context; the model fills
   the *semantic* holes (`Typed(pattern)`, a plausible label) that enumeration and
   monomorphism cannot. Non-deterministic; gated behind validation re-check.
@@ -558,12 +559,129 @@ main argument for that backend later.
 
 ---
 
-## 9. Open questions / limitations
+## 9. ASP lowering — the joint-solving backend
+
+The ASP backend takes a focus's *joint* problem (§8) and lowers it to a single
+answer-set program whose **answer sets are exactly the valid repairs**. It is the
+only backend that closes cross-constraint cascades and finds *minimal* repairs,
+because both fall out of the solver: integrity constraints for "must conform,"
+`#minimize` for parsimony.
+
+The lowering is mechanical for one reason established earlier: the recursion
+semantics (doc 03) is **stratified negation**, and the engine already runs it as
+least-fixpoint forward chaining (`infer.rs`) with a computed stratum order
+(`shifty-opt::analyze`). So `φ` *is already a logic program* — lowering it to ASP
+rules reuses the same strata, not a reimplementation of validation.
+
+### 9.1 Generate–define–test
+
+The classic ASP skeleton, with the template bounding the search:
+
+- **Generate** — choose hole bindings, repeat-instance counts, and deletions,
+  *restricted to what the `RepairTree` proposes* (not "any triple in the universe"),
+  so the search space is small and finite.
+- **Define** — the post-repair graph `holds/3`, the path relations, and the
+  violation predicate `viol/2` (= the witness, §4) as Datalog over `holds`.
+- **Test** — `:- not conf(root, focus).` for every root shape in the focus group.
+- **Optimize** — `#minimize` over the chosen edits.
+
+### 9.2 Facts
+
+`G` becomes `triple/3` over interned term constants (a symbol table both ways).
+The *non-logical* leaf checks ASP cannot express — `sh:datatype`, numeric range,
+`sh:pattern`, `sh:nodeKind`, `sh:in`, and `Lt`/`Le`/`Eq` comparisons — are
+**precomputed by the engine** and emitted as facts (`sat(LeafShape, X)`,
+`lt(X,Y)`, …), evaluated by reusing `value_type_holds`/`compare_terms`.
+
+### 9.3 Generate (template-bounded)
+
+```prolog
+{ bind(H, X) : cand(H, X) } = 1 :- hole(H).      % one binding per hole
+cand(H, X) :- reuse(H, X).        % existing node passing the §6.2 sidecar shape
+cand(H, X) :- fresh(X), open(H).  % a minted node, unless the hole is Fresh-only
+add(focus, p, X) :- bind(hv, X).  % one per Add(TriplePattern), holes substituted
+{ del(S,P,O) : delcand(S,P,O) }.  % deletions from the break-options / delete-set
+```
+
+A `Repeat{min,max}` block becomes instance choice — `{ use(B,I) : inst(B,I) }`
+with fresh hole copies per instance; the `min`/`max` are *not* asserted here but
+enforced by the matching `Count` violation rule (§9.4), so the solver and
+`#minimize` pick the smallest instantiation that conforms. The `fresh` pool is
+sized from the template's `Fresh`/`Repeat` demand.
+
+### 9.4 Define — and why we lower `viol`, not `conf`
+
+The post-repair graph and path algebra:
+
+```prolog
+holds(S,P,O) :- triple(S,P,O), not del(S,P,O).
+holds(S,P,O) :- add(S,P,O).
+reach(pred_p, X, Y) :- holds(X, p, Y).                      % π = Pred(p)
+reach(seq_ab, X, Z) :- reach(a, X, Y), reach(b, Y, Z).      % π = Seq
+reach(star_b, X, X) :- node(X).                             % π = Star (closure)
+reach(star_b, X, Z) :- reach(star_b, X, Y), reach(b, Y, Z).
+```
+
+Conformance is encoded **through its complement**: lower the *violation* (the
+finitely-justified failure — exactly the witness, §4) and define conformance as
+its stratified negation.
+
+```prolog
+conf(S, V)         :- node(V), not viol(S, V).
+viol(s_type, V)    :- node(V), not sat(s_type, V).
+viol(s_and, V)     :- viol(C, V).                  % some conjunct fails
+viol(s_or, V)      :- viol(c1,V), viol(c2,V).      % all disjuncts fail
+viol(s_not, V)     :- conf(c, V).                  % ¬φ fails iff φ holds
+viol(s_count, V)   :- #count{ U : reach(pi,V,U), conf(q,U) } < min.
+viol(s_count, V)   :- #count{ U : reach(pi,V,U), conf(q,U) } > max.
+```
+
+This matters because **validation is gfp but ASP stable models are lfp.** For
+positive recursion (`S := ∃knows.S`) gfp lets a cycle conform coinductively;
+stable-model semantics demands finite justification and would not. Lowering
+`viol` makes the encoding's reading **lfp/finitely-justified — which is the
+*correct* semantics for repair**: a repair must actually *construct* supporting
+structure, not lean on a coinductive cycle. The divergence is contained because
+(a) the backend only ever runs on genuine witnesses (nodes that fail the real
+gfp validator), and (b) every answer set is decoded and re-checked by the real
+validator (§7). Stratification of `viol` is guaranteed by the same sign-balance
+test the engine already enforces (`shifty-opt::strata`; the `∀`-encoding's paired
+negative edges compose to positive).
+
+### 9.5 Test, optimize, decode
+
+```prolog
+:- not conf(root_a, focus).        % every root shape in the focus group — jointly
+:- not conf(root_b, focus).
+#minimize { Wa,S,P,O : add(S,P,O) ; Wd,S,P,O : del(S,P,O) }.
+```
+
+The conjoined integrity constraints are the joint solve: one model must satisfy
+*all* of the focus's shapes at once, so adding a value to fix a `minCount` is
+forced to also pass the `datatype`/`closed` rules that constrain it. Edit weights
+encode the preference order — reuse < mint, and any add/delete bias — so the
+optimum is the minimal, most-reuse repair. Each answer set decodes (`add`/`del`
+→ terms → `ΔG`) and passes the §7 re-validation gate.
+
+### 9.6 Boundaries
+
+- **Opaque SPARQL.** `Shape::Sparql` cannot be lowered. Either freeze its current
+  truth as a fact and forbid edits to its footprint, or mark repairs touching it
+  `Blocked` — the honest default.
+- **Infinite literal domains.** A `Typed(τ)` *fresh* hole (e.g. "any integer ≥ 0")
+  has no finite candidate set. ASP decides **structure, reuse, and counts**; the
+  concrete novel literal is left as a hole for a sampler or the LLM backend. ASP
+  is strongest at "which existing nodes to wire, how many, which to drop,"
+  complementary to monomorphism (reuse) and the LLM (invention).
+
+---
+
+## 10. Open questions / limitations
 
 - **Minimality.** Many `ΔG` satisfy a constraint. We need a preference order
   (delete-vs-add bias, reuse-vs-mint bias, edit count). Policy lives in the
   backend (`#minimize`, monomorphism-prefers-reuse, LLM judgment); the template
-  should carry enough cost annotation to drive it.
+  should carry enough cost annotation to drive it (the `#minimize` weights, §9.5).
 - **Confluence.** Cross-constraint cascades are only fully handled by a joint
   solver; the monomorphism/enumeration backends repair per-violation and rely on
   the re-validation gate to reject `ΔG`s that break a sibling constraint.
@@ -575,7 +693,7 @@ main argument for that backend later.
 - **Schema repairs** are deliberately out of scope for this cut (see the scope
   note) but the IR does not preclude them.
 
-## 10. Build order
+## 11. Build order
 
 1. **Witnessing evaluator** over the arena (§4) — `witness` + its `sat_trace`
    dual, as sibling folds beside `explain`, exporting `FocusWitness`.
@@ -585,4 +703,6 @@ main argument for that backend later.
    sidecar.
 5. **Monomorphism backend** (§7) — the overlap search (§6.4) + the re-validation
    gate.
-6. Per-focus grouping (§8); then enumeration / ASP / LLM backends as needed.
+6. Per-focus grouping (§8).
+7. **ASP backend** (§9) — joint solving + `#minimize`; then enumeration / LLM
+   backends as needed.
