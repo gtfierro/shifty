@@ -119,6 +119,19 @@ impl ValueType {
         {
             return None;
         }
+        // Cross-facet unsat: a known non-numeric datatype with numeric range
+        // bounds, or a language-tagged literal (LangIn) with numeric range bounds.
+        if has_range {
+            if datatype
+                .as_ref()
+                .is_some_and(|d| is_definitely_non_numeric_xsd(d.as_str()))
+            {
+                return None;
+            }
+            if rest.iter().any(|f| matches!(f, ValueType::LangIn(_))) {
+                return None;
+            }
+        }
 
         // Reassemble in a canonical order; `and` re-flattens and drops `Any`.
         let mut parts = Vec::new();
@@ -203,6 +216,45 @@ fn fold_bound(
             Some(c)
         }
     }
+}
+
+/// Is `iri` a XSD datatype that is definitely not numeric?
+///
+/// Conservative: unknown datatypes return `false` so we never mis-declare
+/// a custom numeric datatype as unsat.
+fn is_definitely_non_numeric_xsd(iri: &str) -> bool {
+    const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
+    let Some(local) = iri.strip_prefix(XSD) else {
+        return false;
+    };
+    matches!(
+        local,
+        "string"
+            | "normalizedString"
+            | "token"
+            | "language"
+            | "NMTOKEN"
+            | "Name"
+            | "NCName"
+            | "ID"
+            | "IDREF"
+            | "ENTITY"
+            | "boolean"
+            | "date"
+            | "dateTime"
+            | "time"
+            | "duration"
+            | "gYear"
+            | "gMonth"
+            | "gDay"
+            | "gYearMonth"
+            | "gMonthDay"
+            | "hexBinary"
+            | "base64Binary"
+            | "anyURI"
+            | "QName"
+            | "NOTATION"
+    )
 }
 
 /// Is `[lo, hi]` empty? `lo > hi`, or `lo == hi` with either end exclusive.

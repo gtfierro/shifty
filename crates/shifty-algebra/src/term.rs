@@ -58,4 +58,16 @@ impl NodeKindSet {
             Term::Literal(_) => self.literal,
         }
     }
+
+    pub fn complement(self) -> NodeKindSet {
+        NodeKindSet {
+            iri: !self.iri,
+            blank: !self.blank,
+            literal: !self.literal,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        !self.iri && !self.blank && !self.literal
+    }
 }

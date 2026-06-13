@@ -26,25 +26,32 @@ here are per-node truth-functional / relational, hence gfp-safe.
   (flip bounds, keep qualifier positive). **[done]** (negation is not pushed
   into recursive nodes, which stay as `¬`-literals).
 - Absorption `φ∧(φ∨ψ)=φ`. **[todo]**
-- Complementary atoms `¬nodeKind(IRI)=nodeKind(Blank|Literal)`. **[todo]**
+- Complementary atoms `¬nodeKind(K)=nodeKind(K̄)` + `nodeKind(K₁)∧nodeKind(K₂)=nodeKind(K₁∩K₂)`.
+  **[done]** (`mk_not` rewrites `¬TestKind(K)` to `TestKind(complement(K))` (or ⊥ if empty);
+  `merge_node_kinds` in `mk_and` intersects all sibling `TestKind` sets, yielding ⊥
+  when the intersection is empty.)
 
 ## 2. Count `∃[min..max] π.φ`
 - Trivial `∃≥0 / unbounded ⇒ ⊤`. **[done]**
 - Unsat bounds `min > max ⇒ ⊥`. **[done]**
-- Qualifier collapse `∃≥1 π.⊥=⊥`, `∃≤m π.⊥=⊤`. **[do]**
+- Qualifier collapse `∃≥1 π.⊥=⊥`, `∃≤m π.⊥=⊤`. **[done]**
 - Merge counts on same `(π,φ)`: `∃≥a ∧ ∃≥b = ∃≥max`, `∃≤a ∧ ∃≤b = ∃≤min`;
   fuse a separate min/max count into one node (one path eval). **[done]**
   (conjunction context only)
-- `id`-path collapse `∃≥1 id.φ=φ`, `∃≤0 id.φ=¬φ`. **[do]**
-- Empty-path `∃≥1 Alt([]).φ=⊥`. **[todo]**
+- `id`-path collapse `∃≥1 id.φ=φ`, `∃≤0 id.φ=¬φ`. **[done]**
+- Empty-path `∃≥1 Alt([]).φ=⊥`. **[done]** (`mk_count` detects `Alt([])` and
+  collapses to ⊥ for min≥1, ⊤ for max-only constraints.)
 
 ## 3. Path `π` (Kleene + converse)
 - Flatten `Seq`/`Alt`, `π·id=π`, `(π⁻)⁻=π`, `id*=id`, `(π*)*=π*`. **[done]**
   (smart constructors)
 - Converse push-down to canonical (`(π₁·π₂)⁻=π₂⁻·π₁⁻`, …, inverse only wraps a
-  `Pred`). **[do]**
-- `Alt` ACI (idempotence + ordering); empty-relation zero laws. **[do]**
-- Star laws `(π∪id)*=π*`, `π*·π*=π*`. **[todo]**
+  `Pred`). **[done]**
+- `Alt` dedup (idempotence); empty-relation zero law `∃≥1 Alt([]).φ=⊥`. **[done]**
+  (`normalize_path` deduplicates `Alt` members using a `HashSet`; empty-path
+  collapse is in `mk_count`. Canonical ordering deferred — see below.)
+- Star laws `(π∪id)*=π*`, `π*·π*=π*`. **[done]** (`normalize_path` strips `Id`
+  from `Alt` before starring; merges adjacent equal stars in `Seq`.)
 - Distributivity / prefix factoring. **[todo → Layer 5 plan-time]**
 
 ## 4. Value types `τ`
@@ -57,13 +64,17 @@ here are per-node truth-functional / relational, hence gfp-safe.
 - Facet unsat → ⊥ (empty range, `len.min>max`, conflicting datatypes). **[done]**
   (`ValueType::normalize` returns `None`; the normalizer maps it to ⊥, which the
   Boolean layer then absorbs. `test(any)` ⇒ ⊤.)
-- Cross-facet unsat (`datatype(xsd:string) ∧ NumericRange`). **[todo]**
-  (needs a datatype↔facet compatibility table; same blocker as non-numeric
-  bound ordering for dates/durations.)
+- Cross-facet unsat (`datatype(xsd:string) ∧ NumericRange`). **[done]**
+  (`ValueType::normalize` checks `is_definitely_non_numeric_xsd` and `LangIn` to
+  declare unsat when a known non-numeric datatype is conjoined with a numeric
+  range. Unknown/custom datatypes are kept, never mis-declared.)
 
 ## 5. Schema level
-- Statement/selector dedup. **[do]**
-- Selector canonicalization (`HasPath(Pred(q),⊤) ⇒ HasOut(q)`). **[todo]**
+- Statement/selector dedup. **[done]** (`normalize` deduplicates statements with
+  identical `(selector, shape)` pairs after normalization.)
+- Selector canonicalization (`HasPath(Pred(q),⊤) ⇒ HasOut(q)`). **[done]**
+  (`Interner::selector` folds `HasPath(Pred(q),⊤)` → `HasOut(q)` and
+  `HasPath(Pred(q)⁻,⊤)` → `HasIn(q)`.)
 - Target merging (same selector ⇒ conjoin) — changes reporting granularity.
   **[todo]**
 

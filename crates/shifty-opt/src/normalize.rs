@@ -13,14 +13,16 @@
 
 use crate::strata::analyze;
 use shifty_algebra::{
-    NodeExpr, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId, Statement,
-    ValueType,
+    NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena, ShapeId,
+    Statement, ValueType,
 };
 use std::collections::{HashMap, HashSet};
 
 /// Normalize a schema: CSE + compaction + Boolean/count simplification.
 pub fn normalize(schema: &Schema) -> Schema {
     let mut z = Interner::new(&schema.arena);
+    // dedup identical (selector, shape) pairs after normalization
+    let mut seen: HashSet<(Selector, ShapeId)> = HashSet::new();
     let statements = schema
         .statements
         .iter()
@@ -28,6 +30,7 @@ pub fn normalize(schema: &Schema) -> Schema {
             selector: z.selector(&st.selector),
             shape: z.intern(st.shape),
         })
+        .filter(|st| seen.insert((st.selector.clone(), st.shape)))
         .collect();
     let rules = schema.rules.iter().map(|r| z.rule(r)).collect();
     // remap shape names through the CSE memo (CSE may collapse two named shapes)
@@ -60,13 +63,46 @@ fn push_inverse(path: Path) -> Path {
     }
 }
 
-/// Recursively normalize a path so `Inverse` only wraps `Pred` leaves.
+/// Recursively normalize a path so `Inverse` only wraps `Pred` leaves,
+/// `Alt` members are deduped, and star laws are applied.
 fn normalize_path(path: Path) -> Path {
     match path {
         Path::Inverse(inner) => push_inverse(*inner),
-        Path::Seq(steps) => Path::seq(steps.into_iter().map(normalize_path).collect()),
-        Path::Alt(alts) => Path::alt(alts.into_iter().map(normalize_path).collect()),
-        Path::Star(inner) => normalize_path(*inner).star(),
+        Path::Seq(steps) => {
+            let steps: Vec<Path> = steps.into_iter().map(normalize_path).collect();
+            // π*·π* = π* — merge adjacent equal stars
+            let mut merged: Vec<Path> = Vec::with_capacity(steps.len());
+            for step in steps {
+                match merged.last() {
+                    Some(last) if matches!(last, Path::Star(_)) && last == &step => {}
+                    _ => merged.push(step),
+                }
+            }
+            Path::seq(merged)
+        }
+        Path::Alt(alts) => {
+            // dedup while preserving first-occurrence order
+            let mut seen = HashSet::new();
+            let deduped: Vec<Path> = alts
+                .into_iter()
+                .map(normalize_path)
+                .filter(|p| seen.insert(p.clone()))
+                .collect();
+            Path::alt(deduped)
+        }
+        Path::Star(inner) => {
+            let inner = normalize_path(*inner);
+            // (π∪id)* = π* — Id is implicit in the reflexive closure
+            let inner = match inner {
+                Path::Alt(alts) => {
+                    let without_id: Vec<Path> =
+                        alts.into_iter().filter(|p| *p != Path::Id).collect();
+                    Path::alt(without_id)
+                }
+                other => other,
+            };
+            inner.star()
+        }
         other => other,
     }
 }
@@ -272,6 +308,15 @@ impl<'a> Interner<'a> {
                 }
                 self.mk_or(alts)
             }
+            // ¬TestKind(K) = TestKind(K̄) — complement the node-kind bitset
+            Shape::TestKind(k) => {
+                let comp: NodeKindSet = k.complement();
+                if comp.is_empty() {
+                    self.bottom() // K covered all kinds ⇒ complement is ⊥
+                } else {
+                    self.cons(Shape::TestKind(comp))
+                }
+            }
             // leaf atom (and ⊤, which becomes ⊥ = ¬⊤)
             _ => self.cons(Shape::Not(c)),
         }
@@ -290,6 +335,8 @@ impl<'a> Interner<'a> {
         let flat = self.merge_counts(flat);
         // fuse sibling value-type facets into one tightened test(τ)
         let flat = self.merge_value_types(flat);
+        // intersect sibling node-kind sets; unsat intersection → ⊥
+        let flat = self.merge_node_kinds(flat);
         // absorption (merging may have produced ⊤/⊥) + dedup + complement
         let mut acc = Vec::new();
         for id in flat {
@@ -311,6 +358,40 @@ impl<'a> Interner<'a> {
             1 => acc[0],
             _ => self.cons(Shape::And(acc)),
         }
+    }
+
+    /// Intersect sibling `TestKind` sets in a conjunction.  An empty intersection
+    /// means no term can satisfy the shape ⇒ ⊥.  A full intersection (all three
+    /// kinds) imposes no constraint ⇒ drops from ∧ (same as ⊤).
+    fn merge_node_kinds(&mut self, flat: Vec<ShapeId>) -> Vec<ShapeId> {
+        let mut acc: Option<NodeKindSet> = None;
+        let mut others = Vec::new();
+        for id in flat {
+            match self.dst.get(id) {
+                Shape::TestKind(k) => {
+                    acc = Some(match acc {
+                        None => *k,
+                        Some(prev) => NodeKindSet {
+                            iri: prev.iri && k.iri,
+                            blank: prev.blank && k.blank,
+                            literal: prev.literal && k.literal,
+                        },
+                    });
+                }
+                _ => others.push(id),
+            }
+        }
+        if let Some(k) = acc {
+            if k.is_empty() {
+                others.push(self.bottom()); // empty intersection ⇒ ⊥
+            } else if k.iri && k.blank && k.literal {
+                // all kinds allowed ⇒ no constraint; drops from ∧ like ⊤
+            } else {
+                let id = self.cons(Shape::TestKind(k));
+                others.push(id);
+            }
+        }
+        others
     }
 
     /// Fuse conjoined counts over the same `(path, qualifier)`: the lower bounds
@@ -432,6 +513,14 @@ impl<'a> Interner<'a> {
         {
             return self.bottom(); // unsatisfiable bounds
         }
+        // Empty-Alt path: Alt([]) matches no neighbors, so count is always 0
+        if matches!(&path, Path::Alt(v) if v.is_empty()) {
+            return if min.unwrap_or(0) >= 1 {
+                self.bottom() // ∃≥1 ∅.φ = ⊥
+            } else {
+                self.top() // ∃[0..m] ∅.φ = ⊤
+            };
+        }
         // qualifier-⊥ collapse: no node ever satisfies ⊥, so count is always 0
         if self.is_bottom(q) {
             return if min.unwrap_or(0) >= 1 {
@@ -463,7 +552,22 @@ impl<'a> Interner<'a> {
     fn selector(&mut self, sel: &Selector) -> Selector {
         match sel {
             Selector::HasPath(p, q) => {
-                Selector::HasPath(normalize_path(p.clone()), self.intern(*q))
+                let path = normalize_path(p.clone());
+                let shape = self.intern(*q);
+                // HasPath(Pred(q), ⊤) ⇒ HasOut(q)
+                // HasPath(Pred(q)⁻, ⊤) ⇒ HasIn(q)
+                if self.is_top(shape) {
+                    match &path {
+                        Path::Pred(nn) => return Selector::HasOut(nn.clone()),
+                        Path::Inverse(inner) => {
+                            if let Path::Pred(nn) = inner.as_ref() {
+                                return Selector::HasIn(nn.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Selector::HasPath(path, shape)
             }
             other => other.clone(),
         }
@@ -584,22 +688,46 @@ mod tests {
 
     #[test]
     fn nnf_pushes_negation_through_and() {
-        // ¬(IRI ∧ Literal) → ¬IRI ∨ ¬Literal
+        // ¬(TestKind(IRI) ∧ Count(≥1 p.⊤)) → TestKind(Blank|Lit) ∨ Count(≤0 p.⊤)
+        // Uses a TestKind + Count pair so merge_node_kinds can't short-circuit to ⊥.
         let mut a = ShapeArena::new();
-        let iri = a.insert(Shape::TestKind(NodeKindSet::IRI));
-        let lit = a.insert(Shape::TestKind(NodeKindSet::LITERAL));
-        let and = a.insert(Shape::And(vec![iri, lit]));
+        let p = Path::Pred(shifty_algebra::NamedNode::new("http://ex/p").unwrap());
+        let top = a.insert(Shape::Top);
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let cnt = a.insert(Shape::Count {
+            path: p,
+            min: Some(1),
+            max: None,
+            qualifier: top,
+        });
+        let and = a.insert(Shape::And(vec![k, cnt]));
         let root = a.insert(Shape::Not(and));
         let n = normalize(&schema_with(a, root));
         match n.arena.get(n.statements[0].shape) {
             Shape::Or(cs) => {
                 assert_eq!(cs.len(), 2);
-                for c in cs {
-                    assert!(matches!(n.arena.get(*c), Shape::Not(_)));
-                }
+                let kinds: Vec<_> = cs
+                    .iter()
+                    .map(|c| n.arena.get(*c))
+                    .map(|s| matches!(s, Shape::TestKind(_) | Shape::Count { .. }))
+                    .collect();
+                assert!(kinds.iter().all(|&b| b), "expected Or of TestKind+Count, got something else");
             }
-            other => panic!("expected Or of Nots, got {other:?}"),
+            other => panic!("expected Or of two shapes, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn disjoint_node_kinds_in_and_is_unsat() {
+        // TestKind(IRI) ∧ TestKind(Literal) = ⊥ (no term is both)
+        let mut a = ShapeArena::new();
+        let iri = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let lit = a.insert(Shape::TestKind(NodeKindSet::LITERAL));
+        let root = a.insert(Shape::And(vec![iri, lit]));
+        let n = normalize(&schema_with(a, root));
+        assert!(
+            matches!(n.arena.get(n.statements[0].shape), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top))
+        );
     }
 
     #[test]
@@ -811,7 +939,7 @@ mod tests {
 
     #[test]
     fn id_path_max0_is_negation() {
-        // ∃[0..0] id.φ = ¬φ
+        // ∃[0..0] id.φ = ¬φ; for TestKind(IRI) that becomes TestKind(Blank|Lit)
         let mut a = ShapeArena::new();
         let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
         let count = a.insert(Shape::Count {
@@ -822,13 +950,10 @@ mod tests {
         });
         let n = normalize(&schema_with(a, count));
         match n.arena.get(n.statements[0].shape) {
-            Shape::Not(inner) => {
-                assert!(matches!(
-                    n.arena.get(*inner),
-                    Shape::TestKind(NodeKindSet::IRI)
-                ))
+            Shape::TestKind(nk) => {
+                assert_eq!(*nk, NodeKindSet::BLANK_NODE_OR_LITERAL);
             }
-            other => panic!("expected Not(IRI), got {other:?}"),
+            other => panic!("expected TestKind(Blank|Lit), got {other:?}"),
         }
     }
 
@@ -918,5 +1043,149 @@ mod tests {
             Shape::Count { qualifier, .. } => assert_eq!(*qualifier, rooted),
             other => panic!("expected self-referential Count, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn negkind_iri_becomes_blank_or_literal() {
+        // ¬TestKind(IRI) = TestKind(Blank|Literal)
+        let mut a = ShapeArena::new();
+        let iri = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let root = a.insert(Shape::Not(iri));
+        let n = normalize(&schema_with(a, root));
+        assert!(matches!(
+            n.arena.get(n.statements[0].shape),
+            Shape::TestKind(NodeKindSet::BLANK_NODE_OR_LITERAL)
+        ));
+    }
+
+    #[test]
+    fn empty_alt_path_min1_is_bottom() {
+        // ∃≥1 Alt([]).φ = ⊥
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let count = a.insert(Shape::Count {
+            path: Path::Alt(vec![]),
+            min: Some(1),
+            max: None,
+            qualifier: top,
+        });
+        let n = normalize(&schema_with(a, count));
+        let r = n.statements[0].shape;
+        assert!(matches!(n.arena.get(r), Shape::Not(x) if matches!(n.arena.get(*x), Shape::Top)));
+    }
+
+    #[test]
+    fn empty_alt_path_max_bound_is_top() {
+        // ∃[0..3] Alt([]).φ = ⊤
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let count = a.insert(Shape::Count {
+            path: Path::Alt(vec![]),
+            min: None,
+            max: Some(3),
+            qualifier: top,
+        });
+        let n = normalize(&schema_with(a, count));
+        assert!(matches!(n.arena.get(n.statements[0].shape), Shape::Top));
+    }
+
+    #[test]
+    fn star_drops_id_from_alt() {
+        // (p∪id)* = p*
+        let p = shifty_algebra::NamedNode::new("http://ex/p").unwrap();
+        let alt_id = Path::Alt(vec![Path::Pred(p.clone()), Path::Id]);
+        let star = Path::Star(Box::new(alt_id));
+        assert_eq!(
+            normalize_path(star),
+            Path::Star(Box::new(Path::Pred(p)))
+        );
+    }
+
+    #[test]
+    fn seq_merges_adjacent_equal_stars() {
+        // p*·p* = p*
+        let p = shifty_algebra::NamedNode::new("http://ex/p").unwrap();
+        let star = Path::Star(Box::new(Path::Pred(p.clone())));
+        let seq = Path::Seq(vec![star.clone(), star]);
+        assert_eq!(
+            normalize_path(seq),
+            Path::Star(Box::new(Path::Pred(p)))
+        );
+    }
+
+    #[test]
+    fn alt_deduplicates_paths() {
+        // Alt([p, p, q]) = Alt([p, q])
+        let p = shifty_algebra::NamedNode::new("http://ex/p").unwrap();
+        let q = shifty_algebra::NamedNode::new("http://ex/q").unwrap();
+        let dup = Path::Alt(vec![
+            Path::Pred(p.clone()),
+            Path::Pred(p.clone()),
+            Path::Pred(q.clone()),
+        ]);
+        let result = normalize_path(dup);
+        assert_eq!(result, Path::Alt(vec![Path::Pred(p), Path::Pred(q)]));
+    }
+
+    #[test]
+    fn selector_haspath_pred_top_becomes_hasout() {
+        // HasPath(Pred(q), ⊤) ⇒ HasOut(q)
+        let q = shifty_algebra::NamedNode::new("http://ex/q").unwrap();
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let schema = Schema {
+            arena: a,
+            statements: vec![Statement {
+                selector: Selector::HasPath(Path::Pred(q.clone()), top),
+                shape: top,
+            }],
+            rules: vec![],
+            names: Default::default(),
+        };
+        let n = normalize(&schema);
+        assert_eq!(n.statements[0].selector, Selector::HasOut(q));
+    }
+
+    #[test]
+    fn selector_haspath_inv_pred_top_becomes_hasin() {
+        // HasPath(Pred(q)⁻, ⊤) ⇒ HasIn(q)
+        let q = shifty_algebra::NamedNode::new("http://ex/q").unwrap();
+        let mut a = ShapeArena::new();
+        let top = a.insert(Shape::Top);
+        let schema = Schema {
+            arena: a,
+            statements: vec![Statement {
+                selector: Selector::HasPath(
+                    Path::Inverse(Box::new(Path::Pred(q.clone()))),
+                    top,
+                ),
+                shape: top,
+            }],
+            rules: vec![],
+            names: Default::default(),
+        };
+        let n = normalize(&schema);
+        assert_eq!(n.statements[0].selector, Selector::HasIn(q));
+    }
+
+    #[test]
+    fn statement_dedup_removes_identical() {
+        let mut a = ShapeArena::new();
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let node = shifty_algebra::Term::NamedNode(
+            shifty_algebra::NamedNode::new("http://ex/x").unwrap(),
+        );
+        let sel = Selector::IsConst(node);
+        let schema = Schema {
+            arena: a,
+            statements: vec![
+                Statement { selector: sel.clone(), shape: k },
+                Statement { selector: sel.clone(), shape: k },
+            ],
+            rules: vec![],
+            names: Default::default(),
+        };
+        let n = normalize(&schema);
+        assert_eq!(n.statements.len(), 1);
     }
 }
