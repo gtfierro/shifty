@@ -18,6 +18,9 @@ Read in order:
 6. [`05-sparql-execution.md`](05-sparql-execution.md) — the planned
    Spargebra-native query compiler, indexed dataset, path acceleration, and
    Oxigraph/Spareval fallback.
+7. [`06-repair.md`](06-repair.md) — symbolic repair: synthesizing repair
+   *templates* (typed holes, variadic blocks) from violations by abduction over
+   `φ`, and the pluggable hole-fillers (monomorphism / enumeration / ASP / LLM).
 
 > `static-analysis-plan.md` predates this branch (old spec-shaped `shacl-core`
 > approach) and is kept only as historical reference.
