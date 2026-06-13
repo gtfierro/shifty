@@ -17,9 +17,10 @@ use crate::frozen::FrozenIndexedDataset;
 use crate::path::{node_of, succ};
 use crate::sparql::SparqlExecutor;
 use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, graph_union};
-use oxrdf::{Graph, NamedNode, Term, Triple};
+use oxrdf::{Graph, NamedNode, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, ShapeArena};
 use shifty_opt::{RuleDependencies, analyze, rule_dependencies, rule_guard_dependencies};
+use shifty_parse::vocab;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// The result of running inference over a data graph.
@@ -359,9 +360,46 @@ fn eval_node_expr(
             }
             acc
         }
-        NodeExpr::Function { .. } => {
-            diags.insert("function node expressions not yet supported".to_string());
-            HashSet::new()
+        NodeExpr::Function { iri, args } => {
+            // Evaluate arguments before borrowing evaluator for sparql().
+            let arg_values: Vec<HashSet<Term>> = args
+                .iter()
+                .map(|a| eval_node_expr(g, v, a, evaluator, diags))
+                .collect();
+
+            let func = NamedOrBlankNode::NamedNode(iri.clone());
+            let Some(query_text) = g
+                .object_for_subject_predicate(&func, vocab::SH_SELECT)
+                .map(|t| t.into_owned())
+                .and_then(|t| match t {
+                    Term::Literal(l) => Some(l.value().to_string()),
+                    _ => None,
+                })
+            else {
+                diags.insert(format!("function <{}> has no sh:select", iri.as_str()));
+                return HashSet::new();
+            };
+
+            let params = function_params(g, &func);
+            let sparql = evaluator.sparql();
+            let mut results = HashSet::new();
+            for combo in cartesian_product(&arg_values) {
+                if combo.len() != params.len() {
+                    continue;
+                }
+                let bindings: Vec<(String, Term)> = params
+                    .iter()
+                    .zip(combo.into_iter())
+                    .map(|(name, val)| (name.clone(), val))
+                    .collect();
+                match sparql.call_sparql_function(&query_text, &bindings) {
+                    Ok(terms) => results.extend(terms),
+                    Err(e) => {
+                        diags.insert(format!("function <{}> error: {e}", iri.as_str()));
+                    }
+                }
+            }
+            results
         }
     }
 }
@@ -370,4 +408,61 @@ fn once(t: Term) -> HashSet<Term> {
     let mut s = HashSet::with_capacity(1);
     s.insert(t);
     s
+}
+
+/// Return the local name of an IRI (the part after the last `#` or `/`).
+fn local_name(iri: &str) -> &str {
+    iri.rsplit(['#', '/']).next().unwrap_or(iri)
+}
+
+/// Resolve a SPARQL function's parameter names from the context graph,
+/// sorted by `sh:order` then by local name of `sh:path` (or `sh:name`).
+fn function_params(g: &Graph, func: &NamedOrBlankNode) -> Vec<String> {
+    let mut params: Vec<(i64, String)> = g
+        .objects_for_subject_predicate(func, vocab::SH_PARAMETER)
+        .filter_map(|param_ref| {
+            let param_node = node_of(&param_ref.into_owned())?;
+            let order = g
+                .object_for_subject_predicate(&param_node, vocab::SH_ORDER)
+                .map(|t| t.into_owned())
+                .and_then(|t| match t {
+                    Term::Literal(l) => l.value().parse::<i64>().ok(),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let name = g
+                .object_for_subject_predicate(&param_node, vocab::SH_NAME)
+                .map(|t| t.into_owned())
+                .and_then(|t| match t {
+                    Term::Literal(l) => Some(l.value().to_string()),
+                    _ => None,
+                })
+                .or_else(|| {
+                    g.object_for_subject_predicate(&param_node, vocab::SH_PATH)
+                        .map(|t| t.into_owned())
+                        .and_then(|t| match t {
+                            Term::NamedNode(n) => Some(local_name(n.as_str()).to_string()),
+                            _ => None,
+                        })
+                })?;
+            Some((order, name))
+        })
+        .collect();
+    params.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    params.into_iter().map(|(_, name)| name).collect()
+}
+
+/// Cartesian product of term sets — one arg combo per returned vec.
+fn cartesian_product(sets: &[HashSet<Term>]) -> Vec<Vec<Term>> {
+    sets.iter().fold(vec![vec![]], |acc, set| {
+        acc.into_iter()
+            .flat_map(|combo| {
+                set.iter().map(move |item| {
+                    let mut row = combo.clone();
+                    row.push(item.clone());
+                    row
+                })
+            })
+            .collect()
+    })
 }

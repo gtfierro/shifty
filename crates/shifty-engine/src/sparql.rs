@@ -556,6 +556,43 @@ impl SparqlExecutor {
         Ok(parsed)
     }
 
+    /// Invoke a `sh:SPARQLFunction` by substituting positional parameter
+    /// bindings into the query and extracting `?result` terms.
+    pub fn call_sparql_function(
+        &self,
+        raw_query: &str,
+        params: &[(String, Term)],
+    ) -> Result<Vec<Term>, String> {
+        let mut query = self.parse(raw_query)?;
+        for (name, value) in params {
+            let var = Variable::new(name).map_err(err)?;
+            substitute_query(&mut query, &var, value);
+        }
+        let prepared = SparqlEvaluator::new().for_query(query);
+        let result = if let Some(frozen) = &self.frozen {
+            prepared.on_queryable_dataset(frozen).execute().map_err(err)?
+        } else {
+            prepared.on_store(self.store()?).execute().map_err(err)?
+        };
+        match result {
+            QueryResults::Solutions(solutions) => {
+                let mut out = Vec::new();
+                for sol in solutions {
+                    if let Some(t) = sol.map_err(err)?.get("result") {
+                        out.push(t.clone());
+                    }
+                }
+                Ok(out)
+            }
+            QueryResults::Boolean(b) => {
+                Ok(if b { vec![Term::Literal(Literal::from(true))] } else { vec![] })
+            }
+            QueryResults::Graph(_) => {
+                Err("sh:SPARQLFunction produced graph results".to_string())
+            }
+        }
+    }
+
     fn store(&self) -> Result<&Store, String> {
         self.store
             .as_ref()

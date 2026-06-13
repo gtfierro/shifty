@@ -70,6 +70,10 @@ impl<'a> ShapeEvaluator<'a> {
     pub(crate) fn holds(&mut self, node: &Term, id: ShapeId) -> bool {
         holds_memoized(self.g, self.arena, node, id, self.sparql, &mut self.state).holds
     }
+
+    pub(crate) fn sparql(&self) -> &SparqlExecutor {
+        self.sparql
+    }
 }
 
 impl Drop for ShapeEvaluator<'_> {

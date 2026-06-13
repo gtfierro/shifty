@@ -156,6 +156,10 @@ iri!(SH_IRI_OR_LITERAL, "http://www.w3.org/ns/shacl#IRIOrLiteral");
 iri!(SH_SPARQL, "http://www.w3.org/ns/shacl#sparql");
 iri!(SH_RULE, "http://www.w3.org/ns/shacl#rule");
 
+// AF functions (SHACL-AF §4.3)
+iri!(SH_PARAMETER, "http://www.w3.org/ns/shacl#parameter");
+iri!(SH_NAME, "http://www.w3.org/ns/shacl#name");
+
 // AF rules (SHACL-AF §4)
 iri!(SH_THIS, "http://www.w3.org/ns/shacl#this");
 iri!(SH_SUBJECT, "http://www.w3.org/ns/shacl#subject");

@@ -10,7 +10,7 @@ use crate::diagnostics::{DiagLevel, Diagnostic};
 use crate::graph::{Loaded, term_to_node};
 use crate::path::parse_path;
 use crate::vocab;
-use oxrdf::{Literal, NamedOrBlankNode, Term};
+use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term};
 use shifty_algebra::{
     Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena,
     ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget, Statement,
@@ -633,8 +633,8 @@ impl Lowerer<'_> {
         })
     }
 
-    /// Parse a node expression (SHACL-AF §5). Currently handles `sh:this`,
-    /// constants, and path expressions; richer expressions are diagnosed.
+    /// Parse a node expression (SHACL-AF §5). Handles `sh:this`, constants,
+    /// path expressions, and SPARQL function calls `[ ex:fn (arg …) ]`.
     fn parse_node_expr(&mut self, term: Term, owner: &NamedOrBlankNode) -> Option<NodeExpr> {
         match &term {
             Term::NamedNode(n) if n.as_ref() == vocab::SH_THIS => Some(NodeExpr::This),
@@ -653,6 +653,8 @@ impl Lowerer<'_> {
                             None
                         }
                     }
+                } else if let Some(expr) = self.try_function_call(&node, owner) {
+                    Some(expr)
                 } else {
                     self.diag(
                         DiagLevel::Unsupported,
@@ -663,6 +665,45 @@ impl Lowerer<'_> {
                 }
             }
         }
+    }
+
+    /// Detect a function-call node expression `[ ex:fn ( arg1 arg2 … ) ]`.
+    ///
+    /// The blank node must have exactly one non-SHACL/RDF/RDFS/OWL predicate;
+    /// its object must be an RDF list of argument node expressions.
+    fn try_function_call(
+        &mut self,
+        node: &NamedOrBlankNode,
+        owner: &NamedOrBlankNode,
+    ) -> Option<NodeExpr> {
+        let func_preds: Vec<(NamedNode, Term)> = self
+            .g
+            .graph
+            .triples_for_subject(node)
+            .map(|t| (t.predicate.into_owned(), t.object.into_owned()))
+            .filter(|(p, _)| {
+                let s = p.as_str();
+                !s.starts_with(vocab::SH)
+                    && !s.starts_with(vocab::RDF)
+                    && !s.starts_with(vocab::RDFS)
+                    && !s.starts_with(vocab::OWL)
+            })
+            .collect();
+
+        if func_preds.len() != 1 {
+            return None;
+        }
+        let (func_iri, list_head) = func_preds.into_iter().next().unwrap();
+        let arg_terms = self.g.read_list(&list_head);
+        let n = arg_terms.len();
+        let args: Vec<NodeExpr> = arg_terms
+            .into_iter()
+            .filter_map(|t| self.parse_node_expr(t, owner))
+            .collect();
+        if args.len() != n {
+            return None;
+        }
+        Some(NodeExpr::Function { iri: func_iri, args })
     }
 
     fn order(&self, s: &NamedOrBlankNode) -> Option<i64> {
