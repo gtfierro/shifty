@@ -16,6 +16,7 @@ pub mod report;
 mod sparql;
 pub mod validate;
 pub mod value;
+pub mod witness;
 
 pub use infer::{InferenceOutcome, infer, infer_graphs, infer_with_context};
 pub use report::{
@@ -26,6 +27,9 @@ pub use validate::{
     NonStratifiable, Reason, ValidationGraphMode, ValidationOutcome, Violation, focus_nodes,
     validate, validate_graphs, validate_graphs_with_mode, validate_plan, validate_plan_graphs,
     validate_plan_graphs_with_mode, validate_plan_with_context, validate_with_context,
+};
+pub use witness::{
+    BlockReason, FocusWitness, PathSupport, RelKind, SatTrace, Witness, witness_violations,
 };
 
 #[cfg(test)]
