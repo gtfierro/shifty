@@ -6,6 +6,7 @@
 //! inference engine (Layer 6) and compiled executors (Layer 7) come later; every
 //! execution mode must agree with this oracle.
 
+pub mod enumerate;
 pub mod frozen;
 pub mod gate;
 pub mod infer;
@@ -30,6 +31,7 @@ pub use validate::{
     validate, validate_graphs, validate_graphs_with_mode, validate_plan, validate_plan_graphs,
     validate_plan_graphs_with_mode, validate_plan_with_context, validate_with_context,
 };
+pub use enumerate::{EnumOptions, RepairSolution, candidates, enumerate_repair};
 pub use gate::{RepairOutcome, apply, gate};
 pub use synthesize::{synthesize, synthesize_focus};
 pub use witness::{
