@@ -1,0 +1,17 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+if(NOT TARGET Shifty::shifty)
+    add_library(Shifty::shifty STATIC IMPORTED)
+    set_target_properties(Shifty::shifty PROPERTIES
+        IMPORTED_LOCATION "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@SHIFTY_LIBRARY_FILE@"
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
+    )
+    target_link_libraries(Shifty::shifty INTERFACE
+        Threads::Threads
+        ${CMAKE_DL_LIBS}
+        @SHIFTY_EXTRA_SYSTEM_LIBS@
+    )
+endif()

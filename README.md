@@ -1,6 +1,6 @@
 # shifty
 
-A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool and as Python bindings (`pyshifty`).
+A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool, Python bindings (`pyshifty`), and a C++17 static-library SDK.
 
 See the `archive-first-attempt` branch for an older attempt, which was published as shifty 0.0.7
 
@@ -49,6 +49,30 @@ cd python
 pip install maturin
 maturin develop
 ```
+
+### C++
+
+The C++17 SDK embeds Shifty as a Rust static library and provides RAII wrappers
+for RDF loading, SPARQL queries, and reusable SHACL validators:
+
+```sh
+cmake -S cpp -B build/cpp
+cmake --build build/cpp
+ctest --test-dir build/cpp --output-on-failure
+```
+
+```cpp
+#include <shifty/shifty.hpp>
+
+shifty::Dataset dataset;
+dataset.load_file("data.ttl");
+
+auto rows = dataset.query("SELECT ?s WHERE { ?s ?p ?o }");
+auto validator = shifty::PreparedValidator::from_file("shapes.ttl");
+auto report = validator.validate(dataset);
+```
+
+See [`cpp/README.md`](cpp/README.md) for installation and CMake package usage.
 
 ## CLI usage
 

@@ -1,0 +1,25 @@
+[package]
+name = "shifty-cpp"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "C ABI and C++ SDK for the shifty RDF, SPARQL, and SHACL engine"
+repository.workspace = true
+publish = false
+
+[lib]
+name = "shifty_cpp"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+oxrdf.workspace = true
+oxttl.workspace = true
+serde_json.workspace = true
+shifty-algebra.workspace = true
+shifty-engine.workspace = true
+shifty-opt.workspace = true
+shifty-parse.workspace = true
+spareval.workspace = true
+sparesults.workspace = true
+spargebra.workspace = true

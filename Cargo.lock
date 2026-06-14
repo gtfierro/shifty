@@ -1125,6 +1125,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "shifty-cpp"
+version = "0.1.5"
+dependencies = [
+ "oxrdf",
+ "oxttl",
+ "serde_json",
+ "shifty-algebra",
+ "shifty-engine",
+ "shifty-opt",
+ "shifty-parse",
+ "sparesults",
+ "spareval",
+ "spargebra",
+]
+
+[[package]]
 name = "shifty-engine"
 version = "0.1.5"
 dependencies = [
