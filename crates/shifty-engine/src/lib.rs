@@ -14,6 +14,7 @@ mod path_plan;
 pub mod profile;
 pub mod report;
 mod sparql;
+pub mod synthesize;
 pub mod validate;
 pub mod value;
 pub mod witness;
@@ -28,6 +29,7 @@ pub use validate::{
     validate, validate_graphs, validate_graphs_with_mode, validate_plan, validate_plan_graphs,
     validate_plan_graphs_with_mode, validate_plan_with_context, validate_with_context,
 };
+pub use synthesize::{synthesize, synthesize_focus};
 pub use witness::{
     BlockReason, FocusWitness, PathSupport, RelKind, SatTrace, Witness, witness_violations,
 };

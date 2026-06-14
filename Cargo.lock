@@ -1138,6 +1138,7 @@ dependencies = [
  "shifty-algebra",
  "shifty-opt",
  "shifty-parse",
+ "shifty-repair",
  "spareval",
  "spargebra",
 ]

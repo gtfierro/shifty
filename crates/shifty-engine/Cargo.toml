@@ -11,6 +11,7 @@ repository.workspace = true
 shifty-algebra.workspace = true
 shifty-parse.workspace = true
 shifty-opt.workspace = true
+shifty-repair.workspace = true
 oxrdf.workspace = true
 oxsdatatypes.workspace = true
 oxigraph.workspace = true
