@@ -553,10 +553,9 @@ fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<Stri
                     }
                     _ => {}
                 }
-                if let NamedNodePattern::Variable(v) = &tp.predicate {
-                    if !bound.contains(v.as_str()) {
-                        vars.insert(v.as_str().to_string());
-                    }
+                if let NamedNodePattern::Variable(v) = &tp.predicate
+                    && !bound.contains(v.as_str()) {
+                    vars.insert(v.as_str().to_string());
                 }
                 match &tp.object {
                     TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
