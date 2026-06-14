@@ -703,7 +703,10 @@ impl Lowerer<'_> {
         if args.len() != n {
             return None;
         }
-        Some(NodeExpr::Function { iri: func_iri, args })
+        Some(NodeExpr::Function {
+            iri: func_iri,
+            args,
+        })
     }
 
     fn order(&self, s: &NamedOrBlankNode) -> Option<i64> {

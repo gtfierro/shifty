@@ -186,18 +186,33 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   identity.  Measured speedup on `water-closure.ttl`:
   `ns3:QuantifiablePropertyShape` rule (GROUP BY / COUNT DISTINCT) 33 s → 1.8 s;
   total 39 s → 7.6 s.
-- **[do]** Bulk fallback SELECT validation via `VALUES` injection: the SELECT
-  analog of the global CONSTRUCT fix above. `constraint_violations` currently
-  calls `run_fallback` once per focus node (clone query, substitute `$this`,
-  execute Spareval). When the plan is `None` and the focus set has more than one
-  node, instead inject `VALUES (?this) { (<f1>) (<f2>) … }` at the top of the
-  WHERE clause and execute once; demultiplex violations by the `?this` binding
-  in each result row. Correctness requires that `?this` is a genuine SELECT
-  variable (not already substituted as a constant). Profiled bottleneck:
-  `DontReferToDeprecatedConceptConstraint` 24 614 calls × 48 µs = 1.2 s total;
-  one query should reduce that to < 50 ms. Also applies to other OPTIONAL-using
-  constraints that currently can't go native. Deferred: batching is tricky to
-  get right.
+- **[done]** Bulk fallback SELECT validation — the SELECT analog of the global
+  CONSTRUCT fix. `prefetch_constraint` (in `sparql.rs`) evaluates a constraint
+  over a whole focus set in one Spareval run and caches the per-focus violations
+  on the compiled entry (`BatchedResults`); `constraint_violations` then serves
+  covered foci from the cache instead of cloning/substituting/executing once per
+  node. Wired into both algebra validators (`validate_with_frozen`,
+  `validate_plan_with_frozen` walk the statement shape through `∧`/`∨`/`¬` to the
+  reachable `Shape::Sparql` constraints) and the W3C report path
+  (`prefetch_sparql` over each shape's focus set). Caching is a pure memo
+  (violations depend only on focus + immutable frozen dataset), so it is sound in
+  any operator context. The implemented strategy is **free-`?this`**, *not* the
+  originally-sketched `VALUES` table: a measured `VALUES (?this){…}` build was
+  *slower* than the per-focus baseline (3.6 s vs 3.1 s) because the table join
+  costs more than it saves. Instead, when `?this` is positively bound by the
+  required (non-OPTIONAL/MINUS/FILTER) part of the WHERE clause, the query runs
+  unmodified (just projecting `?this`) and the foci are recovered from the
+  solutions — one selective scan replaces N substituted scans. **Coverage is
+  named-node foci only**: a blank-node focus cannot be matched back from query
+  results (SPARQL relabels result blank nodes), so blank foci fall through to the
+  per-focus path where `$this` is substituted as a constant. Gated off for
+  aggregation (`GROUP BY`), slicing (`LIMIT`/`OFFSET`), and non-positively-bound
+  `?this`. Measured on `water-closure.ttl` (`validate --no-infer`): 3.1 s → 2.5 s
+  (~18%). The win is bounded here because `DontReferToDeprecatedConceptConstraint`
+  targets `qudt:Concept`, whose instances are mostly *blank* value structures, so
+  the dominant ~19 k blank foci still go per-focus. **[todo]** a stable-blank-id
+  path (or a `QueryableDataset` that preserves dataset blank labels through
+  Spareval results) would let blank foci batch too and unlock the rest.
 - **[done]** BGP scan reordering by predicate cardinality in the native
   executor: within a `GraphPattern::Bgp` block, scans are greedily reordered
   by estimated output cardinality (`reorder_bgp` in `plan.rs`; bound predicate

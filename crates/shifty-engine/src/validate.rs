@@ -257,7 +257,9 @@ fn validate_with_frozen(
             .get(&st.shape)
             .cloned()
             .unwrap_or_else(|| format!("@{}", st.shape.0));
-        for v in focus_nodes_with_evaluator(data, &st.selector, &mut evaluator) {
+        let foci = focus_nodes_with_evaluator(data, &st.selector, &mut evaluator);
+        prefetch_sparql_constraints(&schema.arena, st.shape, &foci, &sparql);
+        for v in foci {
             let t = std::time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(&mut evaluator, &v, st.shape, None, &mut stack);
@@ -392,7 +394,9 @@ fn validate_plan_with_frozen(
             .get(&sp.shape)
             .cloned()
             .unwrap_or_else(|| format!("@{}", sp.shape.0));
-        for v in focus_for_source(data, &sp.source, &mut evaluator) {
+        let foci = focus_for_source(data, &sp.source, &mut evaluator);
+        prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, &sparql);
+        for v in foci {
             let t = std::time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(&mut evaluator, &v, sp.shape, None, &mut stack);
@@ -682,6 +686,53 @@ fn estimated_term_heap_bytes(term: &Term) -> usize {
                     str::len,
                 )
         }
+    }
+}
+
+/// Batch-evaluate the SPARQL constraints reachable from `root` at the focus set
+/// before the per-node walk, so their fallback queries run once for the whole
+/// focus set instead of once per focus (doc §189). Only constraints reached through
+/// focus-preserving operators (`∧`/`∨`/`¬`) are evaluated at `foci`; constraints
+/// under a `Count` path apply to value nodes, not the statement focus, so they
+/// are skipped here and fall back to per-focus execution. Prefetching is a pure
+/// memo (constraint violations depend only on focus + immutable dataset), so it
+/// is sound regardless of the operator context the constraint is reached in.
+fn prefetch_sparql_constraints(
+    arena: &ShapeArena,
+    root: ShapeId,
+    foci: &[Term],
+    sparql: &SparqlExecutor,
+) {
+    if foci.len() < 2 {
+        return;
+    }
+    let mut constraints = Vec::new();
+    let mut seen = HashSet::new();
+    collect_focus_sparql(arena, root, &mut seen, &mut constraints);
+    for constraint in constraints {
+        let _ = sparql.prefetch_constraint(constraint, foci);
+    }
+}
+
+fn collect_focus_sparql<'a>(
+    arena: &'a ShapeArena,
+    id: ShapeId,
+    seen: &mut HashSet<ShapeId>,
+    out: &mut Vec<&'a SparqlConstraint>,
+) {
+    if !seen.insert(id) {
+        return; // cyclic (recursive) shape: stop at the back-edge
+    }
+    match arena.get(id) {
+        Shape::Sparql(constraint) => out.push(constraint),
+        Shape::Not(inner) => collect_focus_sparql(arena, *inner, seen, out),
+        Shape::And(ids) | Shape::Or(ids) => {
+            for &child in ids {
+                collect_focus_sparql(arena, child, seen, out);
+            }
+        }
+        // `Count` crosses a path (different focus); all other variants are leaves.
+        _ => {}
     }
 }
 

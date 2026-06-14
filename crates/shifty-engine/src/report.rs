@@ -156,9 +156,11 @@ fn validate_report_context(
     };
     let mut results = Vec::new();
     for shape in r.target_shapes() {
-        for focus in r.focus_nodes(&shape) {
+        let foci = r.focus_nodes(&shape);
+        r.prefetch_sparql(&shape, &foci);
+        for focus in &foci {
             let mut visited = HashSet::new();
-            r.collect(&shape, &focus, &mut results, &mut visited);
+            r.collect(&shape, focus, &mut results, &mut visited);
         }
     }
     ValidationReport {
@@ -488,6 +490,59 @@ impl Reporter<'_> {
     /// the focus node against the context store; every solution (or a `true`
     /// `ASK`) is one `sh:SPARQLConstraintComponent` result. A `value`/`path`
     /// projected by the query overrides the value node / `sh:resultPath`.
+    /// Build the [`SparqlConstraint`] for a `sh:sparql` constraint node, applying
+    /// the same canonicalization the lowering path uses. `None` when the node has
+    /// neither `sh:select` nor `sh:ask`, or when canonicalization fails (matching
+    /// the lowering path, which omits such constraints with a diagnostic).
+    fn build_sparql_constraint(
+        &self,
+        shape: &NamedOrBlankNode,
+        constraint_node: &NamedOrBlankNode,
+        parsed_path: &Option<Path>,
+    ) -> Option<SparqlConstraint> {
+        let (kind, raw) = if let Some(Term::Literal(query)) =
+            self.shapes.object(constraint_node, vocab::SH_SELECT)
+        {
+            (SparqlQueryKind::Select, query.value().to_string())
+        } else if let Some(Term::Literal(query)) =
+            self.shapes.object(constraint_node, vocab::SH_ASK)
+        {
+            (SparqlQueryKind::Ask, query.value().to_string())
+        } else {
+            return None;
+        };
+        let (_, query) = canonical_sparql_query(self.shapes, constraint_node, &raw).ok()?;
+        Some(SparqlConstraint {
+            kind,
+            query,
+            path: parsed_path.clone(),
+            shape: Some(node_term_ref(shape)),
+            // The report path resolves messages itself, so the constraint's own
+            // message slot is left empty here.
+            messages: Vec::new(),
+        })
+    }
+
+    /// Batch-evaluate a shape's direct `sh:sparql` constraints over its whole
+    /// focus set before the per-focus walk, so fallback queries run once over a
+    /// `VALUES` table (doc §189) rather than once per focus.
+    fn prefetch_sparql(&self, shape: &NamedOrBlankNode, foci: &[Term]) {
+        if !self.needs_sparql || foci.len() < 2 {
+            return;
+        }
+        let (_, parsed_path) = self.shape_path(shape);
+        for constraint_term in self.shapes.objects(shape, vocab::SH_SPARQL) {
+            let Some(constraint_node) = term_to_node(&constraint_term) else {
+                continue;
+            };
+            if let Some(constraint) =
+                self.build_sparql_constraint(shape, &constraint_node, &parsed_path)
+            {
+                let _ = self.sparql.prefetch_constraint(&constraint, foci);
+            }
+        }
+    }
+
     fn collect_sparql(
         &self,
         shape: &NamedOrBlankNode,
@@ -505,31 +560,10 @@ impl Reporter<'_> {
             let Some(constraint_node) = term_to_node(&constraint_term) else {
                 continue;
             };
-            let raw = if let Some(Term::Literal(query)) =
-                self.shapes.object(&constraint_node, vocab::SH_SELECT)
-            {
-                Some((SparqlQueryKind::Select, query.value().to_string()))
-            } else if let Some(Term::Literal(query)) =
-                self.shapes.object(&constraint_node, vocab::SH_ASK)
-            {
-                Some((SparqlQueryKind::Ask, query.value().to_string()))
-            } else {
-                None
-            };
-            let Some((kind, raw)) = raw else { continue };
-            // Drop constraints that fail to canonicalize, matching the lowering
-            // path (which emits the diagnostic and omits the constraint).
-            let Ok((_, query)) = canonical_sparql_query(self.shapes, &constraint_node, &raw) else {
+            let Some(constraint) =
+                self.build_sparql_constraint(shape, &constraint_node, parsed_path)
+            else {
                 continue;
-            };
-            let constraint = SparqlConstraint {
-                kind,
-                query,
-                path: parsed_path.clone(),
-                shape: Some(node_term_ref(shape)),
-                // The report path resolves messages itself, so the constraint's
-                // own message slot is left empty here.
-                messages: Vec::new(),
             };
             // Mirror lower.rs §179-184: constraint-node sh:message takes
             // precedence; absent that, fall back to the owning shape's sh:message.

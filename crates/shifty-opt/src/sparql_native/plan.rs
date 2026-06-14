@@ -516,8 +516,16 @@ fn lower_join_leaves(
     let mut bound: HashSet<String> = std::iter::once(FOCUS_VAR.to_string()).collect();
     let mut current = input;
     while !leaves.is_empty() {
-        let costs: Vec<u64> = leaves.iter().map(|p| estimate_pattern_cost(p, &bound, stats)).collect();
-        let best = costs.iter().enumerate().min_by_key(|(_, c)| *c).map(|(i, _)| i).unwrap();
+        let costs: Vec<u64> = leaves
+            .iter()
+            .map(|p| estimate_pattern_cost(p, &bound, stats))
+            .collect();
+        let best = costs
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, c)| *c)
+            .map(|(i, _)| i)
+            .unwrap();
         let pat = leaves.remove(best);
         bound.extend(pattern_new_vars(pat, &bound));
         current = lower_pattern(b, pat, current, graph, Some(stats))?;
@@ -539,7 +547,9 @@ fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<Stri
                     // so downstream cost estimates see them as bound after this BGP.
                     TermPattern::BlankNode(bn) => {
                         let name = format!("_:{}", bn.as_str());
-                        if !bound.contains(&name) { vars.insert(name); }
+                        if !bound.contains(&name) {
+                            vars.insert(name);
+                        }
                     }
                     _ => {}
                 }
@@ -554,20 +564,26 @@ fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<Stri
                     }
                     TermPattern::BlankNode(bn) => {
                         let name = format!("_:{}", bn.as_str());
-                        if !bound.contains(&name) { vars.insert(name); }
+                        if !bound.contains(&name) {
+                            vars.insert(name);
+                        }
                     }
                     _ => {}
                 }
             }
         }
-        GraphPattern::Path { subject, object, .. } => {
+        GraphPattern::Path {
+            subject, object, ..
+        } => {
             match subject {
                 TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
                     vars.insert(v.as_str().to_string());
                 }
                 TermPattern::BlankNode(bn) => {
                     let name = format!("_:{}", bn.as_str());
-                    if !bound.contains(&name) { vars.insert(name); }
+                    if !bound.contains(&name) {
+                        vars.insert(name);
+                    }
                 }
                 _ => {}
             }
@@ -577,7 +593,9 @@ fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<Stri
                 }
                 TermPattern::BlankNode(bn) => {
                     let name = format!("_:{}", bn.as_str());
-                    if !bound.contains(&name) { vars.insert(name); }
+                    if !bound.contains(&name) {
+                        vars.insert(name);
+                    }
                 }
                 _ => {}
             }
@@ -590,7 +608,11 @@ fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<Stri
 /// Estimated cost of evaluating `pattern` given `bound` variable names.
 /// For BGPs this is the minimum single-triple cost across all patterns — the
 /// bound set propagates so the cheapest entry point drives the estimate.
-fn estimate_pattern_cost(pattern: &GraphPattern, bound: &HashSet<String>, stats: &PlanStats) -> u64 {
+fn estimate_pattern_cost(
+    pattern: &GraphPattern,
+    bound: &HashSet<String>,
+    stats: &PlanStats,
+) -> u64 {
     let total = stats.total_triples.max(1);
     let ds = stats.distinct_subjects.max(1);
     let dp = stats.distinct_predicates.max(1);
@@ -648,23 +670,33 @@ fn estimate_pattern_cost(pattern: &GraphPattern, bound: &HashSet<String>, stats:
                 }
                 first = false;
                 match &tp.subject {
-                    TermPattern::Variable(v) => { sim_bound.insert(v.as_str().to_string()); }
-                    TermPattern::BlankNode(bn) => { sim_bound.insert(format!("_:{}", bn.as_str())); }
+                    TermPattern::Variable(v) => {
+                        sim_bound.insert(v.as_str().to_string());
+                    }
+                    TermPattern::BlankNode(bn) => {
+                        sim_bound.insert(format!("_:{}", bn.as_str()));
+                    }
                     _ => {}
                 }
                 if let NamedNodePattern::Variable(v) = &tp.predicate {
                     sim_bound.insert(v.as_str().to_string());
                 }
                 match &tp.object {
-                    TermPattern::Variable(v) => { sim_bound.insert(v.as_str().to_string()); }
-                    TermPattern::BlankNode(bn) => { sim_bound.insert(format!("_:{}", bn.as_str())); }
+                    TermPattern::Variable(v) => {
+                        sim_bound.insert(v.as_str().to_string());
+                    }
+                    TermPattern::BlankNode(bn) => {
+                        sim_bound.insert(format!("_:{}", bn.as_str()));
+                    }
                     _ => {}
                 }
             }
             output
         }
 
-        GraphPattern::Path { subject, object, .. } => {
+        GraphPattern::Path {
+            subject, object, ..
+        } => {
             let s = tp_name_is_bound(subject, bound);
             let o = tp_name_is_bound(object, bound);
             match (s, o) {
@@ -1113,12 +1145,7 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(
-            scans.len(),
-            3,
-            "expected 3 scans; got {}",
-            scans.len()
-        );
+        assert_eq!(scans.len(), 3, "expected 3 scans; got {}", scans.len());
         assert!(
             matches!(&scans[0].predicate, ScanTerm::Const(t) if t == &rare),
             "rare-predicate scan should be first; got predicates: {:?}",
@@ -1146,13 +1173,13 @@ mod tests {
         };
         let plan = lower_query_with_stats(&q, Some(&stats)).expect("should lower");
         // After swap the PathScan should feed directly from InputFocus (node 0).
-        let path_inputs_focus = plan.nodes.iter().any(|op| {
-            matches!(op, NativeOp::PathScan { input, .. } if *input == 0)
-        });
+        let path_inputs_focus = plan
+            .nodes
+            .iter()
+            .any(|op| matches!(op, NativeOp::PathScan { input, .. } if *input == 0));
         assert!(
             path_inputs_focus,
             "PathScan should be evaluated first (input = InputFocus)"
         );
     }
-
 }
