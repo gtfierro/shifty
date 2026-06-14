@@ -20,12 +20,16 @@ pub mod value;
 pub use infer::{InferenceOutcome, infer, infer_graphs, infer_with_context};
 pub use report::{
     ValidationReport, ValidationResult, report_to_graph, validate_report, validate_report_graphs,
-    validate_report_graphs_with_mode,
+    validate_report_graphs_with_mode, validate_report_graphs_with_mode_and_options,
+    validate_report_with_options,
 };
 pub use validate::{
-    NonStratifiable, Reason, ValidationGraphMode, ValidationOutcome, Violation, focus_nodes,
-    validate, validate_graphs, validate_graphs_with_mode, validate_plan, validate_plan_graphs,
-    validate_plan_graphs_with_mode, validate_plan_with_context, validate_with_context,
+    NonStratifiable, Reason, ValidationGraphMode, ValidationOptions, ValidationOutcome, Violation,
+    focus_nodes, validate, validate_graphs, validate_graphs_with_mode,
+    validate_graphs_with_mode_and_options, validate_plan, validate_plan_graphs,
+    validate_plan_graphs_with_mode, validate_plan_graphs_with_mode_and_options,
+    validate_plan_with_context, validate_plan_with_context_and_options, validate_plan_with_options,
+    validate_with_context, validate_with_context_and_options, validate_with_options,
 };
 
 #[cfg(test)]
@@ -47,6 +51,135 @@ mod tests {
         @prefix ex:  <http://ex/> .
         @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
     "#;
+
+    #[test]
+    fn planned_validation_preserves_severity_and_applies_threshold() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:property ex:InfoShape, ex:WarningShape .
+            ex:InfoShape a sh:PropertyShape ;
+                sh:path ex:required ;
+                sh:minCount 1 ;
+                sh:severity sh:Info .
+            ex:WarningShape a sh:PropertyShape ;
+                sh:path ex:required ;
+                sh:minCount 1 ;
+                sh:severity sh:Warning .
+            "
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        let normalized = shifty_opt::normalize(&parsed.schema);
+        let plan = shifty_opt::plan(&normalized);
+
+        let info = validate_plan_with_options(
+            &loaded.graph,
+            &plan,
+            &ValidationOptions {
+                minimum_severity: shifty_algebra::Severity::Info,
+                sort_results: true,
+            },
+        )
+        .unwrap();
+        assert!(!info.conforms);
+        assert_eq!(info.violations.len(), 1);
+        assert_eq!(
+            info.violations[0].severity,
+            shifty_algebra::Severity::Warning
+        );
+        let mut severities: Vec<_> = info.violations[0]
+            .reasons
+            .iter()
+            .map(|reason| reason.severity.clone())
+            .collect();
+        severities.sort_by_key(shifty_algebra::Severity::rank);
+        assert_eq!(
+            severities,
+            vec![
+                shifty_algebra::Severity::Info,
+                shifty_algebra::Severity::Warning
+            ]
+        );
+
+        let warning = validate_plan_with_options(
+            &loaded.graph,
+            &plan,
+            &ValidationOptions {
+                minimum_severity: shifty_algebra::Severity::Warning,
+                sort_results: true,
+            },
+        )
+        .unwrap();
+        assert!(!warning.conforms);
+
+        let violation = validate_plan_with_options(
+            &loaded.graph,
+            &plan,
+            &ValidationOptions {
+                minimum_severity: shifty_algebra::Severity::Violation,
+                sort_results: true,
+            },
+        )
+        .unwrap();
+        assert!(violation.conforms);
+        assert_eq!(violation.violations.len(), 1);
+
+        let report = validate_report_with_options(
+            &loaded,
+            &loaded.graph,
+            &ValidationOptions {
+                minimum_severity: shifty_algebra::Severity::Violation,
+                sort_results: true,
+            },
+        );
+        assert!(report.conforms);
+        assert_eq!(report.results.len(), 2);
+    }
+
+    #[test]
+    fn validation_findings_sort_by_severity_then_focus_node() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:InfoShape a sh:NodeShape ;
+                sh:targetNode ex:a ;
+                sh:nodeKind sh:Literal ;
+                sh:severity sh:Info .
+            ex:WarningShape a sh:NodeShape ;
+                sh:targetNode ex:z ;
+                sh:nodeKind sh:Literal ;
+                sh:severity sh:Warning .
+            ex:ViolationShape a sh:NodeShape ;
+                sh:targetNode ex:m ;
+                sh:nodeKind sh:Literal .
+            "
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        let plan = shifty_opt::plan(&shifty_opt::normalize(&parsed.schema));
+        let outcome = validate_plan(&loaded.graph, &plan).unwrap();
+
+        let ordered: Vec<_> = outcome
+            .violations
+            .iter()
+            .map(|finding| (finding.severity.clone(), finding.focus.to_string()))
+            .collect();
+        assert_eq!(
+            ordered,
+            vec![
+                (
+                    shifty_algebra::Severity::Violation,
+                    "<http://ex/m>".to_string()
+                ),
+                (
+                    shifty_algebra::Severity::Warning,
+                    "<http://ex/z>".to_string()
+                ),
+                (shifty_algebra::Severity::Info, "<http://ex/a>".to_string()),
+            ]
+        );
+    }
 
     #[test]
     fn reports_specific_failing_constraints() {

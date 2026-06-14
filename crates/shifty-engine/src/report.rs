@@ -15,11 +15,13 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::SparqlExecutor;
-use crate::validate::{ValidationGraphMode, apply_message_template, graph_union};
+use crate::validate::{
+    ValidationGraphMode, ValidationOptions, apply_message_template, graph_union,
+};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::value_type::{Bound, ValueType};
-use shifty_algebra::{NodeKindSet, Path, SparqlConstraint, SparqlQueryKind};
+use shifty_algebra::{NodeKindSet, Path, Severity, SparqlConstraint, SparqlQueryKind};
 use shifty_parse::graph::{Loaded, term_to_node};
 use shifty_parse::lower::canonical_sparql_query;
 use shifty_parse::path::parse_path;
@@ -52,18 +54,32 @@ pub struct ValidationReport {
 
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
 pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
+    validate_report_with_options(shapes, data, &ValidationOptions::default())
+}
+
+/// Validate and build a W3C report using an explicit severity policy.
+pub fn validate_report_with_options(
+    shapes: &Loaded,
+    data: &Graph,
+    options: &ValidationOptions,
+) -> ValidationReport {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     let frozen = if has_shapes_graph {
         FrozenIndexedDataset::from_graphs(data, &shapes.graph)
     } else {
         FrozenIndexedDataset::from_graph(data)
     };
-    validate_report_context(shapes, data, frozen, has_shapes_graph)
+    validate_report_context(shapes, data, frozen, has_shapes_graph, options)
 }
 
 /// Validate split data and shapes graphs using the selected graph mode.
 pub fn validate_report_graphs(shapes: &Loaded, data: &Graph) -> ValidationReport {
-    validate_report_graphs_with_mode(shapes, data, ValidationGraphMode::default())
+    validate_report_graphs_with_mode_and_options(
+        shapes,
+        data,
+        ValidationGraphMode::default(),
+        &ValidationOptions::default(),
+    )
 }
 
 /// Validate split data and shapes graphs using an explicit graph mode.
@@ -71,6 +87,16 @@ pub fn validate_report_graphs_with_mode(
     shapes: &Loaded,
     data: &Graph,
     mode: ValidationGraphMode,
+) -> ValidationReport {
+    validate_report_graphs_with_mode_and_options(shapes, data, mode, &ValidationOptions::default())
+}
+
+/// Validate split graphs with an explicit graph mode and severity policy.
+pub fn validate_report_graphs_with_mode_and_options(
+    shapes: &Loaded,
+    data: &Graph,
+    mode: ValidationGraphMode,
+    options: &ValidationOptions,
 ) -> ValidationReport {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     match mode {
@@ -80,7 +106,7 @@ pub fn validate_report_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph(data)
             };
-            validate_report_context(shapes, data, frozen, has_shapes_graph)
+            validate_report_context(shapes, data, frozen, has_shapes_graph, options)
         }
         ValidationGraphMode::Union => {
             let frozen = if has_shapes_graph {
@@ -88,7 +114,7 @@ pub fn validate_report_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph_union(data, &shapes.graph)
             };
-            validate_report_context(shapes, data, frozen, has_shapes_graph)
+            validate_report_context(shapes, data, frozen, has_shapes_graph, options)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, &shapes.graph);
@@ -97,7 +123,7 @@ pub fn validate_report_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph(&union)
             };
-            validate_report_context(shapes, &union, frozen, has_shapes_graph)
+            validate_report_context(shapes, &union, frozen, has_shapes_graph, options)
         }
     }
 }
@@ -107,6 +133,7 @@ fn validate_report_context(
     focus_data: &Graph,
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
+    options: &ValidationOptions,
 ) -> ValidationReport {
     // Only execute SPARQL target/constraint work when the shapes graph contains
     // those features. Query execution shares the frozen validation dataset.
@@ -163,8 +190,24 @@ fn validate_report_context(
             r.collect(&shape, focus, &mut results, &mut visited);
         }
     }
+    if options.sort_results {
+        results.sort_by(|left, right| {
+            Severity::from_named_node(right.severity.clone())
+                .rank()
+                .cmp(&Severity::from_named_node(left.severity.clone()).rank())
+                .then_with(|| left.focus.to_string().cmp(&right.focus.to_string()))
+                .then_with(|| {
+                    left.source_shape
+                        .to_string()
+                        .cmp(&right.source_shape.to_string())
+                })
+                .then_with(|| left.component.as_str().cmp(right.component.as_str()))
+        });
+    }
     ValidationReport {
-        conforms: results.is_empty(),
+        conforms: !results.iter().any(|result| {
+            Severity::from_named_node(result.severity.clone()).meets(&options.minimum_severity)
+        }),
         results,
     }
 }

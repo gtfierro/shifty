@@ -177,6 +177,8 @@ class PreparedValidator:
         *,
         graph_mode: str = "union",
         infer: bool = True,
+        minimum_severity: str = "info",
+        sort_results: bool = True,
     ) -> "tuple[bool, rdflib.Graph, str]":
         import rdflib
 
@@ -187,6 +189,8 @@ class PreparedValidator:
             data.format,
             graph_mode,
             infer,
+            minimum_severity,
+            sort_results,
         )
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
@@ -198,6 +202,8 @@ class PreparedValidator:
         *,
         graph_mode: str = "union",
         infer: bool = True,
+        minimum_severity: str = "info",
+        sort_results: bool = True,
     ) -> AlgebraResult:
         data = _to_rdf_input(data_graph)
         return self._inner.validate_algebra(
@@ -206,6 +212,8 @@ class PreparedValidator:
             data.format,
             graph_mode,
             infer,
+            minimum_severity,
+            sort_results,
         )
 
     def __repr__(self) -> str:
@@ -218,6 +226,8 @@ def validate(
     *,
     graph_mode: str = "union",
     infer: bool = True,
+    minimum_severity: str = "info",
+    sort_results: bool = True,
     base: Optional[str] = None,
 ) -> "tuple[bool, rdflib.Graph, str]":
     """Validate *data_graph* against *shacl_graph* (pyshacl-compatible).
@@ -233,6 +243,13 @@ def validate(
         ``"union"`` (default), ``"data"``, or ``"union-all"``.
     infer:
         Run SHACL-AF rules before validation (default ``True``).
+    minimum_severity:
+        Lowest level that makes ``conforms`` false: ``"info"`` (default),
+        ``"warning"``, or ``"violation"``. Lower-level results remain in the
+        report graph.
+    sort_results:
+        Whether to sort validation results by severity and focus node
+        (default ``True``).
     base:
         Base IRI for resolving relative IRIs in the inputs.
 
@@ -257,6 +274,8 @@ def validate(
         shapes.format,
         graph_mode,
         infer,
+        minimum_severity,
+        sort_results,
         base,
     )
 
@@ -272,6 +291,7 @@ def validate_algebra(
     *,
     graph_mode: str = "union",
     infer: bool = True,
+    minimum_severity: str = "info",
     base: Optional[str] = None,
 ) -> AlgebraResult:
     """Validate and return a structured algebraic result.
@@ -286,6 +306,10 @@ def validate_algebra(
     ----------
     data_graph, shacl_graph, graph_mode, infer, base:
         Same as :func:`validate`.
+    minimum_severity:
+        Lowest level that makes ``conforms`` false: ``"info"`` (default),
+        ``"warning"``, or ``"violation"``. All findings remain available in
+        ``.violations`` regardless of this threshold.
 
     Returns
     -------
@@ -304,6 +328,8 @@ def validate_algebra(
         shapes.format,
         graph_mode,
         infer,
+        minimum_severity,
+        sort_results,
         base,
     )
 

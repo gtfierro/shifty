@@ -18,7 +18,9 @@ use oxrdf::{Graph, NamedNode, Term};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shifty_algebra::render::{path_to_string, shape_to_string};
-use shifty_algebra::{Path, Schema, Selector, Shape, ShapeArena, ShapeId, SparqlConstraint};
+use shifty_algebra::{
+    Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId, SparqlConstraint,
+};
 use shifty_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -97,6 +99,9 @@ pub struct Reason {
     pub path: Option<String>,
     /// The failing constraint's arena slot (cross-references the algebra dump).
     pub shape: ShapeId,
+    /// `sh:severity` on the source shape, defaulting to `sh:Violation`.
+    #[serde(default)]
+    pub severity: Severity,
     pub message: String,
     /// Non-empty when this reason is an `sh:or` group: one entry per OR branch
     /// that failed, so the caller can tell "fix any one of these."
@@ -110,6 +115,8 @@ pub struct Violation {
     pub focus: Term,
     /// Index of the violated `(selector, shape)` statement in the schema.
     pub statement: usize,
+    /// The most severe top-level reason in this grouped finding.
+    pub severity: Severity,
     pub reasons: Vec<Reason>,
 }
 
@@ -118,6 +125,54 @@ pub struct Violation {
 pub struct ValidationOutcome {
     pub conforms: bool,
     pub violations: Vec<Violation>,
+}
+
+/// Controls which retained findings make a validation outcome non-conforming.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationOptions {
+    /// Lowest severity that makes `conforms` false. Defaults to `sh:Info`, so
+    /// all findings fail validation as they did before severity was retained.
+    pub minimum_severity: Severity,
+    /// Whether to sort violations by severity, focus node, and statement.
+    /// Defaults to `true` for deterministic output.
+    pub sort_results: bool,
+}
+
+impl Default for ValidationOptions {
+    fn default() -> Self {
+        Self {
+            minimum_severity: Severity::Info,
+            sort_results: true,
+        }
+    }
+}
+
+fn most_severe(reasons: &[Reason]) -> Severity {
+    reasons
+        .iter()
+        .max_by_key(|reason| reason.severity.rank())
+        .map(|reason| reason.severity.clone())
+        .unwrap_or(Severity::Violation)
+}
+
+fn conforms_at_threshold(violations: &[Violation], minimum: &Severity) -> bool {
+    !violations
+        .iter()
+        .flat_map(|violation| &violation.reasons)
+        .any(|reason| reason.severity.meets(minimum))
+}
+
+fn sort_violations(violations: &mut [Violation], enabled: bool) {
+    if enabled {
+        violations.sort_by(|left, right| {
+            right
+                .severity
+                .rank()
+                .cmp(&left.severity.rank())
+                .then_with(|| left.focus.to_string().cmp(&right.focus.to_string()))
+                .then_with(|| left.statement.cmp(&right.statement))
+        });
+    }
 }
 
 /// Which RDF graph(s) validation uses for focus discovery and evaluation.
@@ -166,7 +221,16 @@ impl std::error::Error for NonStratifiable {}
 /// back-edge" cycle guard computes exactly the **greatest fixpoint** — the
 /// coinductive validation reading we chose.
 pub fn validate(data: &Graph, schema: &Schema) -> Result<ValidationOutcome, NonStratifiable> {
-    validate_with_context(data, data, schema)
+    validate_with_options(data, schema, &ValidationOptions::default())
+}
+
+/// Validate `data` against `schema` using an explicit severity policy.
+pub fn validate_with_options(
+    data: &Graph,
+    schema: &Schema,
+    options: &ValidationOptions,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_with_context_and_options(data, data, schema, options)
 }
 
 /// Validate split data and shapes graphs using the selected graph mode.
@@ -175,7 +239,13 @@ pub fn validate_graphs(
     shapes: &Graph,
     schema: &Schema,
 ) -> Result<ValidationOutcome, NonStratifiable> {
-    validate_graphs_with_mode(data, shapes, schema, ValidationGraphMode::default())
+    validate_graphs_with_mode_and_options(
+        data,
+        shapes,
+        schema,
+        ValidationGraphMode::default(),
+        &ValidationOptions::default(),
+    )
 }
 
 /// Validate split data and shapes graphs using an explicit graph mode.
@@ -185,6 +255,17 @@ pub fn validate_graphs_with_mode(
     schema: &Schema,
     mode: ValidationGraphMode,
 ) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_graphs_with_mode_and_options(data, shapes, schema, mode, &ValidationOptions::default())
+}
+
+/// Validate split graphs using an explicit graph mode and severity policy.
+pub fn validate_graphs_with_mode_and_options(
+    data: &Graph,
+    shapes: &Graph,
+    schema: &Schema,
+    mode: ValidationGraphMode,
+    options: &ValidationOptions,
+) -> Result<ValidationOutcome, NonStratifiable> {
     match mode {
         ValidationGraphMode::Data => {
             let uses_shapes = uses_shapes_graph(&schema.arena);
@@ -193,7 +274,7 @@ pub fn validate_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph(data)
             };
-            validate_with_frozen(data, schema, frozen, uses_shapes)
+            validate_with_frozen(data, schema, frozen, uses_shapes, options)
         }
         ValidationGraphMode::Union => {
             let uses_shapes = uses_shapes_graph(&schema.arena);
@@ -202,11 +283,11 @@ pub fn validate_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph_union(data, shapes)
             };
-            validate_with_frozen(data, schema, frozen, uses_shapes)
+            validate_with_frozen(data, schema, frozen, uses_shapes, options)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, shapes);
-            validate_with_context(&union, &union, schema)
+            validate_with_context_and_options(&union, &union, schema, options)
         }
     }
 }
@@ -219,13 +300,23 @@ pub fn validate_with_context(
     context: &Graph,
     schema: &Schema,
 ) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_with_context_and_options(data, context, schema, &ValidationOptions::default())
+}
+
+/// Validate with separate focus/context graphs and an explicit severity policy.
+pub fn validate_with_context_and_options(
+    data: &Graph,
+    context: &Graph,
+    schema: &Schema,
+    options: &ValidationOptions,
+) -> Result<ValidationOutcome, NonStratifiable> {
     let uses_shapes = uses_shapes_graph(&schema.arena);
     let frozen = if uses_shapes {
         FrozenIndexedDataset::from_graphs(context, context)
     } else {
         FrozenIndexedDataset::from_graph(context)
     };
-    validate_with_frozen(data, schema, frozen, uses_shapes)
+    validate_with_frozen(data, schema, frozen, uses_shapes, options)
 }
 
 fn validate_with_frozen(
@@ -233,6 +324,7 @@ fn validate_with_frozen(
     schema: &Schema,
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
+    options: &ValidationOptions,
 ) -> Result<ValidationOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
@@ -262,20 +354,30 @@ fn validate_with_frozen(
         for v in foci {
             let t = std::time::Instant::now();
             let mut stack = HashSet::new();
-            let mut reasons = explain(&mut evaluator, &v, st.shape, None, &mut stack);
+            let mut reasons = explain(
+                &mut evaluator,
+                &v,
+                st.shape,
+                None,
+                &Severity::Violation,
+                &mut stack,
+            );
             crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
+                let severity = most_severe(&reasons);
                 violations.push(Violation {
                     focus: v,
                     statement: i,
+                    severity,
                     reasons,
                 });
             }
         }
     }
+    sort_violations(&mut violations, options.sort_results);
     Ok(ValidationOutcome {
-        conforms: violations.is_empty(),
+        conforms: conforms_at_threshold(&violations, &options.minimum_severity),
         violations,
     })
 }
@@ -305,7 +407,16 @@ pub fn validate_plan(
     data: &Graph,
     plan: &PhysicalPlan,
 ) -> Result<ValidationOutcome, NonStratifiable> {
-    validate_plan_with_context(data, data, plan)
+    validate_plan_with_options(data, plan, &ValidationOptions::default())
+}
+
+/// Validate a physical plan using an explicit severity policy.
+pub fn validate_plan_with_options(
+    data: &Graph,
+    plan: &PhysicalPlan,
+    options: &ValidationOptions,
+) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_plan_with_context_and_options(data, data, plan, options)
 }
 
 /// Validate a physical plan over split graphs using the default graph mode.
@@ -314,7 +425,13 @@ pub fn validate_plan_graphs(
     shapes: &Graph,
     plan: &PhysicalPlan,
 ) -> Result<ValidationOutcome, NonStratifiable> {
-    validate_plan_graphs_with_mode(data, shapes, plan, ValidationGraphMode::default())
+    validate_plan_graphs_with_mode_and_options(
+        data,
+        shapes,
+        plan,
+        ValidationGraphMode::default(),
+        &ValidationOptions::default(),
+    )
 }
 
 /// Validate a physical plan over split graphs using an explicit graph mode.
@@ -324,6 +441,23 @@ pub fn validate_plan_graphs_with_mode(
     plan: &PhysicalPlan,
     mode: ValidationGraphMode,
 ) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_plan_graphs_with_mode_and_options(
+        data,
+        shapes,
+        plan,
+        mode,
+        &ValidationOptions::default(),
+    )
+}
+
+/// Validate a physical plan over split graphs with an explicit severity policy.
+pub fn validate_plan_graphs_with_mode_and_options(
+    data: &Graph,
+    shapes: &Graph,
+    plan: &PhysicalPlan,
+    mode: ValidationGraphMode,
+    options: &ValidationOptions,
+) -> Result<ValidationOutcome, NonStratifiable> {
     match mode {
         ValidationGraphMode::Data => {
             let uses_shapes = uses_shapes_graph(&plan.arena);
@@ -332,7 +466,7 @@ pub fn validate_plan_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph(data)
             };
-            validate_plan_with_frozen(data, plan, frozen, uses_shapes)
+            validate_plan_with_frozen(data, plan, frozen, uses_shapes, options)
         }
         ValidationGraphMode::Union => {
             let uses_shapes = uses_shapes_graph(&plan.arena);
@@ -341,11 +475,11 @@ pub fn validate_plan_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph_union(data, shapes)
             };
-            validate_plan_with_frozen(data, plan, frozen, uses_shapes)
+            validate_plan_with_frozen(data, plan, frozen, uses_shapes, options)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, shapes);
-            validate_plan_with_context(&union, &union, plan)
+            validate_plan_with_context_and_options(&union, &union, plan, options)
         }
     }
 }
@@ -356,13 +490,23 @@ pub fn validate_plan_with_context(
     context: &Graph,
     plan: &PhysicalPlan,
 ) -> Result<ValidationOutcome, NonStratifiable> {
+    validate_plan_with_context_and_options(data, context, plan, &ValidationOptions::default())
+}
+
+/// Validate plan focus nodes against a context with a severity policy.
+pub fn validate_plan_with_context_and_options(
+    data: &Graph,
+    context: &Graph,
+    plan: &PhysicalPlan,
+    options: &ValidationOptions,
+) -> Result<ValidationOutcome, NonStratifiable> {
     let uses_shapes = uses_shapes_graph(&plan.arena);
     let frozen = if uses_shapes {
         FrozenIndexedDataset::from_graphs(context, context)
     } else {
         FrozenIndexedDataset::from_graph(context)
     };
-    validate_plan_with_frozen(data, plan, frozen, uses_shapes)
+    validate_plan_with_frozen(data, plan, frozen, uses_shapes, options)
 }
 
 fn validate_plan_with_frozen(
@@ -370,6 +514,7 @@ fn validate_plan_with_frozen(
     plan: &PhysicalPlan,
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
+    options: &ValidationOptions,
 ) -> Result<ValidationOutcome, NonStratifiable> {
     let strat = analyze(&plan.arena);
     if !strat.stratifiable {
@@ -399,20 +544,30 @@ fn validate_plan_with_frozen(
         for v in foci {
             let t = std::time::Instant::now();
             let mut stack = HashSet::new();
-            let mut reasons = explain(&mut evaluator, &v, sp.shape, None, &mut stack);
+            let mut reasons = explain(
+                &mut evaluator,
+                &v,
+                sp.shape,
+                None,
+                &Severity::Violation,
+                &mut stack,
+            );
             crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
             if !reasons.is_empty() {
+                let severity = most_severe(&reasons);
                 violations.push(Violation {
                     focus: v,
                     statement: i,
+                    severity,
                     reasons,
                 });
             }
         }
     }
+    sort_violations(&mut violations, options.sort_results);
     Ok(ValidationOutcome {
-        conforms: violations.is_empty(),
+        conforms: conforms_at_threshold(&violations, &options.minimum_severity),
         violations,
     })
 }
@@ -543,6 +698,7 @@ fn holds_memoized(
         }; // back-edge ⇒ assume conforming: the gfp choice (doc 03)
     }
     let result = match arena.get(id) {
+        Shape::Annotated { shape, .. } => holds_memoized(g, arena, v, *shape, sparql, state),
         Shape::Top | Shape::Pending => EvalResult {
             holds: true,
             cacheable: true,
@@ -724,6 +880,7 @@ fn collect_focus_sparql<'a>(
         return; // cyclic (recursive) shape: stop at the back-edge
     }
     match arena.get(id) {
+        Shape::Annotated { shape, .. } => collect_focus_sparql(arena, *shape, seen, out),
         Shape::Sparql(constraint) => out.push(constraint),
         Shape::Not(inner) => collect_focus_sparql(arena, *inner, seen, out),
         Shape::And(ids) | Shape::Or(ids) => {
@@ -743,6 +900,7 @@ fn explain(
     node: &Term,
     id: ShapeId,
     path_ctx: Option<&str>,
+    severity: &Severity,
     stack: &mut HashSet<(ShapeId, Term)>,
 ) -> Vec<Reason> {
     let key = (id, node.clone());
@@ -754,6 +912,10 @@ fn explain(
         return Vec::new();
     }
     let reasons = match evaluator.arena.get(id).clone() {
+        Shape::Annotated {
+            severity: source_severity,
+            shape,
+        } => explain(evaluator, node, shape, path_ctx, &source_severity, stack),
         Shape::Top | Shape::Pending => Vec::new(),
         Shape::Sparql(constraint) => {
             match evaluator.sparql.constraint_violations(&constraint, node) {
@@ -772,6 +934,7 @@ fn explain(
                                 .or_else(|| constraint.path.as_ref().map(path_to_string)),
                             message,
                             shape: id,
+                            severity: severity.clone(),
                             sub_reasons: Vec::new(),
                         }
                     })
@@ -780,6 +943,7 @@ fn explain(
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
                     shape: id,
+                    severity: severity.clone(),
                     message: format!("SPARQL constraint evaluation failed: {error}"),
                     sub_reasons: Vec::new(),
                 }],
@@ -797,6 +961,7 @@ fn explain(
             node,
             id,
             path_ctx,
+            severity,
             format!("{} not satisfied", shape_to_string(evaluator.arena, id)),
         ),
         Shape::Closed(q) => {
@@ -809,17 +974,19 @@ fn explain(
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
                     shape: id,
+                    severity: severity.clone(),
                     message: format!("closed: unexpected predicate(s) {}", preds.join(", ")),
                     sub_reasons: Vec::new(),
                 }]
             }
         }
         Shape::Not(c) => {
-            if explain(evaluator, node, c, path_ctx, stack).is_empty() {
+            if explain(evaluator, node, c, path_ctx, severity, stack).is_empty() {
                 vec![Reason {
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
                     shape: id,
+                    severity: severity.clone(),
                     message: "negated shape unexpectedly held".to_string(),
                     sub_reasons: Vec::new(),
                 }]
@@ -829,13 +996,13 @@ fn explain(
         }
         Shape::And(cs) => cs
             .iter()
-            .flat_map(|c| explain(evaluator, node, *c, path_ctx, stack))
+            .flat_map(|c| explain(evaluator, node, *c, path_ctx, severity, stack))
             .collect(),
         Shape::Or(cs) => {
             let mut sub_reasons = Vec::new();
             let mut satisfied = false;
             for c in &cs {
-                let sub = explain(evaluator, node, *c, path_ctx, stack);
+                let sub = explain(evaluator, node, *c, path_ctx, severity, stack);
                 if sub.is_empty() {
                     satisfied = true;
                     break;
@@ -849,6 +1016,7 @@ fn explain(
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
                     shape: id,
+                    severity: severity.clone(),
                     message: format!("none of {} alternative(s) satisfied", cs.len()),
                     sub_reasons,
                 }]
@@ -859,7 +1027,9 @@ fn explain(
             min,
             max,
             qualifier,
-        } => explain_count(evaluator, node, id, &path, min, max, qualifier, stack),
+        } => explain_count(
+            evaluator, node, id, &path, min, max, qualifier, severity, stack,
+        ),
     };
     stack.remove(&key);
     reasons
@@ -874,6 +1044,7 @@ fn explain_count(
     min: Option<u64>,
     max: Option<u64>,
     qualifier: ShapeId,
+    severity: &Severity,
     stack: &mut HashSet<(ShapeId, Term)>,
 ) -> Vec<Reason> {
     let path_str = path_to_string(path);
@@ -891,13 +1062,21 @@ fn explain_count(
             // ∀path.inner encoded as ∃≤0 path.¬inner: drill into the offenders.
             Shape::Not(inner) if mx == 0 => {
                 for u in &matched {
-                    reasons.extend(explain(evaluator, u, inner, Some(&path_str), stack));
+                    reasons.extend(explain(
+                        evaluator,
+                        u,
+                        inner,
+                        Some(&path_str),
+                        severity,
+                        stack,
+                    ));
                 }
             }
             _ => reasons.push(Reason {
                 value: node.clone(),
                 path: Some(path_str.clone()),
                 shape: id,
+                severity: severity.clone(),
                 message: format!("at most {mx} value(s) may match along {path_str}, found {n}"),
                 sub_reasons: Vec::new(),
             }),
@@ -911,6 +1090,7 @@ fn explain_count(
             value: node.clone(),
             path: Some(path_str.clone()),
             shape: id,
+            severity: severity.clone(),
             message: format!("at least {mn} value(s) required along {path_str}, found {n}"),
             sub_reasons: Vec::new(),
         });
@@ -993,6 +1173,7 @@ fn leaf(
     node: &Term,
     id: ShapeId,
     path_ctx: Option<&str>,
+    severity: &Severity,
     message: String,
 ) -> Vec<Reason> {
     if ok {
@@ -1002,6 +1183,7 @@ fn leaf(
             value: node.clone(),
             path: path_ctx.map(str::to_string),
             shape: id,
+            severity: severity.clone(),
             message,
             sub_reasons: Vec::new(),
         }]
@@ -1060,7 +1242,13 @@ fn unique_lang(values: &HashSet<Term>) -> bool {
 
 fn dedup_reasons(reasons: &mut Vec<Reason>) {
     let mut seen = HashSet::new();
-    reasons.retain(|r| seen.insert((r.value.to_string(), r.message.clone())));
+    reasons.retain(|r| {
+        seen.insert((
+            r.value.to_string(),
+            r.message.clone(),
+            r.severity.as_str().to_string(),
+        ))
+    });
 }
 
 fn subject_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {

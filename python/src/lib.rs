@@ -3,8 +3,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
-    ValidationGraphMode, ValidationReport, report_to_graph, validate_plan,
-    validate_plan_graphs_with_mode, validate_report, validate_report_graphs_with_mode,
+    ValidationGraphMode, ValidationOptions, ValidationReport, report_to_graph,
+    validate_plan_graphs_with_mode_and_options, validate_plan_with_options,
+    validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -20,6 +21,8 @@ pub struct Reason {
     pub path: Option<String>,
     /// Human-readable description of the failing constraint.
     pub message: String,
+    /// SHACL severity (`"Violation"`, `"Warning"`, `"Info"`, or a custom IRI).
+    pub severity: String,
 }
 
 #[pymethods]
@@ -36,6 +39,9 @@ pub struct Violation {
     /// Named shape IRI if the violated statement was a named SHACL shape.
     #[pyo3(get)]
     pub shape_name: Option<String>,
+    /// Most severe reason in this grouped finding.
+    #[pyo3(get)]
+    pub severity: String,
     reasons: Vec<Py<Reason>>,
 }
 
@@ -98,14 +104,15 @@ impl AlgebraResult {
                     let v = v.borrow(py);
                     let shape = v.shape_name.as_deref().unwrap_or("<anonymous>");
                     out.push_str(&format!(
-                        "\nConstraint Violation in {} ({}):\n",
-                        shape, v.focus_node
+                        "\n{} result in {} ({}):\n",
+                        v.severity, shape, v.focus_node
                     ));
                     for r in &v.reasons {
                         let r = r.borrow(py);
                         if let Some(path) = &r.path {
                             out.push_str(&format!("  Path: {path}\n"));
                         }
+                        out.push_str(&format!("  Severity: {}\n", r.severity));
                         out.push_str(&format!("  Value: {}\n", r.value));
                         out.push_str(&format!("  Message: {}\n", r.message));
                     }
@@ -188,6 +195,17 @@ fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
         "union-all" => Ok(ValidationGraphMode::UnionAll),
         other => Err(format!(
             "unknown graph_mode {other:?}; expected 'data', 'union', or 'union-all'"
+        )),
+    }
+}
+
+fn parse_minimum_severity(value: &str) -> Result<shifty_algebra::Severity, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "info" => Ok(shifty_algebra::Severity::Info),
+        "warning" => Ok(shifty_algebra::Severity::Warning),
+        "violation" => Ok(shifty_algebra::Severity::Violation),
+        _ => Err(format!(
+            "unknown minimum_severity {value:?}; expected 'info', 'warning', or 'violation'"
         )),
     }
 }
@@ -418,11 +436,13 @@ struct RawReason {
     value: String,
     path: Option<String>,
     message: String,
+    severity: String,
 }
 
 struct RawViolation {
     focus_node: String,
     shape_name: Option<String>,
+    severity: String,
     reasons: Vec<RawReason>,
 }
 
@@ -447,6 +467,7 @@ impl RawAlgebraResult {
                                 value: reason.value,
                                 path: reason.path,
                                 message: reason.message,
+                                severity: reason.severity,
                             },
                         )
                     })
@@ -456,6 +477,7 @@ impl RawAlgebraResult {
                     Violation {
                         focus_node: violation.focus_node,
                         shape_name: violation.shape_name,
+                        severity: violation.severity,
                         reasons,
                     },
                 )
@@ -479,6 +501,7 @@ fn raw_algebra_result(
         .map(|violation| RawViolation {
             focus_node: violation.focus.to_string(),
             shape_name: shape_name_for(violation, schema),
+            severity: violation.severity.label().to_string(),
             reasons: violation
                 .reasons
                 .iter()
@@ -486,6 +509,7 @@ fn raw_algebra_result(
                     value: reason.value.to_string(),
                     path: reason.path.clone(),
                     message: reason.message.clone(),
+                    severity: reason.severity.label().to_string(),
                 })
                 .collect(),
         })
@@ -503,11 +527,18 @@ fn validate_algebra_loaded(
     plan: &shifty_opt::PhysicalPlan,
     mode: ValidationGraphMode,
     run_infer: bool,
+    options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
     let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
     let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
-    let outcome = validate_plan_graphs_with_mode(eval_data, &shapes_loaded.graph, plan, mode)
-        .map_err(|e| format!("non-stratifiable schema: {e}"))?;
+    let outcome = validate_plan_graphs_with_mode_and_options(
+        eval_data,
+        &shapes_loaded.graph,
+        plan,
+        mode,
+        options,
+    )
+    .map_err(|e| format!("non-stratifiable schema: {e}"))?;
     Ok(raw_algebra_result(outcome, schema))
 }
 
@@ -516,11 +547,12 @@ fn validate_algebra_embedded(
     schema: &shifty_algebra::Schema,
     plan: &shifty_opt::PhysicalPlan,
     run_infer: bool,
+    options: &ValidationOptions,
 ) -> Result<RawAlgebraResult, String> {
     let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
     let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
-    let outcome =
-        validate_plan(eval_data, plan).map_err(|e| format!("non-stratifiable schema: {e}"))?;
+    let outcome = validate_plan_with_options(eval_data, plan, options)
+        .map_err(|e| format!("non-stratifiable schema: {e}"))?;
     Ok(raw_algebra_result(outcome, schema))
 }
 
@@ -530,10 +562,12 @@ fn validate_w3c_loaded(
     schema: &shifty_algebra::Schema,
     mode: ValidationGraphMode,
     run_infer: bool,
+    options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
     let inferred = maybe_infer(&data_loaded.graph, &shapes_loaded.graph, schema, run_infer)?;
     let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
-    let report = validate_report_graphs_with_mode(shapes_loaded, eval_data, mode);
+    let report =
+        validate_report_graphs_with_mode_and_options(shapes_loaded, eval_data, mode, options);
     let report_graph = report_to_graph(&report);
     Ok(build_w3c_result(&report, &report_graph))
 }
@@ -542,10 +576,11 @@ fn validate_w3c_embedded(
     loaded: &shifty_parse::Loaded,
     schema: &shifty_algebra::Schema,
     run_infer: bool,
+    options: &ValidationOptions,
 ) -> Result<W3cResult, String> {
     let inferred = maybe_infer_embedded(&loaded.graph, schema, run_infer)?;
     let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
-    let report = validate_report(loaded, eval_data);
+    let report = validate_report_with_options(loaded, eval_data, options);
     let report_graph = report_to_graph(&report);
     Ok(build_w3c_result(&report, &report_graph))
 }
@@ -587,6 +622,8 @@ fn load_validation_inputs(
     shapes_format="turtle",
     graph_mode="union",
     run_infer=true,
+    minimum_severity="info",
+    sort_results=true,
     base=None
 ))]
 pub fn _validate_algebra(
@@ -599,6 +636,8 @@ pub fn _validate_algebra(
     shapes_format: &str,
     graph_mode: &str,
     run_infer: bool,
+    minimum_severity: &str,
+    sort_results: bool,
     base: Option<String>,
 ) -> PyResult<AlgebraResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
@@ -609,6 +648,10 @@ pub fn _validate_algebra(
         }
     };
     let mode = parse_mode(graph_mode).map_err(py_value_error)?;
+    let options = ValidationOptions {
+        minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
+        sort_results,
+    };
     let raw = py
         .allow_threads(move || {
             let (data_loaded, shapes_loaded, schema, plan) =
@@ -621,8 +664,11 @@ pub fn _validate_algebra(
                     &plan,
                     mode,
                     run_infer,
+                    &options,
                 ),
-                None => validate_algebra_embedded(&data_loaded, &schema, &plan, run_infer),
+                None => {
+                    validate_algebra_embedded(&data_loaded, &schema, &plan, run_infer, &options)
+                }
             }
         })
         .map_err(py_value_error)?;
@@ -643,6 +689,8 @@ pub fn _validate_algebra(
     shapes_format="turtle",
     graph_mode="union",
     run_infer=true,
+    minimum_severity="info",
+    sort_results=true,
     base=None
 ))]
 pub fn _validate_w3c(
@@ -655,6 +703,8 @@ pub fn _validate_w3c(
     shapes_format: &str,
     graph_mode: &str,
     run_infer: bool,
+    minimum_severity: &str,
+    sort_results: bool,
     base: Option<String>,
 ) -> PyResult<W3cResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
@@ -665,14 +715,23 @@ pub fn _validate_w3c(
         }
     };
     let mode = parse_mode(graph_mode).map_err(py_value_error)?;
+    let options = ValidationOptions {
+        minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
+        sort_results,
+    };
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
         match shapes_loaded.as_ref() {
-            Some(shapes_loaded) => {
-                validate_w3c_loaded(&data_loaded, shapes_loaded, &schema, mode, run_infer)
-            }
-            None => validate_w3c_embedded(&data_loaded, &schema, run_infer),
+            Some(shapes_loaded) => validate_w3c_loaded(
+                &data_loaded,
+                shapes_loaded,
+                &schema,
+                mode,
+                run_infer,
+                &options,
+            ),
+            None => validate_w3c_embedded(&data_loaded, &schema, run_infer, &options),
         }
     })
     .map_err(py_value_error)
@@ -782,7 +841,9 @@ impl PreparedValidator {
         data_path=None,
         data_format="turtle",
         graph_mode="union",
-        run_infer=true
+        run_infer=true,
+        minimum_severity="info",
+        sort_results=true
     ))]
     fn validate_algebra(
         &self,
@@ -792,9 +853,15 @@ impl PreparedValidator {
         data_format: &str,
         graph_mode: &str,
         run_infer: bool,
+        minimum_severity: &str,
+        sort_results: bool,
     ) -> PyResult<AlgebraResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
+        let options = ValidationOptions {
+            minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
+            sort_results,
+        };
         let raw = py
             .allow_threads(|| {
                 let data_loaded = data.load(self.base.as_deref())?;
@@ -805,6 +872,7 @@ impl PreparedValidator {
                     &self.plan,
                     mode,
                     run_infer,
+                    &options,
                 )
             })
             .map_err(py_value_error)?;
@@ -816,7 +884,9 @@ impl PreparedValidator {
         data_path=None,
         data_format="turtle",
         graph_mode="union",
-        run_infer=true
+        run_infer=true,
+        minimum_severity="info",
+        sort_results=true
     ))]
     fn validate_w3c(
         &self,
@@ -826,12 +896,25 @@ impl PreparedValidator {
         data_format: &str,
         graph_mode: &str,
         run_infer: bool,
+        minimum_severity: &str,
+        sort_results: bool,
     ) -> PyResult<W3cResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
+        let options = ValidationOptions {
+            minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
+            sort_results,
+        };
         py.allow_threads(|| {
             let data_loaded = data.load(self.base.as_deref())?;
-            validate_w3c_loaded(&data_loaded, &self.shapes, &self.schema, mode, run_infer)
+            validate_w3c_loaded(
+                &data_loaded,
+                &self.shapes,
+                &self.schema,
+                mode,
+                run_infer,
+                &options,
+            )
         })
         .map_err(py_value_error)
     }

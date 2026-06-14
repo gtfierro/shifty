@@ -15,6 +15,7 @@
 //! simplifications; real normalization (NNF, unsat detection, CSE) is Layer 4.
 
 use crate::path::Path;
+use crate::severity::Severity;
 use crate::sparql::SparqlConstraint;
 use crate::term::{NamedNode, NodeKindSet, Term};
 use crate::value_type::ValueType;
@@ -27,6 +28,9 @@ pub struct ShapeId(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Shape {
+    /// Source-shape metadata. This wrapper is logically transparent, but keeps
+    /// severity attached through normalization and physical planning.
+    Annotated { severity: Severity, shape: ShapeId },
     /// `⊤` — trivially satisfied.
     Top,
     /// A reserved-but-unfilled arena slot, transient during construction of

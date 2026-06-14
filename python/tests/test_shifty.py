@@ -202,6 +202,51 @@ class TestValidateAlgebra:
         assert any("Bob" in fn for fn in focus_nodes)
         assert any("Carol" in fn for fn in focus_nodes)
 
+    def test_severity_threshold_and_ordering(self):
+        shapes = PREFIXES + textwrap.dedent("""\
+            ex:InfoShape a sh:NodeShape ;
+                sh:targetNode ex:a ;
+                sh:nodeKind sh:Literal ;
+                sh:severity sh:Info .
+            ex:WarningShape a sh:NodeShape ;
+                sh:targetNode ex:z ;
+                sh:nodeKind sh:Literal ;
+                sh:severity sh:Warning .
+            ex:ViolationShape a sh:NodeShape ;
+                sh:targetNode ex:m ;
+                sh:nodeKind sh:Literal .
+        """)
+        result = validate_algebra(
+            b"",
+            shapes.encode(),
+            infer=False,
+        )
+
+        assert result.conforms is False
+        assert [
+            (finding.severity, finding.focus_node)
+            for finding in result.violations
+        ] == [
+            ("Violation", "<http://example.org/m>"),
+            ("Warning", "<http://example.org/z>"),
+            ("Info", "<http://example.org/a>"),
+        ]
+        assert all(reason.severity in {"Violation", "Warning", "Info"}
+                   for finding in result.violations
+                   for reason in finding.reasons)
+
+        advisories = validate_algebra(
+            b"",
+            shapes.split("ex:ViolationShape", 1)[0].encode(),
+            minimum_severity="violation",
+            infer=False,
+        )
+        assert advisories.conforms is True
+        assert [finding.severity for finding in advisories.violations] == [
+            "Warning",
+            "Info",
+        ]
+
     def test_bool_coercion(self):
         assert validate_algebra(CONFORMS_DATA.encode(), SHAPES.encode())
         assert not validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
