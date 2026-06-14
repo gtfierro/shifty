@@ -516,12 +516,8 @@ fn lower_join_leaves(
     let mut bound: HashSet<String> = std::iter::once(FOCUS_VAR.to_string()).collect();
     let mut current = input;
     while !leaves.is_empty() {
-        let best = leaves
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, p)| estimate_pattern_cost(p, &bound, stats))
-            .map(|(i, _)| i)
-            .unwrap();
+        let costs: Vec<u64> = leaves.iter().map(|p| estimate_pattern_cost(p, &bound, stats)).collect();
+        let best = costs.iter().enumerate().min_by_key(|(_, c)| *c).map(|(i, _)| i).unwrap();
         let pat = leaves.remove(best);
         bound.extend(pattern_new_vars(pat, &bound));
         current = lower_pattern(b, pat, current, graph, Some(stats))?;
@@ -535,33 +531,55 @@ fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<Stri
     match pattern {
         GraphPattern::Bgp { patterns } => {
             for tp in patterns {
-                if let TermPattern::Variable(v) = &tp.subject {
-                    if !bound.contains(v.as_str()) {
+                match &tp.subject {
+                    TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
                         vars.insert(v.as_str().to_string());
                     }
+                    // Blank nodes act as join variables; track them with "_:<id>"
+                    // so downstream cost estimates see them as bound after this BGP.
+                    TermPattern::BlankNode(bn) => {
+                        let name = format!("_:{}", bn.as_str());
+                        if !bound.contains(&name) { vars.insert(name); }
+                    }
+                    _ => {}
                 }
                 if let NamedNodePattern::Variable(v) = &tp.predicate {
                     if !bound.contains(v.as_str()) {
                         vars.insert(v.as_str().to_string());
                     }
                 }
-                if let TermPattern::Variable(v) = &tp.object {
-                    if !bound.contains(v.as_str()) {
+                match &tp.object {
+                    TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
                         vars.insert(v.as_str().to_string());
                     }
+                    TermPattern::BlankNode(bn) => {
+                        let name = format!("_:{}", bn.as_str());
+                        if !bound.contains(&name) { vars.insert(name); }
+                    }
+                    _ => {}
                 }
             }
         }
         GraphPattern::Path { subject, object, .. } => {
-            if let TermPattern::Variable(v) = subject {
-                if !bound.contains(v.as_str()) {
+            match subject {
+                TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
                     vars.insert(v.as_str().to_string());
                 }
+                TermPattern::BlankNode(bn) => {
+                    let name = format!("_:{}", bn.as_str());
+                    if !bound.contains(&name) { vars.insert(name); }
+                }
+                _ => {}
             }
-            if let TermPattern::Variable(v) = object {
-                if !bound.contains(v.as_str()) {
+            match object {
+                TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
                     vars.insert(v.as_str().to_string());
                 }
+                TermPattern::BlankNode(bn) => {
+                    let name = format!("_:{}", bn.as_str());
+                    if !bound.contains(&name) { vars.insert(name); }
+                }
+                _ => {}
             }
         }
         _ => {}
@@ -579,12 +597,15 @@ fn estimate_pattern_cost(pattern: &GraphPattern, bound: &HashSet<String>, stats:
     let dobj = stats.distinct_objects.max(1);
 
     match pattern {
-        GraphPattern::Bgp { patterns } => patterns
-            .iter()
-            .map(|tp| {
-                let s = tp_name_is_bound(&tp.subject, bound);
-                let p = nnp_name_is_bound(&tp.predicate, bound);
-                let o = tp_name_is_bound(&tp.object, bound);
+        GraphPattern::Bgp { patterns } => {
+            // Simulate greedy BGP evaluation: propagate bound variables and
+            // accumulate output cardinality across steps. Taking only the minimum
+            // single-triple cost underestimates the true fan-out when some triples
+            // have unbound variables that no other triple in the BGP will bind.
+            let tp_cost = |tp: &TriplePattern, sim_bound: &HashSet<String>| -> u64 {
+                let s = tp_name_is_bound(&tp.subject, sim_bound);
+                let p = nnp_name_is_bound(&tp.predicate, sim_bound);
+                let o = tp_name_is_bound(&tp.object, sim_bound);
                 let pred_est = match &tp.predicate {
                     NamedNodePattern::NamedNode(nn) => stats
                         .predicate_cardinality
@@ -602,9 +623,46 @@ fn estimate_pattern_cost(pattern: &GraphPattern, bound: &HashSet<String>, stats:
                     (false, false, true) => total / dobj,
                     _ => total,
                 }
-            })
-            .min()
-            .unwrap_or(total),
+            };
+            let mut sim_bound = bound.clone();
+            let mut remaining: Vec<&TriplePattern> = patterns.iter().collect();
+            let mut output: u64 = 1;
+            let mut first = true;
+            while !remaining.is_empty() {
+                let best = remaining
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, tp)| tp_cost(tp, &sim_bound))
+                    .map(|(i, _)| i)
+                    .unwrap();
+                let tp = remaining.remove(best);
+                let step_cost = tp_cost(tp, &sim_bound);
+                // Always multiply for the first (access) triple. For subsequent
+                // triples, only multiply when the subject is unbound — that is the
+                // true cross-product case. Anchored triples (bound subject) don't
+                // fan out; multiplying their total/ds estimate would overestimate
+                // and cause the planner to incorrectly prefer an unbound path scan.
+                let s_bound = tp_name_is_bound(&tp.subject, &sim_bound);
+                if first || !s_bound {
+                    output = output.saturating_mul(step_cost);
+                }
+                first = false;
+                match &tp.subject {
+                    TermPattern::Variable(v) => { sim_bound.insert(v.as_str().to_string()); }
+                    TermPattern::BlankNode(bn) => { sim_bound.insert(format!("_:{}", bn.as_str())); }
+                    _ => {}
+                }
+                if let NamedNodePattern::Variable(v) = &tp.predicate {
+                    sim_bound.insert(v.as_str().to_string());
+                }
+                match &tp.object {
+                    TermPattern::Variable(v) => { sim_bound.insert(v.as_str().to_string()); }
+                    TermPattern::BlankNode(bn) => { sim_bound.insert(format!("_:{}", bn.as_str())); }
+                    _ => {}
+                }
+            }
+            output
+        }
 
         GraphPattern::Path { subject, object, .. } => {
             let s = tp_name_is_bound(subject, bound);
@@ -623,7 +681,12 @@ fn estimate_pattern_cost(pattern: &GraphPattern, bound: &HashSet<String>, stats:
 fn tp_name_is_bound(tp: &TermPattern, bound: &HashSet<String>) -> bool {
     match tp {
         TermPattern::Variable(v) => bound.contains(v.as_str()),
-        _ => true,
+        // Blank nodes act as non-distinguished join variables in the executor
+        // (lower_term_pattern converts them to ScanTerm::Var). Track them
+        // using the same "_:<id>" naming convention so cost estimates correctly
+        // treat them as unbound until the corresponding BGP triple has run.
+        TermPattern::BlankNode(bn) => bound.contains(&format!("_:{}", bn.as_str())),
+        _ => true, // NamedNode, Literal are always-bound constants
     }
 }
 
@@ -1091,4 +1154,5 @@ mod tests {
             "PathScan should be evaluated first (input = InputFocus)"
         );
     }
+
 }
