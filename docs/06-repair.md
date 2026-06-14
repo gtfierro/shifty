@@ -108,7 +108,14 @@ pub enum HoleConstraint {
 
 /// A triple whose slots may be holes or fixed terms.
 pub struct TriplePattern { s: Slot, p: Slot, o: Slot }   // Slot = Bound(Term) | Open(Hole)
-pub enum Edit { Add(TriplePattern), Delete(TriplePattern) }
+
+/// One edit, with a synthesis-assigned default `cost` a driver may use or
+/// override when ranking Plans for minimality (§9). Reuse-vs-mint cost (binding a
+/// hole to an existing vs `Fresh` node) is a separate, driver-side weighting over
+/// `HoleConstraint`, not encoded here.
+pub struct Edit { pub op: EditOp, pub cost: Cost }
+pub enum EditOp { Add(TriplePattern), Delete(TriplePattern) }
+pub struct Cost(pub u32);   // default 1; synthesis may weight deletes heavier
 
 /// The repair space for one (sub)shape, as an AND/OR/repeat tree. The leading
 /// `NodeId` is the node's stable address.
@@ -127,10 +134,29 @@ Everything the design named has a home: **variadic elements** are `Repeat`;
 (§4); the **variety of patterns** is the `Any` branching; and a hole with
 `HoleConstraint::Typed`/`OneOf` is exactly the seam a driver fills.
 
-`BlockReason` enumerates why a branch admits no data repair (`OpaqueSparql`,
-`CannotMutateIdentity`, `Coinductive`, …); it is also surfaced so a driver can
-explain *why* nothing is offered. (Its full set, and an optional per-edit cost
-annotation to drive driver-side minimality, are open — §9.)
+`BlockReason` records why a branch admits no data repair, surfaced so a driver
+can explain *why* nothing is offered:
+
+```rust
+pub enum BlockReason {
+    OpaqueSparql,          // sh:sparql — not algebraically repairable
+    CannotMutateIdentity,  // a focus-scoped nodeKind/identity test; data edits can't change it
+    Coinductive,           // a gfp back-edge support with no finite facts to delete (§5.4)
+    Unsupported(String),   // a constraint this cut does not yet synthesize
+}
+```
+
+**Blocked propagation (a `synthesize` invariant).** Like the shape arena's smart
+constructors, the `All`/`Any` builders normalize `Blocked` so a driver never has
+to reason around a dead branch:
+
+- `All` with any `Blocked` child ⇒ `Blocked` (the conjunction is unsatisfiable in
+  scope), carrying that child's reason;
+- `Any` drops its `Blocked` children; an `Any` whose children are *all* `Blocked`
+  ⇒ `Blocked`.
+
+So a returned subtree contains no `Blocked` inside a still-satisfiable branch, and
+a top-level `Blocked` means "no data repair exists in scope for this focus."
 
 ### 3.2 `Plan` and `instantiate`
 
@@ -190,13 +216,12 @@ satisfaction strategies. §6 gives the concrete, witness-driven dispatch
 | `TestType(τ)` | `Edits` introducing a `Typed(τ)` hole for the value node | **infinite/semantic hole** |
 | `TestKind(K)` | `Kind(K)` hole | |
 | `Closed(Q)` | `All` of `Delete` edits, one per offending predicate ∉ Q | data-only stance |
-| `Eq/Disj/Lt/Le` | pairwise `Add`/`Delete` to establish/break the relation | see §9 |
-| `UniqueLang(π)` | `Delete` all-but-one value per duplicated language tag | see §9 |
+| `Eq/Disj/Lt/Le/UniqueLang` | `Witness::Relational` → per-kind add/delete over the two value-sets (§6.1) | relational, *not* value-replace; `Eq` coarse |
 | `Not(φ′)` | *falsify* φ′ via its satisfaction trace (§5.2) — flips add → delete | recursive `¬` is a literal under NNF |
 | `And(φᵢ)` | `All([…])` | conflict-prune merges (§6) |
 | `Or(φᵢ)` | `Any([…])` | where templates branch |
 | `Count{π,min,..}` (under min) | `Repeat{ body, min = min − have, max }` | the variadic add |
-| `Count{π,..,max}` (over max) | choose `have − max` matching π-values to `Delete` | variadic delete |
+| `Count{π,..,max}` (over max) | `Repeat{ min = have − max }` deleting matched values via their `PathSupport` | variadic delete |
 | `Sparql(_)` | `Blocked(OpaqueSparql)` | escape-hatch |
 
 **Path materialization.** When the governing path `π` is a `Seq` (doc 00 §2),
@@ -232,15 +257,29 @@ pub struct FocusWitness {
     pub failure: Witness,
 }
 
+/// The relational (pairwise) leaf constraints — distinct from value-type atoms.
+pub enum RelKind { Eq, Disj, Lt, Le, UniqueLang }
+
 pub enum Witness {
-    /// A leaf atom failed at `node`, reached from the focus by `reached_by`.
-    /// `shape` recovers the exact constraint from the arena
-    /// (TestConst / TestType / TestKind / Eq / Disj / Lt / Le / UniqueLang).
+    /// A *value-type* leaf failed at `node` (TestConst / TestType / TestKind) —
+    /// a unary test on a single value. `shape` recovers it from the arena.
     /// `produced_by` (the same PathSupport the deletive side uses, §5.2) names
     /// the triples that made `node` a value — `Some` for value-scoped atoms,
-    /// `None` when the atom is on the focus itself (`reached_by = Id`); it is
-    /// what `repair` needs for *replace-in-place*.
+    /// `None` when the atom is on the focus itself (`reached_by = Id`); it is what
+    /// `repair` needs for *replace-in-place*.
     Atom { shape: ShapeId, node: Term, reached_by: Path, produced_by: Option<PathSupport> },
+
+    /// A *relational* leaf failed (Eq / Disj / Lt / Le / UniqueLang) — these
+    /// constrain a path's value-set against a predicate's object-set (or, for
+    /// UniqueLang, within one set), so they are NOT value-replace. `lhs`/`rhs`
+    /// carry the two compared sets with their PathSupport (to cut either side),
+    /// and `offending` the specific witnessing pairs/members. Repair is per-kind
+    /// (§6.1); set-equality (`Eq`) is coarse in this cut.
+    Relational {
+        shape: ShapeId, node: Term, kind: RelKind,
+        lhs: Vec<(Term, PathSupport)>, rhs: Vec<(Term, PathSupport)>,
+        offending: Vec<(Term, Term)>,
+    },
 
     /// `closed(Q)` failed: these (predicate, object) pairs are not allowed.
     Closed { shape: ShapeId, node: Term, offenders: Vec<(NamedNode, Term)> },
@@ -261,12 +300,14 @@ pub enum Witness {
         qualifier: ShapeId, have: u64, min: u64,
     },
 
-    /// `∃≤max π.q` over-satisfied. `per_value` is populated only for the
-    /// ∀-encoding (`∃≤0 π.¬inner`): the inner failure at each matched value, so
-    /// repair can fix-in-place instead of deleting. Otherwise delete down to max.
+    /// `∃≤max π.q` over-satisfied. `matched` pairs each counted value with its
+    /// `PathSupport` so deletion cuts the right edge(s) even when `path` is a
+    /// `Seq`/`Star` (not just a single predicate). `per_value` is populated only
+    /// for the ∀-encoding (`∃≤0 π.¬inner`): the inner failure at each matched
+    /// value, so repair can fix-in-place instead of deleting.
     CountHigh {
         shape: ShapeId, node: Term, path: Path, qualifier: ShapeId,
-        matched: Vec<Term>, max: u64, per_value: Vec<(Term, Witness)>,
+        matched: Vec<(Term, PathSupport)>, max: u64, per_value: Vec<(Term, Witness)>,
     },
 
     /// Opaque SPARQL — no algebraic witness. Carries reported value/path so a
@@ -406,16 +447,27 @@ and gates it (§8).
 
 | `Witness` | `RepairTree` |
 |---|---|
-| `Atom` (value-scoped, has `produced_by`) | `Any([ replace-in-place, … ])` — delete the offender, `build` a good value |
+| `Atom` (value-scoped, has `produced_by`) | `Any([ replace-in-place, … ])` — delete the offender (its `produced_by`), `build` a good value |
 | `Atom` (focus identity, e.g. nodeKind on focus) | `Blocked(CannotMutateIdentity)` |
+| `Relational{kind, lhs, rhs, offending}` | per-kind (below) |
 | `Closed{offenders}` | `All([ Delete(node,p,o) … ])` |
 | `All{failed}` | `All(failed.map(repair))` |
 | `Any{branches}` | `Any(branches.map(repair))` |
 | `CountLow{path,qualifier,have,min}` | `Repeat{ min: min−have, max: None, body: build_value(path, qualifier) }` |
 | `CountHigh` (∀-encoding) | `All(per_value.map(\|(v,inner)\| repair(inner) @ v))` |
-| `CountHigh` (plain max) | `Repeat{ min: have−max, body: Delete(node, p, OneOf(matched)) }` |
+| `CountHigh` (plain max) | `Repeat{ min: have−max, body: Delete over OneOf(matched), cut via each value's PathSupport }` |
 | `Not{inner}` | `break_(inner)` — flip to deletive |
 | `Opaque` | `Blocked(OpaqueSparql)` |
+
+`Relational` dispatch by `kind`, over `lhs`/`rhs` (each value with its
+`PathSupport`) and the `offending` pairs:
+
+| `RelKind` | `RepairTree` |
+|---|---|
+| `Disj` (sets must be disjoint) | `All(shared.map(\|v\| Any([Delete v's lhs edge, Delete v's rhs edge])))` |
+| `Lt` / `Le` (every lhs `<`/`≤` every rhs) | per offending pair, `Any([ replace lhs with a `Typed` range hole, Delete the lhs edge ])` |
+| `UniqueLang` (≤1 value per tag) | per duplicated tag, `Repeat{ min: dup−1, body: Delete over OneOf(that tag's values) }` |
+| `Eq` (sets must be equal) | **coarse this cut:** `Any([ add rhs∖lhs to lhs, add lhs∖rhs to rhs, delete the symmetric difference ])`, or `Blocked(Unsupported("sh:equals reconciliation"))` when neither side is safely editable (§9) |
 
 `break_` (deletive) — the De Morgan mirror:
 
@@ -513,22 +565,16 @@ semantics.
 
 ## 9. Open questions / limitations
 
-- **`BlockReason` and cost are under-specified.** `BlockReason`'s full set is
-  TBD, and the IR carries no per-edit **cost** annotation — drivers that want
-  minimality (fewest edits, reuse-over-mint) need one to rank `Plan`s. Both are
-  IR additions, not just docs.
-- **Relational atoms are lumped into `Witness::Atom`** (`Eq`/`Disj`/`Lt`/`Le`/
-  `UniqueLang`), but §6.1's `Atom` dispatch only does value-replace. These are
-  *relational* (set-equality across two paths; retag/drop a duplicate-language
-  pair) and need their own dispatch — or to be explicitly scoped out of the first
-  cut. The mapping table (§4) currently over-promises here.
-- **`CountHigh` deletion assumes a single-predicate path.** §6.1 emits
-  `Delete(node, p, OneOf(matched))`, but the `Count` path can be a `Seq`/`Star`;
-  `CountHigh` needs per-matched-value `PathSupport` (the same enrichment `Atom`
-  got) to cut a complex path correctly.
-- **`Blocked` propagation is unspecified.** `All([Blocked, X])` should collapse to
-  `Blocked`; `Any([Blocked, X])` to `Any([X])`. The IR algebra for this needs
-  pinning down (and affects what `synthesize` returns vs. what a driver sees).
+- **`Eq` (set-equality) repair is coarse.** `Witness::Relational` now gives the
+  relational leaves their own variant and dispatch (§6.1), and `Disj`/`Lt`/`Le`/
+  `UniqueLang` have sound per-kind strategies. But `sh:equals` reconciliation —
+  aligning two value-sets — is offered only as a blunt add-one-side / delete-the-
+  difference `Any`, or `Blocked(Unsupported)` when neither side is safely
+  editable. A finer set-diff plan is future work.
+- **Edit cost is a default heuristic.** `Edit.cost` exists for driver-side
+  minimality (§3.1), but synthesis only assigns a flat default (deletes possibly
+  heavier); reuse-vs-mint weighting is left to the driver over `HoleConstraint`.
+  A principled cost model (and whether cost belongs per-edit vs per-plan) is open.
 - **`Not` and deletion completeness.** Falsification rides the satisfaction trace
   (§5.2); it is *incomplete through positive recursion* (`Coinductive`, §5.4).
 - **Schema repairs** are out of scope for this cut, but the IR does not preclude
