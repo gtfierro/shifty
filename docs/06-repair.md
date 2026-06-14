@@ -319,7 +319,7 @@ witness looks *through* the qualifier); and **structured path threading** (at a
   recursion.** A gfp support reached on a back-edge (`Coinductive`) is assumed
   true *without* a grounded justification, so there is no finite set of facts to
   delete. This is the formal content of the "Not / deletion completeness" caveat
-  (§9): the first cut keeps falsification shallow (it falsifies leaf atoms, which
+  (§11): the first cut keeps falsification shallow (it falsifies leaf atoms, which
   is most of what survives NNF) and reports `Coinductive` otherwise.
 
 ---
@@ -510,7 +510,7 @@ ingest mechanic.
 - **`Repeat` blocks**: bind up to `max` existing matching instances, mint enough
   fresh ones to reach `min`.
 - Each embedding yields a concrete `ΔG` (minted add-triples + the deletes),
-  confirmed by the re-validation gate (§7).
+  confirmed by the global re-validation gate (§10).
 
 ---
 
@@ -540,9 +540,9 @@ emits concrete `ΔG`s.
   the *semantic* holes (`Typed(pattern)`, a plausible label) that enumeration and
   monomorphism cannot. Non-deterministic; gated behind validation re-check.
 
-Every emitted `ΔG` is **verified by re-validation** (`(G ⊕ ΔG), v ⊨ φ`) before
-being offered — the reference oracle keeps every backend honest, mirroring the
-Layer-3 oracle discipline (doc 02 guiding principle 1).
+Every emitted `ΔG` passes the **global re-validation gate** (§10) before being
+offered — the reference oracle keeps every backend honest, mirroring the Layer-3
+oracle discipline (doc 02 guiding principle 1).
 
 ---
 
@@ -661,7 +661,7 @@ The conjoined integrity constraints are the joint solve: one model must satisfy
 forced to also pass the `datatype`/`closed` rules that constrain it. Edit weights
 encode the preference order — reuse < mint, and any add/delete bias — so the
 optimum is the minimal, most-reuse repair. Each answer set decodes (`add`/`del`
-→ terms → `ΔG`) and passes the §7 re-validation gate.
+→ terms → `ΔG`) and passes the global re-validation gate (§10).
 
 ### 9.6 Boundaries
 
@@ -676,15 +676,55 @@ optimum is the minimal, most-reuse repair. Each answer set decodes (`add`/`del`
 
 ---
 
-## 10. Open questions / limitations
+## 10. Applying repairs — the global gate and the fixpoint driver
+
+A repair is sound only if it does not trade one violation for another. The gate
+is therefore **whole-graph**, not focus-local: a candidate `ΔG` is accepted iff
+
+```
+violations(G ⊕ ΔG, S)  ⊆  violations(G, S) \ { the targeted violation(s) }
+```
+
+— the target is fixed *and no new violation appears anywhere*. This reuses the
+existing `validate` unchanged. The gate's interface is this **delta-of-violations**
+check rather than a bare `v ⊨ φ`, so a cheaper *affected-set* re-validation (only
+the nodes `ΔG` can touch — computable from `shifty-opt`'s dependency/demand
+analysis) can drop in later as a pure performance optimization with identical
+semantics.
+
+**The driver loop.** Repairs interact, and a witness computed against `G` goes
+stale the moment `G` changes, so repair is iterative:
+
+1. `witness_violations(G, S)` → the current violations, grouped per focus (§8).
+2. Pick a focus; `synthesize_focus` → its `RepairTree`; a backend proposes a `ΔG`.
+3. **Gate** `ΔG`. On accept, `G := G ⊕ ΔG`. On reject, **retry** the next
+   candidate (next embedding / answer set / `Any` branch).
+4. Re-witness and repeat until `G ⊨ S`, or no candidate makes progress.
+
+**Termination** rests on strict progress: an accepted `ΔG` shrinks the violation
+set (the subset criterion guarantees it never grows), so the loop is monotone and
+finite. A focus with no progress-making candidate is reported **unrepairable in
+scope** and skipped — never retried forever.
+
+**Reject-and-retry is incomplete on purpose.** Fixing one focus at a time, it can
+stall where a repair exists *only* by fixing a focus and the node its `ΔG` would
+break *together*. That joint case is deferred to an opt-in **frontier-expansion**
+driver — pull the broken node into the same problem and re-solve, natural for the
+ASP backend (§9) — a strictly more powerful driver behind the same gate.
+
+---
+
+## 11. Open questions / limitations
 
 - **Minimality.** Many `ΔG` satisfy a constraint. We need a preference order
   (delete-vs-add bias, reuse-vs-mint bias, edit count). Policy lives in the
   backend (`#minimize`, monomorphism-prefers-reuse, LLM judgment); the template
   should carry enough cost annotation to drive it (the `#minimize` weights, §9.5).
-- **Confluence.** Cross-constraint cascades are only fully handled by a joint
-  solver; the monomorphism/enumeration backends repair per-violation and rely on
-  the re-validation gate to reject `ΔG`s that break a sibling constraint.
+- **Confluence.** The global gate (§10) makes every backend *sound* under
+  collateral — a `ΔG` that breaks a sibling is rejected. But reject-and-retry is
+  *incomplete*: it can stall where a repair exists only by fixing a focus and its
+  collateral jointly. Closing that needs the frontier-expansion driver (§10) or
+  the joint ASP solve (§9).
 - **`Not` and deletion completeness.** Falsification rides the satisfaction
   trace (§4.2). It is sound but *incomplete through positive recursion*: a gfp
   support reached on a back-edge (`SatTrace::Coinductive`) has no grounded fact
@@ -693,7 +733,7 @@ optimum is the minimal, most-reuse repair. Each answer set decodes (`add`/`del`
 - **Schema repairs** are deliberately out of scope for this cut (see the scope
   note) but the IR does not preclude them.
 
-## 11. Build order
+## 12. Build order
 
 1. **Witnessing evaluator** over the arena (§4) — `witness` + its `sat_trace`
    dual, as sibling folds beside `explain`, exporting `FocusWitness`.
@@ -701,8 +741,9 @@ optimum is the minimal, most-reuse repair. Each answer set decodes (`add`/`del`
 3. **`synthesize`** (§5) — `repair`/`break_`/`build`, fuel-bounded (§5.4).
 4. **RDF rendering** (§6) — `RepairTree` → `RepairProgram` with the self-hosted
    sidecar.
-5. **Monomorphism backend** (§7) — the overlap search (§6.4) + the re-validation
-   gate.
-6. Per-focus grouping (§8).
-7. **ASP backend** (§9) — joint solving + `#minimize`; then enumeration / LLM
-   backends as needed.
+5. **Global gate + reject-retry driver** (§10) — the delta-of-violations check
+   and the iterate-to-fixpoint loop; needed before any backend's `ΔG` is trusted.
+6. **Monomorphism backend** (§7) — the overlap search (§6.4).
+7. Per-focus grouping (§8).
+8. **ASP backend** (§9) — joint solving + `#minimize`; then enumeration / LLM
+   backends, and the frontier-expansion driver (§10), as needed.
