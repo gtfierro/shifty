@@ -271,3 +271,31 @@ def test_repair_node_against_none_when_already_conforms():
     s = shifty.RepairSession(QUAL_SHAPES, data, infer=False)
     sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
     assert s.repair_node_against("<urn:ok>", sid) is None
+
+
+CLASS_SHAPES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:property [ sh:path ex:part ;
+        sh:qualifiedValueShape ex:PartShape ; sh:qualifiedMinCount 1 ] .
+ex:PartShape a sh:NodeShape ; sh:class ex:Widget .
+"""
+
+
+def test_class_qualified_build_is_not_blocked_and_types_the_node():
+    # sh:class lowers to rdf:type/rdfs:subClassOf* — building must materialize the
+    # type assertion reflexively rather than block on "path materialization".
+    s = shifty.RepairSession(CLASS_SHAPES, QUAL_DATA, infer=False)
+    sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
+    sub = s.repair_node_against("<urn:p1>", sid)
+    assert sub is not None
+    assert not sub.is_blocked
+    # the build's value hole is the forced class constant:
+    assert any(h.constraint.startswith("= ") for h in sub.holes())
+    # typing the node + linking it fixes the violation:
+    delta = shifty.delta_from_graph(
+        '@prefix ex: <http://example.org/> .'
+        ' ex:x ex:part <urn:p1> . <urn:p1> a ex:Widget .'
+    )
+    assert s.gate(delta).is_progress

@@ -320,7 +320,10 @@ impl<'a> Synth<'a> {
     }
 
     /// Add-edges realizing `path` from `subject` to the value hole `vh`, plus any
-    /// fresh interior holes. Handles `Pred`, `Seq` of `Pred`, and `Inverse(Pred)`.
+    /// fresh interior holes. Handles `Pred`, `Inverse(Pred)`, `Seq` of those, and
+    /// `Star` — the last reflexively, which is what makes `sh:class` buildable:
+    /// `rdf:type/rdfs:subClassOf*` materializes to `subject rdf:type ?vh` (a value
+    /// bound to the class `C`, since `C subClassOf* C`).
     fn materialize_path(
         &mut self,
         subject: Term,
@@ -350,30 +353,59 @@ impl<'a> Synth<'a> {
                     None
                 }
             }
-            Path::Seq(steps) => {
-                let mut edits = Vec::new();
-                let mut holes = Vec::new();
-                let mut cursor = Slot::Bound(subject);
-                for (i, step) in steps.iter().enumerate() {
-                    let Path::Pred(p) = step else { return None };
-                    let target = if i == steps.len() - 1 {
-                        Slot::Open(vh)
-                    } else {
-                        let m = self.hole();
-                        holes.push((m, HoleConstraint::Fresh));
-                        Slot::Open(m)
-                    };
-                    edits.push(Edit::add(TriplePattern::new(
-                        cursor,
-                        Slot::Bound(Term::NamedNode(p.clone())),
-                        target.clone(),
-                    )));
-                    cursor = target;
-                }
-                Some((edits, holes))
-            }
+            // `π*`: a single application is a valid member of the closure, so
+            // materialize one hop of the inner path.
+            Path::Star(inner) => self.materialize_path(subject, inner, vh),
+            Path::Seq(steps) => self.materialize_seq(subject, steps, vh),
             _ => None,
         }
+    }
+
+    /// Materialize a `Seq` of steps from `subject` to `vh`. Trailing `Star` steps
+    /// are dropped: they are satisfied reflexively, so the value sits at the result
+    /// of the last concrete step. Each remaining step must be `Pred` or
+    /// `Inverse(Pred)`.
+    fn materialize_seq(&mut self, subject: Term, steps: &[Path], vh: Hole) -> Option<Materialized> {
+        let mut end = steps.len();
+        while end > 0 && matches!(steps[end - 1], Path::Star(_)) {
+            end -= 1;
+        }
+        let steps = &steps[..end];
+        if steps.is_empty() {
+            return None; // wholly reflexive: nothing concrete to add
+        }
+        let mut edits = Vec::new();
+        let mut holes = Vec::new();
+        let mut cursor = Slot::Bound(subject);
+        for (i, step) in steps.iter().enumerate() {
+            let target = if i == steps.len() - 1 {
+                Slot::Open(vh)
+            } else {
+                let m = self.hole();
+                holes.push((m, HoleConstraint::Fresh));
+                Slot::Open(m)
+            };
+            match step {
+                Path::Pred(p) => edits.push(Edit::add(TriplePattern::new(
+                    cursor.clone(),
+                    Slot::Bound(Term::NamedNode(p.clone())),
+                    target.clone(),
+                ))),
+                Path::Inverse(inner) => {
+                    let Path::Pred(p) = inner.as_ref() else {
+                        return None;
+                    };
+                    edits.push(Edit::add(TriplePattern::new(
+                        target.clone(),
+                        Slot::Bound(Term::NamedNode(p.clone())),
+                        cursor.clone(),
+                    )));
+                }
+                _ => return None, // interior Star / Alt / nested Seq not supported
+            }
+            cursor = target;
+        }
+        Some((edits, holes))
     }
 
     fn value_constraint(&self, qualifier: ShapeId) -> HoleConstraint {
@@ -564,6 +596,68 @@ mod tests {
             tree,
             RepairTree::Blocked(_, BlockReason::CannotMutateIdentity)
         ));
+    }
+
+    #[test]
+    fn class_qualified_min_count_builds_a_type_assertion() {
+        // ex:x needs a part conforming to (sh:class ex:Widget); none present.
+        // The build must add `<part> rdf:type ex:Widget` — i.e. materialize the
+        // `rdf:type/rdfs:subClassOf*` path reflexively, not give up on it.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:part ;
+                    sh:qualifiedValueShape ex:PartShape ; sh:qualifiedMinCount 1 ] .
+            ex:PartShape a sh:NodeShape ; sh:class ex:Widget .
+            ex:x a ex:Thing .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let ws = witness_violations(&loaded.graph, &parsed.schema).unwrap();
+        let parent = synthesize(&parsed.schema.arena, &ws[0]);
+        // the parent hole is the part value (ConformsTo PartShape).
+        let mut plan = Plan {
+            count: std::collections::HashMap::new(),
+            ..Default::default()
+        };
+        // bind the part hole to a fresh node, then build that node against PartShape.
+        let parent_hole = {
+            let disc = instantiate(&parent, &Plan {
+                count: std::collections::HashMap::from([(parent.id(), 1)]),
+                ..Default::default()
+            });
+            disc.open_holes[0].clone()
+        };
+        // Find PartShape's id via the ConformsTo constraint, build the node.
+        let HoleConstraint::ConformsTo(part_shape) = parent_hole.1 else {
+            panic!("expected ConformsTo, got {:?}", parent_hole.1);
+        };
+        let fresh = Term::NamedNode(oxrdf::NamedNode::new("http://ex/part1").unwrap());
+        let sub_fw =
+            crate::witness::witness_node(&loaded.graph, &parsed.schema, &fresh, part_shape)
+                .unwrap()
+                .expect("fresh node fails PartShape");
+        let sub = synthesize(&parsed.schema.arena, &sub_fw);
+        assert!(!sub.is_blocked(), "class build must not be blocked: {sub:?}");
+        // instantiate the sub-build: one Repeat instance; the value hole is Const(Widget).
+        let disc = instantiate(&sub, &Plan {
+            count: std::collections::HashMap::from([(sub.id(), 1)]),
+            ..Default::default()
+        });
+        let (h, c) = disc.open_holes[0].clone();
+        assert!(matches!(c, HoleConstraint::Const(_)), "type hole is Const(C): {c:?}");
+        plan.count.insert(sub.id(), 1);
+        plan.binding.insert(
+            h,
+            Term::NamedNode(oxrdf::NamedNode::new("http://ex/Widget").unwrap()),
+        );
+        let out = instantiate(&sub, &plan);
+        assert_eq!(out.delta.add.len(), 1);
+        assert_eq!(
+            out.delta.add[0].predicate.as_str(),
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        );
     }
 
     #[test]

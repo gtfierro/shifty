@@ -281,6 +281,11 @@ def build_tree(session, tree, fuel, indent=""):
             f = f"<urn:shifty:build:{next(_FRESH)}>"
             plan.bind(hole.id, f)
             sub_builds.append((f, sid))
+        elif hole.constraint.startswith("= "):
+            # a forced constant (e.g. rdf:type fixed to a class) — bind it for free.
+            forced = hole.candidates(limit=1)[0]
+            print(f"{indent}  ?{hole.id} := {_short(forced)}  ({hole.constraint})")
+            plan.bind(hole.id, forced)
         else:
             hint = hole.candidates(limit=5)
             hintstr = f"  reuse e.g. {', '.join(hint)}" if hint else ""
