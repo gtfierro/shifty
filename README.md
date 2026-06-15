@@ -312,11 +312,11 @@ conforms, report, text = shifty.validate(
 
 ## Design docs
 
-The `docs/` directory contains the full design:
+The `development_docs/` directory contains the full design:
 
-- [`docs/00-formalism.md`](docs/00-formalism.md) — path algebra π, shape grammar φ, selectors, reference semantics
-- [`docs/01-gap-analysis.md`](docs/01-gap-analysis.md) — W3C SHACL/SHACL-AF coverage and known gaps
-- [`docs/02-roadmap.md`](docs/02-roadmap.md) — layered build plan (Layer 0 → 7)
+- [`development_docs/00-formalism.md`](development_docs/00-formalism.md) — path algebra π, shape grammar φ, selectors, reference semantics
+- [`development_docs/01-gap-analysis.md`](development_docs/01-gap-analysis.md) — W3C SHACL/SHACL-AF coverage and known gaps
+- [`development_docs/02-roadmap.md`](development_docs/02-roadmap.md) — layered build plan (Layer 0 → 7)
 
 ## License
 
