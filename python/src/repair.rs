@@ -809,6 +809,31 @@ pub struct RepairDelta {
 
 #[pymethods]
 impl RepairDelta {
+    /// Build a delta directly from triples in N-Triples syntax — for a
+    /// driver that authors a *subgraph* patch by hand (e.g. a connection point
+    /// with its type assertion) rather than binding a single hole. `add` and
+    /// `delete` are each whole N-Triples documents (possibly empty). The result
+    /// gates and applies through the same path as a synthesized delta, so the
+    /// gate still rejects a patch that doesn't make sound progress.
+    #[staticmethod]
+    #[pyo3(signature = (add="", delete=""))]
+    fn from_ntriples(add: &str, delete: &str) -> PyResult<Self> {
+        let parse = |doc: &str| -> PyResult<Vec<oxrdf::Triple>> {
+            if doc.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+            let loaded = shifty_parse::load_ntriples(doc.as_bytes())
+                .map_err(|e| py_value_error(format!("cannot parse N-Triples: {e}")))?;
+            Ok(loaded.graph.iter().map(|t| t.into_owned()).collect())
+        };
+        Ok(RepairDelta {
+            inner: shifty_repair::GraphDelta {
+                add: parse(add)?,
+                delete: parse(delete)?,
+            },
+        })
+    }
+
     /// Triples to add, as `(subject, predicate, object)` N-Triples-string tuples.
     #[getter]
     fn add(&self) -> Vec<(String, String, String)> {

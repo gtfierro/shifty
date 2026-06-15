@@ -220,18 +220,53 @@ def fill_by_hand(fw):
     return inst.delta if inst.is_complete else None
 
 
+def gate_and_report(session, delta, what):
+    """Gate ``delta``; on rejection print why and return None, else the outcome."""
+    outcome = session.gate(delta)
+    if not outcome.is_sound:
+        foci = ", ".join(_short(v.focus_node) for v in outcome.introduced)
+        print(f"  ✗ that {what} introduces new violation(s) at: {foci}. Not applied.")
+        return None
+    if not outcome.is_progress:
+        print(
+            f"  ✗ no progress: the {what} is valid but the violation persists.\n"
+            "    The added value(s) must form proper, conforming node(s) (right rdf:type +\n"
+            "    required properties) — a bare/new node leaves a qualified count or sub-shape\n"
+            "    unmet. Author a subgraph that includes the node's type + properties, or bind\n"
+            "    an existing conforming node."
+        )
+        return None
+    return outcome
+
+
+def read_subgraph() -> str:
+    """Read a pasted Turtle subgraph from stdin until a line `END` (or EOF)."""
+    print("  paste Turtle for triples to ADD (include @prefix lines or full <IRIs>).")
+    print("  finish with a line containing only  END  (or Ctrl-D):")
+    lines = []
+    while True:
+        try:
+            ln = input()
+        except EOFError:
+            break
+        if ln.strip() == "END":
+            break
+        lines.append(ln)
+    return "\n".join(lines)
+
+
 def prompt_choice(n: int) -> str:
     sel = f"select [1-{n}], " if n else ""
     while True:
         try:
-            raw = input(f"{sel}(v)alue, (s)kip, (q)uit > ").strip().lower()
+            raw = input(f"{sel}(v)alue, (g)raph, (s)kip, (q)uit > ").strip().lower()
         except EOFError:
             return "q"
-        if raw in ("v", "s", "q"):
+        if raw in ("v", "g", "s", "q"):
             return raw
         if n and raw.isdigit() and 1 <= int(raw) <= n:
             return raw
-        print("  ? type a number from the menu, or 'v', 's', 'q'")
+        print("  ? type a number from the menu, or 'v', 'g', 's', 'q'")
 
 
 def main():
@@ -271,13 +306,12 @@ def main():
                     print(f"        {line}")
         else:
             print("\n  no automatic option (no reusable/mintable value).")
-        # show how to supply a value by hand, with a worked example.
+        # how to author a repair by hand:
         print(
-            "\n  'v' supplies a value yourself, e.g.:\n"
-            '        > v\n'
-            '        value for ?0 [datatype(xsd:integer)]\n'
-            '          > 0                # 0 → "0"^^xsd:integer ;  "Alice" → text ;'
-            "  <http://ex/a> → IRI ;  blank → mint fresh"
+            "\n  'v' = supply a value yourself"
+            '   (e.g. v ↵ then  0 | "Alice" | <http://ex/a> ;  blank = mint fresh)\n'
+            "  'g' = paste a subgraph patch in Turtle (e.g. a new node WITH its rdf:type +\n"
+            "        properties) — applied only if the gate says it fixes the violation."
         )
 
         choice = prompt_choice(len(options))
@@ -292,20 +326,21 @@ def main():
             delta = fill_by_hand(fw)
             if delta is None:
                 continue
-            outcome = session.gate(delta)
-            if not outcome.is_sound:
-                foci = ", ".join(_short(v.focus_node) for v in outcome.introduced)
-                print(f"  ✗ that value introduces new violation(s) at: {foci}. Not applied.")
+            outcome = gate_and_report(session, delta, "value")
+            if outcome is None:
                 continue
-            if not outcome.is_progress:
-                print(
-                    "  ✗ no progress: the edit is valid but the violation persists.\n"
-                    "    This usually means the value you added must ITSELF be a proper,\n"
-                    "    conforming node (right rdf:type + required properties) — a bare or\n"
-                    "    freshly-minted node leaves a qualified count / sub-shape unmet, so the\n"
-                    "    same statement just fails for a new reason. Bind an existing conforming\n"
-                    "    node if one exists; full build-out of a new node isn't automated yet."
-                )
+        elif choice == "g":
+            ttl = read_subgraph()
+            if not ttl.strip():
+                print("  (empty) nothing to apply.")
+                continue
+            try:
+                delta = shifty.delta_from_graph(ttl)
+            except Exception as e:  # noqa: BLE001 — surface any parse error to the user
+                print(f"  ✗ could not parse that subgraph: {e}")
+                continue
+            outcome = gate_and_report(session, delta, "subgraph")
+            if outcome is None:
                 continue
         else:
             delta, outcome = options[int(choice) - 1]

@@ -90,6 +90,7 @@ __all__ = [
     "Instantiated",
     "RepairDelta",
     "RepairOutcome",
+    "delta_from_graph",
 ]
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
@@ -231,6 +232,39 @@ class PreparedValidator:
 
     def __repr__(self) -> str:
         return repr(self._inner)
+
+
+def _to_ntriples(graph: "Optional[GraphInput]") -> str:
+    """Serialize a subgraph to N-Triples. Accepts an rdflib.Graph or Turtle text."""
+    if graph is None:
+        return ""
+    import rdflib
+
+    if isinstance(graph, rdflib.Graph):
+        return graph.serialize(format="nt")
+    if isinstance(graph, (str, bytes)):
+        g = rdflib.Graph()
+        g.parse(data=graph, format="turtle")
+        return g.serialize(format="nt")
+    raise TypeError(
+        f"expected rdflib.Graph or Turtle text, got {type(graph).__name__!r}"
+    )
+
+
+def delta_from_graph(
+    add: "Optional[GraphInput]" = None,
+    delete: "Optional[GraphInput]" = None,
+) -> RepairDelta:
+    """Build a :class:`RepairDelta` from hand-authored subgraph(s).
+
+    Lets a driver propose a *subgraph* patch — e.g. a new node together with its
+    type assertion and properties — instead of binding a single hole. Pass an
+    :class:`rdflib.Graph` or Turtle text for the triples to ``add`` and/or
+    ``delete``. The result gates and applies exactly like a synthesized delta, so
+    :meth:`RepairSession.gate` still rejects a patch that doesn't make sound
+    progress.
+    """
+    return RepairDelta.from_ntriples(_to_ntriples(add), _to_ntriples(delete))
 
 
 class RepairSession:

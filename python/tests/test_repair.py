@@ -171,3 +171,67 @@ def test_embedded_shapes_no_data_graph():
     embedded = SHAPES + DATA_MAXCOUNT
     s = shifty.RepairSession(embedded, infer=False)
     assert len(s.witnesses()) == 1
+
+
+# ── subgraph patches (delta_from_graph) ──────────────────────────────────────
+
+QUAL_SHAPES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:property [ sh:path ex:part ;
+        sh:qualifiedValueShape ex:PartShape ; sh:qualifiedMinCount 1 ] .
+ex:PartShape a sh:NodeShape ;
+    sh:property [ sh:path ex:kind ; sh:minCount 1 ] .
+"""
+
+QUAL_DATA = """
+@prefix ex: <http://example.org/> .
+ex:x a ex:Thing .
+"""
+
+
+def test_subgraph_patch_with_conforming_node_is_accepted():
+    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    assert len(s.witnesses()) == 1
+    # a subgraph that adds the part AND makes it conform (it has an ex:kind).
+    delta = shifty.delta_from_graph(
+        '@prefix ex: <http://example.org/> .\n'
+        'ex:x ex:part ex:p1 . ex:p1 ex:kind "valve" .'
+    )
+    outcome = s.gate(delta)
+    assert outcome.is_sound
+    assert outcome.is_progress
+    assert s.advance(delta).witnesses() == []
+
+
+def test_subgraph_patch_without_conforming_structure_is_rejected():
+    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    # adds the part but not its required ex:kind → the qualified count stays unmet.
+    delta = shifty.delta_from_graph(
+        '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+    )
+    outcome = s.gate(delta)
+    assert outcome.is_sound  # introduces no new top-level violation
+    assert not outcome.is_progress  # but fixes nothing
+
+
+def test_delta_from_graph_accepts_rdflib_graph():
+    import rdflib
+
+    g = rdflib.Graph()
+    g.parse(
+        data='@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 . ex:p1 ex:kind "v" .',
+        format="turtle",
+    )
+    delta = shifty.delta_from_graph(g)
+    assert len(delta.add) == 2
+    assert not delta.delete
+
+
+def test_repair_delta_from_ntriples_add_and_delete():
+    nt_add = '<http://example.org/x> <http://example.org/part> <http://example.org/p1> .\n'
+    nt_del = '<http://example.org/x> <http://example.org/old> "gone" .\n'
+    delta = shifty.RepairDelta.from_ntriples(nt_add, nt_del)
+    assert len(delta.add) == 1
+    assert len(delta.delete) == 1
