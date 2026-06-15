@@ -257,7 +257,11 @@ def build_tree(session, tree, fuel, indent=""):
     value holes. Returns None on abort / depth-exhaustion.
     """
     if tree.is_blocked:
-        print(indent + "✗ blocked — cannot build this node.")
+        print(
+            indent + "✗ blocked — synthesis can't build this sub-shape "
+            "(e.g. it constrains values reached by an inverse/complex path).\n"
+            + indent + "  use 'g' to author the node's subgraph by hand instead."
+        )
         return None
     plan = shifty.RepairPlan()
     for ch in tree.choices():
