@@ -10,10 +10,12 @@
 //! Like every driver, it decides nothing the library doesn't expose: it only
 //! composes [`instantiate`], [`candidates`], and [`gate`].
 
-use crate::gate::{RepairOutcome, gate};
+use crate::gate::{RepairOutcome, apply, gate};
 use crate::path::term_of;
+use crate::synthesize::synthesize;
 use crate::validate::NonStratifiable;
 use crate::value::value_type_holds;
+use crate::witness::witness_violations;
 use oxrdf::{BlankNode, Graph, Term};
 use shifty_algebra::Schema;
 use shifty_repair::{GraphDelta, HoleConstraint, NodeId, Plan, RepairTree, instantiate};
@@ -57,6 +59,76 @@ pub fn enumerate_repair(
     index_choices(tree, &mut choices);
     let mut budget = opts.budget;
     solve(tree, data, schema, &choices, Plan::default(), &mut budget, opts)
+}
+
+/// The outcome of repairing a graph to a fixpoint.
+#[derive(Debug, Clone)]
+pub struct FixpointResult {
+    /// The repaired data graph (`G` with every applied `ΔG`).
+    pub graph: Graph,
+    /// The deltas applied, in order.
+    pub applied: Vec<GraphDelta>,
+    /// Iterations run (one per applied repair).
+    pub iterations: usize,
+    /// Violations still unrepaired when the loop stopped (0 ⟺ conforms).
+    pub remaining: usize,
+}
+
+/// The reference fixpoint driver (`docs/07-repair-drivers.md` §1): witness →
+/// synthesize → enumerate → gate → apply, re-witnessing after each accepted
+/// repair until the graph conforms or no focus admits a sound, progress-making
+/// repair. Each accepted `ΔG` is gated (introduces nothing) and strictly reduces
+/// the violation count, so the loop terminates.
+pub fn repair_to_fixpoint(
+    data: &Graph,
+    schema: &Schema,
+    opts: EnumOptions,
+) -> Result<FixpointResult, NonStratifiable> {
+    let mut graph = data.clone();
+    let mut applied = Vec::new();
+    let mut iterations = 0usize;
+    // A safety bound; progress guarantees far fewer iterations in practice.
+    let max_iterations = 100_000;
+
+    loop {
+        let witnesses = witness_violations(&graph, schema)?;
+        if witnesses.is_empty() {
+            return Ok(FixpointResult {
+                graph,
+                applied,
+                iterations,
+                remaining: 0,
+            });
+        }
+        if iterations >= max_iterations {
+            return Ok(FixpointResult {
+                remaining: witnesses.len(),
+                graph,
+                applied,
+                iterations,
+            });
+        }
+
+        let mut progressed = false;
+        for fw in &witnesses {
+            let tree = synthesize(&schema.arena, fw);
+            if let Some(sol) = enumerate_repair(&tree, &graph, schema, opts)? {
+                graph = apply(&graph, &sol.delta);
+                applied.push(sol.delta);
+                progressed = true;
+                break; // re-witness after each applied repair
+            }
+        }
+        if !progressed {
+            return Ok(FixpointResult {
+                remaining: witnesses.len(),
+                graph,
+                applied,
+                iterations,
+            });
+        }
+        iterations += 1;
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -261,6 +333,36 @@ mod tests {
         // replace-in-place: delete the bad value, add a good one.
         assert_eq!(sol.delta.delete.len(), 1);
         assert_eq!(sol.delta.add.len(), 1);
+    }
+
+    #[test]
+    fn fixpoint_repairs_multiple_violations_to_conformance() {
+        // Two foci each missing an ex:p; reuse can satisfy both.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x, ex:y ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+            ex:x ex:other ex:n .
+            ex:y ex:other ex:n .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        // baseline: two violations.
+        assert_eq!(
+            witness_violations(&loaded.graph, &parsed.schema).unwrap().len(),
+            2
+        );
+        let result =
+            repair_to_fixpoint(&loaded.graph, &parsed.schema, EnumOptions::default()).unwrap();
+        assert_eq!(result.remaining, 0, "repaired to conformance");
+        assert_eq!(result.applied.len(), 2, "one repair per focus");
+        // the repaired graph genuinely conforms.
+        assert!(
+            witness_violations(&result.graph, &parsed.schema)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

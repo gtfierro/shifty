@@ -31,7 +31,9 @@ pub use validate::{
     validate, validate_graphs, validate_graphs_with_mode, validate_plan, validate_plan_graphs,
     validate_plan_graphs_with_mode, validate_plan_with_context, validate_with_context,
 };
-pub use enumerate::{EnumOptions, RepairSolution, candidates, enumerate_repair};
+pub use enumerate::{
+    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
+};
 pub use gate::{RepairOutcome, apply, gate};
 pub use synthesize::{synthesize, synthesize_focus};
 pub use witness::{

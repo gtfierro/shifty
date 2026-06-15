@@ -48,6 +48,10 @@ struct RepairArgs {
     /// Skip SHACL-AF rule inference before witnessing.
     #[arg(long)]
     no_infer: bool,
+    /// Run the fixpoint driver and emit the repaired data graph (N-Triples)
+    /// instead of inspecting structures. Overrides `--stage`.
+    #[arg(long)]
+    apply: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -56,6 +60,8 @@ enum RepairStage {
     Witness,
     /// The synthesized RepairTree per failing focus node (how to fix it).
     Tree,
+    /// A concrete repair (ΔG) the enumeration driver finds for each focus.
+    Solve,
 }
 
 #[derive(Args)]
@@ -471,6 +477,32 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         |inf| &inf.graph,
     );
 
+    // --apply: run the fixpoint driver and emit the repaired graph.
+    if args.apply {
+        let result = match shifty_engine::repair_to_fixpoint(
+            data_graph,
+            schema,
+            shifty_engine::EnumOptions::default(),
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(format!("{e}; cannot repair (see `inspect --stage strata`)").into());
+            }
+        };
+        let mut lines: Vec<String> = result.graph.iter().map(|t| t.to_string()).collect();
+        lines.sort();
+        for line in lines {
+            println!("{line}");
+        }
+        eprintln!(
+            "repaired: applied {} repair(s) over {} iteration(s); {} violation(s) remain",
+            result.applied.len(),
+            result.iterations,
+            result.remaining,
+        );
+        return Ok(());
+    }
+
     let witnesses = match shifty_engine::witness_violations(data_graph, schema) {
         Ok(ws) => ws,
         Err(e) => {
@@ -533,6 +565,58 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
                     }
                 }
                 Format::Dot => unreachable!(),
+            }
+        }
+        RepairStage::Solve => {
+            let opts = shifty_engine::EnumOptions::default();
+            let mut json_items = Vec::new();
+            if witnesses.is_empty() {
+                match args.format {
+                    Format::Json => println!("[]"),
+                    _ => println!("conforms: no violations to repair"),
+                }
+            }
+            for fw in &witnesses {
+                let tree = shifty_engine::synthesize(&schema.arena, fw);
+                let sol = match shifty_engine::enumerate_repair(&tree, data_graph, schema, opts) {
+                    Ok(s) => s,
+                    Err(e) => return Err(format!("{e}; cannot solve").into()),
+                };
+                match args.format {
+                    Format::Text => {
+                        println!("{}  [target: {}]", fw.focus, target(fw.statement));
+                        match &sol {
+                            Some(s) => {
+                                println!(
+                                    "  repair (fixes {}, introduces {}):",
+                                    s.outcome.fixed.len(),
+                                    s.outcome.introduced.len()
+                                );
+                                for t in &s.delta.delete {
+                                    println!("    - {t}");
+                                }
+                                for t in &s.delta.add {
+                                    println!("    + {t}");
+                                }
+                            }
+                            None => println!("  no repair found within budget"),
+                        }
+                    }
+                    Format::Json => json_items.push(serde_json::json!({
+                        "focus": fw.focus.to_string(),
+                        "statement": fw.statement,
+                        "repair": sol.as_ref().map(|s| serde_json::json!({
+                            "add": s.delta.add.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                            "delete": s.delta.delete.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                            "fixed": s.outcome.fixed.len(),
+                            "introduced": s.outcome.introduced.len(),
+                        })),
+                    })),
+                    Format::Dot => unreachable!(),
+                }
+            }
+            if matches!(args.format, Format::Json) {
+                println!("{}", serde_json::to_string_pretty(&json_items)?);
             }
         }
     }
