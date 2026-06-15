@@ -149,6 +149,7 @@ fn cost_of(
     }
     computing[i] = true;
     let cost = match arena.get(id).clone() {
+        Shape::Annotated { shape, .. } => cost_of(arena, shape, memo, computing),
         Shape::Top | Shape::Pending => 0,
         Shape::TestConst(_) | Shape::TestKind(_) | Shape::TestType(_) => 1,
         Shape::Closed(_) => C_CLOSED,
@@ -240,6 +241,7 @@ fn reachable_shapes(plan: &PhysicalPlan) -> BTreeSet<ShapeId> {
     while let Some(id) = stack.pop() {
         if seen.insert(id) {
             match plan.arena.get(id) {
+                Shape::Annotated { shape, .. } => stack.push(*shape),
                 Shape::Not(c) => stack.push(*c),
                 Shape::And(cs) | Shape::Or(cs) => stack.extend(cs.iter().copied()),
                 Shape::Count { qualifier, .. } => stack.push(*qualifier),

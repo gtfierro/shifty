@@ -125,12 +125,16 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   Still naive `Term`-space (re-interns each frontier node); folding into
   `TermId`-space compiled `ReachStep` plans is the staged native SPARQL design
   below.
-- **[next]** **Data-aware planning**: consume the predicate cardinality and
-  distinct subject/object statistics already collected by
-  `FrozenIndexedDataset`. Reorder native BGP joins and shape conjunctions using
-  estimated rows/fanout instead of the current static cost proxy. Expose
-  estimated versus actual rows in plan/profile output and benchmark index-build
-  time, execution time, and peak memory on Brick and 223P.
+- **[done]** **Data-aware planning**: BGP scan reordering by predicate
+  cardinality (`reorder_bgp`) and whole-join-tree flattening + greedy ordering
+  (`collect_join_leaves` / `lower_join_leaves`). `Join(Join(A, B), C)` is
+  flattened to three leaves and ordered globally rather than as two nested
+  binary decisions; the two-arm case is subsumed. `estimate_pattern_cost` tracks
+  the propagating bound set across leaves so each cost estimate uses the
+  variables already committed by prior leaves. `PlanStats` built from
+  `FrozenIndexedDataset` and passed to `lower_query_with_stats` in both
+  compilation paths in `sparql.rs`. **[todo]** expose estimated vs. actual rows
+  in profiler output; shape-conjunction reordering at the SHACL algebra level.
 - **[done]** Shape evaluation is memoized per immutable graph snapshot by
   `(ShapeId, Term)` and shared across statements, focus nodes, target filters,
   qualified counts, and rule conditions/node-expression filters. Results that
@@ -163,9 +167,8 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `EXISTS`/`NOT EXISTS`, native `STR`/`STRSTARTS`, and debug-build differential
   testing.
   Unsupported queries fall back to Spareval over the same frozen dataset.
-- **[next]** Native SPARQL stage 5 — data-aware planning: `DatasetStatistics`
-  (`predicate_cardinality`) is collected in `frozen.rs` but never consulted;
-  joins are left-deep with no selectivity ordering; `PathDemand` structs are
+- **[do]** Native SPARQL stage 5 — data-aware planning (remaining): stats are
+  now consumed for BGP and join-tree reordering; `PathDemand` structs are
   extracted but have no consumer; bounded per-start memoization exists, but
   there is no demand-driven strategy selection or Materialized/SccClosure path
   index implementation.
@@ -183,27 +186,43 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   identity.  Measured speedup on `water-closure.ttl`:
   `ns3:QuantifiablePropertyShape` rule (GROUP BY / COUNT DISTINCT) 33 s → 1.8 s;
   total 39 s → 7.6 s.
-- **[next]** Bulk fallback SELECT validation via `VALUES` injection: the SELECT
-  analog of the global CONSTRUCT fix above. `constraint_violations` currently
-  calls `run_fallback` once per focus node (clone query, substitute `$this`,
-  execute Spareval). When the plan is `None` and the focus set has more than one
-  node, instead inject `VALUES (?this) { (<f1>) (<f2>) … }` at the top of the
-  WHERE clause and execute once; demultiplex violations by the `?this` binding
-  in each result row. Correctness requires that `?this` is a genuine SELECT
-  variable (not already substituted as a constant). Profiled bottleneck:
-  `DontReferToDeprecatedConceptConstraint` 24 614 calls × 48 µs = 1.2 s total;
-  one query should reduce that to < 50 ms. Also applies to other OPTIONAL-using
-  constraints that currently can't go native.
-- **[next]** BGP scan reordering by predicate cardinality in the native
-  executor: `execute_ids` evaluates scans left-deep in textual order;
-  `DatasetStatistics.predicate_cardinality` is already computed but never
-  consulted. At plan time, sort scans by estimated output cardinality: bound
-  predicate → cardinality table lookup; bound subject → S-range size from the
-  SPO index; fully free → full scan cost. Profiled bottleneck:
-  `ClosedWorld223Shape` (`?p a/rdfs:subClassOf* s223:Relation . $this ?p ?o .
-  FILTER NOT EXISTS …`) runs 766 calls × 3 179 µs = 2.4 s; enumerating the
-  small predicate set first and probing `$this ?p ?o` by predicate should
-  collapse it significantly.
+- **[done]** Bulk fallback SELECT validation — the SELECT analog of the global
+  CONSTRUCT fix. `prefetch_constraint` (in `sparql.rs`) evaluates a constraint
+  over a whole focus set in one Spareval run and caches the per-focus violations
+  on the compiled entry (`BatchedResults`); `constraint_violations` then serves
+  covered foci from the cache instead of cloning/substituting/executing once per
+  node. Wired into both algebra validators (`validate_with_frozen`,
+  `validate_plan_with_frozen` walk the statement shape through `∧`/`∨`/`¬` to the
+  reachable `Shape::Sparql` constraints) and the W3C report path
+  (`prefetch_sparql` over each shape's focus set). Caching is a pure memo
+  (violations depend only on focus + immutable frozen dataset), so it is sound in
+  any operator context. The implemented strategy is **free-`?this`**, *not* the
+  originally-sketched `VALUES` table: a measured `VALUES (?this){…}` build was
+  *slower* than the per-focus baseline (3.6 s vs 3.1 s) because the table join
+  costs more than it saves. Instead, when `?this` is positively bound by the
+  required (non-OPTIONAL/MINUS/FILTER) part of the WHERE clause, the query runs
+  unmodified (just projecting `?this`) and the foci are recovered from the
+  solutions — one selective scan replaces N substituted scans. **Coverage is
+  named-node foci only**: a blank-node focus cannot be matched back from query
+  results (SPARQL relabels result blank nodes), so blank foci fall through to the
+  per-focus path where `$this` is substituted as a constant. Gated off for
+  aggregation (`GROUP BY`), slicing (`LIMIT`/`OFFSET`), and non-positively-bound
+  `?this`. Measured on `water-closure.ttl` (`validate --no-infer`): 3.1 s → 2.5 s
+  (~18%). The win is bounded here because `DontReferToDeprecatedConceptConstraint`
+  targets `qudt:Concept`, whose instances are mostly *blank* value structures, so
+  the dominant ~19 k blank foci still go per-focus. **[todo]** a stable-blank-id
+  path (or a `QueryableDataset` that preserves dataset blank labels through
+  Spareval results) would let blank foci batch too and unlock the rest.
+- **[done]** BGP scan reordering by predicate cardinality in the native
+  executor: within a `GraphPattern::Bgp` block, scans are greedily reordered
+  by estimated output cardinality (`reorder_bgp` in `plan.rs`; bound predicate
+  → cardinality lookup, bound subject → S-range size, free → full-scan cost).
+  Cross-`Join` arm reordering also lands in the same feature: when both arms
+  of a `Join` are BGP or Path patterns, `join_arm_cost` estimates each arm's
+  output given only `?this` as the initial binding; the cheaper arm runs first.
+  This handles the `ClosedWorld223Shape` pattern `?p a/rdfs:subClassOf*
+  s223:Relation . $this ?p ?o` — the compact path closure runs first, then the
+  BGP probes with `?p` bound (SP+pred range scan instead of a full SP scan).
 - **[do]** OSP-index prefilter for `$this`-as-object constraints: when the
   first meaningful triple pattern in a constraint's WHERE clause is `?s ?p
   $this` (focus node appears as the object), use the OSP index to restrict the

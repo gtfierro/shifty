@@ -48,6 +48,11 @@ pub fn dependency_edges(arena: &ShapeArena) -> Vec<DepEdge> {
     for i in 0..arena.len() {
         let from = ShapeId(i as u32);
         match arena.get(from) {
+            Shape::Annotated { shape, .. } => edges.push(DepEdge {
+                from,
+                to: *shape,
+                polarity: Polarity::Positive,
+            }),
             Shape::Not(c) => edges.push(DepEdge {
                 from,
                 to: *c,

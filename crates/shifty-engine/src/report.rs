@@ -15,11 +15,13 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::SparqlExecutor;
-use crate::validate::{ValidationGraphMode, apply_message_template, graph_union};
+use crate::validate::{
+    ValidationGraphMode, ValidationOptions, apply_message_template, graph_union,
+};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::value_type::{Bound, ValueType};
-use shifty_algebra::{NodeKindSet, Path, SparqlConstraint, SparqlQueryKind};
+use shifty_algebra::{NodeKindSet, Path, Severity, SparqlConstraint, SparqlQueryKind};
 use shifty_parse::graph::{Loaded, term_to_node};
 use shifty_parse::lower::canonical_sparql_query;
 use shifty_parse::path::parse_path;
@@ -52,18 +54,32 @@ pub struct ValidationReport {
 
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
 pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
+    validate_report_with_options(shapes, data, &ValidationOptions::default())
+}
+
+/// Validate and build a W3C report using an explicit severity policy.
+pub fn validate_report_with_options(
+    shapes: &Loaded,
+    data: &Graph,
+    options: &ValidationOptions,
+) -> ValidationReport {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     let frozen = if has_shapes_graph {
         FrozenIndexedDataset::from_graphs(data, &shapes.graph)
     } else {
         FrozenIndexedDataset::from_graph(data)
     };
-    validate_report_context(shapes, data, frozen, has_shapes_graph)
+    validate_report_context(shapes, data, frozen, has_shapes_graph, options)
 }
 
 /// Validate split data and shapes graphs using the selected graph mode.
 pub fn validate_report_graphs(shapes: &Loaded, data: &Graph) -> ValidationReport {
-    validate_report_graphs_with_mode(shapes, data, ValidationGraphMode::default())
+    validate_report_graphs_with_mode_and_options(
+        shapes,
+        data,
+        ValidationGraphMode::default(),
+        &ValidationOptions::default(),
+    )
 }
 
 /// Validate split data and shapes graphs using an explicit graph mode.
@@ -71,6 +87,16 @@ pub fn validate_report_graphs_with_mode(
     shapes: &Loaded,
     data: &Graph,
     mode: ValidationGraphMode,
+) -> ValidationReport {
+    validate_report_graphs_with_mode_and_options(shapes, data, mode, &ValidationOptions::default())
+}
+
+/// Validate split graphs with an explicit graph mode and severity policy.
+pub fn validate_report_graphs_with_mode_and_options(
+    shapes: &Loaded,
+    data: &Graph,
+    mode: ValidationGraphMode,
+    options: &ValidationOptions,
 ) -> ValidationReport {
     let has_shapes_graph = shapes_reference_shapes_graph(shapes);
     match mode {
@@ -80,7 +106,7 @@ pub fn validate_report_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph(data)
             };
-            validate_report_context(shapes, data, frozen, has_shapes_graph)
+            validate_report_context(shapes, data, frozen, has_shapes_graph, options)
         }
         ValidationGraphMode::Union => {
             let frozen = if has_shapes_graph {
@@ -88,7 +114,7 @@ pub fn validate_report_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph_union(data, &shapes.graph)
             };
-            validate_report_context(shapes, data, frozen, has_shapes_graph)
+            validate_report_context(shapes, data, frozen, has_shapes_graph, options)
         }
         ValidationGraphMode::UnionAll => {
             let union = graph_union(data, &shapes.graph);
@@ -97,7 +123,7 @@ pub fn validate_report_graphs_with_mode(
             } else {
                 FrozenIndexedDataset::from_graph(&union)
             };
-            validate_report_context(shapes, &union, frozen, has_shapes_graph)
+            validate_report_context(shapes, &union, frozen, has_shapes_graph, options)
         }
     }
 }
@@ -107,6 +133,7 @@ fn validate_report_context(
     focus_data: &Graph,
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
+    options: &ValidationOptions,
 ) -> ValidationReport {
     // Only execute SPARQL target/constraint work when the shapes graph contains
     // those features. Query execution shares the frozen validation dataset.
@@ -156,13 +183,31 @@ fn validate_report_context(
     };
     let mut results = Vec::new();
     for shape in r.target_shapes() {
-        for focus in r.focus_nodes(&shape) {
+        let foci = r.focus_nodes(&shape);
+        r.prefetch_sparql(&shape, &foci);
+        for focus in &foci {
             let mut visited = HashSet::new();
-            r.collect(&shape, &focus, &mut results, &mut visited);
+            r.collect(&shape, focus, &mut results, &mut visited);
         }
     }
+    if options.sort_results {
+        results.sort_by(|left, right| {
+            Severity::from_named_node(right.severity.clone())
+                .rank()
+                .cmp(&Severity::from_named_node(left.severity.clone()).rank())
+                .then_with(|| left.focus.to_string().cmp(&right.focus.to_string()))
+                .then_with(|| {
+                    left.source_shape
+                        .to_string()
+                        .cmp(&right.source_shape.to_string())
+                })
+                .then_with(|| left.component.as_str().cmp(right.component.as_str()))
+        });
+    }
     ValidationReport {
-        conforms: results.is_empty(),
+        conforms: !results.iter().any(|result| {
+            Severity::from_named_node(result.severity.clone()).meets(&options.minimum_severity)
+        }),
         results,
     }
 }
@@ -488,6 +533,59 @@ impl Reporter<'_> {
     /// the focus node against the context store; every solution (or a `true`
     /// `ASK`) is one `sh:SPARQLConstraintComponent` result. A `value`/`path`
     /// projected by the query overrides the value node / `sh:resultPath`.
+    /// Build the [`SparqlConstraint`] for a `sh:sparql` constraint node, applying
+    /// the same canonicalization the lowering path uses. `None` when the node has
+    /// neither `sh:select` nor `sh:ask`, or when canonicalization fails (matching
+    /// the lowering path, which omits such constraints with a diagnostic).
+    fn build_sparql_constraint(
+        &self,
+        shape: &NamedOrBlankNode,
+        constraint_node: &NamedOrBlankNode,
+        parsed_path: &Option<Path>,
+    ) -> Option<SparqlConstraint> {
+        let (kind, raw) = if let Some(Term::Literal(query)) =
+            self.shapes.object(constraint_node, vocab::SH_SELECT)
+        {
+            (SparqlQueryKind::Select, query.value().to_string())
+        } else if let Some(Term::Literal(query)) =
+            self.shapes.object(constraint_node, vocab::SH_ASK)
+        {
+            (SparqlQueryKind::Ask, query.value().to_string())
+        } else {
+            return None;
+        };
+        let (_, query) = canonical_sparql_query(self.shapes, constraint_node, &raw).ok()?;
+        Some(SparqlConstraint {
+            kind,
+            query,
+            path: parsed_path.clone(),
+            shape: Some(node_term_ref(shape)),
+            // The report path resolves messages itself, so the constraint's own
+            // message slot is left empty here.
+            messages: Vec::new(),
+        })
+    }
+
+    /// Batch-evaluate a shape's direct `sh:sparql` constraints over its whole
+    /// focus set before the per-focus walk, so fallback queries run once over a
+    /// `VALUES` table (doc §189) rather than once per focus.
+    fn prefetch_sparql(&self, shape: &NamedOrBlankNode, foci: &[Term]) {
+        if !self.needs_sparql || foci.len() < 2 {
+            return;
+        }
+        let (_, parsed_path) = self.shape_path(shape);
+        for constraint_term in self.shapes.objects(shape, vocab::SH_SPARQL) {
+            let Some(constraint_node) = term_to_node(&constraint_term) else {
+                continue;
+            };
+            if let Some(constraint) =
+                self.build_sparql_constraint(shape, &constraint_node, &parsed_path)
+            {
+                let _ = self.sparql.prefetch_constraint(&constraint, foci);
+            }
+        }
+    }
+
     fn collect_sparql(
         &self,
         shape: &NamedOrBlankNode,
@@ -505,31 +603,10 @@ impl Reporter<'_> {
             let Some(constraint_node) = term_to_node(&constraint_term) else {
                 continue;
             };
-            let raw = if let Some(Term::Literal(query)) =
-                self.shapes.object(&constraint_node, vocab::SH_SELECT)
-            {
-                Some((SparqlQueryKind::Select, query.value().to_string()))
-            } else if let Some(Term::Literal(query)) =
-                self.shapes.object(&constraint_node, vocab::SH_ASK)
-            {
-                Some((SparqlQueryKind::Ask, query.value().to_string()))
-            } else {
-                None
-            };
-            let Some((kind, raw)) = raw else { continue };
-            // Drop constraints that fail to canonicalize, matching the lowering
-            // path (which emits the diagnostic and omits the constraint).
-            let Ok((_, query)) = canonical_sparql_query(self.shapes, &constraint_node, &raw) else {
+            let Some(constraint) =
+                self.build_sparql_constraint(shape, &constraint_node, parsed_path)
+            else {
                 continue;
-            };
-            let constraint = SparqlConstraint {
-                kind,
-                query,
-                path: parsed_path.clone(),
-                shape: Some(node_term_ref(shape)),
-                // The report path resolves messages itself, so the constraint's
-                // own message slot is left empty here.
-                messages: Vec::new(),
             };
             // Mirror lower.rs §179-184: constraint-node sh:message takes
             // precedence; absent that, fall back to the owning shape's sh:message.

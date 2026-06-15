@@ -106,6 +106,9 @@ struct ValidateArgs {
     /// RDF graph scope used during validation.
     #[arg(long, visible_alias = "graph-scope", value_enum, default_value_t = GraphMode::Union)]
     graph_mode: GraphMode,
+    /// Lowest result severity that makes validation non-conforming.
+    #[arg(long, value_enum, default_value_t = SeverityLevel::Info)]
+    minimum_severity: SeverityLevel,
     /// Print shape, cache, and SPARQL execution telemetry after validation.
     #[arg(long)]
     profile: bool,
@@ -158,6 +161,23 @@ enum GraphMode {
     Union,
     /// Focus nodes and evaluation both use data + shapes.
     UnionAll,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum SeverityLevel {
+    Info,
+    Warning,
+    Violation,
+}
+
+impl From<SeverityLevel> for shifty_algebra::Severity {
+    fn from(value: SeverityLevel) -> Self {
+        match value {
+            SeverityLevel::Info => Self::Info,
+            SeverityLevel::Warning => Self::Warning,
+            SeverityLevel::Violation => Self::Violation,
+        }
+    }
 }
 
 impl From<GraphMode> for shifty_engine::ValidationGraphMode {
@@ -279,8 +299,8 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
 fn render_reason(r: &shifty_engine::Reason, indent: usize) -> Vec<String> {
     let pad = " ".repeat(indent);
     let header = match &r.path {
-        Some(p) => format!("{pad}- ({p}) {} → {}", r.value, r.message),
-        None => format!("{pad}- {}", r.message),
+        Some(p) => format!("{pad}- [{}] ({p}) {} → {}", r.severity, r.value, r.message),
+        None => format!("{pad}- [{}] {}", r.severity, r.message),
     };
     let mut lines = vec![header];
     for sub in &r.sub_reasons {
@@ -301,6 +321,10 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         eprintln!("{d}");
     }
     let graph_mode = args.graph_mode.into();
+    let validation_options = shifty_engine::ValidationOptions {
+        minimum_severity: args.minimum_severity.into(),
+        sort_results: true,
+    };
 
     let data_loaded = if args.data.is_empty() {
         None
@@ -343,9 +367,18 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     // W3C report mode: component-granular validator + RDF report output.
     if args.report {
         let report = if data_loaded.is_some() {
-            shifty_engine::validate_report_graphs_with_mode(&shapes_loaded, data_graph, graph_mode)
+            shifty_engine::validate_report_graphs_with_mode_and_options(
+                &shapes_loaded,
+                data_graph,
+                graph_mode,
+                &validation_options,
+            )
         } else {
-            shifty_engine::validate_report(&shapes_loaded, data_graph)
+            shifty_engine::validate_report_with_options(
+                &shapes_loaded,
+                data_graph,
+                &validation_options,
+            )
         };
         let graph = shifty_engine::report_to_graph(&report);
         // Collect prefixes from shapes + data, deduplicating by name.
@@ -388,14 +421,15 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
 
     let physical = shifty_opt::plan(&normalized);
     let outcome = match if data_loaded.is_some() {
-        shifty_engine::validate_plan_graphs_with_mode(
+        shifty_engine::validate_plan_graphs_with_mode_and_options(
             data_graph,
             &shapes_loaded.graph,
             &physical,
             graph_mode,
+            &validation_options,
         )
     } else {
-        shifty_engine::validate_plan(data_graph, &physical)
+        shifty_engine::validate_plan_with_options(data_graph, &physical, &validation_options)
     } {
         Ok(o) => o,
         Err(e) => {
@@ -408,15 +442,14 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         Format::Json => println!("{}", serde_json::to_string_pretty(&outcome)?),
         Format::Text => {
             println!("conforms: {}", outcome.conforms);
-            if !outcome.conforms {
+            if !outcome.violations.is_empty() {
                 println!("violations: {}", outcome.violations.len());
-                let mut violations = outcome.violations.clone();
-                violations.sort_by_key(|v| v.focus.to_string());
-                for v in &violations {
+                for v in &outcome.violations {
                     let st = &parsed.schema.statements[v.statement];
                     println!(
-                        "  {}  [target: {}]",
+                        "  {}  [severity: {}; target: {}]",
                         v.focus,
+                        v.severity,
                         shifty_algebra::render::selector_to_string(&st.selector)
                     );
                     let mut groups: Vec<Vec<String>> =

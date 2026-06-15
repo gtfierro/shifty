@@ -312,6 +312,12 @@ fn witness(
     let shape = eval.arena().get(id).clone();
     let result = match shape {
         Shape::Top | Shape::Pending => None,
+        // `sh:severity` is transparent to witnessing: repair the wrapped shape.
+        Shape::Annotated { shape, .. } => {
+            let inner = witness(eval, node, shape, reached_by, produced_by, stack);
+            stack.remove(&key);
+            return inner;
+        }
         Shape::TestConst(_) | Shape::TestType(_) | Shape::TestKind(_) => Some(Witness::Atom {
             shape: id,
             node: node.clone(),
@@ -567,6 +573,12 @@ fn sat_trace(
     let shape = eval.arena().get(id).clone();
     let result = match shape {
         Shape::Top | Shape::Pending => Some(SatTrace::Irrefutable { shape: id }),
+        // `sh:severity` is transparent: break the satisfaction of the wrapped shape.
+        Shape::Annotated { shape, .. } => {
+            let inner = sat_trace(eval, node, shape, reached_by, produced_by, stack);
+            stack.remove(&key);
+            return inner;
+        }
         Shape::TestConst(_) | Shape::TestType(_) | Shape::TestKind(_) => Some(SatTrace::Atom {
             shape: id,
             node: node.clone(),

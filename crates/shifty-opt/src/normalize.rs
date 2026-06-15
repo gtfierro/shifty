@@ -203,6 +203,10 @@ impl<'a> Interner<'a> {
     /// canonical id.
     fn simplify(&mut self, id: ShapeId) -> ShapeId {
         match self.src.get(id).clone() {
+            Shape::Annotated { severity, shape } => {
+                let shape = self.intern(shape);
+                self.cons(Shape::Annotated { severity, shape })
+            }
             Shape::Top => self.top(),
             Shape::Not(c) => {
                 let cn = self.intern(c);
@@ -246,6 +250,10 @@ impl<'a> Interner<'a> {
     /// the variant (dedup `And`/`Or` members) but never collapse.
     fn rebuild_cyclic(&mut self, id: ShapeId) -> Shape {
         match self.src.get(id).clone() {
+            Shape::Annotated { severity, shape } => Shape::Annotated {
+                severity,
+                shape: self.intern(shape),
+            },
             Shape::Not(c) => Shape::Not(self.intern(c)),
             Shape::And(cs) => Shape::And(self.intern_set(&cs)),
             Shape::Or(cs) => Shape::Or(self.intern_set(&cs)),
@@ -711,7 +719,10 @@ mod tests {
                     .map(|c| n.arena.get(*c))
                     .map(|s| matches!(s, Shape::TestKind(_) | Shape::Count { .. }))
                     .collect();
-                assert!(kinds.iter().all(|&b| b), "expected Or of TestKind+Count, got something else");
+                assert!(
+                    kinds.iter().all(|&b| b),
+                    "expected Or of TestKind+Count, got something else"
+                );
             }
             other => panic!("expected Or of two shapes, got {other:?}"),
         }
@@ -1095,10 +1106,7 @@ mod tests {
         let p = shifty_algebra::NamedNode::new("http://ex/p").unwrap();
         let alt_id = Path::Alt(vec![Path::Pred(p.clone()), Path::Id]);
         let star = Path::Star(Box::new(alt_id));
-        assert_eq!(
-            normalize_path(star),
-            Path::Star(Box::new(Path::Pred(p)))
-        );
+        assert_eq!(normalize_path(star), Path::Star(Box::new(Path::Pred(p))));
     }
 
     #[test]
@@ -1107,10 +1115,7 @@ mod tests {
         let p = shifty_algebra::NamedNode::new("http://ex/p").unwrap();
         let star = Path::Star(Box::new(Path::Pred(p.clone())));
         let seq = Path::Seq(vec![star.clone(), star]);
-        assert_eq!(
-            normalize_path(seq),
-            Path::Star(Box::new(Path::Pred(p)))
-        );
+        assert_eq!(normalize_path(seq), Path::Star(Box::new(Path::Pred(p))));
     }
 
     #[test]
@@ -1155,10 +1160,7 @@ mod tests {
         let schema = Schema {
             arena: a,
             statements: vec![Statement {
-                selector: Selector::HasPath(
-                    Path::Inverse(Box::new(Path::Pred(q.clone()))),
-                    top,
-                ),
+                selector: Selector::HasPath(Path::Inverse(Box::new(Path::Pred(q.clone()))), top),
                 shape: top,
             }],
             rules: vec![],
@@ -1172,15 +1174,20 @@ mod tests {
     fn statement_dedup_removes_identical() {
         let mut a = ShapeArena::new();
         let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
-        let node = shifty_algebra::Term::NamedNode(
-            shifty_algebra::NamedNode::new("http://ex/x").unwrap(),
-        );
+        let node =
+            shifty_algebra::Term::NamedNode(shifty_algebra::NamedNode::new("http://ex/x").unwrap());
         let sel = Selector::IsConst(node);
         let schema = Schema {
             arena: a,
             statements: vec![
-                Statement { selector: sel.clone(), shape: k },
-                Statement { selector: sel.clone(), shape: k },
+                Statement {
+                    selector: sel.clone(),
+                    shape: k,
+                },
+                Statement {
+                    selector: sel.clone(),
+                    shape: k,
+                },
             ],
             rules: vec![],
             names: Default::default(),

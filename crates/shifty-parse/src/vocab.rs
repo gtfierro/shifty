@@ -196,6 +196,8 @@ iri!(
     "http://www.w3.org/ns/shacl#sourceConstraintComponent"
 );
 iri!(SH_SOURCE_SHAPE, "http://www.w3.org/ns/shacl#sourceShape");
+iri!(SH_INFO, "http://www.w3.org/ns/shacl#Info");
+iri!(SH_WARNING, "http://www.w3.org/ns/shacl#Warning");
 iri!(SH_VIOLATION, "http://www.w3.org/ns/shacl#Violation");
 iri!(SH_SEVERITY, "http://www.w3.org/ns/shacl#severity");
 iri!(SH_MESSAGE, "http://www.w3.org/ns/shacl#message");

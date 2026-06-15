@@ -12,9 +12,9 @@ use crate::path::parse_path;
 use crate::vocab;
 use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term};
 use shifty_algebra::{
-    Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Shape, ShapeArena,
-    ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget, Statement,
-    ValueType,
+    Bound, NodeExpr, NodeKindSet, Path, Rule, RuleHead, Schema, Selector, Severity, Shape,
+    ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
+    Statement, ValueType,
 };
 use spargebra::{Query, SparqlParser};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -196,22 +196,32 @@ impl Lowerer<'_> {
             }
         }
 
-        let shape = if conjuncts.is_empty() {
-            Shape::Top
+        let body = if conjuncts.is_empty() {
+            self.arena.top()
         } else if conjuncts.len() == 1 {
             if conjuncts[0] == id {
-                Shape::Top
-            } else if matches!(self.arena.get(conjuncts[0]), Shape::Pending) {
-                // back-reference to an ancestor still being built: keep the ref
-                Shape::And(vec![conjuncts[0]])
+                self.arena.top()
             } else {
-                self.arena.get(conjuncts[0]).clone()
+                conjuncts[0]
             }
         } else {
-            Shape::And(conjuncts)
+            self.arena.insert(Shape::And(conjuncts))
         };
-        self.arena.set(id, shape);
+        self.arena.set(
+            id,
+            Shape::Annotated {
+                severity: self.severity(s),
+                shape: body,
+            },
+        );
         id
+    }
+
+    fn severity(&self, shape: &NamedOrBlankNode) -> Severity {
+        match self.g.object(shape, vocab::SH_SEVERITY) {
+            Some(Term::NamedNode(value)) => Severity::from_named_node(value),
+            _ => Severity::Violation,
+        }
     }
 
     fn collect_value_constraints(&mut self, s: &NamedOrBlankNode) -> Vec<ShapeId> {
@@ -703,7 +713,10 @@ impl Lowerer<'_> {
         if args.len() != n {
             return None;
         }
-        Some(NodeExpr::Function { iri: func_iri, args })
+        Some(NodeExpr::Function {
+            iri: func_iri,
+            args,
+        })
     }
 
     fn order(&self, s: &NamedOrBlankNode) -> Option<i64> {

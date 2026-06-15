@@ -111,6 +111,7 @@ fn shape_dependencies(
         return;
     }
     match arena.get(id) {
+        Shape::Annotated { shape, .. } => shape_dependencies(arena, *shape, visited, deps),
         Shape::Top
         | Shape::Pending
         | Shape::TestConst(_)

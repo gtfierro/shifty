@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "pyshifty"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "oxrdf",
  "oxttl",
@@ -1100,7 +1100,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-algebra"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "oxrdf",
  "regex",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "env_logger",
@@ -1127,8 +1127,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "shifty-cpp"
+version = "0.1.5"
+dependencies = [
+ "oxrdf",
+ "oxttl",
+ "serde_json",
+ "shifty-algebra",
+ "shifty-engine",
+ "shifty-opt",
+ "shifty-parse",
+ "sparesults",
+ "spareval",
+ "spargebra",
+]
+
+[[package]]
 name = "shifty-engine"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "log",
  "oxigraph",
@@ -1147,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-opt"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "petgraph",
  "serde",
@@ -1157,7 +1173,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-parse"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "oxrdf",
  "oxttl",
@@ -1169,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-repair"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "oxrdf",
  "serde",

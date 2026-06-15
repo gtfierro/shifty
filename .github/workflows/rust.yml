@@ -31,3 +31,11 @@ jobs:
 
     - name: Cargo test
       run: cargo test --workspace
+
+    - name: Build C++ SDK
+      run: cmake -S cpp -B build/cpp -DSHIFTY_CPP_BUILD_TESTS=ON
+
+    - name: Test C++ SDK
+      run: |
+        cmake --build build/cpp
+        ctest --test-dir build/cpp --output-on-failure

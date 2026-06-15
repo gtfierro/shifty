@@ -6,12 +6,13 @@ members = [
     "crates/shifty-engine",
     "crates/shifty-repair",
     "crates/shifty-cli",
+    "cpp",
     "python",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
@@ -44,6 +45,7 @@ log = "0.4"
 env_logger = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sparesults = "0.3.3"
 
 [profile.release]
 debug = true

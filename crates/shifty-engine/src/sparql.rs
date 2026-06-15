@@ -65,6 +65,21 @@ struct CompileKey {
 struct Compiled {
     plan: Option<NativeQueryPlan>,
     query: Query,
+    /// Per-focus violations precomputed in one batched fallback run (doc §189):
+    /// the SELECT analog of the global CONSTRUCT batching. Populated by
+    /// [`SparqlExecutor::prefetch_constraint`]; `None` until then. Only the
+    /// per-focus Spareval fallback is batched here — native plans already
+    /// evaluate a focus batch efficiently and keep the debug differential gate.
+    batched: RefCell<Option<BatchedResults>>,
+}
+
+/// Results of a batched fallback run. `covered` is the focus set the single
+/// query actually ranged over (named-node foci only — blank-node foci cannot be
+/// matched back from relabeled query results); a focus outside it falls through
+/// to per-focus execution.
+struct BatchedResults {
+    covered: HashSet<Term>,
+    map: HashMap<Term, Vec<SparqlViolation>>,
 }
 
 struct CompiledConstruct {
@@ -72,7 +87,7 @@ struct CompiledConstruct {
     template: Vec<TriplePattern>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct SparqlViolation {
     pub value: Option<Term>,
     pub path: Option<Term>,
@@ -201,6 +216,21 @@ impl SparqlExecutor {
         let fp = profile::fingerprint(&constraint.query);
         let start = std::time::Instant::now();
 
+        // A prior `prefetch_constraint` may have evaluated this focus in one
+        // batched fallback run (doc §189). Serve from that map when the focus is
+        // covered; uncovered foci (e.g. blank nodes) fall through to live exec.
+        if let Some(batched) = compiled.batched.borrow().as_ref()
+            && batched.covered.contains(focus)
+        {
+            let violations = batched.map.get(focus).cloned().unwrap_or_default();
+            profile::record(
+                &fp,
+                start.elapsed().as_micros() as u64,
+                profile::ExecutorKind::Fallback { reason: None },
+            );
+            return Ok(violations);
+        }
+
         if let Some(plan) = &compiled.plan {
             let violations = self.run_native(plan, focus);
             // Differential gate (doc §254): in debug builds, every natively
@@ -279,7 +309,11 @@ impl SparqlExecutor {
             Some(frozen) => lower_query_with_stats(&query, Some(&frozen.plan_stats())).ok(),
             None => None,
         };
-        let compiled = Rc::new(Compiled { plan, query });
+        let compiled = Rc::new(Compiled {
+            plan,
+            query,
+            batched: RefCell::new(None),
+        });
         self.compiled.borrow_mut().insert(key, compiled.clone());
         Ok(compiled)
     }
@@ -375,6 +409,101 @@ impl SparqlExecutor {
                 Err("SPARQL constraint unexpectedly produced graph results".to_string())
             }
         }
+    }
+
+    /// Evaluate a fallback (non-native) constraint over a whole focus set in one
+    /// `VALUES`-injected query, caching the per-focus violations on the compiled
+    /// entry (doc §189). Subsequent [`Self::constraint_violations`] calls for any
+    /// covered focus are served from the cache instead of re-running Spareval
+    /// once per node. A no-op when the constraint lowered to a native plan
+    /// (already batched), when fewer than two named-node foci are supplied, or
+    /// when the query is outside the safe-to-batch subset.
+    pub fn prefetch_constraint(
+        &self,
+        constraint: &SparqlConstraint,
+        foci: &[Term],
+    ) -> Result<(), String> {
+        let compiled = self.compile_constraint(constraint)?;
+        if compiled.plan.is_some() || compiled.batched.borrow().is_some() {
+            return Ok(());
+        }
+        if foci.len() < 2 {
+            return Ok(());
+        }
+        let fp = profile::fingerprint(&constraint.query);
+        let start = std::time::Instant::now();
+        if let Some(batched) = self.run_fallback_batch(&compiled.query, foci)? {
+            *compiled.batched.borrow_mut() = Some(batched);
+            profile::record(
+                &fp,
+                start.elapsed().as_micros() as u64,
+                profile::ExecutorKind::Fallback { reason: None },
+            );
+        }
+        Ok(())
+    }
+
+    /// Evaluate a constraint over a whole focus set in one free-`?this` run and
+    /// bucket the solutions by `?this` (see [`plan_batch_query`]). Returns the
+    /// covered named foci alongside their violations, or `None` when the query is
+    /// outside the safe-batch subset.
+    fn run_fallback_batch(
+        &self,
+        query: &Query,
+        foci: &[Term],
+    ) -> Result<Option<BatchedResults>, String> {
+        let Some((batched, covered)) = plan_batch_query(query, foci) else {
+            return Ok(None);
+        };
+        let covered: HashSet<Term> = covered.into_iter().collect();
+        let prepared = SparqlEvaluator::new().for_query(batched);
+        let query_result = if let Some(frozen) = &self.frozen {
+            prepared
+                .on_queryable_dataset(frozen)
+                .execute()
+                .map_err(err)?
+        } else {
+            prepared.on_store(self.store()?).execute().map_err(err)?
+        };
+        let QueryResults::Solutions(solutions) = query_result else {
+            return Ok(None);
+        };
+        let vars: Vec<String> = solutions
+            .variables()
+            .iter()
+            .map(|v| v.as_str().to_string())
+            .collect();
+        let mut map: HashMap<Term, Vec<SparqlViolation>> = HashMap::new();
+        for solution in solutions {
+            let solution = solution.map_err(err)?;
+            let Some(this) = solution.get("this") else {
+                continue;
+            };
+            // The free-`?this` strategy enumerates every matching `?this`, not
+            // just our foci; keep only solutions for foci we were asked about.
+            if !covered.contains(this) {
+                continue;
+            }
+            // Mirror the per-focus binding set: `$this` is substituted away on the
+            // per-focus path, so it must not appear as a violation binding here
+            // (it would otherwise leak into `{?this}` message templates).
+            let bindings = vars
+                .iter()
+                .filter(|name| name.as_str() != "this")
+                .filter_map(|name| {
+                    solution
+                        .get(name.as_str())
+                        .map(|t| (name.clone(), t.clone()))
+                })
+                .collect();
+            map.entry(this.clone()).or_default().push(SparqlViolation {
+                value: solution.get("value").cloned(),
+                path: solution.get("path").cloned(),
+                message: solution.get("message").cloned(),
+                bindings,
+            });
+        }
+        Ok(Some(BatchedResults { covered, map }))
     }
 
     /// Execute a SPARQL CONSTRUCT rule for multiple focus nodes.
@@ -570,7 +699,10 @@ impl SparqlExecutor {
         }
         let prepared = SparqlEvaluator::new().for_query(query);
         let result = if let Some(frozen) = &self.frozen {
-            prepared.on_queryable_dataset(frozen).execute().map_err(err)?
+            prepared
+                .on_queryable_dataset(frozen)
+                .execute()
+                .map_err(err)?
         } else {
             prepared.on_store(self.store()?).execute().map_err(err)?
         };
@@ -584,12 +716,12 @@ impl SparqlExecutor {
                 }
                 Ok(out)
             }
-            QueryResults::Boolean(b) => {
-                Ok(if b { vec![Term::Literal(Literal::from(true))] } else { vec![] })
-            }
-            QueryResults::Graph(_) => {
-                Err("sh:SPARQLFunction produced graph results".to_string())
-            }
+            QueryResults::Boolean(b) => Ok(if b {
+                vec![Term::Literal(Literal::from(true))]
+            } else {
+                vec![]
+            }),
+            QueryResults::Graph(_) => Err("sh:SPARQLFunction produced graph results".to_string()),
         }
     }
 
@@ -891,6 +1023,187 @@ fn rewrite_path_pattern(pattern: GraphPattern, path: &PropertyPathExpression) ->
     }
 }
 
+/// Rewrite a constraint query so one run covers a whole focus set, returning the
+/// query and the named foci it covers.
+///
+/// The strategy is **free `?this`**: it applies only when `?this` is positively
+/// bound by the *required* part of the WHERE clause (a non-optional,
+/// non-negated triple or path). The natural join then already constrains
+/// `?this`, so the query runs unmodified (just ensuring `?this` is projected)
+/// and the foci are recovered from the solutions. This replaces N per-focus
+/// Spareval runs with a single scan that a selective binding pattern drives.
+///
+/// Coverage is restricted to **named-node** foci. A blank node cannot be matched
+/// back from query results — SPARQL relabels result blank nodes, so a solution's
+/// `?this` never equals the focus blank node. Blank-node foci stay on the
+/// per-focus path, where `$this` is substituted as a constant and identity is
+/// preserved.
+///
+/// `None` (keep the per-focus path) when batching would be unsound or unhelpful:
+/// `?this` is not positively bound (a pure `NOT EXISTS`/`FILTER` body, where a
+/// `VALUES` table would just re-do the per-focus work), aggregation (`GROUP BY`),
+/// result slicing (`LIMIT`/`OFFSET`), or fewer than two named foci. `ASK` becomes
+/// `SELECT DISTINCT ?this`.
+fn plan_batch_query(query: &Query, foci: &[Term]) -> Option<(Query, Vec<Term>)> {
+    let this = Variable::new("this").ok()?;
+    let (pattern, is_ask) = match query {
+        Query::Select { pattern, .. } => (pattern, false),
+        Query::Ask { pattern, .. } => (pattern, true),
+        _ => return None,
+    };
+    if pattern_has_group_or_slice(pattern) || !this_required(pattern, &this) {
+        return None;
+    }
+
+    let covered: Vec<Term> = foci
+        .iter()
+        .filter(|f| matches!(f, Term::NamedNode(_)))
+        .cloned()
+        .collect();
+    if covered.len() < 2 {
+        return None;
+    }
+
+    let (dataset, base_iri) = match query {
+        Query::Select {
+            dataset, base_iri, ..
+        }
+        | Query::Ask {
+            dataset, base_iri, ..
+        } => (dataset.clone(), base_iri.clone()),
+        _ => unreachable!(),
+    };
+
+    let rewritten = if is_ask {
+        // ASK conformance is existential: DISTINCT collapses each focus to at
+        // most one row, matching the single Boolean violation the per-focus path
+        // emits for a true ASK.
+        Query::Select {
+            dataset,
+            pattern: GraphPattern::Project {
+                inner: Box::new(GraphPattern::Distinct {
+                    inner: Box::new(pattern.clone()),
+                }),
+                variables: vec![this],
+            },
+            base_iri,
+        }
+    } else {
+        Query::Select {
+            dataset,
+            pattern: ensure_projected(pattern.clone(), &this)?,
+            base_iri,
+        }
+    };
+    Some((rewritten, covered))
+}
+
+/// Whether `var` is positively bound by the *required* part of the pattern —
+/// the subject or object of a triple or path that is not under `OPTIONAL`
+/// (`LeftJoin` right arm), `MINUS`, `FILTER`, or `EXISTS`. If so, running the
+/// query with `var` free still constrains it to those bindings, so the focus
+/// domain need not be supplied via `VALUES`. A `UNION` binds it only if *both*
+/// arms do.
+fn this_required(p: &GraphPattern, var: &Variable) -> bool {
+    match p {
+        GraphPattern::Bgp { patterns } => patterns
+            .iter()
+            .any(|t| term_pattern_is(&t.subject, var) || term_pattern_is(&t.object, var)),
+        GraphPattern::Path {
+            subject, object, ..
+        } => term_pattern_is(subject, var) || term_pattern_is(object, var),
+        GraphPattern::Join { left, right } | GraphPattern::Lateral { left, right } => {
+            this_required(left, var) || this_required(right, var)
+        }
+        GraphPattern::Union { left, right } => {
+            this_required(left, var) && this_required(right, var)
+        }
+        // Only the mandatory (left) side of OPTIONAL / MINUS binds `var`.
+        GraphPattern::LeftJoin { left, .. } | GraphPattern::Minus { left, .. } => {
+            this_required(left, var)
+        }
+        GraphPattern::Filter { inner, .. }
+        | GraphPattern::Graph { inner, .. }
+        | GraphPattern::Extend { inner, .. }
+        | GraphPattern::OrderBy { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. }
+        | GraphPattern::Group { inner, .. }
+        | GraphPattern::Service { inner, .. } => this_required(inner, var),
+        GraphPattern::Values {
+            variables,
+            bindings,
+        } => {
+            // A VALUES table binds `var` only if every row supplies it.
+            variables.iter().position(|v| v == var).is_some_and(|col| {
+                bindings
+                    .iter()
+                    .all(|row| row.get(col).is_some_and(Option::is_some))
+            })
+        }
+    }
+}
+
+/// Descend through the solution modifiers (`DISTINCT`/`REDUCED`/`ORDER BY`) to
+/// the projection and add `?this` to its variables if absent, so the free run's
+/// solutions expose `?this` for demultiplexing. `None` if no projection is found
+/// (e.g. a bare `SELECT *` without a `Project` node, which should not occur for
+/// parsed constraints).
+fn ensure_projected(pattern: GraphPattern, this: &Variable) -> Option<GraphPattern> {
+    match pattern {
+        GraphPattern::Project {
+            inner,
+            mut variables,
+        } => {
+            if !variables.iter().any(|v| v == this) {
+                variables.push(this.clone());
+            }
+            Some(GraphPattern::Project { inner, variables })
+        }
+        GraphPattern::Distinct { inner } => Some(GraphPattern::Distinct {
+            inner: Box::new(ensure_projected(*inner, this)?),
+        }),
+        GraphPattern::Reduced { inner } => Some(GraphPattern::Reduced {
+            inner: Box::new(ensure_projected(*inner, this)?),
+        }),
+        GraphPattern::OrderBy { inner, expression } => Some(GraphPattern::OrderBy {
+            inner: Box::new(ensure_projected(*inner, this)?),
+            expression,
+        }),
+        _ => None,
+    }
+}
+
+/// Whether the pattern (anywhere, including correlated sub-queries) contains an
+/// aggregation or a slice, either of which makes per-focus batching unsound.
+fn pattern_has_group_or_slice(p: &GraphPattern) -> bool {
+    match p {
+        GraphPattern::Group { .. } | GraphPattern::Slice { .. } => true,
+        GraphPattern::Bgp { .. } | GraphPattern::Path { .. } | GraphPattern::Values { .. } => false,
+        GraphPattern::Join { left, right }
+        | GraphPattern::Union { left, right }
+        | GraphPattern::Minus { left, right }
+        | GraphPattern::Lateral { left, right }
+        | GraphPattern::LeftJoin { left, right, .. } => {
+            pattern_has_group_or_slice(left) || pattern_has_group_or_slice(right)
+        }
+        GraphPattern::Filter { inner, .. }
+        | GraphPattern::Graph { inner, .. }
+        | GraphPattern::Extend { inner, .. }
+        | GraphPattern::OrderBy { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Service { inner, .. } => pattern_has_group_or_slice(inner),
+    }
+}
+
+fn term_pattern_is(t: &TermPattern, var: &Variable) -> bool {
+    matches!(t, TermPattern::Variable(v) if v == var)
+}
+
 /// Substitute every occurrence of `var` with the pre-bound `value` throughout a
 /// query, implementing SHACL-SPARQL pre-binding by algebra substitution.
 fn substitute_query(query: &mut Query, var: &Variable, value: &Term) {
@@ -1133,5 +1446,206 @@ mod storage_tests {
         let executor =
             SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&Graph::new()), false);
         assert!(!executor.has_store());
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    use shifty_algebra::SparqlQueryKind;
+
+    fn nn(s: &str) -> NamedNode {
+        NamedNode::new(s).unwrap()
+    }
+
+    fn subject(s: &str) -> Term {
+        Term::NamedNode(nn(&format!("http://ex/{s}")))
+    }
+
+    /// Three subjects with `ex:value` 5/15/25 and no `ex:other`.
+    fn sample_graph() -> Graph {
+        let mut g = Graph::new();
+        for (s, v) in [("a", 5i64), ("b", 15), ("c", 25)] {
+            g.insert(&Triple::new(
+                nn(&format!("http://ex/{s}")),
+                nn("http://ex/value"),
+                Literal::from(v),
+            ));
+        }
+        g
+    }
+
+    fn foci() -> Vec<Term> {
+        vec![subject("a"), subject("b"), subject("c")]
+    }
+
+    /// Per-focus violation keys `(focus, value)` over the whole focus set.
+    fn per_focus(exec: &SparqlExecutor, c: &SparqlConstraint, foci: &[Term]) -> Vec<String> {
+        let mut out = Vec::new();
+        for f in foci {
+            for v in exec.constraint_violations(c, f).unwrap() {
+                out.push(format!("{f:?}|{:?}", v.value));
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn batched_select_matches_per_focus() {
+        // OPTIONAL forces the non-native fallback path, where VALUES batching
+        // applies. Every subject violates (no ex:other), projecting its value.
+        let constraint = SparqlConstraint {
+            kind: SparqlQueryKind::Select,
+            query: "SELECT $this ?value WHERE { \
+                $this <http://ex/value> ?value . \
+                OPTIONAL { $this <http://ex/other> ?o } \
+                FILTER(!bound(?o)) }"
+                .to_string(),
+            path: None,
+            shape: None,
+            messages: Vec::new(),
+        };
+        let g = sample_graph();
+        let foci = foci();
+
+        let baseline = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        let want = per_focus(&baseline, &constraint, &foci);
+
+        let batched = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        batched.prefetch_constraint(&constraint, &foci).unwrap();
+        let got = per_focus(&batched, &constraint, &foci);
+
+        assert_eq!(want.len(), 3, "every subject should violate");
+        assert_eq!(want, got);
+    }
+
+    #[test]
+    fn batched_ask_matches_per_focus() {
+        // ASK is true iff value > 10: only b and c violate.
+        let constraint = SparqlConstraint {
+            kind: SparqlQueryKind::Ask,
+            query: "ASK { $this <http://ex/value> ?value . \
+                OPTIONAL { $this <http://ex/other> ?o } \
+                FILTER(?value > 10) }"
+                .to_string(),
+            path: None,
+            shape: None,
+            messages: Vec::new(),
+        };
+        let g = sample_graph();
+        let foci = foci();
+
+        let baseline = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        let want: Vec<usize> = foci
+            .iter()
+            .map(|f| {
+                baseline
+                    .constraint_violations(&constraint, f)
+                    .unwrap()
+                    .len()
+            })
+            .collect();
+
+        let batched = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        batched.prefetch_constraint(&constraint, &foci).unwrap();
+        let got: Vec<usize> = foci
+            .iter()
+            .map(|f| batched.constraint_violations(&constraint, f).unwrap().len())
+            .collect();
+
+        assert_eq!(want, vec![0, 1, 1]);
+        assert_eq!(want, got);
+    }
+
+    #[test]
+    fn blank_node_foci_fall_through_to_per_focus() {
+        // Regression: the free-`?this` run cannot match blank-node foci back from
+        // its (relabeled) solutions, so blank foci must stay on the per-focus
+        // path. Mixed named/blank focus set; result must match per-focus exactly.
+        use oxrdf::BlankNode;
+        let mut g = Graph::new();
+        let blank = BlankNode::default();
+        // ex:a and the blank node are both "flagged"; ex:c is not.
+        g.insert(&Triple::new(
+            nn("http://ex/a"),
+            nn("http://ex/flag"),
+            Literal::from(true),
+        ));
+        g.insert(&Triple::new(
+            blank.clone(),
+            nn("http://ex/flag"),
+            Literal::from(true),
+        ));
+        // referrers: ex:x -> ex:a, ex:y -> blank
+        g.insert(&Triple::new(
+            nn("http://ex/x"),
+            nn("http://ex/ref"),
+            nn("http://ex/a"),
+        ));
+        g.insert(&Triple::new(
+            nn("http://ex/y"),
+            nn("http://ex/ref"),
+            blank.clone(),
+        ));
+
+        // `?this` is positively bound (subject of `?this ex:flag true`), so the
+        // free strategy applies; OPTIONAL forces the non-native fallback.
+        let constraint = SparqlConstraint {
+            kind: SparqlQueryKind::Select,
+            query: "SELECT ?s $this WHERE { \
+                $this <http://ex/flag> true . \
+                ?s <http://ex/ref> $this . \
+                OPTIONAL { $this <http://ex/other> ?o } }"
+                .to_string(),
+            path: None,
+            shape: None,
+            messages: Vec::new(),
+        };
+        let foci = vec![
+            Term::NamedNode(nn("http://ex/a")),
+            Term::BlankNode(blank),
+            subject("c"),
+        ];
+
+        let baseline = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        let want = per_focus(&baseline, &constraint, &foci);
+
+        let batched = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        batched.prefetch_constraint(&constraint, &foci).unwrap();
+        let got = per_focus(&batched, &constraint, &foci);
+
+        // The named focus is served from the batch; the blank focus falls
+        // through to the per-focus path. Either way the batched result must
+        // equal the per-focus oracle exactly.
+        assert!(!want.is_empty());
+        assert_eq!(want, got);
+    }
+
+    #[test]
+    fn aggregating_query_is_not_batched_but_still_correct() {
+        // GROUP BY / COUNT is outside the safe-batch subset: build_batch_query
+        // returns None, so prefetch is a no-op and per-focus results are used.
+        let constraint = SparqlConstraint {
+            kind: SparqlQueryKind::Select,
+            query: "SELECT $this (COUNT(?value) AS ?n) WHERE { \
+                $this <http://ex/value> ?value } \
+                GROUP BY $this HAVING (COUNT(?value) > 5)"
+                .to_string(),
+            path: None,
+            shape: None,
+            messages: Vec::new(),
+        };
+        let g = sample_graph();
+        let foci = foci();
+
+        let baseline = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        let want = per_focus(&baseline, &constraint, &foci);
+
+        let batched = SparqlExecutor::from_frozen(FrozenIndexedDataset::from_graph(&g), false);
+        batched.prefetch_constraint(&constraint, &foci).unwrap();
+        let got = per_focus(&batched, &constraint, &foci);
+
+        assert_eq!(want, got); // none violate; importantly, no panic / divergence
     }
 }

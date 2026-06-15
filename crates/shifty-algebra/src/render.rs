@@ -159,6 +159,7 @@ fn reachable_shapes(schema: &Schema) -> BTreeSet<ShapeId> {
 
 fn shape_children(shape: &Shape) -> Vec<ShapeId> {
     match shape {
+        Shape::Annotated { shape, .. } => vec![*shape],
         Shape::Not(c) => vec![*c],
         Shape::And(cs) | Shape::Or(cs) => cs.clone(),
         Shape::Count { qualifier, .. } => vec![*qualifier],
@@ -175,6 +176,9 @@ fn selector_shapes(sel: &Selector) -> Vec<ShapeId> {
 
 fn shape_def(arena: &ShapeArena, id: ShapeId) -> String {
     match arena.get(id) {
+        Shape::Annotated { severity, shape } => {
+            format!("severity({}, {})", severity, child(arena, *shape))
+        }
         Shape::Top => "⊤".to_string(),
         Shape::Pending => "⟨pending⟩".to_string(),
         Shape::TestConst(t) => format!("test({})", term_to_string(t)),
@@ -472,6 +476,7 @@ pub fn schema_to_dot(schema: &Schema) -> String {
 /// composite shapes show only their combinator (children are shown via edges).
 fn shape_def_dot(arena: &ShapeArena, id: ShapeId) -> String {
     match arena.get(id) {
+        Shape::Annotated { severity, .. } => format!("severity({severity})"),
         Shape::Top => "⊤".to_string(),
         Shape::Pending => "⟨pending⟩".to_string(),
         Shape::TestConst(t) => format!("test({})", term_to_string(t)),

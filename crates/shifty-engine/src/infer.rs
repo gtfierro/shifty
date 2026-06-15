@@ -389,7 +389,7 @@ fn eval_node_expr(
                 }
                 let bindings: Vec<(String, Term)> = params
                     .iter()
-                    .zip(combo.into_iter())
+                    .zip(combo)
                     .map(|(name, val)| (name.clone(), val))
                     .collect();
                 match sparql.call_sparql_function(&query_text, &bindings) {

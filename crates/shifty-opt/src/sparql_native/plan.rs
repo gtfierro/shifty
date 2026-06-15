@@ -317,6 +317,16 @@ fn lower_pattern(
             Ok(current)
         }
         GraphPattern::Join { left, right } => {
+            // Flatten the entire join tree into BGP/Path leaves and apply
+            // greedy cost-based ordering across all of them at once.
+            // Join(Join(A, B), C) is treated as three independent leaves, not
+            // two nested binary decisions — this generalises the two-arm case.
+            if let Some(s) = stats {
+                let mut leaves = Vec::new();
+                if collect_join_leaves(pattern, &mut leaves) && leaves.len() >= 2 {
+                    return lower_join_leaves(b, leaves, input, graph, s);
+                }
+            }
             let l = lower_pattern(b, left, input, graph, stats)?;
             lower_pattern(b, right, l, graph, stats)
         }
@@ -469,6 +479,253 @@ fn pred_card(term: &ScanTerm, stats: &PlanStats) -> Option<u64> {
     match term {
         ScanTerm::Const(t) => Some(*stats.predicate_cardinality.get(t).unwrap_or(&0)),
         ScanTerm::Var(_) => None,
+    }
+}
+
+// ── Join tree flattening and reordering ──────────────────────────────────────
+
+/// Collect all BGP/Path leaves from a tree of Join nodes into `out`.
+/// Returns `false` if any leaf is not a BGP or Path — non-monotone nodes
+/// (Filter, Union, …) break commutativity so we can't freely reorder them.
+fn collect_join_leaves<'a>(pattern: &'a GraphPattern, out: &mut Vec<&'a GraphPattern>) -> bool {
+    match pattern {
+        GraphPattern::Join { left, right } => {
+            collect_join_leaves(left, out) && collect_join_leaves(right, out)
+        }
+        GraphPattern::Bgp { .. } | GraphPattern::Path { .. } => {
+            out.push(pattern);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Lower a flat list of BGP/Path leaves in greedy least-cost order.
+///
+/// Starting from `{?this}` as the initially bound set, at each step the
+/// cheapest remaining leaf is lowered first and its output variables added to
+/// the bound set before costing the next leaf.  This is the join-level
+/// generalisation of `reorder_bgp` and subsumes the earlier two-arm case.
+fn lower_join_leaves(
+    b: &mut Builder,
+    mut leaves: Vec<&GraphPattern>,
+    input: OpId,
+    graph: &GraphScan,
+    stats: &PlanStats,
+) -> Result<OpId, String> {
+    let mut bound: HashSet<String> = std::iter::once(FOCUS_VAR.to_string()).collect();
+    let mut current = input;
+    while !leaves.is_empty() {
+        let costs: Vec<u64> = leaves
+            .iter()
+            .map(|p| estimate_pattern_cost(p, &bound, stats))
+            .collect();
+        let best = costs
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, c)| *c)
+            .map(|(i, _)| i)
+            .unwrap();
+        let pat = leaves.remove(best);
+        bound.extend(pattern_new_vars(pat, &bound));
+        current = lower_pattern(b, pat, current, graph, Some(stats))?;
+    }
+    Ok(current)
+}
+
+/// Variables that `pattern` will newly bind (not already present in `bound`).
+fn pattern_new_vars(pattern: &GraphPattern, bound: &HashSet<String>) -> Vec<String> {
+    let mut vars: HashSet<String> = HashSet::new();
+    match pattern {
+        GraphPattern::Bgp { patterns } => {
+            for tp in patterns {
+                match &tp.subject {
+                    TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
+                        vars.insert(v.as_str().to_string());
+                    }
+                    // Blank nodes act as join variables; track them with "_:<id>"
+                    // so downstream cost estimates see them as bound after this BGP.
+                    TermPattern::BlankNode(bn) => {
+                        let name = format!("_:{}", bn.as_str());
+                        if !bound.contains(&name) {
+                            vars.insert(name);
+                        }
+                    }
+                    _ => {}
+                }
+                if let NamedNodePattern::Variable(v) = &tp.predicate
+                    && !bound.contains(v.as_str())
+                {
+                    vars.insert(v.as_str().to_string());
+                }
+                match &tp.object {
+                    TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
+                        vars.insert(v.as_str().to_string());
+                    }
+                    TermPattern::BlankNode(bn) => {
+                        let name = format!("_:{}", bn.as_str());
+                        if !bound.contains(&name) {
+                            vars.insert(name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        GraphPattern::Path {
+            subject, object, ..
+        } => {
+            match subject {
+                TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
+                    vars.insert(v.as_str().to_string());
+                }
+                TermPattern::BlankNode(bn) => {
+                    let name = format!("_:{}", bn.as_str());
+                    if !bound.contains(&name) {
+                        vars.insert(name);
+                    }
+                }
+                _ => {}
+            }
+            match object {
+                TermPattern::Variable(v) if !bound.contains(v.as_str()) => {
+                    vars.insert(v.as_str().to_string());
+                }
+                TermPattern::BlankNode(bn) => {
+                    let name = format!("_:{}", bn.as_str());
+                    if !bound.contains(&name) {
+                        vars.insert(name);
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    vars.into_iter().collect()
+}
+
+/// Estimated cost of evaluating `pattern` given `bound` variable names.
+/// For BGPs this is the minimum single-triple cost across all patterns — the
+/// bound set propagates so the cheapest entry point drives the estimate.
+fn estimate_pattern_cost(
+    pattern: &GraphPattern,
+    bound: &HashSet<String>,
+    stats: &PlanStats,
+) -> u64 {
+    let total = stats.total_triples.max(1);
+    let ds = stats.distinct_subjects.max(1);
+    let dp = stats.distinct_predicates.max(1);
+    let dobj = stats.distinct_objects.max(1);
+
+    match pattern {
+        GraphPattern::Bgp { patterns } => {
+            // Simulate greedy BGP evaluation: propagate bound variables and
+            // accumulate output cardinality across steps. Taking only the minimum
+            // single-triple cost underestimates the true fan-out when some triples
+            // have unbound variables that no other triple in the BGP will bind.
+            let tp_cost = |tp: &TriplePattern, sim_bound: &HashSet<String>| -> u64 {
+                let s = tp_name_is_bound(&tp.subject, sim_bound);
+                let p = nnp_name_is_bound(&tp.predicate, sim_bound);
+                let o = tp_name_is_bound(&tp.object, sim_bound);
+                let pred_est = match &tp.predicate {
+                    NamedNodePattern::NamedNode(nn) => stats
+                        .predicate_cardinality
+                        .get(&Term::NamedNode(nn.clone()))
+                        .copied()
+                        .unwrap_or(total / dp),
+                    NamedNodePattern::Variable(_) => total / dp,
+                };
+                match (s, p, o) {
+                    (true, true, true) => 1,
+                    (true, true, false) => pred_est / ds + 1,
+                    (false, true, true) => pred_est / dobj + 1,
+                    (false, true, false) => pred_est,
+                    (true, false, false) => total / ds,
+                    (false, false, true) => total / dobj,
+                    _ => total,
+                }
+            };
+            let mut sim_bound = bound.clone();
+            let mut remaining: Vec<&TriplePattern> = patterns.iter().collect();
+            let mut output: u64 = 1;
+            let mut first = true;
+            while !remaining.is_empty() {
+                let best = remaining
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, tp)| tp_cost(tp, &sim_bound))
+                    .map(|(i, _)| i)
+                    .unwrap();
+                let tp = remaining.remove(best);
+                let step_cost = tp_cost(tp, &sim_bound);
+                // Always multiply for the first (access) triple. For subsequent
+                // triples, only multiply when the subject is unbound — that is the
+                // true cross-product case. Anchored triples (bound subject) don't
+                // fan out; multiplying their total/ds estimate would overestimate
+                // and cause the planner to incorrectly prefer an unbound path scan.
+                let s_bound = tp_name_is_bound(&tp.subject, &sim_bound);
+                if first || !s_bound {
+                    output = output.saturating_mul(step_cost);
+                }
+                first = false;
+                match &tp.subject {
+                    TermPattern::Variable(v) => {
+                        sim_bound.insert(v.as_str().to_string());
+                    }
+                    TermPattern::BlankNode(bn) => {
+                        sim_bound.insert(format!("_:{}", bn.as_str()));
+                    }
+                    _ => {}
+                }
+                if let NamedNodePattern::Variable(v) = &tp.predicate {
+                    sim_bound.insert(v.as_str().to_string());
+                }
+                match &tp.object {
+                    TermPattern::Variable(v) => {
+                        sim_bound.insert(v.as_str().to_string());
+                    }
+                    TermPattern::BlankNode(bn) => {
+                        sim_bound.insert(format!("_:{}", bn.as_str()));
+                    }
+                    _ => {}
+                }
+            }
+            output
+        }
+
+        GraphPattern::Path {
+            subject, object, ..
+        } => {
+            let s = tp_name_is_bound(subject, bound);
+            let o = tp_name_is_bound(object, bound);
+            match (s, o) {
+                (true, true) => 1,
+                (true, false) | (false, true) => total / ds / 2 + 1,
+                (false, false) => total,
+            }
+        }
+
+        _ => total,
+    }
+}
+
+fn tp_name_is_bound(tp: &TermPattern, bound: &HashSet<String>) -> bool {
+    match tp {
+        TermPattern::Variable(v) => bound.contains(v.as_str()),
+        // Blank nodes act as non-distinguished join variables in the executor
+        // (lower_term_pattern converts them to ScanTerm::Var). Track them
+        // using the same "_:<id>" naming convention so cost estimates correctly
+        // treat them as unbound until the corresponding BGP triple has run.
+        TermPattern::BlankNode(bn) => bound.contains(&format!("_:{}", bn.as_str())),
+        _ => true, // NamedNode, Literal are always-bound constants
+    }
+}
+
+fn nnp_name_is_bound(nnp: &NamedNodePattern, bound: &HashSet<String>) -> bool {
+    match nnp {
+        NamedNodePattern::NamedNode(_) => true,
+        NamedNodePattern::Variable(v) => bound.contains(v.as_str()),
     }
 }
 
@@ -817,6 +1074,112 @@ mod tests {
         assert!(
             rare_pos < free_pos,
             "expected rare-predicate scan first; got rare={rare_pos:?} free={free_pos:?}",
+        );
+    }
+
+    /// `Join(Join(Bgp1, Bgp2), Bgp3)` — a nested join where the outer left arm
+    /// is itself a Join — should be flattened into three leaves and the rare-
+    /// predicate leaf placed first, even though two-arm reordering of the outer
+    /// join would leave Bgp3 stranded at the end.
+    #[test]
+    fn join_flattens_three_way_nested() {
+        use spargebra::term::{TriplePattern, Variable};
+
+        let nn = |s: &str| NamedNode::new_unchecked(s);
+        let var = |s: &str| Variable::new_unchecked(s);
+        let bgp = |s: &str, p: &str, o: &str| GraphPattern::Bgp {
+            patterns: vec![TriplePattern {
+                subject: TermPattern::Variable(var(s)),
+                predicate: NamedNodePattern::NamedNode(nn(p)),
+                object: TermPattern::Variable(var(o)),
+            }],
+        };
+
+        // Bgp1: ?this :common ?x  — ?this bound → SP range, cost ≈ 2
+        // Bgp2: ?x :medium ?y    — nothing bound, cost = medium_card = 10_000
+        // Bgp3: ?x :rare ?y      — nothing bound, cost = rare_card = 1
+        // Naive order: Bgp1, Bgp2, Bgp3 (outer Join sees a Join on the left,
+        //   not a Bgp/Path, so two-arm reordering doesn't fire for the outer).
+        // Flat greedy order: Bgp3 (cost 1), then Bgp1 and Bgp2 (both cost 1
+        //   once ?x and ?y are bound).
+        let bgp1 = bgp("this", "http://ex/common", "x");
+        let bgp2 = bgp("x", "http://ex/medium", "y");
+        let bgp3 = bgp("x", "http://ex/rare", "y");
+
+        let query = Query::Ask {
+            pattern: GraphPattern::Join {
+                left: Box::new(GraphPattern::Join {
+                    left: Box::new(bgp1),
+                    right: Box::new(bgp2),
+                }),
+                right: Box::new(bgp3),
+            },
+            dataset: None,
+            base_iri: None,
+        };
+
+        let mut pcard = HashMap::new();
+        pcard.insert(Term::NamedNode(nn("http://ex/common")), 10_000u64);
+        pcard.insert(Term::NamedNode(nn("http://ex/medium")), 10_000u64);
+        pcard.insert(Term::NamedNode(nn("http://ex/rare")), 1u64);
+        let stats = PlanStats {
+            total_triples: 100_000,
+            distinct_subjects: 10_000,
+            distinct_objects: 10_000,
+            distinct_predicates: 50,
+            predicate_cardinality: pcard,
+        };
+
+        let plan = lower_query_with_stats(&query, Some(&stats)).expect("should lower");
+
+        let rare = Term::NamedNode(nn("http://ex/rare"));
+        let scans: Vec<&TripleScan> = plan
+            .nodes
+            .iter()
+            .filter_map(|op| {
+                if let NativeOp::Scan { pattern, .. } = op {
+                    Some(pattern)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(scans.len(), 3, "expected 3 scans; got {}", scans.len());
+        assert!(
+            matches!(&scans[0].predicate, ScanTerm::Const(t) if t == &rare),
+            "rare-predicate scan should be first; got predicates: {:?}",
+            scans.iter().map(|s| &s.predicate).collect::<Vec<_>>()
+        );
+    }
+
+    /// A `Join(Bgp, Path)` where the path arm has a constant endpoint should be
+    /// reordered to `Join(Path, Bgp)` when stats are present, because the path
+    /// closure is cheaper than the SP range scan for the BGP arm.
+    #[test]
+    fn join_reorders_path_before_bgp_when_cheaper() {
+        // "?this ?p ?v . ?p <rdf:type>* <ex:X>" — BGP has free predicate (cost
+        // ≈ total/subjects) while Path has a constant object (cost ≈ total/subjects/2).
+        let q = parse(
+            "ASK { ?this ?p ?v \
+             . ?p <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>* <http://ex/X> }",
+        );
+        let stats = PlanStats {
+            total_triples: 100_000,
+            distinct_subjects: 10_000,
+            distinct_objects: 10_000,
+            distinct_predicates: 50,
+            predicate_cardinality: HashMap::new(),
+        };
+        let plan = lower_query_with_stats(&q, Some(&stats)).expect("should lower");
+        // After swap the PathScan should feed directly from InputFocus (node 0).
+        let path_inputs_focus = plan
+            .nodes
+            .iter()
+            .any(|op| matches!(op, NativeOp::PathScan { input, .. } if *input == 0));
+        assert!(
+            path_inputs_focus,
+            "PathScan should be evaluated first (input = InputFocus)"
         );
     }
 }
