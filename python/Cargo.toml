@@ -18,5 +18,6 @@ shifty-algebra.workspace = true
 shifty-parse.workspace = true
 shifty-opt.workspace = true
 shifty-engine.workspace = true
+shifty-repair.workspace = true
 oxrdf.workspace = true
 oxttl.workspace = true

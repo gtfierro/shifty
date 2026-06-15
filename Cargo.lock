@@ -866,6 +866,7 @@ dependencies = [
  "shifty-engine",
  "shifty-opt",
  "shifty-parse",
+ "shifty-repair",
 ]
 
 [[package]]

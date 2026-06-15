@@ -47,11 +47,21 @@ from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 
 from ._shifty import (
     AlgebraResult,
+    Choice,
+    FocusWitness,
+    Hole,
     InferResult as _RustInferResult,
+    Instantiated,
     PreparedValidator as _RustPreparedValidator,
     Reason,
+    RepairDelta,
+    RepairOutcome,
+    RepairPlan,
+    RepairSession as _RustRepairSession,
+    RepairTree,
     Violation,
     W3cResult,
+    WitnessAtom,
     _infer,
     _validate_algebra,
     _validate_w3c,
@@ -69,6 +79,17 @@ __all__ = [
     "Reason",
     "InferResult",
     "PreparedValidator",
+    # ── symbolic repair ──
+    "RepairSession",
+    "RepairPlan",
+    "FocusWitness",
+    "WitnessAtom",
+    "RepairTree",
+    "Hole",
+    "Choice",
+    "Instantiated",
+    "RepairDelta",
+    "RepairOutcome",
 ]
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
@@ -207,6 +228,122 @@ class PreparedValidator:
             graph_mode,
             infer,
         )
+
+    def __repr__(self) -> str:
+        return repr(self._inner)
+
+
+class RepairSession:
+    """Inspect and drive symbolic repair of a data graph.
+
+    A session binds a shapes graph and a data graph (running SHACL-AF inference
+    first, like :func:`validate`). It exposes the repair *primitives* so you can
+    build your own driver: enumerate the violation horizon by focus node, inspect
+    each violation's repair tree (its holes and decision points), enumerate
+    candidate bindings, fold your own choices into a concrete delta, gate it, and
+    apply it. **The library decides nothing** — every choice is yours.
+
+    Typical loop::
+
+        session = shifty.RepairSession(shapes, data)
+        while True:
+            ws = session.witnesses()
+            if not ws:
+                break                      # conforms
+            fw = ws[0]                     # your focus-ordering policy
+            tree = fw.repair_tree()
+            plan = shifty.RepairPlan()
+            for hole in tree.holes():
+                plan.bind(hole.id, hole.candidates(limit=8)[0])   # your choice
+            inst = tree.instantiate(plan)
+            outcome = session.gate(inst.delta)
+            if outcome.is_progress:
+                session = session.advance(inst.delta)   # accept, re-witness
+            else:
+                break                       # reject; pick differently
+
+    Parameters
+    ----------
+    shacl_graph:
+        SHACL shapes graph (Turtle/N-Triples path, ``rdflib.Graph``, ``str``, or
+        ``bytes``).
+    data_graph:
+        Data graph to repair. If ``None``, shapes are taken to embed the data
+        (standard SHACL pattern), matching the CLI's ``repair`` with no
+        ``--data``.
+    infer:
+        Run SHACL-AF rules before witnessing (default ``True``).
+    base:
+        Base IRI for resolving relative IRIs.
+    """
+
+    def __init__(
+        self,
+        shacl_graph: GraphInput,
+        data_graph: Optional[GraphInput] = None,
+        *,
+        infer: bool = True,
+        base: Optional[str] = None,
+    ) -> None:
+        shapes = _to_rdf_input(shacl_graph)
+        data = (
+            _to_rdf_input(data_graph)
+            if data_graph is not None
+            else _RdfInput(None, None, "turtle")
+        )
+        self._inner = _RustRepairSession(
+            shapes.data,
+            shapes.path,
+            shapes.format,
+            data.data,
+            data.path,
+            data.format,
+            infer,
+            base,
+        )
+
+    @classmethod
+    def _wrap(cls, inner: _RustRepairSession) -> "RepairSession":
+        self = cls.__new__(cls)
+        self._inner = inner
+        return self
+
+    @property
+    def diagnostics(self) -> list[str]:
+        """Warnings produced while lowering the shapes graph."""
+        return self._inner.diagnostics
+
+    def witnesses(self) -> list[FocusWitness]:
+        """The violation horizon: one :class:`FocusWitness` per failing
+        ``(focus node, statement)``. Empty ⟺ the graph conforms."""
+        return self._inner.witnesses()
+
+    def gate(self, delta: RepairDelta) -> RepairOutcome:
+        """Re-validate ``G ⊕ ΔG`` and diff the violations against ``G`` — sound
+        iff it introduces nothing. Decides and applies nothing."""
+        return self._inner.gate(delta)
+
+    def apply(self, delta: RepairDelta) -> "rdflib.Graph":
+        """Materialize ``G ⊕ ΔG`` as a fresh :class:`rdflib.Graph`."""
+        import rdflib
+
+        g = rdflib.Graph()
+        g.parse(data=self._inner.apply_ntriples(delta), format="nt")
+        return g
+
+    def to_graph(self) -> "rdflib.Graph":
+        """The session's current graph as an :class:`rdflib.Graph` — ``G`` with
+        every accepted ``ΔG`` (via :meth:`advance`) already applied."""
+        import rdflib
+
+        g = rdflib.Graph()
+        g.parse(data=self._inner.current_ntriples(), format="nt")
+        return g
+
+    def advance(self, delta: RepairDelta) -> "RepairSession":
+        """A *new* session over ``G ⊕ ΔG`` (same schema, no re-inference) so you
+        can accept a repair and re-witness from the patched graph."""
+        return RepairSession._wrap(self._inner.advance(delta))
 
     def __repr__(self) -> str:
         return repr(self._inner)

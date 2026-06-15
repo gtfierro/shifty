@@ -281,7 +281,7 @@ fn render_atom(p: &Path) -> String {
 
 // ---- value types ----
 
-fn value_type_to_string(vt: &ValueType) -> String {
+pub fn value_type_to_string(vt: &ValueType) -> String {
     match vt {
         ValueType::Any => "any".to_string(),
         ValueType::Datatype(nn) => format!("datatype({})", compact(nn.as_str())),
