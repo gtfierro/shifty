@@ -50,7 +50,9 @@ def mint_candidates(constraint: str) -> list[str]:
     that *almost* satisfy the predicate (near-misses on type/range/pattern).
     """
     c = constraint.lower()
-    if c.startswith(("fresh", "any node", "conforms to")):
+    # NB: not "conforms to" — a minted bare node never satisfies a sub-shape hole
+    # (that needs structural build-out, not yet automated), so don't propose it.
+    if c.startswith(("fresh", "any node")):
         n = next(_FRESH)
         return [f"_:fresh{n}", f"<urn:shifty:fresh:{n}>"]
     if c.startswith("nodekind"):
@@ -194,12 +196,21 @@ def fill_by_hand(fw):
         return None
 
     for hole in inst.open_holes:
-        hint = hole.candidates(limit=5)
-        hintstr = f"  (e.g. {', '.join(hint)})" if hint else ""
+        if hole.constraint.startswith("conforms to"):
+            # a sub-shape hole: the value must ITSELF conform. A bare/new node
+            # won't — only an existing conforming node will satisfy the gate.
+            print(
+                "  ⚠ this value must ALREADY conform to the sub-shape below;\n"
+                "    a bare or freshly-minted node won't (build-out isn't automated yet)."
+            )
+            hintstr = ""
+        else:
+            hint = hole.candidates(limit=5)
+            hintstr = f"  reuse e.g. {', '.join(hint)}" if hint else ""
         try:
             raw = input(
                 f"  value for ?{hole.id} [{hole.constraint}]{hintstr}\n"
-                f"    blank = mint fresh node > "
+                f'    type 0 | "Alice" | <http://ex/a> | _:b ;  blank = mint fresh > '
             )
         except EOFError:
             return None
@@ -260,7 +271,14 @@ def main():
                     print(f"        {line}")
         else:
             print("\n  no automatic option (no reusable/mintable value).")
-            print("  use 'v' to supply a value yourself.")
+        # show how to supply a value by hand, with a worked example.
+        print(
+            "\n  'v' supplies a value yourself, e.g.:\n"
+            '        > v\n'
+            '        value for ?0 [datatype(xsd:integer)]\n'
+            '          > 0                # 0 → "0"^^xsd:integer ;  "Alice" → text ;'
+            "  <http://ex/a> → IRI ;  blank → mint fresh"
+        )
 
         choice = prompt_choice(len(options))
         if choice == "q":
@@ -280,7 +298,14 @@ def main():
                 print(f"  ✗ that value introduces new violation(s) at: {foci}. Not applied.")
                 continue
             if not outcome.is_progress:
-                print("  ✗ that value fixes nothing. Not applied.")
+                print(
+                    "  ✗ no progress: the edit is valid but the violation persists.\n"
+                    "    This usually means the value you added must ITSELF be a proper,\n"
+                    "    conforming node (right rdf:type + required properties) — a bare or\n"
+                    "    freshly-minted node leaves a qualified count / sub-shape unmet, so the\n"
+                    "    same statement just fails for a new reason. Bind an existing conforming\n"
+                    "    node if one exists; full build-out of a new node isn't automated yet."
+                )
                 continue
         else:
             delta, outcome = options[int(choice) - 1]
