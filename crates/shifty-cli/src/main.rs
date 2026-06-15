@@ -24,6 +24,38 @@ enum Command {
     Validate(ValidateArgs),
     /// Run SHACL-AF rule inference (forward chaining to a fixpoint).
     Infer(InferArgs),
+    /// Show symbolic-repair structures for a data graph's violations.
+    Repair(RepairArgs),
+}
+
+#[derive(Args)]
+struct RepairArgs {
+    /// Turtle shapes file(s) or URL(s) (repeatable).
+    #[arg(long, value_name = "SHAPES", required = true, action = clap::ArgAction::Append)]
+    shapes: Vec<String>,
+    /// Turtle data file(s) or URL(s) (repeatable; defaults to shapes).
+    #[arg(long, value_name = "DATA", action = clap::ArgAction::Append)]
+    data: Vec<String>,
+    /// Base IRI for parsing.
+    #[arg(long)]
+    base: Option<String>,
+    /// Which repair structure to print.
+    #[arg(long, value_enum, default_value_t = RepairStage::Tree)]
+    stage: RepairStage,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
+    /// Skip SHACL-AF rule inference before witnessing.
+    #[arg(long)]
+    no_infer: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum RepairStage {
+    /// The witness tree per failing focus node (why each violates).
+    Witness,
+    /// The synthesized RepairTree per failing focus node (how to fix it).
+    Tree,
 }
 
 #[derive(Args)]
@@ -148,6 +180,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Inspect(args) => inspect(args),
         Command::Validate(args) => validate(args),
         Command::Infer(args) => infer(args),
+        Command::Repair(args) => repair(args),
     }
 }
 
@@ -399,6 +432,291 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         col.print_summary();
     }
     Ok(())
+}
+
+fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
+    let base = args.base.as_deref();
+    let shapes_loaded = load_sources(&args.shapes, base)?;
+    let parsed = shifty_parse::parse_loaded(&shapes_loaded);
+    for d in &parsed.diagnostics {
+        eprintln!("{d}");
+    }
+    let schema = &parsed.schema;
+
+    let data_loaded = if args.data.is_empty() {
+        None
+    } else {
+        Some(load_sources(&args.data, base)?)
+    };
+
+    // Witness/synthesize against the (optionally inferred) data graph.
+    let inference = if args.no_infer {
+        None
+    } else {
+        let outcome = match data_loaded.as_ref() {
+            Some(data) => shifty_engine::infer_graphs(&data.graph, &shapes_loaded.graph, schema),
+            None => shifty_engine::infer(&shapes_loaded.graph, schema),
+        };
+        match outcome {
+            Ok(o) => Some(o),
+            Err(e) => return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into()),
+        }
+    };
+    let data_graph = inference.as_ref().map_or_else(
+        || {
+            data_loaded
+                .as_ref()
+                .map_or(&shapes_loaded.graph, |d| &d.graph)
+        },
+        |inf| &inf.graph,
+    );
+
+    let witnesses = match shifty_engine::witness_violations(data_graph, schema) {
+        Ok(ws) => ws,
+        Err(e) => {
+            return Err(format!("{e}; cannot witness (see `inspect --stage strata`)").into());
+        }
+    };
+
+    if matches!(args.format, Format::Dot) {
+        return Err("--format dot is not supported for repair".into());
+    }
+
+    let target = |statement: usize| {
+        shifty_algebra::render::selector_to_string(&schema.statements[statement].selector)
+    };
+
+    match args.stage {
+        RepairStage::Witness => match args.format {
+            Format::Json => println!("{}", serde_json::to_string_pretty(&witnesses)?),
+            Format::Text => {
+                if witnesses.is_empty() {
+                    println!("conforms: no violations to witness");
+                }
+                for fw in &witnesses {
+                    println!("{}  [target: {}]", fw.focus, target(fw.statement));
+                    for line in render_witness(&fw.failure, 2) {
+                        println!("{line}");
+                    }
+                }
+            }
+            Format::Dot => unreachable!(),
+        },
+        RepairStage::Tree => {
+            let trees: Vec<(&shifty_engine::FocusWitness, shifty_repair::RepairTree)> = witnesses
+                .iter()
+                .map(|fw| (fw, shifty_engine::synthesize(&schema.arena, fw)))
+                .collect();
+            match args.format {
+                Format::Json => {
+                    let arr: Vec<_> = trees
+                        .iter()
+                        .map(|(fw, t)| {
+                            serde_json::json!({
+                                "focus": fw.focus.to_string(),
+                                "statement": fw.statement,
+                                "tree": t,
+                            })
+                        })
+                        .collect();
+                    println!("{}", serde_json::to_string_pretty(&arr)?);
+                }
+                Format::Text => {
+                    if trees.is_empty() {
+                        println!("conforms: no violations to repair");
+                    }
+                    for (fw, t) in &trees {
+                        println!("{}  [target: {}]", fw.focus, target(fw.statement));
+                        for line in render_tree(t, 2) {
+                            println!("{line}");
+                        }
+                    }
+                }
+                Format::Dot => unreachable!(),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn path_str(p: &shifty_algebra::Path) -> String {
+    shifty_algebra::render::path_to_string(p)
+}
+
+fn render_witness(w: &shifty_engine::Witness, indent: usize) -> Vec<String> {
+    use shifty_engine::Witness as W;
+    let pad = " ".repeat(indent);
+    let mut out = Vec::new();
+    match w {
+        W::Atom {
+            node,
+            reached_by,
+            produced_by,
+            ..
+        } => out.push(format!(
+            "{pad}Atom at {node} via {}{}",
+            path_str(reached_by),
+            if produced_by.is_some() { " [cuttable]" } else { "" }
+        )),
+        W::Relational {
+            kind, offending, ..
+        } => out.push(format!(
+            "{pad}Relational {kind:?}: {} offending pair(s)",
+            offending.len()
+        )),
+        W::Closed { offenders, .. } => {
+            out.push(format!("{pad}Closed: {} disallowed triple(s)", offenders.len()));
+            for (p, o) in offenders {
+                out.push(format!("{pad}  - {p} {o}"));
+            }
+        }
+        W::Not { inner, .. } => {
+            out.push(format!("{pad}Not — falsify the inner shape:"));
+            out.extend(render_sat(inner, indent + 2));
+        }
+        W::All { failed, .. } => {
+            out.push(format!("{pad}All — fix every:"));
+            for f in failed {
+                out.extend(render_witness(f, indent + 2));
+            }
+        }
+        W::Any { branches, .. } => {
+            out.push(format!("{pad}Any — fix any one of:"));
+            for b in branches {
+                out.extend(render_witness(b, indent + 2));
+            }
+        }
+        W::CountLow {
+            path, have, min, ..
+        } => out.push(format!(
+            "{pad}CountLow along {}: have {have}, need {min}",
+            path_str(path)
+        )),
+        W::CountHigh {
+            path,
+            matched,
+            max,
+            per_value,
+            ..
+        } => {
+            out.push(format!(
+                "{pad}CountHigh along {}: {} match(es), max {max}",
+                path_str(path),
+                matched.len()
+            ));
+            for (v, sub) in per_value {
+                out.push(format!("{pad}  value {v}:"));
+                out.extend(render_witness(sub, indent + 4));
+            }
+        }
+        W::Opaque { .. } => out.push(format!("{pad}Opaque (SPARQL) — no algebraic witness")),
+    }
+    out
+}
+
+fn render_sat(s: &shifty_engine::SatTrace, indent: usize) -> Vec<String> {
+    use shifty_engine::SatTrace as S;
+    let pad = " ".repeat(indent);
+    let mut out = Vec::new();
+    match s {
+        S::Irrefutable { .. } => out.push(format!("{pad}Irrefutable (⊤)")),
+        S::Atom { node, .. } => out.push(format!("{pad}Atom holds at {node} [cut to break]")),
+        S::AllHeld { children, .. } => {
+            out.push(format!("{pad}AllHeld — break any one:"));
+            for c in children {
+                out.extend(render_sat(c, indent + 2));
+            }
+        }
+        S::AnyHeld { satisfied, .. } => {
+            out.push(format!("{pad}AnyHeld — break every:"));
+            for c in satisfied {
+                out.extend(render_sat(c, indent + 2));
+            }
+        }
+        S::CountHeld { matches, .. } => {
+            out.push(format!("{pad}CountHeld: {} match(es)", matches.len()))
+        }
+        S::NotHeld { inner_fails, .. } => {
+            out.push(format!("{pad}NotHeld — make the inner shape hold:"));
+            out.extend(render_witness(inner_fails, indent + 2));
+        }
+        S::Blocked { reason, .. } => out.push(format!("{pad}Blocked: {reason:?}")),
+        S::Coinductive { .. } => out.push(format!("{pad}Coinductive (gfp back-edge)")),
+    }
+    out
+}
+
+fn render_tree(t: &shifty_repair::RepairTree, indent: usize) -> Vec<String> {
+    use shifty_repair::RepairTree as T;
+    let pad = " ".repeat(indent);
+    let mut out = Vec::new();
+    match t {
+        T::Noop(_) => out.push(format!("{pad}Noop")),
+        T::Blocked(_, r) => out.push(format!("{pad}Blocked: {r:?}")),
+        T::Edits { edits, holes, .. } => {
+            out.push(format!("{pad}Edits:"));
+            for e in edits {
+                out.push(format!("{pad}  {}", edit_str(e)));
+            }
+            for (h, c) in holes {
+                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c)));
+            }
+        }
+        T::All { children, .. } => {
+            out.push(format!("{pad}All — do all:"));
+            for c in children {
+                out.extend(render_tree(c, indent + 2));
+            }
+        }
+        T::Any { children, .. } => {
+            out.push(format!("{pad}Any — choose one:"));
+            for c in children {
+                out.extend(render_tree(c, indent + 2));
+            }
+        }
+        T::Repeat {
+            body, min, max, ..
+        } => {
+            let hi = max.map_or_else(|| "∞".to_string(), |m| m.to_string());
+            out.push(format!("{pad}Repeat [{min}..{hi}]:"));
+            out.extend(render_tree(body, indent + 2));
+        }
+    }
+    out
+}
+
+fn edit_str(e: &shifty_repair::Edit) -> String {
+    use shifty_repair::EditOp;
+    let (sign, p) = match &e.op {
+        EditOp::Add(p) => ('+', p),
+        EditOp::Delete(p) => ('-', p),
+    };
+    format!(
+        "{sign} {} {} {}",
+        slot_str(&p.s),
+        slot_str(&p.p),
+        slot_str(&p.o)
+    )
+}
+
+fn slot_str(s: &shifty_repair::Slot) -> String {
+    match s {
+        shifty_repair::Slot::Bound(t) => t.to_string(),
+        shifty_repair::Slot::Open(h) => format!("?{}", h.0),
+    }
+}
+
+fn constraint_str(c: &shifty_repair::HoleConstraint) -> String {
+    use shifty_repair::HoleConstraint as H;
+    match c {
+        H::AnyNode => "any node".to_string(),
+        H::Fresh => "fresh node".to_string(),
+        H::Const(t) => format!("= {t}"),
+        H::Typed(_) => "typed value".to_string(),
+        H::Kind(_) => "nodeKind".to_string(),
+        H::OneOf(v) => format!("one of {} value(s)", v.len()),
+        H::ConformsTo(s) => format!("conforms to @{}", s.0),
+    }
 }
 
 fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
