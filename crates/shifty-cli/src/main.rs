@@ -593,10 +593,10 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
                                     s.outcome.introduced.len()
                                 );
                                 for t in &s.delta.delete {
-                                    println!("    - {t}");
+                                    println!("    del  {t}");
                                 }
                                 for t in &s.delta.add {
-                                    println!("    + {t}");
+                                    println!("    add  {t}");
                                 }
                             }
                             None => println!("  no repair found within budget"),
@@ -772,8 +772,8 @@ fn render_tree(t: &shifty_repair::RepairTree, indent: usize) -> Vec<String> {
 fn edit_str(e: &shifty_repair::Edit) -> String {
     use shifty_repair::EditOp;
     let (sign, p) = match &e.op {
-        EditOp::Add(p) => ('+', p),
-        EditOp::Delete(p) => ('-', p),
+        EditOp::Add(p) => ("add", p),
+        EditOp::Delete(p) => ("del", p),
     };
     format!(
         "{sign} {} {} {}",
