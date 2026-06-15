@@ -37,7 +37,8 @@ pub use enumerate::{
 pub use gate::{RepairOutcome, apply, gate};
 pub use synthesize::{synthesize, synthesize_focus};
 pub use witness::{
-    BlockReason, FocusWitness, PathSupport, RelKind, SatTrace, Witness, witness_violations,
+    BlockReason, FocusWitness, PathSupport, RelKind, SatTrace, Witness, witness_node,
+    witness_violations,
 };
 
 #[cfg(test)]

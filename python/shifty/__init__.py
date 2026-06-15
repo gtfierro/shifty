@@ -379,6 +379,12 @@ class RepairSession:
         can accept a repair and re-witness from the patched graph."""
         return RepairSession._wrap(self._inner.advance(delta))
 
+    def repair_node_against(self, node: str, shape_id: int) -> "Optional[RepairTree]":
+        """Synthesize a tree that makes ``node`` conform to sub-shape ``shape_id``
+        — the building block for repairing a ``conforms to @N`` hole (see
+        :attr:`Hole.conforms_to`). Returns ``None`` if the node already conforms."""
+        return self._inner.repair_node_against(node, shape_id)
+
     def __repr__(self) -> str:
         return repr(self._inner)
 

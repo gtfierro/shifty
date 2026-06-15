@@ -13,10 +13,10 @@ use crate::{
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::Schema;
+use shifty_algebra::{Schema, ShapeId};
 use shifty_engine::{
     FocusWitness as IrFocus, SatTrace, Witness, apply as engine_apply, candidates as engine_candidates,
-    gate as engine_gate, synthesize, witness_violations,
+    gate as engine_gate, synthesize, witness_node, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -446,6 +446,27 @@ impl RepairSession {
         })
     }
 
+    /// Synthesize a repair tree that makes `node` conform to sub-shape `shape_id`
+    /// — the building block for repairing a `conforms to @N` hole: bind the hole
+    /// to a (fresh) node, then build that node out with this tree. Returns `None`
+    /// if the node already conforms. `shape_id` is the integer from
+    /// [`Hole.conforms_to`].
+    fn repair_node_against(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        shape_id: u32,
+    ) -> PyResult<Option<RepairTree>> {
+        let term = parse_term(node).map_err(py_value_error)?;
+        let fw = py
+            .allow_threads(|| witness_node(&self.data, &self.schema, &term, ShapeId(shape_id)))
+            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+        Ok(fw.map(|fw| RepairTree {
+            inner: synthesize(&self.schema.arena, &fw),
+            data: Arc::clone(&self.data),
+        }))
+    }
+
     /// A new session over `G ⊕ ΔG` (same schema, no re-inference) so a driver can
     /// accept a repair and re-witness from the patched graph.
     fn advance(&self, py: Python<'_>, delta: &RepairDelta) -> Self {
@@ -663,6 +684,16 @@ impl Hole {
                 .map(|t| t.to_string())
                 .collect()
         })
+    }
+
+    /// The sub-shape id for a `conforms to @N` hole (else `None`). Feed it to
+    /// [`RepairSession.repair_node_against`] to build the value out recursively.
+    #[getter]
+    fn conforms_to(&self) -> Option<u32> {
+        match &self.inner {
+            HoleConstraint::ConformsTo(s) => Some(s.0),
+            _ => None,
+        }
     }
 
     fn __repr__(&self) -> String {

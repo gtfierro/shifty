@@ -235,3 +235,39 @@ def test_repair_delta_from_ntriples_add_and_delete():
     delta = shifty.RepairDelta.from_ntriples(nt_add, nt_del)
     assert len(delta.add) == 1
     assert len(delta.delete) == 1
+
+
+# ── recursive build (conforms_to / repair_node_against) ──────────────────────
+
+
+def test_conforms_to_hole_exposes_subshape_id():
+    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    hole = s.witnesses()[0].repair_tree().holes()[0]
+    assert hole.conforms_to is not None  # a 'conforms to @N' hole
+
+
+def test_value_hole_has_no_conforms_to():
+    s = shifty.RepairSession(SHAPES, DATA_MAXCOUNT, infer=False)
+    hole = s.witnesses()[0].repair_tree().holes()[0]
+    assert hole.conforms_to is None  # the maxCount repair binds a value, not a node
+
+
+def test_repair_node_against_builds_the_subshape():
+    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
+    sub = s.repair_node_against("<urn:f1>", sid)
+    assert sub is not None
+    assert sub.holes()  # the fresh node must gain at least one property
+    # building it out + linking it makes sound progress:
+    delta = shifty.delta_from_graph(
+        '@prefix ex: <http://example.org/> .'
+        ' ex:x ex:part <urn:f1> . <urn:f1> ex:kind "k" .'
+    )
+    assert s.gate(delta).is_progress
+
+
+def test_repair_node_against_none_when_already_conforms():
+    data = QUAL_DATA + '\n@prefix ex: <http://example.org/> .\n<urn:ok> ex:kind "x" .'
+    s = shifty.RepairSession(QUAL_SHAPES, data, infer=False)
+    sid = s.witnesses()[0].repair_tree().holes()[0].conforms_to
+    assert s.repair_node_against("<urn:ok>", sid) is None

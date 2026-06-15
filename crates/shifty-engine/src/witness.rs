@@ -242,6 +242,54 @@ pub fn witness_violations(
     Ok(out)
 }
 
+/// Witness one specific `node` against one specific `shape` (by id) — the building
+/// block for repairing a `ConformsTo` hole: bind it to a node, then witness that
+/// node against the sub-shape and synthesize its repair. Returns `Ok(None)` when
+/// the node already conforms (nothing to build), `Ok(Some(_))` otherwise.
+///
+/// The `statement` field of the returned [`FocusWitness`] is a sentinel
+/// (`usize::MAX`): this is not a top-level statement, and synthesis ignores it.
+pub fn witness_node(
+    data: &Graph,
+    schema: &Schema,
+    node: &Term,
+    shape: ShapeId,
+) -> Result<Option<FocusWitness>, NonStratifiable> {
+    let strat = analyze(&schema.arena);
+    if !strat.stratifiable {
+        let components = strat
+            .strata
+            .iter()
+            .filter(|s| !s.stratifiable)
+            .map(|s| s.shapes.clone())
+            .collect();
+        return Err(NonStratifiable { components });
+    }
+
+    let uses_shapes = uses_shapes_graph(&schema.arena);
+    let frozen = if uses_shapes {
+        FrozenIndexedDataset::from_graphs(data, data)
+    } else {
+        FrozenIndexedDataset::from_graph(data)
+    };
+    let sparql = SparqlExecutor::from_frozen(frozen, uses_shapes);
+    let backend = sparql
+        .frozen()
+        .expect("witness executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+
+    let mut stack = Stack::new();
+    Ok(
+        witness(&mut evaluator, node, shape, &Path::Id, None, &mut stack).map(|failure| {
+            FocusWitness {
+                focus: node.clone(),
+                statement: usize::MAX,
+                failure,
+            }
+        }),
+    )
+}
+
 /// Reasons `φ` (slot `id`) fails at `node`. `None` ⟺ it holds (incl. on a gfp
 /// back-edge). `reached_by` is the structured path from the focus; `produced_by`
 /// is how `node` was reached from its parent value (for replace-in-place).

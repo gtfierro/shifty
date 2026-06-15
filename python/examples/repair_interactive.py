@@ -239,6 +239,78 @@ def gate_and_report(session, delta, what):
     return outcome
 
 
+BUILD_FUEL = 6  # max recursion depth when building nested conforming nodes
+
+
+def _delta_from_tuples(adds, dels):
+    def nt(tuples):
+        return "\n".join(f"{s} {p} {o} ." for s, p, o in tuples)
+
+    return shifty.RepairDelta.from_ntriples(nt(adds), nt(dels))
+
+
+def build_tree(session, tree, fuel, indent=""):
+    """Realize a RepairTree into (adds, deletes) triple-tuple lists.
+
+    Recurses into ``conforms to @N`` holes by minting a fresh node and building it
+    out against the sub-shape (the structural build); prompts the user for plain
+    value holes. Returns None on abort / depth-exhaustion.
+    """
+    if tree.is_blocked:
+        print(indent + "✗ blocked — cannot build this node.")
+        return None
+    plan = shifty.RepairPlan()
+    for ch in tree.choices():
+        if ch.kind == "repeat":
+            plan.count(ch.node_id, ch.min)
+        elif ch.kind == "any":
+            plan.choose(ch.node_id, 0)
+    inst = tree.instantiate(plan)
+    if inst.open_choices:
+        print(indent + "✗ nested choices aren't supported in auto-build.")
+        return None
+
+    sub_builds = []  # (fresh_node, sub_shape_id) to recurse into
+    for hole in inst.open_holes:
+        sid = hole.conforms_to
+        if sid is not None:
+            f = f"<urn:shifty:build:{next(_FRESH)}>"
+            plan.bind(hole.id, f)
+            sub_builds.append((f, sid))
+        else:
+            hint = hole.candidates(limit=5)
+            hintstr = f"  reuse e.g. {', '.join(hint)}" if hint else ""
+            try:
+                raw = input(
+                    f"{indent}value for ?{hole.id} [{hole.constraint}]{hintstr}\n"
+                    f'{indent}  type 0 | "Alice" | <http://ex/a> ;  blank = mint > '
+                )
+            except EOFError:
+                return None
+            plan.bind(hole.id, coerce_value(raw))
+
+    inst = tree.instantiate(plan)
+    if not inst.is_complete:
+        print(indent + "✗ could not complete this node.")
+        return None
+
+    adds, dels = list(inst.delta.add), list(inst.delta.delete)
+    if sub_builds and fuel <= 0:
+        print(indent + "✗ build depth limit reached.")
+        return None
+    for f, sid in sub_builds:
+        sub = session.repair_node_against(f, sid)
+        if sub is None:  # the fresh node already conforms (no positive reqs)
+            continue
+        print(f"{indent}↳ building {_short(f)} to conform to @{sid}")
+        res = build_tree(session, sub, fuel - 1, indent + "  ")
+        if res is None:
+            return None
+        adds += res[0]
+        dels += res[1]
+    return adds, dels
+
+
 def read_subgraph() -> str:
     """Read a pasted Turtle subgraph from stdin until a line `END` (or EOF)."""
     print("  paste Turtle for triples to ADD (include @prefix lines or full <IRIs>).")
@@ -259,14 +331,14 @@ def prompt_choice(n: int) -> str:
     sel = f"select [1-{n}], " if n else ""
     while True:
         try:
-            raw = input(f"{sel}(v)alue, (g)raph, (s)kip, (q)uit > ").strip().lower()
+            raw = input(f"{sel}(v)alue, (g)raph, (b)uild, (s)kip, (q)uit > ").strip().lower()
         except EOFError:
             return "q"
-        if raw in ("v", "g", "s", "q"):
+        if raw in ("v", "g", "b", "s", "q"):
             return raw
         if n and raw.isdigit() and 1 <= int(raw) <= n:
             return raw
-        print("  ? type a number from the menu, or 'v', 'g', 's', 'q'")
+        print("  ? type a number from the menu, or 'v', 'g', 'b', 's', 'q'")
 
 
 def main():
@@ -310,8 +382,10 @@ def main():
         print(
             "\n  'v' = supply a value yourself"
             '   (e.g. v ↵ then  0 | "Alice" | <http://ex/a> ;  blank = mint fresh)\n'
-            "  'g' = paste a subgraph patch in Turtle (e.g. a new node WITH its rdf:type +\n"
-            "        properties) — applied only if the gate says it fixes the violation."
+            "  'g' = paste a subgraph patch in Turtle (a new node WITH its rdf:type +\n"
+            "        properties) — applied only if the gate says it fixes the violation.\n"
+            "  'b' = auto-build: mint nodes for 'conforms to' holes and recursively\n"
+            "        build them out (prompting for any plain values), then gate."
         )
 
         choice = prompt_choice(len(options))
@@ -340,6 +414,17 @@ def main():
                 print(f"  ✗ could not parse that subgraph: {e}")
                 continue
             outcome = gate_and_report(session, delta, "subgraph")
+            if outcome is None:
+                continue
+        elif choice == "b":
+            res = build_tree(session, fw.repair_tree(), BUILD_FUEL)
+            if res is None:
+                continue
+            delta = _delta_from_tuples(*res)
+            print("  proposed build:")
+            for line in render_delta(delta):
+                print(f"        {line}")
+            outcome = gate_and_report(session, delta, "build")
             if outcome is None:
                 continue
         else:
