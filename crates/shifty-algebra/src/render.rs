@@ -240,6 +240,51 @@ pub fn selector_to_string(sel: &Selector) -> String {
     }
 }
 
+/// Like [`selector_to_string`], but resolves a path selector's qualifier against
+/// `arena`: class targets render as `class(C)`, and any other path target shows
+/// its actual qualifier shape instead of a bare `φ`. Prefer this whenever the
+/// arena is in hand — the resolved form is far more useful for debugging.
+pub fn selector_to_string_in(sel: &Selector, arena: &ShapeArena) -> String {
+    if let Some(class) = class_target(sel, arena) {
+        return format!("class({})", term_to_string(class));
+    }
+    match sel {
+        Selector::HasPath(p, q) => {
+            format!("∃≥1 {} . {}", path_to_string(p), shape_def(arena, *q))
+        }
+        other => selector_to_string(other),
+    }
+}
+
+/// If `sel` targets a class — the `∃≥1 rdf:type/rdfs:subClassOf* . test(C)` form
+/// that `sh:targetClass` and implicit class targets lower to — the class term
+/// `C`. `None` for every other selector.
+pub fn class_target<'a>(sel: &'a Selector, arena: &'a ShapeArena) -> Option<&'a Term> {
+    let Selector::HasPath(path, qualifier) = sel else {
+        return None;
+    };
+    if !is_class_path(path) {
+        return None;
+    }
+    match arena.get(*qualifier) {
+        Shape::TestConst(class) => Some(class),
+        _ => None,
+    }
+}
+
+/// Is `p` the `rdf:type/rdfs:subClassOf*` path used to encode class targeting?
+fn is_class_path(p: &Path) -> bool {
+    const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+    let Path::Seq(parts) = p else { return false };
+    matches!(
+        parts.as_slice(),
+        [Path::Pred(ty), Path::Star(sub)]
+            if ty.as_str() == RDF_TYPE
+                && matches!(sub.as_ref(), Path::Pred(s) if s.as_str() == RDFS_SUBCLASS_OF)
+    )
+}
+
 // ---- paths (precedence: atom > * > ^ > / > |) ----
 
 pub fn path_to_string(p: &Path) -> String {
@@ -556,5 +601,43 @@ mod tests {
         assert!(text.contains("@1 = nodeKind(IRI)"));
         assert!(text.contains("@2 = ∃[1..] <http://ex/knows> . @0"));
         assert!(text.contains("∃ <http://ex/knows> .⊤  ⇒  @0"));
+    }
+
+    fn class_path() -> Path {
+        Path::seq(vec![
+            Path::Pred(nn("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")),
+            Path::star(Path::Pred(nn("http://www.w3.org/2000/01/rdf-schema#subClassOf"))),
+        ])
+    }
+
+    #[test]
+    fn class_target_is_detected_and_rendered_with_the_class() {
+        let mut arena = ShapeArena::new();
+        let qualifier = arena.insert(Shape::TestConst(Term::NamedNode(nn("http://ex/Person"))));
+        let sel = Selector::HasPath(class_path(), qualifier);
+
+        // the structured accessor recovers the class term…
+        assert_eq!(
+            class_target(&sel, &arena),
+            Some(&Term::NamedNode(nn("http://ex/Person")))
+        );
+        // …and the arena-aware renderer names it instead of printing a bare φ.
+        assert_eq!(selector_to_string_in(&sel, &arena), "class(<http://ex/Person>)");
+        // the arena-free renderer still falls back to the φ form.
+        assert_eq!(selector_to_string(&sel), "∃≥1 rdf:type/rdfs:subClassOf* . φ");
+    }
+
+    #[test]
+    fn non_class_path_target_resolves_its_qualifier_inline() {
+        let mut arena = ShapeArena::new();
+        let qualifier = arena.insert(Shape::TestKind(NodeKindSet::IRI));
+        let sel = Selector::HasPath(Path::Pred(nn("http://ex/p")), qualifier);
+
+        assert_eq!(class_target(&sel, &arena), None);
+        // the qualifier is shown rather than dropped to φ.
+        assert_eq!(
+            selector_to_string_in(&sel, &arena),
+            "∃≥1 <http://ex/p> . nodeKind(IRI)"
+        );
     }
 }
