@@ -321,8 +321,9 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
         eprintln!("{d}");
     }
     let graph_mode = args.graph_mode.into();
+    let threshold: shifty_algebra::Severity = args.minimum_severity.into();
     let validation_options = shifty_engine::ValidationOptions {
-        minimum_severity: args.minimum_severity.into(),
+        minimum_severity: threshold.clone(),
         sort_results: true,
     };
 
@@ -420,7 +421,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     }
 
     let physical = shifty_opt::plan(&normalized);
-    let outcome = match if data_loaded.is_some() {
+    let mut outcome = match if data_loaded.is_some() {
         shifty_engine::validate_plan_graphs_with_mode_and_options(
             data_graph,
             &shapes_loaded.graph,
@@ -436,6 +437,15 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
             return Err(format!("{e}; cannot validate (see `inspect --stage strata`)").into());
         }
     };
+
+    // The engine retains every finding; `--minimum-severity` scopes both
+    // `conforms` (already applied) and what we display/serialize here. Drop
+    // findings below the threshold; a violation's own severity is the max of its
+    // reasons, so any violation that survives keeps at least its top reason.
+    outcome.violations.retain(|v| v.severity.meets(&threshold));
+    for v in &mut outcome.violations {
+        v.reasons.retain(|r| r.severity.meets(&threshold));
+    }
 
     match args.format {
         Format::Dot => return Err("--format dot is not supported for validate".into()),
