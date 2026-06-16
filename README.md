@@ -358,6 +358,39 @@ conforms, report, text = shifty.validate(
 | `shifty-cli` | `shifty` binary |
 | `pyshifty` (python/) | PyO3 bindings, published as `pyshifty` on PyPI |
 
+## Development
+
+### 3-way implementation comparison
+
+`scripts/compare_implementations.py` runs shifty, [TopQuadrant SHACL](https://github.com/topquadrant/shacl), and [pySHACL](https://github.com/RDFLib/pySHACL) against the same shapes + data graphs and produces a 3-way diff of their `sh:ValidationResult` sets.
+
+```sh
+uv run scripts/compare_implementations.py \
+    -s benchmark/brick/Brick-closure.ttl \
+    -d benchmark/brick/models/bldg1.ttl
+```
+
+Requires shifty to be importable from the local build:
+
+```sh
+cd python && maturin develop
+```
+
+TopQuadrant requires the `brick-tq-shacl` Python package (installed automatically by `uv run`). To skip it:
+
+```sh
+uv run scripts/compare_implementations.py \
+    -s shapes.ttl -d data.ttl \
+    --skip topquadrant
+```
+
+**How results are compared:** each `sh:ValidationResult` is content-hashed by its full predicate/object subtree (blank nodes are recursively canonicalized by content, not identity). `sh:resultMessage` and `sh:sourceConstraint` are excluded from the hash — message phrasing varies across implementations, and `sh:sourceConstraint` carries implementation-specific blank-node bookkeeping. Results are then grouped into buckets: all-agree, only-in-X, only-in-X+Y, etc.
+
+Flags:
+- `--exact-message` — include `sh:resultMessage` in the hash
+- `--max-show N` — show N signatures per bucket (default: 5)
+- `--verbose` — print full canonical JSON signature per result instead of one-line summaries
+
 ## Design docs
 
 The `docs/` directory contains the full design:
