@@ -196,11 +196,10 @@ pub enum BlockReason {
 
 type Stack = HashSet<(ShapeId, Term)>;
 
-/// Witness every `(focus, statement)` that fails, mirroring `validate`'s driver.
-pub fn witness_violations(
-    data: &Graph,
-    schema: &Schema,
-) -> Result<Vec<FocusWitness>, NonStratifiable> {
+/// Strat-check and build the SPARQL executor shared by every witnessing entry
+/// point. The caller derives `backend`/`ShapeEvaluator` from the returned
+/// executor — those borrow it, so they can't be bundled in here.
+fn prepare(data: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -218,7 +217,15 @@ pub fn witness_violations(
     } else {
         FrozenIndexedDataset::from_graph(data)
     };
-    let sparql = SparqlExecutor::from_frozen(frozen, uses_shapes);
+    Ok(SparqlExecutor::from_frozen(frozen, uses_shapes))
+}
+
+/// Witness every `(focus, statement)` that fails, mirroring `validate`'s driver.
+pub fn witness_violations(
+    data: &Graph,
+    schema: &Schema,
+) -> Result<Vec<FocusWitness>, NonStratifiable> {
+    let sparql = prepare(data, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -242,6 +249,99 @@ pub fn witness_violations(
     Ok(out)
 }
 
+/// The arena slot a named shape IRI refers to, if the schema names one. `iri` is
+/// matched bare (no angle brackets), the form stored in [`Schema::names`].
+pub fn shape_id_for_iri(schema: &Schema, iri: &str) -> Option<ShapeId> {
+    schema
+        .names
+        .iter()
+        .find_map(|(id, name)| (name == iri).then_some(*id))
+}
+
+/// Witness only the `(focus, statement)` violations whose statement targets
+/// `shape` — the shape-scoped sibling of [`witness_violations`]. Returns the
+/// *failing* foci with their [`Witness`] trees; passing foci are the domain of
+/// [`satisfy_shape`]. Use [`shape_id_for_iri`] to resolve an IRI to its
+/// `ShapeId`.
+pub fn witness_shape(
+    data: &Graph,
+    schema: &Schema,
+    shape: ShapeId,
+) -> Result<Vec<FocusWitness>, NonStratifiable> {
+    let sparql = prepare(data, schema)?;
+    let backend = sparql
+        .frozen()
+        .expect("witness executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+
+    let mut out = Vec::new();
+    for (i, st) in schema.statements.iter().enumerate() {
+        if st.shape != shape {
+            continue;
+        }
+        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+            let mut stack = Stack::new();
+            if let Some(failure) =
+                witness(&mut evaluator, &v, st.shape, &Path::Id, None, &mut stack)
+            {
+                out.push(FocusWitness {
+                    focus: v,
+                    statement: i,
+                    failure,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Why one focus node *satisfies* one statement: the [`SatTrace`] recording why
+/// `φ` holds, including the values matched along each checked path. The
+/// satisfaction-side dual of [`FocusWitness`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FocusSat {
+    pub focus: Term,
+    /// Index of the satisfied `(selector, shape)` statement in the schema.
+    pub statement: usize,
+    pub trace: SatTrace,
+}
+
+/// Trace every `(focus, statement)` that *holds* for a statement targeting
+/// `shape` — the dual of [`witness_shape`]. Each [`FocusSat`] carries why the
+/// node conforms, down to the values matched along every checked path (see
+/// [`SatTrace`]). Use [`shape_id_for_iri`] to resolve an IRI to its `ShapeId`.
+pub fn satisfy_shape(
+    data: &Graph,
+    schema: &Schema,
+    shape: ShapeId,
+) -> Result<Vec<FocusSat>, NonStratifiable> {
+    let sparql = prepare(data, schema)?;
+    let backend = sparql
+        .frozen()
+        .expect("witness executor always has a frozen dataset");
+    let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
+
+    let mut out = Vec::new();
+    for (i, st) in schema.statements.iter().enumerate() {
+        if st.shape != shape {
+            continue;
+        }
+        for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
+            let mut stack = Stack::new();
+            if let Some(trace) =
+                sat_trace(&mut evaluator, &v, st.shape, &Path::Id, None, &mut stack)
+            {
+                out.push(FocusSat {
+                    focus: v,
+                    statement: i,
+                    trace,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Witness one specific `node` against one specific `shape` (by id) — the building
 /// block for repairing a `ConformsTo` hole: bind it to a node, then witness that
 /// node against the sub-shape and synthesize its repair. Returns `Ok(None)` when
@@ -255,24 +355,7 @@ pub fn witness_node(
     node: &Term,
     shape: ShapeId,
 ) -> Result<Option<FocusWitness>, NonStratifiable> {
-    let strat = analyze(&schema.arena);
-    if !strat.stratifiable {
-        let components = strat
-            .strata
-            .iter()
-            .filter(|s| !s.stratifiable)
-            .map(|s| s.shapes.clone())
-            .collect();
-        return Err(NonStratifiable { components });
-    }
-
-    let uses_shapes = uses_shapes_graph(&schema.arena);
-    let frozen = if uses_shapes {
-        FrozenIndexedDataset::from_graphs(data, data)
-    } else {
-        FrozenIndexedDataset::from_graph(data)
-    };
-    let sparql = SparqlExecutor::from_frozen(frozen, uses_shapes);
+    let sparql = prepare(data, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -870,5 +953,56 @@ mod tests {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         assert!(witness_violations(&loaded.graph, &parsed.schema).is_err());
+    }
+
+    #[test]
+    fn witness_shape_and_satisfy_shape_scope_to_one_shape() {
+        // Two targeted shapes; one focus fails ex:S, one passes ex:S, and a third
+        // node fails an unrelated shape ex:T that the ex:S queries must ignore.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetClass ex:C ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+            ex:T a sh:NodeShape ; sh:targetClass ex:D ;
+                sh:property [ sh:path ex:q ; sh:minCount 1 ] .
+            ex:good a ex:C ; ex:p ex:y .
+            ex:bad  a ex:C .
+            ex:other a ex:D .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let schema = &parsed.schema;
+
+        let s = shape_id_for_iri(schema, "http://ex/S").expect("ex:S is named");
+        assert!(shape_id_for_iri(schema, "http://ex/missing").is_none());
+
+        // Failures: just ex:bad, never the ex:T violation on ex:other.
+        let fails = witness_shape(&loaded.graph, schema, s).expect("stratifiable");
+        assert_eq!(fails.len(), 1);
+        assert_eq!(fails[0].focus.to_string(), "<http://ex/bad>");
+
+        // Satisfactions: just ex:good, with the matched value recorded.
+        let sats = satisfy_shape(&loaded.graph, schema, s).expect("stratifiable");
+        assert_eq!(sats.len(), 1);
+        assert_eq!(sats[0].focus.to_string(), "<http://ex/good>");
+        // ex:good holds because the ex:p count is met by ex:y.
+        assert!(any_sat(&sats[0].trace, &|t| matches!(
+            t,
+            SatTrace::CountHeld { matches, .. } if matches.iter().any(|(v, _)| v.to_string() == "<http://ex/y>")
+        )));
+    }
+
+    /// Does any node in the satisfaction trace satisfy `pred`?
+    fn any_sat(t: &SatTrace, pred: &impl Fn(&SatTrace) -> bool) -> bool {
+        if pred(t) {
+            return true;
+        }
+        match t {
+            SatTrace::AllHeld { children, .. } => children.iter().any(|c| any_sat(c, pred)),
+            SatTrace::AnyHeld { satisfied, .. } => satisfied.iter().any(|c| any_sat(c, pred)),
+            SatTrace::CountHeld { matches, .. } => matches.iter().any(|(_, c)| any_sat(c, pred)),
+            _ => false,
+        }
     }
 }
