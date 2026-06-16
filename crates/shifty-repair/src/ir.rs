@@ -147,9 +147,15 @@ pub enum RepairTree {
         holes: Vec<(Hole, HoleConstraint)>,
     },
     /// Satisfy every child (conjunction).
-    All { id: NodeId, children: Vec<RepairTree> },
+    All {
+        id: NodeId,
+        children: Vec<RepairTree>,
+    },
     /// Satisfy any one child (disjunction).
-    Any { id: NodeId, children: Vec<RepairTree> },
+    Any {
+        id: NodeId,
+        children: Vec<RepairTree>,
+    },
     /// Instantiate `body` between `min` and `max` times (the variadic case).
     Repeat {
         id: NodeId,

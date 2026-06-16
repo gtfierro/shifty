@@ -606,7 +606,9 @@ mod tests {
     fn class_path() -> Path {
         Path::seq(vec![
             Path::Pred(nn("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")),
-            Path::star(Path::Pred(nn("http://www.w3.org/2000/01/rdf-schema#subClassOf"))),
+            Path::star(Path::Pred(nn(
+                "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+            ))),
         ])
     }
 
@@ -622,9 +624,15 @@ mod tests {
             Some(&Term::NamedNode(nn("http://ex/Person")))
         );
         // …and the arena-aware renderer names it instead of printing a bare φ.
-        assert_eq!(selector_to_string_in(&sel, &arena), "class(<http://ex/Person>)");
+        assert_eq!(
+            selector_to_string_in(&sel, &arena),
+            "class(<http://ex/Person>)"
+        );
         // the arena-free renderer still falls back to the φ form.
-        assert_eq!(selector_to_string(&sel), "∃≥1 rdf:type/rdfs:subClassOf* . φ");
+        assert_eq!(
+            selector_to_string(&sel),
+            "∃≥1 rdf:type/rdfs:subClassOf* . φ"
+        );
     }
 
     #[test]

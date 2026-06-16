@@ -7,20 +7,15 @@ const SH_WARNING: &str = "http://www.w3.org/ns/shacl#Warning";
 const SH_VIOLATION: &str = "http://www.w3.org/ns/shacl#Violation";
 
 /// The severity attached to a SHACL shape.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Severity {
     Info,
     Warning,
+    #[default]
     Violation,
     /// A custom SHACL severity. Custom levels are treated as violations when
     /// applying a standard severity threshold.
     Custom(NamedNode),
-}
-
-impl Default for Severity {
-    fn default() -> Self {
-        Self::Violation
-    }
 }
 
 impl Severity {

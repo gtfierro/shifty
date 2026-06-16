@@ -511,7 +511,9 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         };
         match outcome {
             Ok(o) => Some(o),
-            Err(e) => return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into()),
+            Err(e) => {
+                return Err(format!("{e}; cannot infer (see `inspect --stage strata`)").into());
+            }
         }
     };
     let data_graph = inference.as_ref().map_or_else(
@@ -689,7 +691,11 @@ fn render_witness(w: &shifty_engine::Witness, indent: usize) -> Vec<String> {
         } => out.push(format!(
             "{pad}Atom at {node} via {}{}",
             path_str(reached_by),
-            if produced_by.is_some() { " [cuttable]" } else { "" }
+            if produced_by.is_some() {
+                " [cuttable]"
+            } else {
+                ""
+            }
         )),
         W::Relational {
             kind, offending, ..
@@ -698,7 +704,10 @@ fn render_witness(w: &shifty_engine::Witness, indent: usize) -> Vec<String> {
             offending.len()
         )),
         W::Closed { offenders, .. } => {
-            out.push(format!("{pad}Closed: {} disallowed triple(s)", offenders.len()));
+            out.push(format!(
+                "{pad}Closed: {} disallowed triple(s)",
+                offenders.len()
+            ));
             for (p, o) in offenders {
                 out.push(format!("{pad}  - {p} {o}"));
             }
@@ -807,9 +816,7 @@ fn render_tree(t: &shifty_repair::RepairTree, indent: usize) -> Vec<String> {
                 out.extend(render_tree(c, indent + 2));
             }
         }
-        T::Repeat {
-            body, min, max, ..
-        } => {
+        T::Repeat { body, min, max, .. } => {
             let hi = max.map_or_else(|| "∞".to_string(), |m| m.to_string());
             out.push(format!("{pad}Repeat [{min}..{hi}]:"));
             out.extend(render_tree(body, indent + 2));

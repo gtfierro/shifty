@@ -21,12 +21,17 @@ pub mod validate;
 pub mod value;
 pub mod witness;
 
+pub use enumerate::{
+    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
+};
+pub use gate::{RepairOutcome, apply, gate};
 pub use infer::{InferenceOutcome, infer, infer_graphs, infer_with_context};
 pub use report::{
     ValidationReport, ValidationResult, report_to_graph, validate_report, validate_report_graphs,
     validate_report_graphs_with_mode, validate_report_graphs_with_mode_and_options,
     validate_report_with_options,
 };
+pub use synthesize::{synthesize, synthesize_focus};
 pub use validate::{
     NonStratifiable, Reason, ValidationGraphMode, ValidationOptions, ValidationOutcome, Violation,
     focus_nodes, validate, validate_graphs, validate_graphs_with_mode,
@@ -35,14 +40,9 @@ pub use validate::{
     validate_plan_with_context, validate_plan_with_context_and_options, validate_plan_with_options,
     validate_with_context, validate_with_context_and_options, validate_with_options,
 };
-pub use enumerate::{
-    EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
-};
-pub use gate::{RepairOutcome, apply, gate};
-pub use synthesize::{synthesize, synthesize_focus};
 pub use witness::{
-    BlockReason, FocusSat, FocusWitness, PathSupport, RelKind, SatTrace, Witness,
-    satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
+    BlockReason, FocusSat, FocusWitness, PathSupport, RelKind, SatTrace, Witness, satisfy_shape,
+    shape_id_for_iri, witness_node, witness_shape, witness_violations,
 };
 
 #[cfg(test)]

@@ -12,9 +12,7 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, succ};
 use crate::sparql::SparqlExecutor;
-use crate::validate::{
-    NonStratifiable, ShapeEvaluator, focus_nodes_with, uses_shapes_graph,
-};
+use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, uses_shapes_graph};
 use oxrdf::{Graph, NamedNode, Term, Triple};
 use serde::{Deserialize, Serialize};
 use shifty_algebra::{Path, Schema, Shape, ShapeId};
@@ -124,10 +122,7 @@ pub enum Witness {
         per_value: Vec<(Term, Witness)>,
     },
     /// Opaque SPARQL — no algebraic witness.
-    Opaque {
-        shape: ShapeId,
-        node: Term,
-    },
+    Opaque { shape: ShapeId, node: Term },
 }
 
 /// Why `φ` currently *holds* at a node (deletive direction: what to *delete*).
@@ -418,13 +413,13 @@ fn witness(
                 offenders,
             })
         }
-        Shape::Not(c) => sat_trace(eval, node, c, reached_by, produced_by, stack).map(|t| {
-            Witness::Not {
+        Shape::Not(c) => {
+            sat_trace(eval, node, c, reached_by, produced_by, stack).map(|t| Witness::Not {
                 shape: id,
                 node: node.clone(),
                 inner: Box::new(t),
-            }
-        }),
+            })
+        }
         Shape::And(cs) => {
             let failed: Vec<Witness> = cs
                 .iter()
@@ -453,7 +448,9 @@ fn witness(
             min,
             max,
             qualifier,
-        } => count_witness(eval, node, id, &path, min, max, qualifier, reached_by, stack),
+        } => count_witness(
+            eval, node, id, &path, min, max, qualifier, reached_by, stack,
+        ),
         Shape::Sparql(_) => Some(Witness::Opaque {
             shape: id,
             node: node.clone(),
@@ -685,13 +682,13 @@ fn sat_trace(
             node: node.clone(),
             reason: BlockReason::OpaqueSparql,
         }),
-        Shape::Not(c) => witness(eval, node, c, reached_by, produced_by, stack).map(|w| {
-            SatTrace::NotHeld {
+        Shape::Not(c) => {
+            witness(eval, node, c, reached_by, produced_by, stack).map(|w| SatTrace::NotHeld {
                 shape: id,
                 node: node.clone(),
                 inner_fails: Box::new(w),
-            }
-        }),
+            })
+        }
         Shape::And(cs) => {
             // holds ⟹ all children hold.
             let children: Vec<SatTrace> = cs
@@ -811,7 +808,8 @@ fn star_support(g: &dyn PathBackend, from: &Term, p: &Path, to: &Term) -> Option
         return Some(PathSupport::Empty);
     }
     let mut visited: HashSet<Term> = HashSet::from([from.clone()]);
-    let mut queue: VecDeque<(Term, Vec<PathSupport>)> = VecDeque::from([(from.clone(), Vec::new())]);
+    let mut queue: VecDeque<(Term, Vec<PathSupport>)> =
+        VecDeque::from([(from.clone(), Vec::new())]);
     while let Some((cur, chain)) = queue.pop_front() {
         for next in succ(g, &cur, p) {
             let Some(edge) = path_support(g, &cur, p, &next) else {
@@ -856,9 +854,7 @@ mod tests {
         match w {
             Witness::All { failed, .. } => failed.iter().any(|c| any(c, pred)),
             Witness::Any { branches, .. } => branches.iter().any(|c| any(c, pred)),
-            Witness::CountHigh { per_value, .. } => {
-                per_value.iter().any(|(_, c)| any(c, pred))
-            }
+            Witness::CountHigh { per_value, .. } => per_value.iter().any(|(_, c)| any(c, pred)),
             _ => false,
         }
     }
@@ -889,7 +885,11 @@ mod tests {
         assert_eq!(ws[0].focus.to_string(), "<http://ex/x>");
         assert!(any(&ws[0].failure, &|w| matches!(
             w,
-            Witness::CountLow { have: 1, min: 2, .. }
+            Witness::CountLow {
+                have: 1,
+                min: 2,
+                ..
+            }
         )));
     }
 
@@ -907,7 +907,10 @@ mod tests {
         // The bad value is reached via ex:p, so its atom carries a cut edge.
         assert!(any(&ws[0].failure, &|w| matches!(
             w,
-            Witness::Atom { produced_by: Some(PathSupport::Edge(_)), .. }
+            Witness::Atom {
+                produced_by: Some(PathSupport::Edge(_)),
+                ..
+            }
         )));
     }
 

@@ -7,9 +7,7 @@
 //! library computes and gates; **it decides nothing**. No canned repair loop is
 //! shipped here — the driver is yours to write in Python.
 
-use crate::{
-    InputSpec, graph_to_ntriples, py_value_error, violation_to_py, Violation,
-};
+use crate::{InputSpec, Violation, graph_to_ntriples, py_value_error, violation_to_py};
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
@@ -55,7 +53,12 @@ fn edit_str(e: &Edit) -> String {
         EditOp::Add(p) => ("add", p),
         EditOp::Delete(p) => ("del", p),
     };
-    format!("{sign} {} {} {}", slot_str(&p.s), slot_str(&p.p), slot_str(&p.o))
+    format!(
+        "{sign} {} {} {}",
+        slot_str(&p.s),
+        slot_str(&p.p),
+        slot_str(&p.o)
+    )
 }
 
 fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
@@ -69,14 +72,23 @@ fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
         } => out.push(format!(
             "{pad}Atom at {node} via {}{}",
             path_str(reached_by),
-            if produced_by.is_some() { " [cuttable]" } else { "" }
+            if produced_by.is_some() {
+                " [cuttable]"
+            } else {
+                ""
+            }
         )),
-        Witness::Relational { kind, offending, .. } => out.push(format!(
+        Witness::Relational {
+            kind, offending, ..
+        } => out.push(format!(
             "{pad}Relational {kind:?}: {} offending pair(s)",
             offending.len()
         )),
         Witness::Closed { offenders, .. } => {
-            out.push(format!("{pad}Closed: {} disallowed triple(s)", offenders.len()));
+            out.push(format!(
+                "{pad}Closed: {} disallowed triple(s)",
+                offenders.len()
+            ));
             for (p, o) in offenders {
                 out.push(format!("{pad}  - {p} {o}"));
             }
@@ -97,7 +109,9 @@ fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
                 render_witness(b, indent + 2, out);
             }
         }
-        Witness::CountLow { path, have, min, .. } => out.push(format!(
+        Witness::CountLow {
+            path, have, min, ..
+        } => out.push(format!(
             "{pad}CountLow along {}: have {have}, need {min}",
             path_str(path)
         )),
@@ -118,9 +132,7 @@ fn render_witness(w: &Witness, indent: usize, out: &mut Vec<String>) {
                 render_witness(sub, indent + 4, out);
             }
         }
-        Witness::Opaque { .. } => {
-            out.push(format!("{pad}Opaque (SPARQL) — no algebraic witness"))
-        }
+        Witness::Opaque { .. } => out.push(format!("{pad}Opaque (SPARQL) — no algebraic witness")),
     }
 }
 
@@ -151,9 +163,7 @@ fn render_sat(s: &SatTrace, indent: usize, out: &mut Vec<String>) {
             render_witness(inner_fails, indent + 2, out);
         }
         SatTrace::Blocked { reason, .. } => out.push(format!("{pad}Blocked: {reason:?}")),
-        SatTrace::Coinductive { .. } => {
-            out.push(format!("{pad}Coinductive (gfp back-edge)"))
-        }
+        SatTrace::Coinductive { .. } => out.push(format!("{pad}Coinductive (gfp back-edge)")),
     }
 }
 
@@ -226,13 +236,21 @@ pub struct WitnessAtom {
 #[pymethods]
 impl WitnessAtom {
     fn __repr__(&self) -> String {
-        format!("WitnessAtom(kind={:?}, detail={:?})", self.kind, self.detail)
+        format!(
+            "WitnessAtom(kind={:?}, detail={:?})",
+            self.kind, self.detail
+        )
     }
 }
 
 fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
     match w {
-        Witness::Atom { node, reached_by, produced_by, .. } => out.push(WitnessAtom {
+        Witness::Atom {
+            node,
+            reached_by,
+            produced_by,
+            ..
+        } => out.push(WitnessAtom {
             kind: WitnessKind::Atom,
             path: Some(path_str(reached_by)),
             value: Some(node.to_string()),
@@ -242,25 +260,45 @@ fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
                 "value-type test failed on the focus".into()
             },
         }),
-        Witness::Relational { kind, node, offending, .. } => out.push(WitnessAtom {
+        Witness::Relational {
+            kind,
+            node,
+            offending,
+            ..
+        } => out.push(WitnessAtom {
             kind: WitnessKind::Relational,
             path: None,
             value: Some(node.to_string()),
             detail: format!("{kind:?}: {} offending pair(s)", offending.len()),
         }),
-        Witness::Closed { node, offenders, .. } => out.push(WitnessAtom {
+        Witness::Closed {
+            node, offenders, ..
+        } => out.push(WitnessAtom {
             kind: WitnessKind::Closed,
             path: None,
             value: Some(node.to_string()),
             detail: format!("{} disallowed triple(s)", offenders.len()),
         }),
-        Witness::CountLow { node, path, have, min, .. } => out.push(WitnessAtom {
+        Witness::CountLow {
+            node,
+            path,
+            have,
+            min,
+            ..
+        } => out.push(WitnessAtom {
             kind: WitnessKind::CountLow,
             path: Some(path_str(path)),
             value: Some(node.to_string()),
             detail: format!("have {have}, need {min}"),
         }),
-        Witness::CountHigh { node, path, matched, max, per_value, .. } => {
+        Witness::CountHigh {
+            node,
+            path,
+            matched,
+            max,
+            per_value,
+            ..
+        } => {
             out.push(WitnessAtom {
                 kind: WitnessKind::CountHigh,
                 path: Some(path_str(path)),
@@ -341,13 +379,21 @@ fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
     match s {
         // Vacuously true: nothing was checked, nothing to surface.
         SatTrace::Irrefutable { .. } => {}
-        SatTrace::Atom { node, reached_by, .. } => out.push(SatAtom {
+        SatTrace::Atom {
+            node, reached_by, ..
+        } => out.push(SatAtom {
             kind: SatKind::Atom,
             path: Some(path_str(reached_by)),
             value: Some(node.to_string()),
             detail: "value-type test holds".into(),
         }),
-        SatTrace::CountHeld { path, matches, min, max, .. } => {
+        SatTrace::CountHeld {
+            path,
+            matches,
+            min,
+            max,
+            ..
+        } => {
             let bounds = match (min, max) {
                 (Some(lo), Some(hi)) => format!("[{lo}..{hi}]"),
                 (Some(lo), None) => format!("[{lo}..]"),
@@ -425,13 +471,20 @@ pub struct RepairSession {
 
 impl RepairSession {
     fn from_parts(schema: Arc<Schema>, data: Arc<Graph>, diagnostics: Vec<String>) -> Self {
-        Self { schema, data, diagnostics }
+        Self {
+            schema,
+            data,
+            diagnostics,
+        }
     }
 
     /// Resolve a shape IRI (angle brackets optional) to its arena slot, erroring
     /// if the schema names no such shape. Shared by the shape-scoped queries.
     fn resolve_shape(&self, shape_iri: &str) -> PyResult<ShapeId> {
-        let iri = shape_iri.trim().trim_start_matches('<').trim_end_matches('>');
+        let iri = shape_iri
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>');
         shape_id_for_iri(&self.schema, iri)
             .ok_or_else(|| py_value_error(format!("no shape named <{iri}> in the schema")))
     }
@@ -473,11 +526,19 @@ impl RepairSession {
         py.allow_threads(move || {
             let shapes_loaded = shapes_spec.load(base.as_deref())?;
             let parse_out = shifty_parse::parse_loaded(&shapes_loaded);
-            let diagnostics = parse_out.diagnostics.iter().map(ToString::to_string).collect();
+            let diagnostics = parse_out
+                .diagnostics
+                .iter()
+                .map(ToString::to_string)
+                .collect();
             let schema = parse_out.schema;
 
-            let data_loaded = data_spec.map(|spec| spec.load(base.as_deref())).transpose()?;
-            let base_data = data_loaded.as_ref().map_or(&shapes_loaded.graph, |d| &d.graph);
+            let data_loaded = data_spec
+                .map(|spec| spec.load(base.as_deref()))
+                .transpose()?;
+            let base_data = data_loaded
+                .as_ref()
+                .map_or(&shapes_loaded.graph, |d| &d.graph);
 
             // Mirror the CLI: run SHACL-AF inference before witnessing.
             let eval = if run_infer && !schema.rules.is_empty() {
@@ -607,7 +668,9 @@ impl RepairSession {
         let sound = outcome.is_sound();
         let progress = outcome.is_progress();
         let to_py = |vs: &[shifty_engine::Violation]| -> PyResult<Vec<Py<Violation>>> {
-            vs.iter().map(|v| violation_to_py(py, v, &self.schema)).collect()
+            vs.iter()
+                .map(|v| violation_to_py(py, v, &self.schema))
+                .collect()
         };
         Ok(RepairOutcome {
             is_sound: sound,
@@ -792,7 +855,10 @@ impl FocusWitness {
     /// predicate / node it picks out, …) — the inspectable form of `.target`.
     #[getter]
     fn selector(&self) -> Target {
-        build_target(&self.schema.statements[self.statement].selector, &self.schema)
+        build_target(
+            &self.schema.statements[self.statement].selector,
+            &self.schema,
+        )
     }
 
     /// The failing leaves, flattened (AND/OR structure dropped; see `explain`).
@@ -812,7 +878,10 @@ impl FocusWitness {
     /// Synthesize the repair space (`RepairTree`) for this violation.
     fn repair_tree(&self, py: Python<'_>) -> RepairTree {
         let tree = py.allow_threads(|| synthesize(&self.schema.arena, &self.inner));
-        RepairTree { inner: tree, data: Arc::clone(&self.data) }
+        RepairTree {
+            inner: tree,
+            data: Arc::clone(&self.data),
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -846,7 +915,10 @@ impl FocusSatisfaction {
     /// `.target`, identical to the witness side for the same statement.
     #[getter]
     fn selector(&self) -> Target {
-        build_target(&self.schema.statements[self.statement].selector, &self.schema)
+        build_target(
+            &self.schema.statements[self.statement].selector,
+            &self.schema,
+        )
     }
 
     /// The satisfying leaves, flattened: one [`SatAtom`] per matched value /
@@ -927,11 +999,7 @@ impl RepairTree {
     /// open. A pure operation — never validates, never chooses.
     fn instantiate(&self, plan: &RepairPlan) -> Instantiated {
         let inst = instantiate(&self.inner, &plan.inner);
-        let open_holes = inst
-            .open_holes
-            .into_iter()
-            .map(|(h, c)| (h.0, c))
-            .collect();
+        let open_holes = inst.open_holes.into_iter().map(|(h, c)| (h.0, c)).collect();
         let open_choices = inst.open_choices.into_iter().map(|n| n.0).collect();
         Instantiated {
             delta: inst.delta,
@@ -1136,7 +1204,9 @@ impl Instantiated {
     /// The concrete graph delta resolved so far.
     #[getter]
     fn delta(&self) -> RepairDelta {
-        RepairDelta { inner: self.delta.clone() }
+        RepairDelta {
+            inner: self.delta.clone(),
+        }
     }
 
     /// Holes still needing a binding, as `Hole` objects (with live `candidates`).
@@ -1242,7 +1312,11 @@ impl RepairDelta {
 }
 
 fn triple_strs(t: &oxrdf::Triple) -> (String, String, String) {
-    (t.subject.to_string(), t.predicate.to_string(), t.object.to_string())
+    (
+        t.subject.to_string(),
+        t.predicate.to_string(),
+        t.object.to_string(),
+    )
 }
 
 /// The gate's verdict on a `ΔG`: which violations it fixes, introduces, or leaves.

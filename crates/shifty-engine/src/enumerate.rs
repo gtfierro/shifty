@@ -58,7 +58,15 @@ pub fn enumerate_repair(
     let mut choices = HashMap::new();
     index_choices(tree, &mut choices);
     let mut budget = opts.budget;
-    solve(tree, data, schema, &choices, Plan::default(), &mut budget, opts)
+    solve(
+        tree,
+        data,
+        schema,
+        &choices,
+        Plan::default(),
+        &mut budget,
+        opts,
+    )
 }
 
 /// The outcome of repairing a graph to a fixpoint.
@@ -298,8 +306,8 @@ mod tests {
         let ws = witness_violations(&loaded.graph, &parsed.schema).unwrap();
         assert_eq!(ws.len(), 1);
         let tree = synthesize(&parsed.schema.arena, &ws[0]);
-        let sol = enumerate_repair(&tree, &loaded.graph, &parsed.schema, EnumOptions::default())
-            .unwrap();
+        let sol =
+            enumerate_repair(&tree, &loaded.graph, &parsed.schema, EnumOptions::default()).unwrap();
         (sol, parsed.schema, loaded.graph)
     }
 
@@ -350,7 +358,9 @@ mod tests {
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         // baseline: two violations.
         assert_eq!(
-            witness_violations(&loaded.graph, &parsed.schema).unwrap().len(),
+            witness_violations(&loaded.graph, &parsed.schema)
+                .unwrap()
+                .len(),
             2
         );
         let result =
@@ -376,6 +386,9 @@ mod tests {
             "
         );
         let (sol, _, _) = repair(&ttl);
-        assert!(sol.is_none(), "no integer to reuse ⇒ enumeration finds nothing");
+        assert!(
+            sol.is_none(),
+            "no integer to reuse ⇒ enumeration finds nothing"
+        );
     }
 }

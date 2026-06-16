@@ -11,7 +11,9 @@
 //! constraint), deferring structural expansion to the driver. So this cut needs no
 //! fuel: the recursion bottoms out at the witness/trace leaves.
 
-use crate::witness::{BlockReason as WBlock, FocusWitness, PathSupport, RelKind, SatTrace, Witness};
+use crate::witness::{
+    BlockReason as WBlock, FocusWitness, PathSupport, RelKind, SatTrace, Witness,
+};
 use oxrdf::{NamedOrBlankNode, Term, Triple};
 use shifty_algebra::{Path, Shape, ShapeArena, ShapeId};
 use shifty_repair::{
@@ -126,9 +128,7 @@ impl<'a> Synth<'a> {
     fn repair(&mut self, w: &Witness) -> RepairTree {
         match w {
             Witness::Atom {
-                shape,
-                produced_by,
-                ..
+                shape, produced_by, ..
             } => self.repair_atom(*shape, produced_by.as_ref()),
             Witness::Relational {
                 kind,
@@ -137,7 +137,9 @@ impl<'a> Synth<'a> {
                 offending,
                 ..
             } => self.repair_relational(*kind, lhs, rhs, offending),
-            Witness::Closed { node, offenders, .. } => {
+            Witness::Closed {
+                node, offenders, ..
+            } => {
                 let edits = offenders
                     .iter()
                     .map(|(p, o)| {
@@ -218,7 +220,9 @@ impl<'a> Synth<'a> {
         offending: &[(Term, Term)],
     ) -> RepairTree {
         match kind {
-            RelKind::Eq => self.blocked(BlockReason::Unsupported("sh:equals reconciliation".into())),
+            RelKind::Eq => {
+                self.blocked(BlockReason::Unsupported("sh:equals reconciliation".into()))
+            }
             RelKind::Disj => {
                 // shared value: delete it from the lhs path or the rhs predicate.
                 let parts = offending
@@ -284,10 +288,14 @@ impl<'a> Synth<'a> {
         // plain maxCount: delete (have - max) of the matched values.
         let d = (matched.len() as u64).saturating_sub(max);
         if d == 0 {
-            return self.blocked(BlockReason::Unsupported("maxCount: nothing to delete".into()));
+            return self.blocked(BlockReason::Unsupported(
+                "maxCount: nothing to delete".into(),
+            ));
         }
         let Path::Pred(p) = path else {
-            return self.blocked(BlockReason::Unsupported("maxCount over a compound path".into()));
+            return self.blocked(BlockReason::Unsupported(
+                "maxCount over a compound path".into(),
+            ));
         };
         let hole = self.hole();
         let values: Vec<Term> = matched.iter().map(|(v, _)| v.clone()).collect();
@@ -324,12 +332,7 @@ impl<'a> Synth<'a> {
     /// `Star` — the last reflexively, which is what makes `sh:class` buildable:
     /// `rdf:type/rdfs:subClassOf*` materializes to `subject rdf:type ?vh` (a value
     /// bound to the class `C`, since `C subClassOf* C`).
-    fn materialize_path(
-        &mut self,
-        subject: Term,
-        path: &Path,
-        vh: Hole,
-    ) -> Option<Materialized> {
+    fn materialize_path(&mut self, subject: Term, path: &Path, vh: Hole) -> Option<Materialized> {
         match path {
             Path::Pred(p) => Some((
                 vec![Edit::add(TriplePattern::new(
@@ -453,7 +456,9 @@ impl<'a> Synth<'a> {
                     let cs = matches.iter().map(|(_, t)| self.break_(t)).collect();
                     self.all(cs)
                 } else {
-                    self.blocked(BlockReason::Unsupported("falsify maxCount needs adds".into()))
+                    self.blocked(BlockReason::Unsupported(
+                        "falsify maxCount needs adds".into(),
+                    ))
                 }
             }
             SatTrace::NotHeld { inner_fails, .. } => self.repair(inner_fails),
@@ -510,7 +515,7 @@ mod tests {
     use super::*;
     use crate::witness::witness_violations;
     use shifty_parse::{load_turtle, parse_turtle};
-    use shifty_repair::{instantiate, Plan};
+    use shifty_repair::{Plan, instantiate};
 
     const PREFIXES: &str = r#"
         @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -550,7 +555,10 @@ mod tests {
         assert_eq!(disc.open_holes.len(), 1);
         let (hole, _) = disc.open_holes[0].clone();
         let mut bound = plan;
-        bound.binding.insert(hole, Term::NamedNode(oxrdf::NamedNode::new("http://ex/z").unwrap()));
+        bound.binding.insert(
+            hole,
+            Term::NamedNode(oxrdf::NamedNode::new("http://ex/z").unwrap()),
+        );
         let out = instantiate(&tree, &bound);
         assert_eq!(out.delta.add.len(), 1);
         assert!(out.open_holes.is_empty());
@@ -573,10 +581,13 @@ mod tests {
         assert_eq!(disc.open_holes.len(), 1, "one replacement hole");
         let (hole, constraint) = disc.open_holes[0].clone();
         assert!(matches!(constraint, HoleConstraint::Typed(_)));
-        plan.binding.insert(hole, Term::from(oxrdf::Literal::new_typed_literal(
-            "7",
-            oxrdf::vocab::xsd::INTEGER,
-        )));
+        plan.binding.insert(
+            hole,
+            Term::from(oxrdf::Literal::new_typed_literal(
+                "7",
+                oxrdf::vocab::xsd::INTEGER,
+            )),
+        );
         let out = instantiate(&tree, &plan);
         assert_eq!(out.delta.delete.len(), 1, "deletes the bad value");
         assert_eq!(out.delta.add.len(), 1, "adds a good one");
@@ -623,10 +634,13 @@ mod tests {
         };
         // bind the part hole to a fresh node, then build that node against PartShape.
         let parent_hole = {
-            let disc = instantiate(&parent, &Plan {
-                count: std::collections::HashMap::from([(parent.id(), 1)]),
-                ..Default::default()
-            });
+            let disc = instantiate(
+                &parent,
+                &Plan {
+                    count: std::collections::HashMap::from([(parent.id(), 1)]),
+                    ..Default::default()
+                },
+            );
             disc.open_holes[0].clone()
         };
         // Find PartShape's id via the ConformsTo constraint, build the node.
@@ -639,14 +653,23 @@ mod tests {
                 .unwrap()
                 .expect("fresh node fails PartShape");
         let sub = synthesize(&parsed.schema.arena, &sub_fw);
-        assert!(!sub.is_blocked(), "class build must not be blocked: {sub:?}");
+        assert!(
+            !sub.is_blocked(),
+            "class build must not be blocked: {sub:?}"
+        );
         // instantiate the sub-build: one Repeat instance; the value hole is Const(Widget).
-        let disc = instantiate(&sub, &Plan {
-            count: std::collections::HashMap::from([(sub.id(), 1)]),
-            ..Default::default()
-        });
+        let disc = instantiate(
+            &sub,
+            &Plan {
+                count: std::collections::HashMap::from([(sub.id(), 1)]),
+                ..Default::default()
+            },
+        );
         let (h, c) = disc.open_holes[0].clone();
-        assert!(matches!(c, HoleConstraint::Const(_)), "type hole is Const(C): {c:?}");
+        assert!(
+            matches!(c, HoleConstraint::Const(_)),
+            "type hole is Const(C): {c:?}"
+        );
         plan.count.insert(sub.id(), 1);
         plan.binding.insert(
             h,

@@ -1,9 +1,9 @@
 //! Evaluation of value types `test(τ)` and the term ordering used by
 //! `sh:lessThan`, ranges, etc. Naive reference semantics.
 
+use bigdecimal::BigDecimal;
 use oxrdf::vocab::xsd;
 use oxrdf::{Literal, NamedNodeRef, Term};
-use bigdecimal::BigDecimal;
 use oxsdatatypes::{
     Boolean, Date, DateTime, DayTimeDuration, Double, Duration, Float, Time, YearMonthDuration,
 };
@@ -427,7 +427,9 @@ mod tests {
 
     #[test]
     fn decimal_lexical_forms() {
-        assert!(is_decimal_lexical("0.0004719474432000000000000000000000001"));
+        assert!(is_decimal_lexical(
+            "0.0004719474432000000000000000000000001"
+        ));
         assert!(is_decimal_lexical("123"));
         assert!(is_decimal_lexical("-1.5"));
         assert!(is_decimal_lexical("+.5"));
@@ -457,13 +459,19 @@ mod tests {
         // to double, so decimal 0.1 and double 0.1 round to the same f64 and
         // compare equal rather than on their exact (differing) values.
         let double = lit("0.1", "http://www.w3.org/2001/XMLSchema#double");
-        assert_eq!(compare_terms(&decimal("0.1"), &double), Some(Ordering::Equal));
+        assert_eq!(
+            compare_terms(&decimal("0.1"), &double),
+            Some(Ordering::Equal)
+        );
     }
 
     #[test]
     fn double_comparisons_still_order_and_handle_nan() {
         let inf = lit("INF", "http://www.w3.org/2001/XMLSchema#double");
-        assert_eq!(compare_terms(&decimal("1000000000"), &inf), Some(Ordering::Less));
+        assert_eq!(
+            compare_terms(&decimal("1000000000"), &inf),
+            Some(Ordering::Less)
+        );
         let nan = lit("NaN", "http://www.w3.org/2001/XMLSchema#double");
         assert_eq!(compare_terms(&decimal("1"), &nan), None);
     }
@@ -471,8 +479,14 @@ mod tests {
     #[test]
     fn large_integers_compare_exactly() {
         // Both round to the same f64 (> 2^53) but are distinct integers.
-        let a = lit("9007199254740993", "http://www.w3.org/2001/XMLSchema#integer");
-        let b = lit("9007199254740992", "http://www.w3.org/2001/XMLSchema#integer");
+        let a = lit(
+            "9007199254740993",
+            "http://www.w3.org/2001/XMLSchema#integer",
+        );
+        let b = lit(
+            "9007199254740992",
+            "http://www.w3.org/2001/XMLSchema#integer",
+        );
         assert_eq!(compare_terms(&a, &b), Some(Ordering::Greater));
     }
 

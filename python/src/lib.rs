@@ -883,6 +883,7 @@ impl PreparedValidator {
         minimum_severity="info",
         sort_results=true
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn validate_algebra(
         &self,
         py: Python<'_>,
@@ -926,6 +927,7 @@ impl PreparedValidator {
         minimum_severity="info",
         sort_results=true
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn validate_w3c(
         &self,
         py: Python<'_>,
