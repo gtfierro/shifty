@@ -33,6 +33,7 @@ shifty-repair = { path = "crates/shifty-repair", version = "0.1.1" }
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 oxsdatatypes = "0.2.2"
+bigdecimal = "0.4"
 oxttl = "0.2.3"
 oxigraph = { version = "0.5.5", default-features = false }
 spargebra = { version = "=0.4.6", features = ["sep-0006"] }

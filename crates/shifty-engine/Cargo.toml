@@ -14,6 +14,7 @@ shifty-opt.workspace = true
 shifty-repair.workspace = true
 oxrdf.workspace = true
 oxsdatatypes.workspace = true
+bigdecimal.workspace = true
 oxigraph.workspace = true
 spargebra.workspace = true
 spareval.workspace = true
