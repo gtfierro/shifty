@@ -47,11 +47,28 @@ from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 
 from ._shifty import (
     AlgebraResult,
+    Choice,
+    ChoiceKind,
+    FocusSatisfaction,
+    FocusWitness,
+    Hole,
+    SatAtom,
+    SatKind,
     InferResult as _RustInferResult,
+    Instantiated,
     PreparedValidator as _RustPreparedValidator,
     Reason,
+    RepairDelta,
+    RepairOutcome,
+    RepairPlan,
+    RepairSession as _RustRepairSession,
+    RepairTree,
+    Target,
+    TargetKind,
     Violation,
     W3cResult,
+    WitnessAtom,
+    WitnessKind,
     _infer,
     _validate_algebra,
     _validate_w3c,
@@ -69,6 +86,25 @@ __all__ = [
     "Reason",
     "InferResult",
     "PreparedValidator",
+    # ── symbolic repair ──
+    "RepairSession",
+    "RepairPlan",
+    "FocusWitness",
+    "FocusSatisfaction",
+    "Target",
+    "TargetKind",
+    "WitnessAtom",
+    "WitnessKind",
+    "SatAtom",
+    "SatKind",
+    "RepairTree",
+    "Hole",
+    "Choice",
+    "ChoiceKind",
+    "Instantiated",
+    "RepairDelta",
+    "RepairOutcome",
+    "delta_from_graph",
 ]
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
@@ -220,6 +256,179 @@ class PreparedValidator:
         return repr(self._inner)
 
 
+def _to_ntriples(graph: "Optional[GraphInput]") -> str:
+    """Serialize a subgraph to N-Triples. Accepts an rdflib.Graph or Turtle text."""
+    if graph is None:
+        return ""
+    import rdflib
+
+    if isinstance(graph, rdflib.Graph):
+        return graph.serialize(format="nt")
+    if isinstance(graph, (str, bytes)):
+        g = rdflib.Graph()
+        g.parse(data=graph, format="turtle")
+        return g.serialize(format="nt")
+    raise TypeError(
+        f"expected rdflib.Graph or Turtle text, got {type(graph).__name__!r}"
+    )
+
+
+def delta_from_graph(
+    add: "Optional[GraphInput]" = None,
+    delete: "Optional[GraphInput]" = None,
+) -> RepairDelta:
+    """Build a :class:`RepairDelta` from hand-authored subgraph(s).
+
+    Lets a driver propose a *subgraph* patch — e.g. a new node together with its
+    type assertion and properties — instead of binding a single hole. Pass an
+    :class:`rdflib.Graph` or Turtle text for the triples to ``add`` and/or
+    ``delete``. The result gates and applies exactly like a synthesized delta, so
+    :meth:`RepairSession.gate` still rejects a patch that doesn't make sound
+    progress.
+    """
+    return RepairDelta.from_ntriples(_to_ntriples(add), _to_ntriples(delete))
+
+
+class RepairSession:
+    """Inspect and drive symbolic repair of a data graph.
+
+    A session binds a shapes graph and a data graph (running SHACL-AF inference
+    first, like :func:`validate`). It exposes the repair *primitives* so you can
+    build your own driver: enumerate the violation horizon by focus node, inspect
+    each violation's repair tree (its holes and decision points), enumerate
+    candidate bindings, fold your own choices into a concrete delta, gate it, and
+    apply it. **The library decides nothing** — every choice is yours.
+
+    Typical loop::
+
+        session = shifty.RepairSession(shapes, data)
+        while True:
+            ws = session.witnesses()
+            if not ws:
+                break                      # conforms
+            fw = ws[0]                     # your focus-ordering policy
+            tree = fw.repair_tree()
+            plan = shifty.RepairPlan()
+            for hole in tree.holes():
+                plan.bind(hole.id, hole.candidates(limit=8)[0])   # your choice
+            inst = tree.instantiate(plan)
+            outcome = session.gate(inst.delta)
+            if outcome.is_progress:
+                session = session.advance(inst.delta)   # accept, re-witness
+            else:
+                break                       # reject; pick differently
+
+    Parameters
+    ----------
+    shacl_graph:
+        SHACL shapes graph (Turtle/N-Triples path, ``rdflib.Graph``, ``str``, or
+        ``bytes``).
+    data_graph:
+        Data graph to repair. If ``None``, shapes are taken to embed the data
+        (standard SHACL pattern), matching the CLI's ``repair`` with no
+        ``--data``.
+    infer:
+        Run SHACL-AF rules before witnessing (default ``True``).
+    base:
+        Base IRI for resolving relative IRIs.
+    """
+
+    def __init__(
+        self,
+        shacl_graph: GraphInput,
+        data_graph: Optional[GraphInput] = None,
+        *,
+        infer: bool = True,
+        base: Optional[str] = None,
+    ) -> None:
+        shapes = _to_rdf_input(shacl_graph)
+        data = (
+            _to_rdf_input(data_graph)
+            if data_graph is not None
+            else _RdfInput(None, None, "turtle")
+        )
+        self._inner = _RustRepairSession(
+            shapes.data,
+            shapes.path,
+            shapes.format,
+            data.data,
+            data.path,
+            data.format,
+            infer,
+            base,
+        )
+
+    @classmethod
+    def _wrap(cls, inner: _RustRepairSession) -> "RepairSession":
+        self = cls.__new__(cls)
+        self._inner = inner
+        return self
+
+    @property
+    def diagnostics(self) -> list[str]:
+        """Warnings produced while lowering the shapes graph."""
+        return self._inner.diagnostics
+
+    def witnesses(self) -> list[FocusWitness]:
+        """The violation horizon: one :class:`FocusWitness` per failing
+        ``(focus node, statement)``. Empty ⟺ the graph conforms."""
+        return self._inner.witnesses()
+
+    def witnesses_for(self, shape_iri: str) -> list[FocusWitness]:
+        """The violation horizon for a single shape: one :class:`FocusWitness`
+        per failing ``(focus node, statement)`` whose statement targets
+        ``shape_iri`` (matched against the schema's shape IRIs; angle brackets
+        optional). The shape-scoped counterpart of :meth:`witnesses`; its
+        satisfaction-side dual is :meth:`satisfactions_for`. Raises
+        :class:`ValueError` if no shape is named ``shape_iri``."""
+        return self._inner.witnesses_for(shape_iri)
+
+    def satisfactions_for(self, shape_iri: str) -> list["FocusSatisfaction"]:
+        """The satisfaction horizon for a single shape: one
+        :class:`FocusSatisfaction` per *passing* ``(focus node, statement)``
+        whose statement targets ``shape_iri`` — the dual of
+        :meth:`witnesses_for`. Each entry records why the focus conforms,
+        including the values matched along every checked path. Raises
+        :class:`ValueError` if no shape is named ``shape_iri``."""
+        return self._inner.satisfactions_for(shape_iri)
+
+    def gate(self, delta: RepairDelta) -> RepairOutcome:
+        """Re-validate ``G ⊕ ΔG`` and diff the violations against ``G`` — sound
+        iff it introduces nothing. Decides and applies nothing."""
+        return self._inner.gate(delta)
+
+    def apply(self, delta: RepairDelta) -> "rdflib.Graph":
+        """Materialize ``G ⊕ ΔG`` as a fresh :class:`rdflib.Graph`."""
+        import rdflib
+
+        g = rdflib.Graph()
+        g.parse(data=self._inner.apply_ntriples(delta), format="nt")
+        return g
+
+    def to_graph(self) -> "rdflib.Graph":
+        """The session's current graph as an :class:`rdflib.Graph` — ``G`` with
+        every accepted ``ΔG`` (via :meth:`advance`) already applied."""
+        import rdflib
+
+        g = rdflib.Graph()
+        g.parse(data=self._inner.current_ntriples(), format="nt")
+        return g
+
+    def advance(self, delta: RepairDelta) -> "RepairSession":
+        """A *new* session over ``G ⊕ ΔG`` (same schema, no re-inference) so you
+        can accept a repair and re-witness from the patched graph."""
+        return RepairSession._wrap(self._inner.advance(delta))
+
+    def repair_node_against(self, node: str, shape_id: int) -> "Optional[RepairTree]":
+        """Synthesize a tree that makes ``node`` conform to sub-shape ``shape_id``
+        — the building block for repairing a ``conforms to @N`` hole (see
+        :attr:`Hole.conforms_to`). Returns ``None`` if the node already conforms."""
+        return self._inner.repair_node_against(node, shape_id)
+
+    def __repr__(self) -> str:
+        return repr(self._inner)
+
+
 def validate(
     data_graph: GraphInput,
     shacl_graph: Optional[GraphInput] = None,
@@ -292,6 +501,7 @@ def validate_algebra(
     graph_mode: str = "union",
     infer: bool = True,
     minimum_severity: str = "info",
+    sort_results: bool = True,
     base: Optional[str] = None,
 ) -> AlgebraResult:
     """Validate and return a structured algebraic result.

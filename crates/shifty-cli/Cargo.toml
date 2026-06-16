@@ -16,6 +16,7 @@ shifty-algebra.workspace = true
 shifty-parse.workspace = true
 shifty-opt.workspace = true
 shifty-engine.workspace = true
+shifty-repair.workspace = true
 clap.workspace = true
 env_logger.workspace = true
 log.workspace = true

@@ -76,6 +76,16 @@ impl<'a> ShapeEvaluator<'a> {
     pub(crate) fn sparql(&self) -> &SparqlExecutor {
         self.sparql
     }
+
+    /// The path-evaluation backend, for sibling folds (e.g. witnessing).
+    pub(crate) fn backend(&self) -> &dyn PathBackend {
+        self.g
+    }
+
+    /// The shape arena, for sibling folds (e.g. witnessing).
+    pub(crate) fn arena(&self) -> &ShapeArena {
+        self.arena
+    }
 }
 
 impl Drop for ShapeEvaluator<'_> {
@@ -384,7 +394,7 @@ fn validate_with_frozen(
 
 /// Whether any `sh:sparql` constraint references `$shapesGraph`, requiring the
 /// shapes graph to be mirrored into a named graph for evaluation.
-fn uses_shapes_graph(arena: &ShapeArena) -> bool {
+pub(crate) fn uses_shapes_graph(arena: &ShapeArena) -> bool {
     (0..arena.len()).any(|i| {
         matches!(arena.get(ShapeId(i as u32)), Shape::Sparql(c) if c.query.contains("shapesGraph"))
     })

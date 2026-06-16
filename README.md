@@ -274,6 +274,54 @@ print(result.inferred_count)    # number of newly derived triples
 g = result.graph()              # rdflib.Graph with original + inferred data
 ```
 
+### Repair (drive your own loop)
+
+`RepairSession` exposes the symbolic-repair primitives so you can build your own
+repair driver: enumerate the violation horizon by focus node, inspect each
+violation's repair tree (holes + decision points), enumerate candidate bindings,
+fold your own choices into a delta, gate it, and apply it. The library computes
+and gates; **every choice is yours** — no repair loop is made for you.
+
+```python
+session = shifty.RepairSession(shapes, data)   # SHACL-AF inference runs first
+
+while True:
+    witnesses = session.witnesses()            # the horizon, by focus node
+    if not witnesses:
+        break                                  # conforms
+    fw = witnesses[0]                          # your focus-ordering policy
+    print(fw.target)                           # what targeted this node
+    for atom in fw.summary():                  # flat failing leaves
+        print(atom.kind, atom.detail)
+    # fw.explain()                             # the full witness tree, as text
+
+    tree = fw.repair_tree()                    # the repair space
+    plan = shifty.RepairPlan()
+    for choice in tree.choices():              # Any branches / Repeat counts
+        if choice.kind == "repeat":
+            plan.count(choice.node_id, choice.min)
+
+    for hole in tree.instantiate(plan).open_holes:
+        plan.bind(hole.id, hole.candidates(limit=8)[0])   # your binding policy
+
+    inst = tree.instantiate(plan)              # fold choices → ΔG
+    outcome = session.gate(inst.delta)         # sound? progress? introduces what?
+    if outcome.is_progress:
+        session = session.advance(inst.delta)  # accept, re-witness from G ⊕ ΔG
+    else:
+        break                                  # reject; choose differently
+
+repaired = session.to_graph()                  # rdflib.Graph with accepted repairs
+```
+
+`Hole.candidates()` returns reuse-first options drawn from the data graph, in
+N-Triples term syntax; bind one straight back with `plan.bind(hole.id, value)`.
+A `RepairTree` may be `is_blocked` (opaque SPARQL / identity / coinductive),
+meaning no data repair is possible in scope. Two reference drivers ship as
+examples: `python/examples/repair.py` (non-interactive: takes the first option
+for each violation) and `python/examples/repair_interactive.py` (prints a
+numbered menu of gated options per violation and applies the one you pick).
+
 ### graph_mode
 
 `validate()` and `validate_algebra()` accept a `graph_mode` keyword argument:

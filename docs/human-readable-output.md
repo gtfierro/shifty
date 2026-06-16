@@ -9,9 +9,12 @@ This document describes the design for an enhanced validation output mode that i
 ```
 conforms: false
 violations: 3
-  <http://example.org/person1>  [target: ∃≥1 rdf:type/rdfs:subClassOf* . φ]
+  <http://example.org/person1>  [target: class(<http://example.org/Person>)]
       - (<http://example.org/email>) "invalid-email" → test(datatype(xsd:string) & pattern(/^[^@]+@[^@]+\.[^@]+$/)) not satisfied
 ```
+
+(The target renderer resolves a path selector's qualifier against the arena, so
+a class target reads `class(C)` rather than the bare `∃≥1 rdf:type/rdfs:subClassOf* . φ`.)
 
 ## Proposed Output (Human-Readable)
 
