@@ -460,7 +460,10 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
                         "  {}  [severity: {}; target: {}]",
                         v.focus,
                         v.severity,
-                        shifty_algebra::render::selector_to_string(&st.selector)
+                        shifty_algebra::render::selector_to_string_in(
+                            &st.selector,
+                            &parsed.schema.arena
+                        )
                     );
                     let mut groups: Vec<Vec<String>> =
                         v.reasons.iter().map(|r| render_reason(r, 6)).collect();
@@ -558,7 +561,10 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
     }
 
     let target = |statement: usize| {
-        shifty_algebra::render::selector_to_string(&schema.statements[statement].selector)
+        shifty_algebra::render::selector_to_string_in(
+            &schema.statements[statement].selector,
+            &schema.arena,
+        )
     };
 
     match args.stage {
