@@ -38,6 +38,18 @@ the loop is monotone and finite; report a focus with no progress-making plan as
 might prompt a human at step 3; a batch job might take the first sound plan; an
 optimizer might enumerate plans and keep the cheapest.
 
+### 1.1 Scoped inspection
+
+A driver that works one shape at a time (a per-shape review UI, a targeted
+linter) can skip the full horizon: `witness_shape(G, S, shape)` returns only the
+failures of the statements that target `shape`, and `satisfy_shape(G, S, shape)`
+returns the *passing* foci with the `SatTrace` proving why — the matched values
+per checked path (doc 06 §5.3). Together they partition that shape's targeted
+nodes into fail/pass, so a driver can show "these conform (here's the evidence),
+these don't (here's the repair)" without re-deriving the whole graph. The Python
+binding surfaces these as `RepairSession.witnesses_for(shape_iri)` /
+`satisfactions_for(shape_iri)`, resolving the IRI via `shape_id_for_iri`.
+
 ---
 
 ## 2. Per-focus joint vs. per-violation greedy

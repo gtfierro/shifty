@@ -68,7 +68,7 @@ that decide nothing; the driver supplies data, choices, and control flow.
 
 | Library provides (pure, decides nothing) | Driver provides |
 |---|---|
-| `witness_violations(G, S) -> Vec<FocusWitness>` — *what's wrong* (§5) | which focus, in what order |
+| `witness_violations(G, S) -> Vec<FocusWitness>` — *what's wrong* (§5; `witness_shape`/`satisfy_shape` scope to one shape, the latter reporting *why it holds*) | which focus, in what order |
 | `synthesize_focus(arena, &[FocusWitness]) -> RepairTree` — the inspectable space of fixes (§6) | how to fill holes / pick branches / set counts |
 | `render(&RepairTree) -> RepairProgram` — the parameterized-graph view (§7) | its own data sources, ML, human input, ASP, … |
 | `candidates(&HoleConstraint, source) -> Vec<Term>` — *optional* helper (§3.3) | the `Plan` of choices |
@@ -382,6 +382,35 @@ fn sat_trace(eval: &mut ShapeEvaluator, node: &Term, id: ShapeId,
 pub fn witness_violations(data: &Graph, schema: &Schema)
     -> Result<Vec<FocusWitness>, NonStratifiable>;
 ```
+
+**Scoped entry points.** The same loop, narrowed. `witness_shape` keeps only the
+statements that target one shape; `satisfy_shape` is its dual — the *passing*
+foci, each carrying the `SatTrace` that proves conformance. This surfaces the
+deletive-direction trace as a first-class query (not just an internal step under
+`Not`), so tooling can answer "*why does this node conform, and on which
+values?*" — `SatTrace::CountHeld.matches` enumerates the matched values per path.
+`witness_node` witnesses one node against one shape by id, the building block for
+a `ConformsTo` hole (bind it, then witness/synthesize the sub-shape).
+
+```rust
+pub struct FocusSat { focus: Term, statement: usize, trace: SatTrace }
+
+pub fn witness_shape(data: &Graph, schema: &Schema, shape: ShapeId)
+    -> Result<Vec<FocusWitness>, NonStratifiable>;
+pub fn satisfy_shape(data: &Graph, schema: &Schema, shape: ShapeId)
+    -> Result<Vec<FocusSat>, NonStratifiable>;
+pub fn witness_node(data: &Graph, schema: &Schema, node: &Term, shape: ShapeId)
+    -> Result<Option<FocusWitness>, NonStratifiable>;
+
+/// Resolve a shape IRI to its arena slot (for the scoped queries above).
+pub fn shape_id_for_iri(schema: &Schema, iri: &str) -> Option<ShapeId>;
+```
+
+All four reuse the one `prepare` helper (stratifiability check + frozen executor)
+and the same `witness` / `sat_trace` folds, so they agree with `witness_violations`
+and `validate` by construction. The Python binding exposes them on
+`RepairSession` as `witnesses_for` / `satisfactions_for` (doc 07, and the
+`pyshifty` README).
 
 At a `Not(c)` the two cross: `witness` ⇒ `sat_trace(c).map(Witness::Not)`;
 `sat_trace` ⇒ `witness(c).map(SatTrace::NotHeld)`. Four behaviors must be carried
