@@ -34,9 +34,9 @@ def solve_one(session, fw):
 
     plan = shifty.RepairPlan()
     for choice in tree.choices():
-        if choice.kind == "repeat":
+        if choice.kind == shifty.ChoiceKind.Repeat:
             plan.count(choice.node_id, choice.min)
-        elif choice.kind == "any":
+        elif choice.kind == shifty.ChoiceKind.Any:
             plan.choose(choice.node_id, 0)  # first branch
 
     # Discover per-instance holes (Repeat unrolls), then bind them.

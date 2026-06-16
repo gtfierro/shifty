@@ -100,7 +100,7 @@ def enumerate_options(session, fw):
         if inst.open_choices:
             nid = inst.open_choices[0]
             ch = choice_by_id[nid]
-            if ch.kind == "any":
+            if ch.kind == shifty.ChoiceKind.Any:
                 for b in range(ch.branches or 0):
                     rec(ops + [("choose", nid, b)])
             else:  # repeat → default to the minimum count
@@ -182,9 +182,9 @@ def fill_by_hand(fw):
 
     plan = shifty.RepairPlan()
     for ch in tree.choices():
-        if ch.kind == "repeat":
+        if ch.kind == shifty.ChoiceKind.Repeat:
             plan.count(ch.node_id, ch.min)
-        elif ch.kind == "any":
+        elif ch.kind == shifty.ChoiceKind.Any:
             plan.choose(ch.node_id, 0)
 
     inst = tree.instantiate(plan)
@@ -265,9 +265,9 @@ def build_tree(session, tree, fuel, indent=""):
         return None
     plan = shifty.RepairPlan()
     for ch in tree.choices():
-        if ch.kind == "repeat":
+        if ch.kind == shifty.ChoiceKind.Repeat:
             plan.count(ch.node_id, ch.min)
-        elif ch.kind == "any":
+        elif ch.kind == shifty.ChoiceKind.Any:
             plan.choose(ch.node_id, 0)
     inst = tree.instantiate(plan)
     if inst.open_choices:
