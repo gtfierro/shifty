@@ -13,10 +13,11 @@ use crate::{
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Schema, ShapeId};
+use shifty_algebra::{Schema, Selector, ShapeId};
 use shifty_engine::{
-    FocusWitness as IrFocus, SatTrace, Witness, apply as engine_apply, candidates as engine_candidates,
-    gate as engine_gate, synthesize, witness_node, witness_violations,
+    FocusSat as IrSat, FocusWitness as IrFocus, SatTrace, Witness, apply as engine_apply,
+    candidates as engine_candidates, gate as engine_gate, satisfy_shape, shape_id_for_iri,
+    synthesize, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -192,14 +193,28 @@ fn render_tree(t: &IrTree, indent: usize, out: &mut Vec<String>) {
 
 // ── flat witness summary ────────────────────────────────────────────────────────
 
+/// The kind of a failing witness leaf — the enumerated discriminant of
+/// [`WitnessAtom`]. `Not` marks a `¬φ` that holds and must be falsified; the
+/// `Count*` variants an under-/over-satisfied cardinality.
+#[pyclass(eq, eq_int, hash, frozen, name = "WitnessKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum WitnessKind {
+    Atom,
+    Relational,
+    Closed,
+    CountLow,
+    CountHigh,
+    Not,
+    Opaque,
+}
+
 /// One failing leaf of a witness, flattened. The AND/OR structure is preserved in
-/// [`FocusWitness::explain`]; this is the bag of leaves a driver can scan.
+/// `explain`; this is the bag of leaves a driver can scan.
 #[pyclass(get_all, name = "WitnessAtom")]
 #[derive(Clone)]
 pub struct WitnessAtom {
-    /// The leaf kind: `atom` | `relational` | `closed` | `count_low` |
-    /// `count_high` | `not` | `opaque`.
-    pub kind: String,
+    /// The leaf kind (see [`WitnessKind`]).
+    pub kind: WitnessKind,
     /// The π path from the focus to the offending value, if any.
     pub path: Option<String>,
     /// The offending node/value, if any.
@@ -218,7 +233,7 @@ impl WitnessAtom {
 fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
     match w {
         Witness::Atom { node, reached_by, produced_by, .. } => out.push(WitnessAtom {
-            kind: "atom".into(),
+            kind: WitnessKind::Atom,
             path: Some(path_str(reached_by)),
             value: Some(node.to_string()),
             detail: if produced_by.is_some() {
@@ -228,26 +243,26 @@ fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
             },
         }),
         Witness::Relational { kind, node, offending, .. } => out.push(WitnessAtom {
-            kind: "relational".into(),
+            kind: WitnessKind::Relational,
             path: None,
             value: Some(node.to_string()),
             detail: format!("{kind:?}: {} offending pair(s)", offending.len()),
         }),
         Witness::Closed { node, offenders, .. } => out.push(WitnessAtom {
-            kind: "closed".into(),
+            kind: WitnessKind::Closed,
             path: None,
             value: Some(node.to_string()),
             detail: format!("{} disallowed triple(s)", offenders.len()),
         }),
         Witness::CountLow { node, path, have, min, .. } => out.push(WitnessAtom {
-            kind: "count_low".into(),
+            kind: WitnessKind::CountLow,
             path: Some(path_str(path)),
             value: Some(node.to_string()),
             detail: format!("have {have}, need {min}"),
         }),
         Witness::CountHigh { node, path, matched, max, per_value, .. } => {
             out.push(WitnessAtom {
-                kind: "count_high".into(),
+                kind: WitnessKind::CountHigh,
                 path: Some(path_str(path)),
                 value: Some(node.to_string()),
                 detail: format!("{} match(es), max {max}", matched.len()),
@@ -257,13 +272,13 @@ fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
             }
         }
         Witness::Not { node, .. } => out.push(WitnessAtom {
-            kind: "not".into(),
+            kind: WitnessKind::Not,
             path: None,
             value: Some(node.to_string()),
             detail: "a shape holds that must be falsified".into(),
         }),
         Witness::Opaque { node, .. } => out.push(WitnessAtom {
-            kind: "opaque".into(),
+            kind: WitnessKind::Opaque,
             path: None,
             value: Some(node.to_string()),
             detail: "opaque SPARQL — no algebraic witness".into(),
@@ -278,6 +293,104 @@ fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
                 witness_leaves(b, out);
             }
         }
+    }
+}
+
+/// The kind of a holding satisfaction leaf — the enumerated discriminant of
+/// [`SatAtom`]. `Match` is a value that satisfied a counted path; `Blocked` a
+/// leaf that holds but exposes no enumerable value set (closed / relational /
+/// opaque SPARQL); `Coinductive` a gfp back-edge assumed true.
+#[pyclass(eq, eq_int, hash, frozen, name = "SatKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum SatKind {
+    Atom,
+    Match,
+    Not,
+    Blocked,
+    Coinductive,
+}
+
+/// One holding leaf of a satisfaction trace, flattened — the satisfaction-side
+/// dual of [`WitnessAtom`]. The AND/OR structure is preserved in `explain`.
+#[pyclass(get_all, name = "SatAtom")]
+#[derive(Clone)]
+pub struct SatAtom {
+    /// The leaf kind (see [`SatKind`]).
+    pub kind: SatKind,
+    /// The π path to the matched value, if any.
+    pub path: Option<String>,
+    /// The matched/holding node value, if any.
+    pub value: Option<String>,
+    /// A short human-readable description.
+    pub detail: String,
+}
+
+#[pymethods]
+impl SatAtom {
+    fn __repr__(&self) -> String {
+        format!("SatAtom(kind={:?}, detail={:?})", self.kind, self.detail)
+    }
+}
+
+/// Flatten a satisfaction trace into its holding leaves — the dual of
+/// [`witness_leaves`]. Surfaces each value matched along a checked path (the
+/// `Match`/`Atom` leaves), so a driver can see *what data* made the focus
+/// conform. Closed/relational/opaque leaves appear as `Blocked` (they hold but
+/// expose no enumerable value set).
+fn sat_leaves(s: &SatTrace, out: &mut Vec<SatAtom>) {
+    match s {
+        // Vacuously true: nothing was checked, nothing to surface.
+        SatTrace::Irrefutable { .. } => {}
+        SatTrace::Atom { node, reached_by, .. } => out.push(SatAtom {
+            kind: SatKind::Atom,
+            path: Some(path_str(reached_by)),
+            value: Some(node.to_string()),
+            detail: "value-type test holds".into(),
+        }),
+        SatTrace::CountHeld { path, matches, min, max, .. } => {
+            let bounds = match (min, max) {
+                (Some(lo), Some(hi)) => format!("[{lo}..{hi}]"),
+                (Some(lo), None) => format!("[{lo}..]"),
+                (None, Some(hi)) => format!("[..{hi}]"),
+                (None, None) => "[..]".into(),
+            };
+            for (v, _) in matches {
+                out.push(SatAtom {
+                    kind: SatKind::Match,
+                    path: Some(path_str(path)),
+                    value: Some(v.to_string()),
+                    detail: format!("matched value (count {bounds})"),
+                });
+            }
+        }
+        SatTrace::AllHeld { children, .. } => {
+            for c in children {
+                sat_leaves(c, out);
+            }
+        }
+        SatTrace::AnyHeld { satisfied, .. } => {
+            for c in satisfied {
+                sat_leaves(c, out);
+            }
+        }
+        SatTrace::NotHeld { node, .. } => out.push(SatAtom {
+            kind: SatKind::Not,
+            path: None,
+            value: Some(node.to_string()),
+            detail: "negation holds (the inner shape fails)".into(),
+        }),
+        SatTrace::Blocked { node, reason, .. } => out.push(SatAtom {
+            kind: SatKind::Blocked,
+            path: None,
+            value: Some(node.to_string()),
+            detail: format!("holds, no enumerable values ({reason:?})"),
+        }),
+        SatTrace::Coinductive { node, .. } => out.push(SatAtom {
+            kind: SatKind::Coinductive,
+            path: None,
+            value: Some(node.to_string()),
+            detail: "assumed (gfp back-edge)".into(),
+        }),
     }
 }
 
@@ -313,6 +426,14 @@ pub struct RepairSession {
 impl RepairSession {
     fn from_parts(schema: Arc<Schema>, data: Arc<Graph>, diagnostics: Vec<String>) -> Self {
         Self { schema, data, diagnostics }
+    }
+
+    /// Resolve a shape IRI (angle brackets optional) to its arena slot, erroring
+    /// if the schema names no such shape. Shared by the shape-scoped queries.
+    fn resolve_shape(&self, shape_iri: &str) -> PyResult<ShapeId> {
+        let iri = shape_iri.trim().trim_start_matches('<').trim_end_matches('>');
+        shape_id_for_iri(&self.schema, iri)
+            .ok_or_else(|| py_value_error(format!("no shape named <{iri}> in the schema")))
     }
 }
 
@@ -393,8 +514,9 @@ impl RepairSession {
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
-                let target = shifty_algebra::render::selector_to_string(
+                let target = shifty_algebra::render::selector_to_string_in(
                     &self.schema.statements[fw.statement].selector,
+                    &self.schema.arena,
                 );
                 Py::new(
                     py,
@@ -405,6 +527,71 @@ impl RepairSession {
                         inner: fw,
                         schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// The violation horizon for a single shape: one [`FocusWitness`] per failing
+    /// `(focus, statement)` whose statement targets `shape_iri` (matched against
+    /// the schema's shape IRIs; angle brackets optional). The shape-scoped
+    /// counterpart of `witnesses()`; its satisfaction-side dual is
+    /// `satisfactions_for`. Raises if no shape is named `shape_iri`.
+    fn witnesses_for(&self, py: Python<'_>, shape_iri: &str) -> PyResult<Vec<Py<FocusWitness>>> {
+        let shape = self.resolve_shape(shape_iri)?;
+        let raw = py
+            .allow_threads(|| witness_shape(&self.data, &self.schema, shape))
+            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+        raw.into_iter()
+            .map(|fw| {
+                let target = shifty_algebra::render::selector_to_string_in(
+                    &self.schema.statements[fw.statement].selector,
+                    &self.schema.arena,
+                );
+                Py::new(
+                    py,
+                    FocusWitness {
+                        focus: fw.focus.to_string(),
+                        statement: fw.statement,
+                        target,
+                        inner: fw,
+                        schema: Arc::clone(&self.schema),
+                        data: Arc::clone(&self.data),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// The satisfaction horizon for a single shape: one [`FocusSatisfaction`] per
+    /// *passing* `(focus, statement)` whose statement targets `shape_iri` — the
+    /// dual of `witnesses_for`. Each entry records why the focus conforms,
+    /// including the values matched along every checked path. Raises if no shape
+    /// is named `shape_iri`.
+    fn satisfactions_for(
+        &self,
+        py: Python<'_>,
+        shape_iri: &str,
+    ) -> PyResult<Vec<Py<FocusSatisfaction>>> {
+        let shape = self.resolve_shape(shape_iri)?;
+        let raw = py
+            .allow_threads(|| satisfy_shape(&self.data, &self.schema, shape))
+            .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
+        raw.into_iter()
+            .map(|fs| {
+                let target = shifty_algebra::render::selector_to_string_in(
+                    &self.schema.statements[fs.statement].selector,
+                    &self.schema.arena,
+                );
+                Py::new(
+                    py,
+                    FocusSatisfaction {
+                        focus: fs.focus.to_string(),
+                        statement: fs.statement,
+                        target,
+                        inner: fs,
+                        schema: Arc::clone(&self.schema),
                     },
                 )
             })
@@ -487,6 +674,102 @@ impl RepairSession {
     }
 }
 
+/// What a statement's target selector picks out — the enumerated discriminant of
+/// [`Target`]. `Class` is an `sh:targetClass`/implicit class target;
+/// `SubjectsOf`/`ObjectsOf` are `sh:targetSubjectsOf`/`sh:targetObjectsOf`;
+/// `Node` an `sh:targetNode`; `Path` a generic path target; `Sparql` a
+/// SPARQL-based target.
+#[pyclass(eq, eq_int, hash, frozen, name = "TargetKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum TargetKind {
+    Class,
+    SubjectsOf,
+    ObjectsOf,
+    Node,
+    Path,
+    Sparql,
+}
+
+/// A statement's target selector, decomposed for inspection: a [`TargetKind`]
+/// discriminant plus the salient term(s), alongside the rendered string. The
+/// structured counterpart of `FocusWitness.target` / `FocusSatisfaction.target`.
+#[pyclass(get_all, name = "Target")]
+#[derive(Clone)]
+pub struct Target {
+    /// What the selector targets (see [`TargetKind`]).
+    pub kind: TargetKind,
+    /// The salient term in N-Triples syntax: the class IRI (`Class`), the
+    /// predicate (`SubjectsOf`/`ObjectsOf`), or the node (`Node`). `None` for
+    /// `Path`/`Sparql`, whose payload is structural.
+    pub value: Option<String>,
+    /// The rendered π path, for a `Path` or `Class` target (else `None`).
+    pub path: Option<String>,
+    /// The whole selector rendered (e.g. `class(ex:Person)`) — the same string as
+    /// the owning witness's `.target`.
+    pub render: String,
+}
+
+#[pymethods]
+impl Target {
+    fn __repr__(&self) -> String {
+        format!("Target(kind={:?}, render={:?})", self.kind, self.render)
+    }
+
+    fn __str__(&self) -> String {
+        self.render.clone()
+    }
+}
+
+/// Decompose a [`Selector`] into a structured [`Target`], resolving class targets
+/// and qualifiers against the schema arena.
+fn build_target(sel: &Selector, schema: &Schema) -> Target {
+    let render = shifty_algebra::render::selector_to_string_in(sel, &schema.arena);
+    if let Some(class) = shifty_algebra::render::class_target(sel, &schema.arena) {
+        let path = match sel {
+            Selector::HasPath(p, _) => Some(path_str(p)),
+            _ => None,
+        };
+        return Target {
+            kind: TargetKind::Class,
+            value: Some(class.to_string()),
+            path,
+            render,
+        };
+    }
+    match sel {
+        Selector::HasOut(q) => Target {
+            kind: TargetKind::SubjectsOf,
+            value: Some(q.to_string()),
+            path: None,
+            render,
+        },
+        Selector::HasIn(q) => Target {
+            kind: TargetKind::ObjectsOf,
+            value: Some(q.to_string()),
+            path: None,
+            render,
+        },
+        Selector::IsConst(t) => Target {
+            kind: TargetKind::Node,
+            value: Some(t.to_string()),
+            path: None,
+            render,
+        },
+        Selector::HasPath(p, _) => Target {
+            kind: TargetKind::Path,
+            value: None,
+            path: Some(path_str(p)),
+            render,
+        },
+        Selector::Sparql(_) => Target {
+            kind: TargetKind::Sparql,
+            value: None,
+            path: None,
+            render,
+        },
+    }
+}
+
 /// Why one focus node failed one statement, plus its repair tree.
 #[pyclass(name = "FocusWitness")]
 pub struct FocusWitness {
@@ -494,7 +777,8 @@ pub struct FocusWitness {
     focus: String,
     #[pyo3(get)]
     statement: usize,
-    /// The statement's target selector, rendered (e.g. `∃≥1 rdf:type/… . φ`).
+    /// The statement's target selector, rendered (e.g. `class(ex:Person)`). See
+    /// `selector` for the structured form.
     #[pyo3(get)]
     target: String,
     inner: IrFocus,
@@ -504,6 +788,13 @@ pub struct FocusWitness {
 
 #[pymethods]
 impl FocusWitness {
+    /// The target selector as a structured [`Target`] (its `kind`, the class /
+    /// predicate / node it picks out, …) — the inspectable form of `.target`.
+    #[getter]
+    fn selector(&self) -> Target {
+        build_target(&self.schema.statements[self.statement].selector, &self.schema)
+    }
+
     /// The failing leaves, flattened (AND/OR structure dropped; see `explain`).
     fn summary(&self) -> Vec<WitnessAtom> {
         let mut out = Vec::new();
@@ -527,6 +818,55 @@ impl FocusWitness {
     fn __repr__(&self) -> String {
         format!(
             "FocusWitness(focus={:?}, statement={})",
+            self.focus, self.statement
+        )
+    }
+}
+
+/// Why one focus node *satisfies* a statement: the satisfaction-side dual of
+/// [`FocusWitness`]. Carries why the node conforms, including the values matched
+/// along each checked path. Yielded by [`RepairSession::satisfactions_for`].
+#[pyclass(name = "FocusSatisfaction")]
+pub struct FocusSatisfaction {
+    #[pyo3(get)]
+    focus: String,
+    #[pyo3(get)]
+    statement: usize,
+    /// The statement's target selector, rendered (e.g. `class(ex:Person)`). See
+    /// `selector` for the structured form.
+    #[pyo3(get)]
+    target: String,
+    inner: IrSat,
+    schema: Arc<Schema>,
+}
+
+#[pymethods]
+impl FocusSatisfaction {
+    /// The target selector as a structured [`Target`] — the inspectable form of
+    /// `.target`, identical to the witness side for the same statement.
+    #[getter]
+    fn selector(&self) -> Target {
+        build_target(&self.schema.statements[self.statement].selector, &self.schema)
+    }
+
+    /// The satisfying leaves, flattened: one [`SatAtom`] per matched value /
+    /// value-type test that held (AND/OR structure dropped; see `explain`).
+    fn summary(&self) -> Vec<SatAtom> {
+        let mut out = Vec::new();
+        sat_leaves(&self.inner.trace, &mut out);
+        out
+    }
+
+    /// The full satisfaction trace, rendered as indented text.
+    fn explain(&self) -> String {
+        let mut out = Vec::new();
+        render_sat(&self.inner.trace, 0, &mut out);
+        out.join("\n")
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "FocusSatisfaction(focus={:?}, statement={})",
             self.focus, self.statement
         )
     }
@@ -630,7 +970,7 @@ fn collect_choices(tree: &IrTree, out: &mut Vec<Choice>) {
         IrTree::Any { id, children } => {
             out.push(Choice {
                 node_id: id.0,
-                kind: "any".into(),
+                kind: ChoiceKind::Any,
                 branches: Some(children.len()),
                 min: None,
                 max: None,
@@ -642,7 +982,7 @@ fn collect_choices(tree: &IrTree, out: &mut Vec<Choice>) {
         IrTree::Repeat { id, body, min, max } => {
             out.push(Choice {
                 node_id: id.0,
-                kind: "repeat".into(),
+                kind: ChoiceKind::Repeat,
                 branches: None,
                 min: Some(*min),
                 max: *max,
@@ -701,13 +1041,23 @@ impl Hole {
     }
 }
 
+/// The kind of decision point in a [`RepairTree`] — the enumerated discriminant
+/// of [`Choice`]. `Any` is a disjunction (pick one branch); `Repeat` a bounded
+/// repetition (pick a count).
+#[pyclass(eq, eq_int, hash, frozen, name = "ChoiceKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ChoiceKind {
+    Any,
+    Repeat,
+}
+
 /// An `Any`/`Repeat` decision point in a [`RepairTree`].
 #[pyclass(get_all, name = "Choice")]
 #[derive(Clone)]
 pub struct Choice {
     pub node_id: u32,
-    /// `"any"` or `"repeat"`.
-    pub kind: String,
+    /// Which kind of decision point (see [`ChoiceKind`]).
+    pub kind: ChoiceKind,
     /// Number of branches, for an `Any`.
     pub branches: Option<usize>,
     /// Minimum count, for a `Repeat`.
@@ -943,10 +1293,17 @@ impl RepairOutcome {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RepairSession>()?;
     m.add_class::<FocusWitness>()?;
+    m.add_class::<FocusSatisfaction>()?;
+    m.add_class::<Target>()?;
+    m.add_class::<TargetKind>()?;
     m.add_class::<WitnessAtom>()?;
+    m.add_class::<WitnessKind>()?;
+    m.add_class::<SatAtom>()?;
+    m.add_class::<SatKind>()?;
     m.add_class::<RepairTree>()?;
     m.add_class::<Hole>()?;
     m.add_class::<Choice>()?;
+    m.add_class::<ChoiceKind>()?;
     m.add_class::<RepairPlan>()?;
     m.add_class::<Instantiated>()?;
     m.add_class::<RepairDelta>()?;

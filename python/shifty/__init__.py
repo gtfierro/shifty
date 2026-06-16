@@ -48,8 +48,12 @@ from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 from ._shifty import (
     AlgebraResult,
     Choice,
+    ChoiceKind,
+    FocusSatisfaction,
     FocusWitness,
     Hole,
+    SatAtom,
+    SatKind,
     InferResult as _RustInferResult,
     Instantiated,
     PreparedValidator as _RustPreparedValidator,
@@ -59,9 +63,12 @@ from ._shifty import (
     RepairPlan,
     RepairSession as _RustRepairSession,
     RepairTree,
+    Target,
+    TargetKind,
     Violation,
     W3cResult,
     WitnessAtom,
+    WitnessKind,
     _infer,
     _validate_algebra,
     _validate_w3c,
@@ -83,10 +90,17 @@ __all__ = [
     "RepairSession",
     "RepairPlan",
     "FocusWitness",
+    "FocusSatisfaction",
+    "Target",
+    "TargetKind",
     "WitnessAtom",
+    "WitnessKind",
+    "SatAtom",
+    "SatKind",
     "RepairTree",
     "Hole",
     "Choice",
+    "ChoiceKind",
     "Instantiated",
     "RepairDelta",
     "RepairOutcome",
@@ -359,6 +373,24 @@ class RepairSession:
         """The violation horizon: one :class:`FocusWitness` per failing
         ``(focus node, statement)``. Empty ⟺ the graph conforms."""
         return self._inner.witnesses()
+
+    def witnesses_for(self, shape_iri: str) -> list[FocusWitness]:
+        """The violation horizon for a single shape: one :class:`FocusWitness`
+        per failing ``(focus node, statement)`` whose statement targets
+        ``shape_iri`` (matched against the schema's shape IRIs; angle brackets
+        optional). The shape-scoped counterpart of :meth:`witnesses`; its
+        satisfaction-side dual is :meth:`satisfactions_for`. Raises
+        :class:`ValueError` if no shape is named ``shape_iri``."""
+        return self._inner.witnesses_for(shape_iri)
+
+    def satisfactions_for(self, shape_iri: str) -> list["FocusSatisfaction"]:
+        """The satisfaction horizon for a single shape: one
+        :class:`FocusSatisfaction` per *passing* ``(focus node, statement)``
+        whose statement targets ``shape_iri`` — the dual of
+        :meth:`witnesses_for`. Each entry records why the focus conforms,
+        including the values matched along every checked path. Raises
+        :class:`ValueError` if no shape is named ``shape_iri``."""
+        return self._inner.satisfactions_for(shape_iri)
 
     def gate(self, delta: RepairDelta) -> RepairOutcome:
         """Re-validate ``G ⊕ ΔG`` and diff the violations against ``G`` — sound
