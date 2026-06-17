@@ -141,7 +141,8 @@ enum Stage {
     Strata,
     /// The physical plan (Layer 5: focus sources + cost-ordered checks).
     Plan,
-    /// SPARQL capability classification and path demand (Stage 1 analysis).
+    /// SPARQL capability classification: which constraint queries lower to the
+    /// native executor vs. fall back to Spareval.
     Capability,
 }
 
@@ -999,9 +1000,7 @@ fn print_strata(strat: &shifty_opt::Stratification) {
 
 fn print_capability(schema: &shifty_algebra::Schema) {
     use shifty_algebra::Shape;
-    use shifty_opt::{
-        analyze_capability, extract_algebra_demand, extract_sparql_demand, lower_query,
-    };
+    use shifty_opt::lower_query;
     use spargebra::SparqlParser;
 
     let mut sparql_queries: Vec<String> = Vec::new();
@@ -1012,9 +1011,10 @@ fn print_capability(schema: &shifty_algebra::Schema) {
         }
     }
 
-    // `lower_query` is the actual stage-3 routing gate; `analyze_capability` is
-    // the broader eventual-native classification. They differ for constructs the
-    // executor doesn't yet implement (paths, `=`, EXISTS) — surface both.
+    // `lower_query` is the routing gate: a query runs on the native executor iff
+    // it lowers to a native plan, otherwise it falls back to Spareval. This
+    // reports what actually happens, not the broader designed subset (which lives
+    // in docs/05-sparql-execution.md §129-141).
     let lowered_count = sparql_queries
         .iter()
         .filter(|q| {
@@ -1026,7 +1026,7 @@ fn print_capability(schema: &shifty_algebra::Schema) {
         .count();
 
     println!(
-        "capability: {} SPARQL constraint query/queries ({} lower to native now, {} fall back)",
+        "capability: {} SPARQL constraint query/queries ({} native, {} fall back)",
         sparql_queries.len(),
         lowered_count,
         sparql_queries.len() - lowered_count,
@@ -1035,68 +1035,13 @@ fn print_capability(schema: &shifty_algebra::Schema) {
     for (i, q) in sparql_queries.iter().enumerate() {
         match SparqlParser::new().parse_query(q) {
             Ok(parsed) => {
-                let cap = analyze_capability(&parsed);
                 let tag = match lower_query(&parsed) {
                     Ok(_) => "NATIVE".to_string(),
-                    Err(reason) if cap.is_native() => {
-                        // Eventually native, but not yet lowered in stage 3.
-                        format!("FALLBACK (stage 3: {reason})")
-                    }
-                    Err(_) => format!("FALLBACK ({})", cap.fallback_reason().unwrap_or("unknown")),
+                    Err(reason) => format!("FALLBACK ({reason})"),
                 };
                 println!("  [{i}] {tag}:\n{q}");
             }
             Err(e) => println!("  [{i}] PARSE ERROR: {e}"),
-        }
-    }
-
-    // Algebra path demand
-    let alg_demand = extract_algebra_demand(schema);
-    if !alg_demand.is_empty() {
-        println!("\npath demand (algebra):");
-        let mut entries: Vec<_> = alg_demand.values().collect();
-        entries.sort_by(|a, b| {
-            let ta = a.forward_probes + a.reverse_probes + a.membership_probes + a.open_scans;
-            let tb = b.forward_probes + b.reverse_probes + b.membership_probes + b.open_scans;
-            tb.cmp(&ta)
-        });
-        for d in entries {
-            println!(
-                "  {}: fwd={} rev={} mem={} scan={}",
-                d.path, d.forward_probes, d.reverse_probes, d.membership_probes, d.open_scans,
-            );
-        }
-    }
-
-    // SPARQL path demand
-    let mut sparql_demand = std::collections::HashMap::new();
-    for q in &sparql_queries {
-        if let Ok(parsed) = SparqlParser::new().parse_query(q) {
-            for (k, v) in extract_sparql_demand(&parsed) {
-                let entry = sparql_demand.entry(k).or_insert(shifty_opt::PathDemand {
-                    path: v.path.clone(),
-                    ..Default::default()
-                });
-                entry.forward_probes += v.forward_probes;
-                entry.reverse_probes += v.reverse_probes;
-                entry.membership_probes += v.membership_probes;
-                entry.open_scans += v.open_scans;
-            }
-        }
-    }
-    if !sparql_demand.is_empty() {
-        println!("\npath demand (SPARQL):");
-        let mut entries: Vec<_> = sparql_demand.values().collect();
-        entries.sort_by(|a, b| {
-            let ta = a.forward_probes + a.reverse_probes + a.membership_probes + a.open_scans;
-            let tb = b.forward_probes + b.reverse_probes + b.membership_probes + b.open_scans;
-            tb.cmp(&ta)
-        });
-        for d in entries {
-            println!(
-                "  {}: fwd={} rev={} mem={} scan={}",
-                d.path, d.forward_probes, d.reverse_probes, d.membership_probes, d.open_scans,
-            );
         }
     }
 }

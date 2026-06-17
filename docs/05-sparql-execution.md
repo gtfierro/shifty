@@ -137,8 +137,11 @@ The first native capability set is:
 - simple `BIND` expressions.
 
 Aggregates, subqueries, ordering, service calls, ordered comparisons, `IN`, and
-unsupported functions select fallback execution. Capability analysis records
-the first unsupported AST node for inspection and telemetry.
+unsupported functions select fallback execution. Lowering (`lower_query`) is the
+gate: a query runs natively iff it lowers to a native plan, otherwise it falls
+back, recording the first unsupported construct as the fallback reason for
+inspection and telemetry. The set above is the design target; the authoritative
+statement of what lowers today is `lower_query` itself.
 
 ## Frozen indexed dataset
 
