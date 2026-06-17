@@ -59,13 +59,15 @@ pub fn lower(g: &Loaded) -> Lowered {
             NamedOrBlankNode::BlankNode(_) => None,
         })
         .collect();
+    let schema = Schema {
+        arena: l.arena,
+        statements: l.statements,
+        rules: l.rules,
+        names,
+    };
+    schema.arena.debug_assert_finalized();
     Lowered {
-        schema: Schema {
-            arena: l.arena,
-            statements: l.statements,
-            rules: l.rules,
-            names,
-        },
+        schema,
         diagnostics: l.diags,
     }
 }
