@@ -828,7 +828,9 @@ fn property_path_to_algebra(path: &PropertyPathExpression) -> Option<Path> {
             let lb = property_path_to_algebra(b)?;
             Some(Path::alt(vec![la, lb]))
         }
-        PropertyPathExpression::ZeroOrMore(p) => property_path_to_algebra(p).map(|inner| inner.star()),
+        PropertyPathExpression::ZeroOrMore(p) => {
+            property_path_to_algebra(p).map(|inner| inner.star())
+        }
         PropertyPathExpression::OneOrMore(p) => {
             property_path_to_algebra(p).map(|inner| inner.one_or_more())
         }
