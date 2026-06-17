@@ -124,6 +124,26 @@ impl ShapeArena {
         self.shapes[id.0 as usize] = shape;
     }
 
+    /// Debug-only invariant for a *finalized* arena: every slot reserved via
+    /// [`reserve`](Self::reserve) must have been filled with [`set`](Self::set),
+    /// so no [`Shape::Pending`] survives. A stray `Pending` is silently read as
+    /// `⊤` by the evaluator and witness folds, so a construction bug would make
+    /// the schema validate as conforming instead of failing loudly. This turns
+    /// the documented invariant into an enforced one; it compiles to nothing in
+    /// release builds.
+    #[track_caller]
+    pub fn debug_assert_finalized(&self) {
+        if cfg!(debug_assertions) {
+            for (i, shape) in self.shapes.iter().enumerate() {
+                assert!(
+                    !matches!(shape, Shape::Pending),
+                    "finalized shape arena still holds Shape::Pending at ShapeId({i}): \
+                     a slot reserved during construction was never filled",
+                );
+            }
+        }
+    }
+
     // ---- smart constructors (light, always-sound simplifications) ----
 
     pub fn top(&mut self) -> ShapeId {
@@ -228,6 +248,23 @@ mod tests {
         let n = a.not(t);
         let nn = a.not(n);
         assert_eq!(nn, t);
+    }
+
+    #[test]
+    fn debug_assert_finalized_accepts_filled_arena() {
+        let mut a = ShapeArena::new();
+        let id = a.reserve();
+        a.set(id, Shape::Top);
+        a.debug_assert_finalized(); // every reserved slot was filled
+    }
+
+    #[test]
+    #[cfg_attr(not(debug_assertions), ignore = "assertion is debug-only")]
+    #[should_panic(expected = "Shape::Pending")]
+    fn debug_assert_finalized_rejects_pending() {
+        let mut a = ShapeArena::new();
+        a.reserve(); // reserved but never `set` ⇒ a stray Pending
+        a.debug_assert_finalized();
     }
 
     #[test]
