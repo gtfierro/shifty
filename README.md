@@ -276,6 +276,8 @@ g = result.graph()              # rdflib.Graph with original + inferred data
 
 ### Repair (drive your own loop)
 
+**Warning: this is very experimental and prelimary; not fully tested or documented yet. API subject to change.**
+
 `RepairSession` exposes the symbolic-repair primitives so you can build your own
 repair driver: enumerate the violation horizon by focus node, inspect each
 violation's repair tree (holes + decision points), enumerate candidate bindings,
@@ -390,14 +392,6 @@ Flags:
 - `--exact-message` — include `sh:resultMessage` in the hash
 - `--max-show N` — show N signatures per bucket (default: 5)
 - `--verbose` — print full canonical JSON signature per result instead of one-line summaries
-
-## Design docs
-
-The `docs/` directory contains the full design:
-
-- [`docs/00-formalism.md`](docs/00-formalism.md) — path algebra π, shape grammar φ, selectors, reference semantics
-- [`docs/01-gap-analysis.md`](docs/01-gap-analysis.md) — W3C SHACL/SHACL-AF coverage and known gaps
-- [`docs/02-roadmap.md`](docs/02-roadmap.md) — layered build plan (Layer 0 → 7)
 
 ## License
 
