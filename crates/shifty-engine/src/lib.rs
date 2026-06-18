@@ -66,6 +66,39 @@ mod tests {
     "#;
 
     #[test]
+    fn inference_rules_fire_for_implicit_class_targets() {
+        let ttl = br#"
+            @prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+            @prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+            @prefix owl:   <http://www.w3.org/2002/07/owl#> .
+            @prefix sh:    <http://www.w3.org/ns/shacl#> .
+            @prefix ex:    <http://ex/> .
+
+            ex:Parent a owl:Class, sh:NodeShape ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ;
+                    sh:predicate ex:hasTag ;
+                    sh:object ex:Tag
+                ] .
+
+            ex:Child rdfs:subClassOf ex:Parent .
+            ex:item a ex:Child .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        let normalized = shifty_opt::normalize(&parsed.schema);
+
+        let outcome = infer(&loaded.graph, &normalized).expect("stratifiable schema");
+
+        assert!(outcome.graph.contains(&oxrdf::Triple::new(
+            oxrdf::NamedNode::new_unchecked("http://ex/item"),
+            oxrdf::NamedNode::new_unchecked("http://ex/hasTag"),
+            oxrdf::NamedNode::new_unchecked("http://ex/Tag"),
+        )));
+    }
+
+    #[test]
     fn planned_validation_preserves_severity_and_applies_threshold() {
         let ttl = format!(
             "{PREFIXES}

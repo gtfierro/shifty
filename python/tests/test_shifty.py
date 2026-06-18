@@ -108,6 +108,11 @@ class TestValidatePyshacl:
         conforms, _, _ = validate(combined.encode())
         assert conforms is True
 
+    def test_explicit_none_uses_embedded_shapes(self):
+        combined = SHAPES + "\n" + VIOLATION_DATA
+        conforms, _, _ = validate(combined.encode(), None, infer=False)
+        assert conforms is False
+
     def test_embedded_graph_matches_explicit_self_validation(self):
         combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
         embedded = validate(combined, infer=False)
@@ -277,6 +282,11 @@ class TestValidateAlgebra:
             for violation in explicit.violations
         ]
 
+    def test_explicit_none_uses_embedded_shapes(self):
+        combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
+        result = validate_algebra(combined, None, infer=False)
+        assert result.conforms is False
+
     @pytest.mark.parametrize("graph_mode", ["union", "data", "union-all"])
     def test_embedded_graph_modes_are_equivalent(self, graph_mode):
         combined = (SHAPES + "\n" + VIOLATION_DATA).encode()
@@ -339,6 +349,11 @@ class TestInfer:
 
         assert embedded.inferred_count == explicit.inferred_count
         assert isomorphic(embedded.graph(), explicit.graph())
+
+    def test_explicit_none_uses_embedded_rules(self):
+        combined = (INFER_SHAPES + "\n" + INFER_DATA).encode()
+        result = shifty.infer(combined, None)
+        assert result.inferred_count == 1
 
     def test_repr(self):
         result = shifty.infer(INFER_DATA.encode(), INFER_SHAPES.encode())

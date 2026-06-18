@@ -169,7 +169,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted, shapes are expected to be embedded in the data graph.
+Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
 
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes
@@ -243,6 +243,17 @@ result = shifty.infer(data, rules)
 print(result.inferred_count)    # number of newly derived triples
 g = result.graph()              # rdflib.Graph with original + inferred data
 ```
+
+If rules are embedded in the data graph, omit the second argument or pass
+`None`:
+
+```python
+result = shifty.infer(combined_data_and_rules)
+result = shifty.infer(combined_data_and_rules, None)
+```
+
+Passing `rdflib.Graph()` as the second argument means “run with an explicit
+empty rules graph,” so no embedded rules will be parsed.
 
 ### graph_mode
 
