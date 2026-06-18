@@ -169,7 +169,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted, shapes are expected to be embedded in the data graph.
+Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
 
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes
@@ -244,6 +244,17 @@ print(result.inferred_count)    # number of newly derived triples
 g = result.graph()              # rdflib.Graph with original + inferred data
 ```
 
+If rules are embedded in the data graph, omit the second argument or pass
+`None`:
+
+```python
+result = shifty.infer(combined_data_and_rules)
+result = shifty.infer(combined_data_and_rules, None)
+```
+
+Passing `rdflib.Graph()` as the second argument means “run with an explicit
+empty rules graph,” so no embedded rules will be parsed.
+
 ### graph_mode
 
 `validate()` and `validate_algebra()` accept a `graph_mode` keyword argument:
@@ -268,6 +279,119 @@ conforms, report, text = shifty.validate(
     pathlib.Path("shapes.ttl"),
 )
 ```
+
+## Witnesses (symbolic repair)
+
+`RepairSession` exposes the *witnessing* layer: for each statement it reports why
+a focus node fails (a `FocusWitness`) or why it holds (a `FocusSatisfaction`),
+the structured input to repair synthesis. The session is immutable; it computes
+and gates but decides nothing.
+
+```python
+shapes = """
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix ex:  <http://example.org/> .
+
+ex:PersonShape a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:property [ sh:path ex:name ; sh:minCount 1 ] .
+"""
+data = """
+@prefix ex: <http://example.org/> .
+ex:carol a ex:Person ; ex:name "Carol" .   # passes ex:PersonShape
+ex:dan   a ex:Person .                      # fails: no ex:name
+"""
+
+session = shifty.RepairSession(shapes, data, infer=False)
+```
+
+### The whole horizon
+
+`witnesses()` returns one `FocusWitness` per `(focus node, failed statement)`
+across the entire schema. Empty ⟺ the graph conforms.
+
+```python
+for w in session.witnesses():
+    print(w.focus)        # '<http://example.org/dan>'
+    print(w.statement)    # 0 — index into the schema's statements
+    print(w.target)       # 'class(<http://example.org/Person>)' — rendered selector
+```
+
+### Structured access (strings *and* objects)
+
+Everything that has a readable string also has a structured, inspectable form, so
+you can branch and process externally instead of parsing text. `w.target` is the
+rendered selector; `w.selector` is the same thing decomposed:
+
+```python
+sel = w.selector
+print(sel.kind)      # TargetKind.Class — an enumerated discriminant
+print(sel.value)     # '<http://example.org/Person>' — N-Triples, round-trips
+print(sel.render)    # 'class(<http://example.org/Person>)' == w.target
+print(str(sel))      # same rendered string
+
+if sel.kind == shifty.TargetKind.Class:
+    ...              # dispatch on the kind, not on a substring
+```
+
+`kind` fields are real enums, not bare strings — so the valid set is discoverable
+at runtime and usable in `match`/comparisons:
+
+```python
+shifty.TargetKind   # Class | SubjectsOf | ObjectsOf | Node | Path | Sparql
+shifty.WitnessKind  # Atom | Relational | Closed | CountLow | CountHigh | Not | Opaque
+shifty.SatKind      # Atom | Match | Not | Blocked | Coinductive
+shifty.ChoiceKind   # Any | Repeat
+```
+
+### Scope to one shape
+
+`witnesses_for(shape_iri)` narrows the horizon to the statements that target a
+single shape, matched against the schema's shape IRIs (angle brackets optional).
+It raises `ValueError` if no shape is named `shape_iri`.
+
+```python
+for w in session.witnesses_for("http://example.org/PersonShape"):
+    # flat bag of failing leaves (AND/OR structure dropped)
+    for a in w.summary():       # a is a WitnessAtom
+        print(a.kind, a.path, a.detail)   # WitnessKind.CountLow <…/name> have 0, need 1
+        if a.kind == shifty.WitnessKind.CountLow:
+            ...
+
+    print(w.explain())          # indented witness tree:
+                                # CountLow along <…/name>: have 0, need 1
+
+    tree = w.repair_tree()      # synthesize the repair space for this violation
+    print(tree.is_blocked)      # False — a data repair exists in scope
+```
+
+### Passing nodes and the values that satisfied them
+
+`satisfactions_for(shape_iri)` is the dual: one `FocusSatisfaction` per *passing*
+focus node for that shape. Each records why the node conforms, including the
+values matched along every checked path — the satisfaction-side mirror of
+`witnesses_for`.
+
+```python
+for fs in session.satisfactions_for("http://example.org/PersonShape"):
+    print(fs.focus)             # '<http://example.org/carol>'
+    print(fs.statement)         # 0
+    print(fs.target)            # same rendered selector as the witness side
+    print(fs.selector.kind)     # TargetKind.Class — same structured selector too
+
+    for a in fs.summary():      # a is a SatAtom
+        # one Match leaf per value that satisfied a checked path
+        if a.kind == shifty.SatKind.Match:
+            print(a.path, a.value)        # <…/name> "Carol"
+
+    print(fs.explain())         # CountHeld: 1 match(es)
+```
+
+`witnesses_for` and `satisfactions_for` partition the targeted focus nodes:
+every node that fails appears in one, every node that holds in the other. For
+`closed`, relational (`sh:equals`/`sh:lessThan`/…), and opaque-SPARQL
+constraints a satisfaction leaf is reported as `SatKind.Blocked` — the node
+holds, but no enumerable value set is exposed.
 
 ## Crate structure
 

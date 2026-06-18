@@ -1,0 +1,16 @@
+[package]
+name = "shifty-repair"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Symbolic repair template IR (RepairTree) and instantiation for shifty"
+repository.workspace = true
+
+[dependencies]
+shifty-algebra.workspace = true
+oxrdf.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

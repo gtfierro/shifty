@@ -130,13 +130,13 @@ fn load_ws(rel: &str) -> shifty_parse::Loaded {
         .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
 }
 
-/// Baseline: the NIST building-1 model validated against the 223P closure. It
-/// does not fully conform; this pins the known set of violating focus nodes so
-/// any change in targeting or evaluation is caught. The three `qudt:vocab/unit`
-/// nodes fail regardless of implicit-class-target handling; `AHUChilledWaterInlet`
-/// is additionally surfaced by transitive implicit class targets. Triage of
-/// whether each is a genuine model issue or a closure artifact is tracked
-/// separately — the test exists to keep the set stable.
+/// Baseline: the NIST building-1 model validated against the 223P closure. The
+/// model fully conforms, and this pins the empty violation set so any regression
+/// in targeting or evaluation is caught. Three `qudt:vocab/unit` nodes
+/// (`DEG_F`, `FT3-PER-MIN`, `PSI`) previously appeared here, but those were
+/// false positives: their high-precision `qudt:conversionMultiplier` decimals
+/// were rejected by a fixed-point lexical check even though `xsd:decimal` is
+/// arbitrary-precision. See `value::is_decimal_lexical`.
 #[test]
 fn nist_bdg1_known_violations_against_223p_closure() {
     let shapes = load_ws("benchmark/s223/223p-closure.ttl");
@@ -166,11 +166,7 @@ fn nist_bdg1_known_violations_against_223p_closure() {
     foci.dedup();
     assert_eq!(
         foci,
-        [
-            "<http://qudt.org/vocab/unit/DEG_F>",
-            "<http://qudt.org/vocab/unit/FT3-PER-MIN>",
-            "<http://qudt.org/vocab/unit/PSI>",
-        ],
+        Vec::<String>::new(),
         "NIST/223P-closure violation set changed",
     );
 }

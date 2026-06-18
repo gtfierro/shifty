@@ -204,7 +204,7 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 # results_text → human-readable summary
 ```
 
-Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted, shapes are expected to be embedded in the data graph.
+Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
 
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes
@@ -274,6 +274,67 @@ print(result.inferred_count)    # number of newly derived triples
 g = result.graph()              # rdflib.Graph with original + inferred data
 ```
 
+If rules are embedded in the data graph, omit the second argument or pass
+`None`:
+
+```python
+result = shifty.infer(combined_data_and_rules)
+result = shifty.infer(combined_data_and_rules, None)
+```
+
+Passing `rdflib.Graph()` as the second argument means “run with an explicit
+empty rules graph,” so no embedded rules will be parsed.
+
+### Repair (drive your own loop)
+
+**Warning: this is very experimental and prelimary; not fully tested or documented yet. API subject to change.**
+
+`RepairSession` exposes the symbolic-repair primitives so you can build your own
+repair driver: enumerate the violation horizon by focus node, inspect each
+violation's repair tree (holes + decision points), enumerate candidate bindings,
+fold your own choices into a delta, gate it, and apply it. The library computes
+and gates; **every choice is yours** — no repair loop is made for you.
+
+```python
+session = shifty.RepairSession(shapes, data)   # SHACL-AF inference runs first
+
+while True:
+    witnesses = session.witnesses()            # the horizon, by focus node
+    if not witnesses:
+        break                                  # conforms
+    fw = witnesses[0]                          # your focus-ordering policy
+    print(fw.target)                           # what targeted this node
+    for atom in fw.summary():                  # flat failing leaves
+        print(atom.kind, atom.detail)
+    # fw.explain()                             # the full witness tree, as text
+
+    tree = fw.repair_tree()                    # the repair space
+    plan = shifty.RepairPlan()
+    for choice in tree.choices():              # Any branches / Repeat counts
+        if choice.kind == "repeat":
+            plan.count(choice.node_id, choice.min)
+
+    for hole in tree.instantiate(plan).open_holes:
+        plan.bind(hole.id, hole.candidates(limit=8)[0])   # your binding policy
+
+    inst = tree.instantiate(plan)              # fold choices → ΔG
+    outcome = session.gate(inst.delta)         # sound? progress? introduces what?
+    if outcome.is_progress:
+        session = session.advance(inst.delta)  # accept, re-witness from G ⊕ ΔG
+    else:
+        break                                  # reject; choose differently
+
+repaired = session.to_graph()                  # rdflib.Graph with accepted repairs
+```
+
+`Hole.candidates()` returns reuse-first options drawn from the data graph, in
+N-Triples term syntax; bind one straight back with `plan.bind(hole.id, value)`.
+A `RepairTree` may be `is_blocked` (opaque SPARQL / identity / coinductive),
+meaning no data repair is possible in scope. Two reference drivers ship as
+examples: `python/examples/repair.py` (non-interactive: takes the first option
+for each violation) and `python/examples/repair_interactive.py` (prints a
+numbered menu of gated options per violation and applies the one you pick).
+
 ### graph_mode
 
 `validate()` and `validate_algebra()` accept a `graph_mode` keyword argument:
@@ -310,13 +371,38 @@ conforms, report, text = shifty.validate(
 | `shifty-cli` | `shifty` binary |
 | `pyshifty` (python/) | PyO3 bindings, published as `pyshifty` on PyPI |
 
-## Design docs
+## Development
 
-The `development_docs/` directory contains the full design:
+### 3-way implementation comparison
 
-- [`development_docs/00-formalism.md`](development_docs/00-formalism.md) — path algebra π, shape grammar φ, selectors, reference semantics
-- [`development_docs/01-gap-analysis.md`](development_docs/01-gap-analysis.md) — W3C SHACL/SHACL-AF coverage and known gaps
-- [`development_docs/02-roadmap.md`](development_docs/02-roadmap.md) — layered build plan (Layer 0 → 7)
+`scripts/compare_implementations.py` runs shifty, [TopQuadrant SHACL](https://github.com/topquadrant/shacl), and [pySHACL](https://github.com/RDFLib/pySHACL) against the same shapes + data graphs and produces a 3-way diff of their `sh:ValidationResult` sets.
+
+```sh
+uv run scripts/compare_implementations.py \
+    -s benchmark/brick/Brick-closure.ttl \
+    -d benchmark/brick/models/bldg1.ttl
+```
+
+Requires shifty to be importable from the local build:
+
+```sh
+cd python && maturin develop
+```
+
+TopQuadrant requires the `brick-tq-shacl` Python package (installed automatically by `uv run`). To skip it:
+
+```sh
+uv run scripts/compare_implementations.py \
+    -s shapes.ttl -d data.ttl \
+    --skip topquadrant
+```
+
+**How results are compared:** each `sh:ValidationResult` is content-hashed by its full predicate/object subtree (blank nodes are recursively canonicalized by content, not identity). `sh:resultMessage` and `sh:sourceConstraint` are excluded from the hash — message phrasing varies across implementations, and `sh:sourceConstraint` carries implementation-specific blank-node bookkeeping. Results are then grouped into buckets: all-agree, only-in-X, only-in-X+Y, etc.
+
+Flags:
+- `--exact-message` — include `sh:resultMessage` in the hash
+- `--max-show N` — show N signatures per bucket (default: 5)
+- `--verbose` — print full canonical JSON signature per result instead of one-line summaries
 
 ## License
 

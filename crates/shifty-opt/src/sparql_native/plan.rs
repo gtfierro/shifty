@@ -33,7 +33,6 @@
 //! `A`'s pipeline as the input of `B` (sound because BGP join only *adds* bound
 //! variables to the evaluation context).
 
-use super::property_path_to_algebra;
 use shifty_algebra::Path;
 use spargebra::Query;
 use spargebra::algebra::{Expression, Function, GraphPattern, PropertyPathExpression};
@@ -808,6 +807,37 @@ fn lower_path(
             lower_closure(b, subject, p, object, ClosureKind::Opt, input, graph)
         }
         PropertyPathExpression::NegatedPropertySet(_) => Err("negated property set".into()),
+    }
+}
+
+/// Convert a spargebra `PropertyPathExpression` to the `shifty_algebra::Path`
+/// algebra. Returns `None` for `NegatedPropertySet`, which has no equivalent.
+fn property_path_to_algebra(path: &PropertyPathExpression) -> Option<Path> {
+    match path {
+        PropertyPathExpression::NamedNode(n) => Some(Path::Pred(n.clone())),
+        PropertyPathExpression::Reverse(p) => {
+            property_path_to_algebra(p).map(|inner| inner.inverse())
+        }
+        PropertyPathExpression::Sequence(a, b) => {
+            let la = property_path_to_algebra(a)?;
+            let lb = property_path_to_algebra(b)?;
+            Some(Path::seq(vec![la, lb]))
+        }
+        PropertyPathExpression::Alternative(a, b) => {
+            let la = property_path_to_algebra(a)?;
+            let lb = property_path_to_algebra(b)?;
+            Some(Path::alt(vec![la, lb]))
+        }
+        PropertyPathExpression::ZeroOrMore(p) => {
+            property_path_to_algebra(p).map(|inner| inner.star())
+        }
+        PropertyPathExpression::OneOrMore(p) => {
+            property_path_to_algebra(p).map(|inner| inner.one_or_more())
+        }
+        PropertyPathExpression::ZeroOrOne(p) => {
+            property_path_to_algebra(p).map(|inner| inner.zero_or_one())
+        }
+        PropertyPathExpression::NegatedPropertySet(_) => None,
     }
 }
 

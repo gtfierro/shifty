@@ -39,12 +39,14 @@ pub fn normalize(schema: &Schema) -> Schema {
         .iter()
         .filter_map(|(old, name)| z.memo.get(old).map(|new| (*new, name.clone())))
         .collect();
-    Schema {
+    let normalized = Schema {
         arena: z.dst,
         statements,
         rules,
         names,
-    }
+    };
+    normalized.arena.debug_assert_finalized();
+    normalized
 }
 
 /// Push `Inverse` inward one level, returning the canonical inverse of `path`

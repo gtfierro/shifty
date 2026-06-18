@@ -623,10 +623,16 @@ impl Reporter<'_> {
                     for violation in violations {
                         let messages =
                             substitute_messages(&raw_messages, focus, &violation.bindings);
+                        // SHACL-AF §8.4.1: for SELECT constraints, when ?value is
+                        // not projected, the focus node itself is used as sh:value.
+                        let value = violation.value.or_else(|| match constraint.kind {
+                            SparqlQueryKind::Select => Some(focus.clone()),
+                            SparqlQueryKind::Ask => None,
+                        });
                         out.push(ValidationResult {
                             focus: focus.clone(),
                             path: violation.path.or_else(|| path_term.clone()),
-                            value: violation.value,
+                            value,
                             component: vocab::SH_CC_SPARQL.into_owned(),
                             source_shape: node_term_ref(shape),
                             severity: severity.clone(),

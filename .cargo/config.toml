@@ -7,3 +7,11 @@ RUST_MIN_STACK = "16777216"
 # Rust 1.90+ uses lld on Linux. perf needs this layout for accurate call stacks.
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-Clink-arg=-Wl,--no-rosegment"]
+
+# pyo3 extension-module doesn't link libpython; macOS linker needs this to allow
+# undefined Python symbols (resolved at runtime by the interpreter).
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

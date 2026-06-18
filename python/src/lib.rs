@@ -10,6 +10,8 @@ use shifty_engine::{
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+mod repair;
+
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
 #[pyclass(get_all)]
@@ -240,13 +242,13 @@ enum InputSource {
     Path(PathBuf),
 }
 
-struct InputSpec {
+pub(crate) struct InputSpec {
     source: InputSource,
     format: InputFormat,
 }
 
 impl InputSpec {
-    fn new(
+    pub(crate) fn new(
         data: Option<PyBackedBytes>,
         path: Option<String>,
         format: &str,
@@ -266,7 +268,7 @@ impl InputSpec {
         })
     }
 
-    fn load(&self, base: Option<&str>) -> Result<shifty_parse::Loaded, String> {
+    pub(crate) fn load(&self, base: Option<&str>) -> Result<shifty_parse::Loaded, String> {
         let loaded = match &self.source {
             InputSource::Bytes(data) => match self.format {
                 InputFormat::Turtle => shifty_parse::load_turtle(data, base),
@@ -280,7 +282,7 @@ impl InputSpec {
     }
 }
 
-fn py_value_error(message: String) -> PyErr {
+pub(crate) fn py_value_error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
 
@@ -334,7 +336,7 @@ fn maybe_infer_embedded(
     }
 }
 
-fn graph_to_ntriples(graph: &Graph) -> String {
+pub(crate) fn graph_to_ntriples(graph: &Graph) -> String {
     let mut writer = oxttl::NTriplesSerializer::new().for_writer(Vec::new());
     for triple in graph {
         writer.serialize_triple(triple).unwrap();
@@ -427,9 +429,45 @@ fn build_w3c_result(report: &ValidationReport, report_graph: &Graph) -> W3cResul
     }
 }
 
-fn shape_name_for(v: &shifty_engine::Violation, schema: &shifty_algebra::Schema) -> Option<String> {
+pub(crate) fn shape_name_for(
+    v: &shifty_engine::Violation,
+    schema: &shifty_algebra::Schema,
+) -> Option<String> {
     let shape_id = schema.statements.get(v.statement)?.shape;
     schema.names.get(&shape_id).cloned()
+}
+
+/// Build a Python [`Violation`] from an engine violation (shared by the
+/// validation and repair-gate paths).
+pub(crate) fn violation_to_py(
+    py: Python<'_>,
+    v: &shifty_engine::Violation,
+    schema: &shifty_algebra::Schema,
+) -> PyResult<Py<Violation>> {
+    let reasons = v
+        .reasons
+        .iter()
+        .map(|r| {
+            Py::new(
+                py,
+                Reason {
+                    value: r.value.to_string(),
+                    path: r.path.clone(),
+                    message: r.message.clone(),
+                    severity: r.severity.label().to_string(),
+                },
+            )
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Py::new(
+        py,
+        Violation {
+            focus_node: v.focus.to_string(),
+            shape_name: shape_name_for(v, schema),
+            severity: v.severity.label().to_string(),
+            reasons,
+        },
+    )
 }
 
 struct RawReason {
@@ -845,6 +883,7 @@ impl PreparedValidator {
         minimum_severity="info",
         sort_results=true
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn validate_algebra(
         &self,
         py: Python<'_>,
@@ -888,6 +927,7 @@ impl PreparedValidator {
         minimum_severity="info",
         sort_results=true
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn validate_w3c(
         &self,
         py: Python<'_>,
@@ -941,5 +981,6 @@ fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_validate_algebra, m)?)?;
     m.add_function(wrap_pyfunction!(_validate_w3c, m)?)?;
     m.add_function(wrap_pyfunction!(_infer, m)?)?;
+    repair::register(m)?;
     Ok(())
 }

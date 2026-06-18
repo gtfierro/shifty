@@ -1,11 +1,11 @@
 //! Evaluation of value types `test(τ)` and the term ordering used by
 //! `sh:lessThan`, ranges, etc. Naive reference semantics.
 
+use bigdecimal::BigDecimal;
 use oxrdf::vocab::xsd;
 use oxrdf::{Literal, NamedNodeRef, Term};
 use oxsdatatypes::{
-    Boolean, Date, DateTime, DayTimeDuration, Decimal, Double, Duration, Float, Time,
-    YearMonthDuration,
+    Boolean, Date, DateTime, DayTimeDuration, Double, Duration, Float, Time, YearMonthDuration,
 };
 use regex::Regex;
 use shifty_algebra::value_type::{Bound, ValueType};
@@ -68,6 +68,14 @@ fn satisfies_upper(term: &Term, b: &Bound) -> bool {
 /// partial order for timezone-unaware comparisons and incomparable durations).
 pub fn compare_terms(a: &Term, b: &Term) -> Option<Ordering> {
     if let (Term::Literal(la), Term::Literal(lb)) = (a, b) {
+        // When both operands are exact (integer-family or xsd:decimal), compare
+        // via BigDecimal so high-precision decimals and large integers (beyond
+        // f64's 2^53 of integer precision) are not collapsed by a lossy float
+        // conversion. Any pair involving xsd:float/xsd:double falls to the f64
+        // path, matching XPath/SPARQL promotion-to-floating semantics.
+        if let (Some(da), Some(db)) = (exact_decimal(la), exact_decimal(lb)) {
+            return Some(da.cmp(&db));
+        }
         if let (Some(na), Some(nb)) = (numeric(la), numeric(lb)) {
             return na.partial_cmp(&nb);
         }
@@ -111,7 +119,11 @@ fn valid_lexical_form(literal: &Literal) -> bool {
     if datatype == xsd::BOOLEAN {
         Boolean::from_str(value).is_ok()
     } else if datatype == xsd::DECIMAL {
-        Decimal::from_str(value).is_ok()
+        // xsd:decimal is arbitrary-precision, so validate the lexical form
+        // against the XSD grammar rather than parsing into oxsdatatypes::Decimal
+        // (a fixed-point i128 with ~18 fractional digits, which rejects valid
+        // high-precision values such as QUDT conversion multipliers).
+        is_decimal_lexical(value)
     } else if datatype == xsd::FLOAT {
         Float::from_str(value).is_ok()
     } else if datatype == xsd::DOUBLE {
@@ -133,6 +145,27 @@ fn valid_lexical_form(literal: &Literal) -> bool {
     } else {
         true
     }
+}
+
+/// Lexical validity for `xsd:decimal`: `[+-]? ( \d+ (\.\d*)? | \.\d+ )`, i.e.
+/// an optional sign and at least one digit, with an optional single decimal
+/// point. Unlike `oxsdatatypes::Decimal::from_str` this imposes no precision
+/// bound, and unlike a numeric parse it rejects exponents (`1e5` is a valid
+/// `xsd:double` but not a valid `xsd:decimal`). XSD `whiteSpace=collapse`
+/// allows surrounding whitespace, which we trim first.
+fn is_decimal_lexical(value: &str) -> bool {
+    let value = value.trim();
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let mut seen_digit = false;
+    let mut seen_dot = false;
+    for byte in digits.bytes() {
+        match byte {
+            b'0'..=b'9' => seen_digit = true,
+            b'.' if !seen_dot => seen_dot = true,
+            _ => return false,
+        }
+    }
+    seen_digit
 }
 
 fn is_integer_datatype(datatype: NamedNodeRef<'_>) -> bool {
@@ -180,6 +213,21 @@ fn integer_in_datatype_range(value: &str, datatype: NamedNodeRef<'_>) -> bool {
         xsd::UNSIGNED_SHORT => number >= 0 && number <= u16::MAX.into(),
         xsd::UNSIGNED_BYTE => number >= 0 && number <= u8::MAX.into(),
         _ => false,
+    }
+}
+
+/// Exact value of an integer-family or `xsd:decimal` literal as a `BigDecimal`,
+/// or `None` for `float`/`double` and non-numeric literals. This is only used
+/// when *both* operands are exact: per XPath/SPARQL numeric semantics, a
+/// comparison involving an `xsd:float`/`xsd:double` promotes the other operand
+/// to that floating type, so any pair touching a float stays on the lossy `f64`
+/// path rather than being compared exactly.
+fn exact_decimal(l: &Literal) -> Option<BigDecimal> {
+    let dt = l.datatype();
+    if dt == xsd::DECIMAL || is_integer_datatype(dt) {
+        BigDecimal::from_str(l.value().trim()).ok()
+    } else {
+        None
     }
 }
 
@@ -359,6 +407,87 @@ mod tests {
     fn cross_type_incomparable() {
         assert_eq!(compare_terms(&date("2020-01-01"), &time("12:00:00")), None);
         assert_eq!(compare_terms(&date("2020-01-01"), &dur("P1Y")), None);
+    }
+
+    fn decimal(v: &str) -> Term {
+        lit(v, "http://www.w3.org/2001/XMLSchema#decimal")
+    }
+
+    #[test]
+    fn high_precision_decimal_is_a_valid_lexical_form() {
+        // QUDT conversion multipliers carry more fractional digits than the
+        // fixed-point oxsdatatypes::Decimal can hold; xsd:decimal is
+        // arbitrary-precision, so the value type must still hold.
+        let dt = ValueType::Datatype(
+            oxrdf::NamedNode::new("http://www.w3.org/2001/XMLSchema#decimal").unwrap(),
+        );
+        let term = decimal("0.0004719474432000000000000000000000001");
+        assert!(value_type_holds(&dt, &term));
+    }
+
+    #[test]
+    fn decimal_lexical_forms() {
+        assert!(is_decimal_lexical(
+            "0.0004719474432000000000000000000000001"
+        ));
+        assert!(is_decimal_lexical("123"));
+        assert!(is_decimal_lexical("-1.5"));
+        assert!(is_decimal_lexical("+.5"));
+        assert!(is_decimal_lexical("1."));
+        assert!(is_decimal_lexical("  42  "));
+        // Exponents are xsd:double, not xsd:decimal.
+        assert!(!is_decimal_lexical("1.5e10"));
+        assert!(!is_decimal_lexical("."));
+        assert!(!is_decimal_lexical("+"));
+        assert!(!is_decimal_lexical("1.2.3"));
+        assert!(!is_decimal_lexical("abc"));
+    }
+
+    #[test]
+    fn high_precision_decimals_compare_exactly() {
+        // These two differ only in the 37th fractional digit; an f64 round-trip
+        // would collapse them to equal.
+        let a = decimal("0.0004719474432000000000000000000000001");
+        let b = decimal("0.0004719474432000000000000000000000002");
+        assert_eq!(compare_terms(&a, &b), Some(Ordering::Less));
+        assert_eq!(compare_terms(&a, &a.clone()), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn decimal_vs_double_promotes_to_double() {
+        // XPath/SPARQL semantics: a decimal compared with a double is promoted
+        // to double, so decimal 0.1 and double 0.1 round to the same f64 and
+        // compare equal rather than on their exact (differing) values.
+        let double = lit("0.1", "http://www.w3.org/2001/XMLSchema#double");
+        assert_eq!(
+            compare_terms(&decimal("0.1"), &double),
+            Some(Ordering::Equal)
+        );
+    }
+
+    #[test]
+    fn double_comparisons_still_order_and_handle_nan() {
+        let inf = lit("INF", "http://www.w3.org/2001/XMLSchema#double");
+        assert_eq!(
+            compare_terms(&decimal("1000000000"), &inf),
+            Some(Ordering::Less)
+        );
+        let nan = lit("NaN", "http://www.w3.org/2001/XMLSchema#double");
+        assert_eq!(compare_terms(&decimal("1"), &nan), None);
+    }
+
+    #[test]
+    fn large_integers_compare_exactly() {
+        // Both round to the same f64 (> 2^53) but are distinct integers.
+        let a = lit(
+            "9007199254740993",
+            "http://www.w3.org/2001/XMLSchema#integer",
+        );
+        let b = lit(
+            "9007199254740992",
+            "http://www.w3.org/2001/XMLSchema#integer",
+        );
+        assert_eq!(compare_terms(&a, &b), Some(Ordering::Greater));
     }
 
     #[test]

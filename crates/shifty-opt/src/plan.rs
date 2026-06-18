@@ -85,6 +85,7 @@ pub fn plan(schema: &Schema) -> PhysicalPlan {
         })
         .collect();
 
+    arena.debug_assert_finalized();
     PhysicalPlan {
         arena,
         statements,

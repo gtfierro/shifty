@@ -4,6 +4,7 @@ members = [
     "crates/shifty-parse",
     "crates/shifty-opt",
     "crates/shifty-engine",
+    "crates/shifty-repair",
     "crates/shifty-cli",
     "cpp",
     "python",
@@ -11,7 +12,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.7"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
@@ -27,10 +28,12 @@ shifty-algebra = { path = "crates/shifty-algebra", version = "0.1.1" }
 shifty-parse = { path = "crates/shifty-parse", version = "0.1.1" }
 shifty-opt = { path = "crates/shifty-opt", version = "0.1.1" }
 shifty-engine = { path = "crates/shifty-engine", version = "0.1.1" }
+shifty-repair = { path = "crates/shifty-repair", version = "0.1.1" }
 
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
 oxsdatatypes = "0.2.2"
+bigdecimal = "0.4"
 oxttl = "0.2.3"
 oxigraph = { version = "0.5.5", default-features = false }
 spargebra = { version = "=0.4.6", features = ["sep-0006"] }
