@@ -37,6 +37,12 @@ pub enum HoleConstraint {
     OneOf(Vec<Term>),
     /// The bound node must itself satisfy a sub-shape.
     ConformsTo(ShapeId),
+    /// The bound node must satisfy *every* listed sub-shape at once. Carried when
+    /// several independent obligations govern one freshly-added value — a count
+    /// qualifier together with the universal `∀π.φ` siblings on the same path that
+    /// were vacuously satisfied while the value set was empty. Rendering and
+    /// drivers treat it as the conjunction of its members.
+    ConformsToAll(Vec<ShapeId>),
 }
 
 /// A triple slot: a fixed term or an open hole.

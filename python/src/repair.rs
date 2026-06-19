@@ -38,6 +38,14 @@ fn constraint_str(c: &HoleConstraint) -> String {
         HoleConstraint::Kind(_) => "nodeKind".to_string(),
         HoleConstraint::OneOf(v) => format!("one of {} value(s)", v.len()),
         HoleConstraint::ConformsTo(s) => format!("conforms to @{}", s.0),
+        HoleConstraint::ConformsToAll(ss) => {
+            let ids = ss
+                .iter()
+                .map(|s| format!("@{}", s.0))
+                .collect::<Vec<_>>()
+                .join(" and ");
+            format!("conforms to {ids}")
+        }
     }
 }
 

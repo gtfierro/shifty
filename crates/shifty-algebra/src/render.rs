@@ -272,6 +272,28 @@ pub fn class_target<'a>(sel: &'a Selector, arena: &'a ShapeArena) -> Option<&'a 
     }
 }
 
+/// If `id` is a `∃≥1 (rdf:type/rdfs:subClassOf*).test(C)` shape (the encoding
+/// of `sh:class C`), return `C`. `None` for all other shapes.
+pub fn class_target_shape(id: ShapeId, arena: &ShapeArena) -> Option<Term> {
+    let Shape::Count {
+        ref path,
+        min: Some(1),
+        max: None,
+        qualifier,
+    } = arena.get(id).clone()
+    else {
+        return None;
+    };
+    if !is_class_path(&path) {
+        return None;
+    }
+    if let Shape::TestConst(c) = arena.get(qualifier).clone() {
+        Some(c)
+    } else {
+        None
+    }
+}
+
 /// Is `p` the `rdf:type/rdfs:subClassOf*` path used to encode class targeting?
 fn is_class_path(p: &Path) -> bool {
     const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";

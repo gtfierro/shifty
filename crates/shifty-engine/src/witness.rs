@@ -15,7 +15,7 @@ use crate::sparql::SparqlExecutor;
 use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, uses_shapes_graph};
 use oxrdf::{Graph, NamedNode, Term, Triple};
 use serde::{Deserialize, Serialize};
-use shifty_algebra::{Path, Schema, Shape, ShapeId};
+use shifty_algebra::{Path, Schema, Shape, ShapeArena, ShapeId};
 use shifty_opt::analyze;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
@@ -101,6 +101,12 @@ pub enum Witness {
         branches: Vec<Witness>,
     },
     /// `∃≥min π.q` under-satisfied: `have` values match, `min` required.
+    ///
+    /// `sibling_qualifiers` collects the inner shapes of any `∀π.φ` siblings
+    /// (encoded as `∃≤0 π.¬φ`) that share the same path inside a parent `And`.
+    /// Because those universals are vacuously satisfied when `have == 0` they
+    /// don't appear as failures themselves, but any value added to satisfy this
+    /// `CountLow` must also conform to each of them.
     CountLow {
         shape: ShapeId,
         node: Term,
@@ -108,6 +114,7 @@ pub enum Witness {
         qualifier: ShapeId,
         have: u64,
         min: u64,
+        sibling_qualifiers: Vec<ShapeId>,
     },
     /// `∃≤max π.q` over-satisfied. `matched` pairs each counted value with its
     /// support (so deletion cuts the right edges for `Seq`/`Star` paths).
@@ -425,6 +432,7 @@ fn witness(
                 .iter()
                 .filter_map(|c| witness(eval, node, *c, reached_by, produced_by, stack))
                 .collect();
+            let failed = enrich_count_low_siblings(failed, &cs, eval.arena());
             (!failed.is_empty()).then(|| Witness::All {
                 shape: id,
                 node: node.clone(),
@@ -460,6 +468,66 @@ fn witness(
     result
 }
 
+/// For each `CountLow` in `failed`, scan `all_siblings` for `∀π.φ` shapes
+/// (encoded as `Count { same_path, max:0, qualifier:Not(inner) }`) and attach
+/// their `inner` ShapeIds as `sibling_qualifiers`.  Any value added to fix the
+/// `CountLow` must also satisfy those universals, even though they are currently
+/// vacuously satisfied (zero values → nothing to check).
+fn enrich_count_low_siblings(
+    failed: Vec<Witness>,
+    all_siblings: &[ShapeId],
+    arena: &ShapeArena,
+) -> Vec<Witness> {
+    failed
+        .into_iter()
+        .map(|w| {
+            let Witness::CountLow {
+                shape,
+                ref node,
+                ref path,
+                qualifier,
+                have,
+                min,
+                ..
+            } = w
+            else {
+                return w;
+            };
+            let extras: Vec<ShapeId> = all_siblings
+                .iter()
+                .filter_map(|&sib| {
+                    let Shape::Count {
+                        path: sib_path,
+                        max: Some(0),
+                        qualifier: sib_q,
+                        ..
+                    } = arena.get(sib).clone()
+                    else {
+                        return None;
+                    };
+                    if sib_path != *path {
+                        return None;
+                    }
+                    if let Shape::Not(inner) = arena.get(sib_q).clone() {
+                        Some(inner)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Witness::CountLow {
+                shape,
+                node: node.clone(),
+                path: path.clone(),
+                qualifier,
+                have,
+                min,
+                sibling_qualifiers: extras,
+            }
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn count_witness(
     eval: &mut ShapeEvaluator<'_>,
@@ -489,6 +557,7 @@ fn count_witness(
             qualifier,
             have: n,
             min: m,
+            sibling_qualifiers: vec![],
         });
     }
     if let Some(m) = max

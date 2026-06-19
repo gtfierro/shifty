@@ -236,7 +236,9 @@ pub fn candidates(constraint: &HoleConstraint, data: &Graph, cap: usize) -> Vec<
         HoleConstraint::OneOf(v) => v.clone(),
         HoleConstraint::Fresh => vec![fresh()],
         HoleConstraint::AnyNode => with_fresh(graph_nodes(data)),
-        HoleConstraint::ConformsTo(_) => with_fresh(graph_nodes(data)),
+        HoleConstraint::ConformsTo(_) | HoleConstraint::ConformsToAll(_) => {
+            with_fresh(graph_nodes(data))
+        }
         // Infinite domains: reuse only — enumeration cannot invent a novel literal.
         HoleConstraint::Typed(t) => graph_terms(data)
             .into_iter()
