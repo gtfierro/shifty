@@ -4,8 +4,9 @@
 //! This is the simplest driver: it walks the [`RepairTree`]'s finite choices —
 //! `Any` branches, `Repeat` counts, and per-hole candidate terms drawn from the
 //! data graph (reuse) or minted fresh — and returns the first plan whose `ΔG`
-//! passes the [`gate`]. It is primarily a correctness check on the IR and the
-//! gate; it cannot invent novel literals (those holes are filled only by reuse).
+//! passes the [`gate`]. It is primarily a correctness check on the
+//! IR and the gate; it cannot invent novel literals (those holes are filled only
+//! by reuse).
 //!
 //! Like every driver, it decides nothing the library doesn't expose: it only
 //! composes [`instantiate`], [`candidates`], and [`gate`].
@@ -47,11 +48,15 @@ pub struct RepairSolution {
     pub outcome: RepairOutcome,
 }
 
-/// Search for the first sound, progress-making repair of `tree` against
-/// `(data, schema)`. `Ok(None)` means none was found within the budget.
+/// Search for the first sound, progress-making repair of `tree`. Reuse
+/// candidates are drawn from `data`, while gating is evaluated against `context`
+/// (which should contain `data`; pass `data` again when there is no separate
+/// shapes graph) — so a candidate typed with a subclass of a required class
+/// clears the gate. The enumeration dual of [`crate::validate_with_context`].
 pub fn enumerate_repair(
     tree: &RepairTree,
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     opts: EnumOptions,
 ) -> Result<Option<RepairSolution>, NonStratifiable> {
@@ -61,6 +66,7 @@ pub fn enumerate_repair(
     solve(
         tree,
         data,
+        context,
         schema,
         &choices,
         Plan::default(),
@@ -87,19 +93,28 @@ pub struct FixpointResult {
 /// repair until the graph conforms or no focus admits a sound, progress-making
 /// repair. Each accepted `ΔG` is gated (introduces nothing) and strictly reduces
 /// the violation count, so the loop terminates.
+///
+/// Witnessing and gating are evaluated against `context` (which should contain
+/// `data`; pass `data` again when there is no separate shapes graph) while focus
+/// and the emitted graph stay the data graph. Each accepted `ΔG` is applied to
+/// both graphs so later iterations see `(data ⊕ …) ∪ shapes` for evaluation. The
+/// returned `graph` is the repaired *data* graph — the shapes/context triples are
+/// not emitted.
 pub fn repair_to_fixpoint(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     opts: EnumOptions,
 ) -> Result<FixpointResult, NonStratifiable> {
     let mut graph = data.clone();
+    let mut context = context.clone();
     let mut applied = Vec::new();
     let mut iterations = 0usize;
     // A safety bound; progress guarantees far fewer iterations in practice.
     let max_iterations = 100_000;
 
     loop {
-        let witnesses = witness_violations(&graph, schema)?;
+        let witnesses = witness_violations(&graph, &context, schema)?;
         if witnesses.is_empty() {
             return Ok(FixpointResult {
                 graph,
@@ -120,8 +135,9 @@ pub fn repair_to_fixpoint(
         let mut progressed = false;
         for fw in &witnesses {
             let tree = synthesize(&schema.arena, fw);
-            if let Some(sol) = enumerate_repair(&tree, &graph, schema, opts)? {
+            if let Some(sol) = enumerate_repair(&tree, &graph, &context, schema, opts)? {
                 graph = apply(&graph, &sol.delta);
+                context = apply(&context, &sol.delta);
                 applied.push(sol.delta);
                 progressed = true;
                 break; // re-witness after each applied repair
@@ -167,9 +183,11 @@ fn index_choices(tree: &RepairTree, out: &mut HashMap<NodeId, Choice>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn solve(
     tree: &RepairTree,
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     choices: &HashMap<NodeId, Choice>,
     plan: Plan,
@@ -187,7 +205,8 @@ fn solve(
                 for i in 0..*n {
                     let mut p = plan.clone();
                     p.branch.insert(node, i);
-                    if let Some(sol) = solve(tree, data, schema, choices, p, budget, opts)? {
+                    if let Some(sol) = solve(tree, data, context, schema, choices, p, budget, opts)?
+                    {
                         return Ok(Some(sol));
                     }
                 }
@@ -196,7 +215,7 @@ fn solve(
             Some(Choice::Repeat(count)) => {
                 let mut p = plan;
                 p.count.insert(node, *count);
-                solve(tree, data, schema, choices, p, budget, opts)
+                solve(tree, data, context, schema, choices, p, budget, opts)
             }
             None => Ok(None),
         };
@@ -206,7 +225,7 @@ fn solve(
         for cand in candidates(&constraint, data, opts.max_candidates) {
             let mut p = plan.clone();
             p.binding.insert(hole, cand);
-            if let Some(sol) = solve(tree, data, schema, choices, p, budget, opts)? {
+            if let Some(sol) = solve(tree, data, context, schema, choices, p, budget, opts)? {
                 return Ok(Some(sol));
             }
         }
@@ -215,7 +234,7 @@ fn solve(
 
     // Fully resolved: gate it.
     *budget -= 1;
-    let outcome = gate(data, schema, &inst.delta)?;
+    let outcome = gate(data, context, schema, &inst.delta)?;
     if outcome.is_progress() {
         Ok(Some(RepairSolution {
             plan,
@@ -305,11 +324,17 @@ mod tests {
     fn repair(ttl: &str) -> (Option<RepairSolution>, Schema, Graph) {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &parsed.schema).unwrap();
+        let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).unwrap();
         assert_eq!(ws.len(), 1);
         let tree = synthesize(&parsed.schema.arena, &ws[0]);
-        let sol =
-            enumerate_repair(&tree, &loaded.graph, &parsed.schema, EnumOptions::default()).unwrap();
+        let sol = enumerate_repair(
+            &tree,
+            &loaded.graph,
+            &loaded.graph,
+            &parsed.schema,
+            EnumOptions::default(),
+        )
+        .unwrap();
         (sol, parsed.schema, loaded.graph)
     }
 
@@ -360,18 +385,23 @@ mod tests {
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
         // baseline: two violations.
         assert_eq!(
-            witness_violations(&loaded.graph, &parsed.schema)
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema)
                 .unwrap()
                 .len(),
             2
         );
-        let result =
-            repair_to_fixpoint(&loaded.graph, &parsed.schema, EnumOptions::default()).unwrap();
+        let result = repair_to_fixpoint(
+            &loaded.graph,
+            &loaded.graph,
+            &parsed.schema,
+            EnumOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.remaining, 0, "repaired to conformance");
         assert_eq!(result.applied.len(), 2, "one repair per focus");
         // the repaired graph genuinely conforms.
         assert!(
-            witness_violations(&result.graph, &parsed.schema)
+            witness_violations(&result.graph, &result.graph, &parsed.schema)
                 .unwrap()
                 .is_empty()
         );

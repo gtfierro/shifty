@@ -563,7 +563,8 @@ mod tests {
     fn synth_one(ttl: &str) -> (RepairTree, shifty_algebra::Schema) {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &parsed.schema).expect("stratifiable");
+        let ws =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
         assert_eq!(ws.len(), 1, "expected exactly one focus witness");
         (synthesize(&parsed.schema.arena, &ws[0]), parsed.schema)
     }
@@ -662,7 +663,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &parsed.schema).unwrap();
+        let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).unwrap();
         let parent = synthesize(&parsed.schema.arena, &ws[0]);
         // the parent hole is the part value (ConformsTo PartShape).
         let mut plan = Plan {
