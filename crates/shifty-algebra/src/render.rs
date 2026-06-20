@@ -230,6 +230,78 @@ pub fn shape_to_string(arena: &ShapeArena, id: ShapeId) -> String {
     shape_def(arena, id)
 }
 
+/// A fully-expanded, human-readable description of a shape for repair-hole
+/// display: every child shape is inlined recursively (no bare `@id` slot
+/// references), the `sh:class` encoding is named `instance of C`, and leaves
+/// render in the formalism's notation. Recursive shapes are cut at a fixed depth,
+/// falling back to the slot label `@id`. Prefer this over [`shape_to_string`] when
+/// the reader wants the *whole* constraint, not a one-level form with pointers.
+pub fn describe_shape(arena: &ShapeArena, id: ShapeId) -> String {
+    describe_shape_within(arena, id, 8)
+}
+
+/// Join the descriptions of several shapes a value must *all* satisfy with “and”
+/// — the rendering of a conjunction held as separate shapes (e.g. a `ConformsToAll`
+/// hole). Each member is itself fully expanded via [`describe_shape`].
+pub fn describe_shapes(arena: &ShapeArena, ids: &[ShapeId]) -> String {
+    if ids.is_empty() {
+        return "any node".to_string();
+    }
+    ids.iter()
+        .map(|id| describe_shape(arena, *id))
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
+fn describe_shape_within(arena: &ShapeArena, id: ShapeId, depth: u8) -> String {
+    // ∃≥1 (rdf:type/rdfs:subClassOf*).test(C) — the encoding of sh:class C.
+    if let Some(class) = class_target_shape(id, arena) {
+        return format!("instance of {}", term_to_string(&class));
+    }
+    match arena.get(id) {
+        Shape::Top | Shape::Pending => "any node".to_string(),
+        // Past the depth budget, name the slot rather than risk a recursive shape.
+        _ if depth == 0 => format!("@{}", id.0),
+        // sh:severity is transparent — describe the wrapped shape.
+        Shape::Annotated { shape, .. } => describe_shape_within(arena, *shape, depth - 1),
+        Shape::Not(c) => format!("not ({})", describe_shape_within(arena, *c, depth - 1)),
+        Shape::And(cs) => join_describe(arena, cs, " and ", depth),
+        Shape::Or(cs) => join_describe(arena, cs, " or ", depth),
+        Shape::Count {
+            path,
+            min,
+            max,
+            qualifier,
+        } => {
+            let lo = min.map(|n| n.to_string()).unwrap_or_default();
+            let hi = max.map(|n| n.to_string()).unwrap_or_default();
+            let q = describe_shape_within(arena, *qualifier, depth - 1);
+            format!("∃[{lo}..{hi}] {} . {q}", path_to_string(path))
+        }
+        // Every remaining variant is a leaf with no child shapes: its one-level
+        // formal rendering is already fully expanded.
+        _ => shape_def(arena, id),
+    }
+}
+
+/// Render each child for an `And`/`Or`, parenthesizing nested boolean
+/// combinations so the joined string reads unambiguously.
+fn join_describe(arena: &ShapeArena, cs: &[ShapeId], sep: &str, depth: u8) -> String {
+    if cs.is_empty() {
+        return "()".to_string();
+    }
+    cs.iter()
+        .map(|c| {
+            let d = describe_shape_within(arena, *c, depth - 1);
+            match arena.get(*c) {
+                Shape::And(_) | Shape::Or(_) => format!("({d})"),
+                _ => d,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(sep)
+}
+
 pub fn selector_to_string(sel: &Selector) -> String {
     match sel {
         Selector::HasOut(q) => format!("∃ {} .⊤", compact(q.as_str())),
@@ -284,7 +356,7 @@ pub fn class_target_shape(id: ShapeId, arena: &ShapeArena) -> Option<Term> {
     else {
         return None;
     };
-    if !is_class_path(&path) {
+    if !is_class_path(path) {
         return None;
     }
     if let Shape::TestConst(c) = arena.get(qualifier).clone() {
@@ -669,5 +741,58 @@ mod tests {
             selector_to_string_in(&sel, &arena),
             "∃≥1 <http://ex/p> . nodeKind(IRI)"
         );
+    }
+
+    /// A `∃≥1 (rdf:type/rdfs:subClassOf*).test(C)` shape — the lowering of `sh:class C`.
+    fn class_shape(arena: &mut ShapeArena, iri: &str) -> ShapeId {
+        let test = arena.insert(Shape::TestConst(Term::NamedNode(nn(iri))));
+        arena.insert(Shape::Count {
+            path: class_path(),
+            min: Some(1),
+            max: None,
+            qualifier: test,
+        })
+    }
+
+    #[test]
+    fn describe_shape_inlines_every_child() {
+        let mut arena = ShapeArena::new();
+        let a = class_shape(&mut arena, "http://ex/A");
+        let b = class_shape(&mut arena, "http://ex/B");
+        let or = arena.insert(Shape::Or(vec![a, b]));
+
+        // A disjunction of class shapes expands fully — no bare `@id` slot refs,
+        // unlike the one-level `shape_to_string`.
+        assert_eq!(
+            describe_shape(&arena, or),
+            "instance of <http://ex/A> or instance of <http://ex/B>"
+        );
+        assert_eq!(shape_to_string(&arena, or), format!("@{} ∨ @{}", a.0, b.0));
+
+        // `describe_shapes` (a ConformsToAll-style conjunction of separate shapes)
+        // joins each member's full description with “and”.
+        let kind = arena.insert(Shape::TestKind(NodeKindSet::IRI));
+        assert_eq!(
+            describe_shapes(&arena, &[a, kind]),
+            "instance of <http://ex/A> and nodeKind(IRI)"
+        );
+    }
+
+    #[test]
+    fn describe_shape_guards_recursive_shapes() {
+        // S := ⊤ ∧ ∃≥1 ex:knows . S  — a cyclic shape must terminate at the budget.
+        let mut arena = ShapeArena::new();
+        let s = arena.reserve();
+        let top = arena.insert(Shape::Top);
+        let reaches = arena.insert(Shape::Count {
+            path: Path::Pred(nn("http://ex/knows")),
+            min: Some(1),
+            max: None,
+            qualifier: s,
+        });
+        arena.set(s, Shape::And(vec![top, reaches]));
+        // It renders without diverging and bottoms out at an `@id` slot label.
+        let rendered = describe_shape(&arena, s);
+        assert!(rendered.contains(&format!("@{}", s.0)), "{rendered}");
     }
 }

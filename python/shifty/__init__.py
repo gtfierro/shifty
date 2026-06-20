@@ -423,9 +423,17 @@ class RepairSession:
 
     def repair_node_against(self, node: str, shape_id: int) -> "Optional[RepairTree]":
         """Synthesize a tree that makes ``node`` conform to sub-shape ``shape_id``
-        — the building block for repairing a ``conforms to @N`` hole (see
-        :attr:`Hole.conforms_to`). Returns ``None`` if the node already conforms."""
+        — the building block for repairing a ``conforms to`` hole (see
+        :attr:`Hole.conforms_to` / :attr:`Hole.conforms_to_shapes`). Returns
+        ``None`` if the node already conforms."""
         return self._inner.repair_node_against(node, shape_id)
+
+    def describe_shape(self, shape_id: int) -> str:
+        """A fully-expanded, human-readable definition of shape ``shape_id`` (the
+        integer from :attr:`Hole.conforms_to` / :attr:`Hole.conforms_to_shapes`):
+        every child shape inlined, no ``@id`` pointers. The lookup for
+        understanding exactly what a ``conforms to`` hole demands."""
+        return self._inner.describe_shape(shape_id)
 
     def __repr__(self) -> str:
         return repr(self._inner)

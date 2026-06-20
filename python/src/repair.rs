@@ -11,7 +11,7 @@ use crate::{InputSpec, Violation, graph_to_ntriples, py_value_error, violation_t
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Schema, Selector, ShapeId};
+use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
     FocusSat as IrSat, FocusWitness as IrFocus, SatTrace, Witness, apply as engine_apply,
     candidates as engine_candidates, gate as engine_gate, satisfy_shape, shape_id_for_iri,
@@ -29,7 +29,7 @@ fn path_str(p: &shifty_algebra::Path) -> String {
     shifty_algebra::render::path_to_string(p)
 }
 
-fn constraint_str(c: &HoleConstraint) -> String {
+fn constraint_str(c: &HoleConstraint, arena: &ShapeArena) -> String {
     match c {
         HoleConstraint::AnyNode => "any node".to_string(),
         HoleConstraint::Fresh => "fresh node".to_string(),
@@ -37,15 +37,9 @@ fn constraint_str(c: &HoleConstraint) -> String {
         HoleConstraint::Typed(vt) => shifty_algebra::render::value_type_to_string(vt),
         HoleConstraint::Kind(_) => "nodeKind".to_string(),
         HoleConstraint::OneOf(v) => format!("one of {} value(s)", v.len()),
-        HoleConstraint::ConformsTo(s) => format!("conforms to @{}", s.0),
-        HoleConstraint::ConformsToAll(ss) => {
-            let ids = ss
-                .iter()
-                .map(|s| format!("@{}", s.0))
-                .collect::<Vec<_>>()
-                .join(" and ");
-            format!("conforms to {ids}")
-        }
+        // Fully expand the sub-shape(s) so no bare `@id` pointers leak out.
+        HoleConstraint::ConformsTo(s) => shifty_algebra::render::describe_shape(arena, *s),
+        HoleConstraint::ConformsToAll(ss) => shifty_algebra::render::describe_shapes(arena, ss),
     }
 }
 
@@ -175,7 +169,7 @@ fn render_sat(s: &SatTrace, indent: usize, out: &mut Vec<String>) {
     }
 }
 
-fn render_tree(t: &IrTree, indent: usize, out: &mut Vec<String>) {
+fn render_tree(t: &IrTree, arena: &ShapeArena, indent: usize, out: &mut Vec<String>) {
     let pad = " ".repeat(indent);
     match t {
         IrTree::Noop(_) => out.push(format!("{pad}Noop")),
@@ -186,25 +180,25 @@ fn render_tree(t: &IrTree, indent: usize, out: &mut Vec<String>) {
                 out.push(format!("{pad}  {}", edit_str(e)));
             }
             for (h, c) in holes {
-                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c)));
+                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c, arena)));
             }
         }
         IrTree::All { children, .. } => {
             out.push(format!("{pad}All — do all:"));
             for c in children {
-                render_tree(c, indent + 2, out);
+                render_tree(c, arena, indent + 2, out);
             }
         }
         IrTree::Any { children, .. } => {
             out.push(format!("{pad}Any — choose one:"));
             for c in children {
-                render_tree(c, indent + 2, out);
+                render_tree(c, arena, indent + 2, out);
             }
         }
         IrTree::Repeat { body, min, max, .. } => {
             let hi = max.map_or_else(|| "∞".to_string(), |m| m.to_string());
             out.push(format!("{pad}Repeat [{min}..{hi}]:"));
-            render_tree(body, indent + 2, out);
+            render_tree(body, arena, indent + 2, out);
         }
     }
 }
@@ -721,8 +715,17 @@ impl RepairSession {
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         Ok(fw.map(|fw| RepairTree {
             inner: synthesize(&self.schema.arena, &fw),
+            schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }))
+    }
+
+    /// A fully-expanded, human-readable definition of shape `shape_id` (the
+    /// integer from `Hole.conforms_to` / `Hole.conforms_to_shapes`): every child
+    /// shape inlined, no `@id` pointers. The lookup a driver uses to understand
+    /// what a `conforms to` hole actually demands.
+    fn describe_shape(&self, shape_id: u32) -> String {
+        shifty_algebra::render::describe_shape(&self.schema.arena, ShapeId(shape_id))
     }
 
     /// A new session over `G ⊕ ΔG` (same schema, no re-inference) so a driver can
@@ -888,6 +891,7 @@ impl FocusWitness {
         let tree = py.allow_threads(|| synthesize(&self.schema.arena, &self.inner));
         RepairTree {
             inner: tree,
+            schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }
     }
@@ -956,6 +960,7 @@ impl FocusSatisfaction {
 #[pyclass(name = "RepairTree")]
 pub struct RepairTree {
     inner: IrTree,
+    schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
@@ -971,7 +976,7 @@ impl RepairTree {
     /// The tree rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
-        render_tree(&self.inner, 0, &mut out);
+        render_tree(&self.inner, &self.schema.arena, 0, &mut out);
         out.join("\n")
     }
 
@@ -987,8 +992,9 @@ impl RepairTree {
                     py,
                     Hole {
                         id: h.0,
-                        constraint: constraint_str(&c),
+                        constraint: constraint_str(&c, &self.schema.arena),
                         inner: c,
+                        schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
                     },
                 )
@@ -1013,6 +1019,7 @@ impl RepairTree {
             delta: inst.delta,
             open_holes,
             open_choices,
+            schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }
     }
@@ -1080,10 +1087,12 @@ fn collect_choices(tree: &IrTree, out: &mut Vec<Choice>) {
 pub struct Hole {
     #[pyo3(get)]
     id: u32,
-    /// The constraint, rendered (e.g. `typed value`, `one of 2 value(s)`).
+    /// The constraint, fully rendered (e.g. `typed value`, `instance of <C>`,
+    /// `instance of <A> or instance of <B>`) — every sub-shape inlined, no `@id`.
     #[pyo3(get)]
     constraint: String,
     inner: HoleConstraint,
+    schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
@@ -1102,14 +1111,42 @@ impl Hole {
         })
     }
 
-    /// The sub-shape id for a `conforms to @N` hole (else `None`). Feed it to
-    /// [`RepairSession.repair_node_against`] to build the value out recursively.
+    /// The sub-shape id for a single `conforms to` hole (`None` for a multi-shape
+    /// `ConformsToAll` or a non-conformance hole — use `conforms_to_shapes` to
+    /// cover both). Feed it to [`RepairSession.repair_node_against`].
     #[getter]
     fn conforms_to(&self) -> Option<u32> {
         match &self.inner {
             HoleConstraint::ConformsTo(s) => Some(s.0),
             _ => None,
         }
+    }
+
+    /// Every sub-shape id the bound value must conform to: one for `ConformsTo`,
+    /// all of them for `ConformsToAll`, empty otherwise. The complete set a driver
+    /// must build the value against (each via `RepairSession.repair_node_against`).
+    #[getter]
+    fn conforms_to_shapes(&self) -> Vec<u32> {
+        match &self.inner {
+            HoleConstraint::ConformsTo(s) => vec![s.0],
+            HoleConstraint::ConformsToAll(ss) => ss.iter().map(|s| s.0).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Each conform-to sub-shape as `(id, definition)`: its arena id plus a
+    /// fully-expanded, human-readable definition. Empty for non-conformance holes.
+    /// Lets a driver read *and* recursively build every obligation on the value.
+    fn sub_shapes(&self) -> Vec<(u32, String)> {
+        self.conforms_to_shapes()
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    shifty_algebra::render::describe_shape(&self.schema.arena, ShapeId(id)),
+                )
+            })
+            .collect()
     }
 
     fn __repr__(&self) -> String {
@@ -1204,6 +1241,7 @@ pub struct Instantiated {
     delta: shifty_repair::GraphDelta,
     open_holes: Vec<(u32, HoleConstraint)>,
     open_choices: Vec<u32>,
+    schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
@@ -1227,8 +1265,9 @@ impl Instantiated {
                     py,
                     Hole {
                         id: *id,
-                        constraint: constraint_str(c),
+                        constraint: constraint_str(c, &self.schema.arena),
                         inner: c.clone(),
+                        schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
                     },
                 )

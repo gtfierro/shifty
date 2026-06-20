@@ -860,54 +860,8 @@ fn constraint_str(c: &shifty_repair::HoleConstraint, arena: &shifty_algebra::Sha
         H::Typed(_) => "typed value".to_string(),
         H::Kind(_) => "nodeKind".to_string(),
         H::OneOf(v) => format!("one of {} value(s)", v.len()),
-        H::ConformsTo(s) => describe_shape(*s, arena),
-        H::ConformsToAll(ss) => describe_shapes(ss, arena),
-    }
-}
-
-/// Human-readable description of several shapes a hole must *all* satisfy,
-/// joined by “and” — so a multi-constraint value reads as every applicable
-/// constraint, not just one.
-fn describe_shapes(ids: &[shifty_algebra::ShapeId], arena: &shifty_algebra::ShapeArena) -> String {
-    if ids.is_empty() {
-        return "any node".to_string();
-    }
-    ids.iter()
-        .map(|id| describe_shape(*id, arena))
-        .collect::<Vec<_>>()
-        .join(" and ")
-}
-
-/// Human-readable description of a shape for hole-constraint display. Recognises
-/// `sh:class`, unwraps `sh:severity`, and expands a conjunction into its parts so
-/// every constraint shows; other shapes render in the formalism's notation.
-fn describe_shape(id: shifty_algebra::ShapeId, arena: &shifty_algebra::ShapeArena) -> String {
-    describe_shape_within(id, arena, 4)
-}
-
-fn describe_shape_within(
-    id: shifty_algebra::ShapeId,
-    arena: &shifty_algebra::ShapeArena,
-    depth: u8,
-) -> String {
-    use shifty_algebra::Shape;
-    // ∃≥1 (rdf:type/rdfs:subClassOf*).test(C) — the encoding of sh:class C
-    if let Some(class) = shifty_algebra::render::class_target_shape(id, arena) {
-        return format!("instance of {class}");
-    }
-    match arena.get(id) {
-        // Guard against recursive shapes: stop descending and name the slot.
-        _ if depth == 0 => format!("conforms to @{}", id.0),
-        // sh:severity is transparent — describe the wrapped shape.
-        Shape::Annotated { shape, .. } => describe_shape_within(*shape, arena, depth - 1),
-        // A conjunction reads as each conjunct joined by “and”.
-        Shape::And(cs) => cs
-            .iter()
-            .map(|c| describe_shape_within(*c, arena, depth - 1))
-            .collect::<Vec<_>>()
-            .join(" and "),
-        Shape::Top | Shape::Pending => "any node".to_string(),
-        _ => shifty_algebra::render::shape_to_string(arena, id),
+        H::ConformsTo(s) => shifty_algebra::render::describe_shape(arena, *s),
+        H::ConformsToAll(ss) => shifty_algebra::render::describe_shapes(arena, ss),
     }
 }
 

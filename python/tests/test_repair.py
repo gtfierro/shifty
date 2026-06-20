@@ -306,6 +306,79 @@ def test_class_qualified_build_is_not_blocked_and_types_the_node():
     assert s.gate(delta).is_progress
 
 
+# ── full rendering & multi-shape obligations ─────────────────────────────────
+
+# minCount + an sh:or of two classes on the same path: the added value must be
+# an instance of one class or the other — a `ConformsTo` of an `Or` shape.
+OR_OF_CLASSES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+ex:S a sh:NodeShape ; sh:targetNode ex:vav1 ;
+    sh:property [ sh:path ex:hasPoint ; sh:minCount 1 ;
+        sh:or ( [ sh:class ex:TempSensor ] [ sh:class ex:FlowSensor ] ) ] .
+ex:vav1 a ex:VAV .
+"""
+
+# A non-⊤ count qualifier (sh:qualifiedValueShape) *and* a sibling sh:class on the
+# same path: every obligation is carried as a `ConformsToAll`.
+CONFORMS_ALL = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/> .
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+    sh:property [ sh:path ex:p ;
+        sh:qualifiedValueShape ex:Q ; sh:qualifiedMinCount 1 ;
+        sh:class ex:C ] .
+ex:Q a sh:NodeShape ; sh:nodeKind sh:IRI .
+ex:x a ex:Thing .
+"""
+
+
+def test_hole_constraint_fully_renders_an_or_of_classes():
+    # The hole over an `sh:or` of classes used to print bare slot pointers
+    # (`@2 ∨ @5`); now every sub-shape is inlined — no `@` leaks out.
+    s = shifty.RepairSession(OR_OF_CLASSES, infer=False)
+    hole = s.witnesses()[0].repair_tree().holes()[0]
+    assert "@" not in hole.constraint
+    assert "instance of" in hole.constraint and " or " in hole.constraint
+    # the sub-shape id round-trips through the session's deep renderer.
+    assert hole.conforms_to is not None
+    assert s.describe_shape(hole.conforms_to) == hole.constraint
+
+
+def test_conforms_to_all_exposes_every_subshape_and_definition():
+    s = shifty.RepairSession(CONFORMS_ALL, infer=False)
+    hole = s.witnesses()[0].repair_tree().holes()[0]
+    # a multi-shape obligation: the single-id accessor is None, the set is complete.
+    assert hole.conforms_to is None
+    assert len(hole.conforms_to_shapes) == 2
+    subs = hole.sub_shapes()
+    assert len(subs) == 2
+    for sid, definition in subs:
+        assert isinstance(sid, int)
+        assert "@" not in definition and definition
+        # the session resolves the same id to the same definition.
+        assert s.describe_shape(sid) == definition
+    # the rendered constraint names both obligations, with no pointers.
+    assert "@" not in hole.constraint
+    assert "instance of" in hole.constraint and " and " in hole.constraint
+    # each sub-shape id is a valid build target; the `instance of ex:C` obligation
+    # a bare fresh node does not yet meet drives a recursive repair.
+    trees = {
+        sid: s.repair_node_against("<urn:fresh>", sid)
+        for sid in hole.conforms_to_shapes
+    }
+    class_ids = [sid for sid, d in subs if "instance of" in d]
+    assert class_ids and all(trees[sid] is not None for sid in class_ids)
+
+
+def test_explain_has_no_unresolved_pointers():
+    s = shifty.RepairSession(OR_OF_CLASSES, infer=False)
+    text = s.witnesses()[0].repair_tree().explain()
+    # the constraint is spelled out, not left as `@2 ∨ @5`.
+    assert "instance of" in text and " or " in text
+    assert "∨" not in text
+
+
 # ── shape-scoped witnesses & satisfactions ───────────────────────────────────
 
 TWO_SHAPE_SHAPES = """
