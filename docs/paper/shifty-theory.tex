@@ -1,0 +1,1523 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------------------
+% shifty: the theory and engineering behind a formalism-first SHACL engine.
+%
+% WORKING DRAFT. Bullet-point + math density on purpose; prose is intentionally
+% thin so the technical content (algebra, transformations, SPARQL lowering,
+% repair) is captured before it is polished into a publication.
+% ---------------------------------------------------------------------------
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+
+% --- notation -------------------------------------------------------------
+\newcommand{\sem}[1]{[\![#1]\!]}                 % denotation brackets
+\newcommand{\semG}[1]{\sem{#1}^{G}}              % denotation over graph G
+\newcommand{\Term}{\mathit{Term}}
+\newcommand{\Node}{N}
+\newcommand{\Val}{V}
+\newcommand{\Pred}{P}
+\newcommand{\Key}{K}
+\newcommand{\conf}{\models}                       % G,v |= phi
+\newcommand{\id}{\mathsf{id}}
+\newcommand{\test}{\mathsf{test}}
+\newcommand{\closedc}{\mathsf{closed}}
+\newcommand{\eqc}{\mathsf{eq}}
+\newcommand{\disjc}{\mathsf{disj}}
+\newcommand{\kind}{\mathsf{kind}}
+\newcommand{\sel}{\mathit{sel}}
+\newcommand{\lfp}{\mathrm{lfp}}
+\newcommand{\gfp}{\mathrm{gfp}}
+\newcommand{\Star}{{*}}
+\newcommand{\Repair}{\mathsf{repair}}
+\newcommand{\Break}{\mathsf{break}}
+\newcommand{\Build}{\mathsf{build}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{law}{Law}[section]
+\newtheorem{principle}{Principle}[section]
+
+% --- listings -------------------------------------------------------------
+\definecolor{kw}{rgb}{0.30,0.20,0.65}
+\definecolor{cm}{rgb}{0.35,0.45,0.35}
+\definecolor{st}{rgb}{0.60,0.25,0.20}
+\lstdefinelanguage{rustlite}{
+  morekeywords={enum,struct,fn,impl,pub,let,mut,match,Box,Vec,Option,Some,None,
+    Term,Path,Shape,self,for,in,if,else,return,u32,u64,bool,HashMap,HashSet,Rc,
+    RefCell,BTreeMap,BTreeSet,where,trait,type,as,move,crate},
+  sensitive=true,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+}
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cm}\itshape,
+  stringstyle=\color{st},
+  columns=fullflexible,
+  breaklines=true,
+  showstringspaces=false,
+  frame=single,
+  framesep=4pt,
+  rulecolor=\color{black!25},
+  xleftmargin=4pt,
+}
+\lstset{language=rustlite}
+
+\newcommand{\tagdone}{{\small\textsc{[impl]}}}
+\newcommand{\tagdesign}{{\small\textsc{[design]}}}
+
+% --- implementation-status callouts ---------------------------------------
+% Inline marker and a framed block for material that is DESIGNED but NOT YET
+% in the current crates. Kept (not deleted) so we can decide later what to cut.
+\definecolor{nired}{rgb}{0.60,0.05,0.05}
+\newcommand{\NI}[1]{{\color{nired}\textbf{[NOT IMPLEMENTED --- design only:} #1\textbf{]}}}
+\newcommand{\PART}[1]{{\color{nired}\textbf{[PARTIAL:} #1\textbf{]}}}
+\newcommand{\nibox}[1]{%
+  \par\smallskip\noindent
+  \fcolorbox{nired}{nired!6}{%
+    \parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
+      \small\textbf{\color{nired}NOT IMPLEMENTED (design only --- candidate for removal later).}\ #1}}%
+  \par\smallskip}
+
+\title{\textbf{shifty}: A Formalism-First SHACL / SHACL-AF Engine\\
+\large Algebraic IR, Semantics-Preserving Optimization, Native SPARQL Lowering,\\ and Symbolic Repair}
+\author{Gabe Fierro \and (working notes)}
+\date{Draft --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+\textbf{shifty} is a SHACL Core + SHACL-AF (Advanced Features) validation and
+inference engine that is \emph{formalism-first}: every shapes graph is lowered to
+a small algebraic intermediate representation (IR) --- a path algebra $\pi$ and a
+shape grammar $\varphi$ adapted from the \emph{Common Foundations for SHACL,
+ShEx, and PG-Schema} treatment (Ahmetaj et al., arXiv:2502.01295), specialized to
+RDF --- before anything is evaluated. The same IR drives validation, inference,
+static analysis, physical planning, native SPARQL execution, and a symbolic
+\emph{repair} subsystem. This document records, in bullet-and-math form, (i) the
+core formalism and the deliberate deviations needed to reach W3C coverage; (ii)
+the pinned recursion semantics (stratified, greatest-fixpoint validation /
+least-fixpoint inference) and the \emph{semantic} polarity analysis it rests on;
+(iii) the catalog of semantics-preserving algebraic transformations; (iv) the
+logical-to-physical planner and its cost model; (v) the native SPARQL lowering
+over an immutable dictionary-encoded dataset, which is the principal performance
+mechanism; and (vi) the repair calculus, which expresses graph repair as
+\emph{abduction over $\varphi$} with a witness/satisfaction-trace duality and
+multiple solver back-ends (monomorphism, enumeration, ASP, LLM). The emphasis is
+on the engineering and the inventions that make the engine fast.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{Overview and design thesis}
+% ===========================================================================
+
+\paragraph{The thesis.} W3C SHACL is specified as a large vocabulary of
+constraint components with overlapping semantics. shifty's bet is that almost all
+of that vocabulary collapses into a tiny algebra, and that \emph{optimizing one
+small algebra} beats optimizing dozens of vocabulary terms.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{One reference semantics, many engines.} A naive denotational
+  evaluator (the \emph{oracle}) defines truth. Every optimized engine must
+  produce identical conformance results; this is enforced continuously against
+  the W3C test suite and as property tests of the form
+  $\mathsf{validate}(\mathsf{normalize}(S),G) \equiv \mathsf{validate}(S,G)$.
+  \item \textbf{Lower early, optimize late.} All W3C vocabulary sugar is
+  destructured into the core IR \emph{at parse time}. Optimizers and planners
+  never see SHACL vocabulary --- only $\pi$/$\varphi$.
+  \item \textbf{Fix semantics before optimizing.} The recursion / fixpoint
+  semantics (\S\ref{sec:recursion}) is pinned before any rewrite that depends on
+  it, so soundness of every transformation has a single referent.
+\end{itemize}
+
+\paragraph{Pipeline.} The stages are independently inspectable
+(\code{shifty inspect --stage rdf|algebra|normalized|strata|plan|capability}):
+\[
+\underbrace{\text{RDF}}_{\text{Turtle}}
+\;\xrightarrow{\text{parse + lower}}\;
+\underbrace{(\pi,\varphi)\text{ IR}}_{\text{Schema arena}}
+\;\xrightarrow{\text{normalize + CSE}}\;
+\underbrace{\text{normal form}}_{\text{stratified}}
+\;\xrightarrow{\text{plan}}\;
+\underbrace{\text{physical plan}}_{\text{cost-ordered}}
+\;\xrightarrow{\text{execute}}\;
+\underbrace{\text{report / } \Delta G}_{\text{validate / infer / repair}}
+\]
+
+\paragraph{Implementation-status convention.} This is a working draft that
+captures both what is \emph{built} and what is \emph{designed}. Material that is
+specified but \textbf{not yet implemented in the current crates} is flagged
+inline with \NI{\dots} or in a framed \emph{NOT IMPLEMENTED} box, and partial
+implementations with \PART{\dots}. These markers are deliberate: they let us
+decide later whether to keep the design material in a publication or cut it. Code
+sketches without a marker reflect types/functions that exist in the tree.
+
+\paragraph{Crate decomposition.}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+crate & role \\
+\midrule
+\code{shifty-algebra} & core IR: path algebra $\pi$, shape grammar $\varphi$, value types, schema arena, rendering \\
+\code{shifty-parse}   & Turtle/RDF $\rightarrow$ IR lowering (all Core + AF sugar) \\
+\code{shifty-opt}     & normalization/CSE, stratification, planning, native SPARQL lowering \\
+\code{shifty-engine}  & validation, AF inference, SPARQL executor, repair (witness/synthesize/gate) \\
+\code{shifty-cli}     & \code{shifty} binary; per-stage inspection \\
+\code{pyshifty}       & PyO3 bindings (\code{validate}, \code{infer}, \code{RepairSession}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ===========================================================================
+\section{The algebraic core: $\pi$ and $\varphi$}\label{sec:core}
+% ===========================================================================
+
+The reference is the SHACL fragment of the \emph{Common Foundations} paper,
+\textbf{specialized to RDF} and stripped of property-graph / ShEx / PG-Schema
+material.
+
+\subsection{Data model and the RDF re-unification (deviations D0, D1)}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item The paper works over \emph{common graphs} $G=(E,\rho)$ with
+  node-to-node edges $E\subseteq \Node\times \Pred\times \Node$ and a partial
+  value map $\rho:\Node\times \Key \rightharpoonup \Val$. It deliberately keeps
+  predicates $\Pred$ (edges) and keys $\Key$ (properties) \emph{distinct}, so
+  paths navigate only node$\to$node and never ``through'' a value.
+  \item \textbf{D0 --- re-unify $\Pred$ and $\Key$.} For RDF this wall is
+  artificial; a common graph is just a set of triples. We collapse:
+  \[
+  \Term = \mathrm{IRI}\cup\mathrm{Blank}\cup\mathrm{Literal},\quad
+  \Node=\mathrm{IRI}\cup\mathrm{Blank},\quad
+  \Val=\mathrm{Literal},\quad
+  \Pred=\Key=\mathrm{IRI},
+  \]
+  \[
+  G\subseteq \Node\times\mathrm{IRI}\times\Term.
+  \]
+  Consequently a path may traverse \emph{any} triple regardless of object kind,
+  so path denotation is a relation over $\Term\times\Term$, not $\Node\times\Node$.
+  \item \textbf{D1 --- node identity is visible.} The paper hides node identity
+  (which is \emph{why} it omits \code{sh:nodeKind}, class info, and node-constant
+  comparison). Making identity visible re-enables those (extensions K1, C1, V1
+  in \S\ref{sec:gap}).
+\end{itemize}
+
+\paragraph{Value types $T$.} A value type $\tau\in T$ denotes a decidable set
+$\sem{\tau}\subseteq \Val$, with top type $\mathsf{any}$
+($\sem{\mathsf{any}}=\Val$). This single abstraction absorbs datatypes, numeric
+bounds, length bounds, regex patterns, and (as an extension) language membership:
+\begin{lstlisting}
+enum ValueType {
+    Any,
+    Datatype(IriBuf),                                   // sh:datatype
+    NumericRange { lo: Option<Bound>, hi: Option<Bound> }, // sh:min/maxIn/Exclusive
+    Length { min: Option<u64>, max: Option<u64> },      // sh:min/maxLength
+    Pattern { regex: String, flags: String },           // sh:pattern (+ flags)
+    LangIn(Vec<String>),                                 // sh:languageIn  (ext L1)
+    And(Vec<ValueType>),                                 // intersection of facets
+}
+\end{lstlisting}
+
+\subsection{Path expressions $\pi$ (Kleene algebra with converse)}
+
+\begin{definition}[Path syntax]
+$\pi ::= \id \mid q \mid \pi^{-} \mid \pi\cdot\pi' \mid \pi\cup\pi' \mid \pi^{\Star}$, for $q\in\Pred$.
+\end{definition}
+
+\noindent Denotation $\semG{\pi}\subseteq \Term\times\Term$:
+\[
+\begin{array}{ll}
+\semG{\id} = \{(v,v)\} &
+\semG{q} = \{(v,u)\mid (v,q,u)\in G\}\\[2pt]
+\semG{\pi^{-}} = \{(v,u)\mid (u,v)\in\semG{\pi}\} &
+\semG{\pi\cup\pi'} = \semG{\pi}\cup\semG{\pi'}\\[2pt]
+\semG{\pi\cdot\pi'} = \{(v,w)\mid \exists u.\,(v,u)\in\semG{\pi}\wedge(u,w)\in\semG{\pi'}\} &
+\semG{\pi^{\Star}} = \text{reflexive-transitive closure of } \semG{\pi}
+\end{array}
+\]
+\begin{itemize}[leftmargin=1.4em]
+  \item $\pi^{+}$ and $\pi^{?}$ are \emph{not} IR constructors: they are
+  normalized away in the parser as $\pi^{+}=\pi\cdot\pi^{\Star}$ and
+  $\pi^{?}=\pi\cup\id$ (extension P1).
+  \item The carrier is a \emph{Kleene algebra with converse}; the laws this
+  yields are exploited in normalization (\S\ref{sec:norm}).
+\end{itemize}
+
+\subsection{Shape grammar $\varphi$ (Boolean algebra over typed atoms)}
+
+\begin{definition}[Shape syntax]
+\[
+\varphi ::= \top \mid \test(c) \mid \test(\tau) \mid \closedc(Q) \mid \eqc(\pi,p)
+\mid \disjc(\pi,p) \mid \neg\varphi \mid \varphi\wedge\varphi' \mid
+\varphi\vee\varphi' \mid \exists^{\geq n}\pi.\varphi \mid \exists^{\leq n}\pi.\varphi
+\]
+with $c\in\Val$, $\tau\in T$, $Q\subseteq_{\mathrm{fin}}\Pred\cup\Key$, $p\in\Pred$, $n\in\mathbb{N}$.
+\end{definition}
+
+\noindent Satisfaction $G,v\conf\varphi$ for a focus $v\in\Node\cup\Val$:
+\[
+\begin{array}{ll}
+G,v\conf\top & \text{always}\\
+G,v\conf\test(c) & v=c\\
+G,v\conf\test(\tau) & v\in\sem{\tau}\\
+G,v\conf\closedc(Q) & \forall p\in(\Pred\cup\Key)\setminus Q:\ \neg(G,v\conf\exists^{\geq1}p.\top)\\
+G,v\conf\eqc(\pi,p) & \{u\mid(v,u)\in\semG{\pi}\} = \{u\mid(v,u)\in\semG{p}\}\\
+G,v\conf\disjc(\pi,p) & \{u\mid(v,u)\in\semG{\pi}\} \cap \{u\mid(v,u)\in\semG{p}\} = \emptyset\\
+G,v\conf\exists^{\geq n}\pi.\varphi & \#\{u\mid(v,u)\in\semG{\pi}\wedge G,u\conf\varphi\}\geq n\\
+G,v\conf\exists^{\leq n}\pi.\varphi & \#\{u\mid(v,u)\in\semG{\pi}\wedge G,u\conf\varphi\}\leq n
+\end{array}
+\]
+Derived sugar (kept in the parser, normalized away):
+$\exists\pi.\varphi \triangleq \exists^{\geq1}\pi.\varphi$ and
+$\forall\pi.\varphi \triangleq \exists^{\leq0}\pi.\neg\varphi$.
+
+\paragraph{Fusion of the two count rows.} The IR fuses $\exists^{\geq n}$ and
+$\exists^{\leq n}$ into a single \code{Count} constructor, because real SHACL
+\emph{emits them as a pair} on a shared path and qualifier
+(\code{sh:minCount}+\code{sh:maxCount}, or
+\code{sh:qualifiedMin/MaxCount}); keeping them apart would force the optimizer to
+re-pair them. The two-row semantics is recovered by treating $\min$ and $\max$
+independently.
+\begin{lstlisting}
+enum Shape {
+    Top,
+    TestConst(Term),          // test(c), widened to Term (ext V1)
+    TestType(ValueType),      // test(tau)
+    Closed(BTreeSet<IriBuf>), // closed(Q): Q is the *allowed* predicate set
+    Eq(Path, IriBuf), Disj(Path, IriBuf),
+    Not(Box<Shape>), And(Vec<Shape>), Or(Vec<Shape>),
+    Count { path: Path, min: Option<u64>, max: Option<u64>, qualifier: Box<Shape> },
+    // --- extensions beyond the paper core (see gap analysis) ---
+    TestKind(NodeKindSet),    // sh:nodeKind         (ext K1)
+    Lt(Path, IriBuf), Le(Path, IriBuf),  // sh:lessThan(OrEquals) (ext O1)
+    UniqueLang(Path),         // sh:uniqueLang       (ext L1)
+}
+\end{lstlisting}
+
+\subsection{Selectors and schemas}
+
+\begin{definition}[Selectors]
+$\sel ::= \exists q.\top \mid \exists q^{-}.\top \mid \test(c)$. A \emph{schema}
+$S$ is a finite set of pairs $(\sel,\varphi)$, and
+\[
+G\models S \iff \forall v\in\Node\cup\Val.\ \forall(\sel,\varphi)\in S.\ (G,v\conf\sel)\Rightarrow(G,v\conf\varphi).
+\]
+\end{definition}
+\begin{itemize}[leftmargin=1.4em]
+  \item The paper's selectors are unary and very restricted. shifty adds two:
+  \code{HasPath(Path, Shape)} ($\exists^{\geq1}\pi.\varphi$, used for
+  \code{sh:targetClass} / implicit class targets) and \code{Sparql(\dots)} (the
+  AF SPARQL-target escape hatch).
+  \item Shape references are resolved into a shared \emph{arena}; cyclic
+  references are allowed (semantics in \S\ref{sec:recursion}).
+\end{itemize}
+
+\subsection{What the core buys}
+\begin{itemize}[leftmargin=1.4em]
+  \item A \textbf{closed denotational} definition of $G\models S$ --- decidable
+  by structural recursion on $\varphi$ plus relational evaluation of $\pi$. This
+  is the oracle.
+  \item \textbf{Algebraic laws} to exploit: $\pi$ is a Kleene algebra with
+  converse; $\varphi$ is a Boolean algebra over the
+  $\test/\code{Count}/\eqc/\disjc/\closedc$ atoms.
+  \item A \textbf{single counting primitive} \code{Count} subsuming cardinality,
+  qualified cardinality, \code{sh:node}/\code{sh:property} nesting, and the
+  $\forall/\exists$ sugar --- so the planner optimizes one construct, not a dozen.
+\end{itemize}
+
+% ===========================================================================
+\section{Lowering W3C SHACL/SHACL-AF into the core}\label{sec:gap}
+% ===========================================================================
+
+The core is elegant but narrow (common graphs, validation only, non-recursive).
+Reaching W3C \textbf{SHACL Core} + \textbf{SHACL-AF} requires a precise
+``holes register.'' Each item is \emph{covered} ($\checkmark$, expressible
+as-is or via documented sugar), an \emph{extension} ($\triangle$, a new IR
+constructor that is still algebraic/optimizable), or an \emph{escape-hatch}
+($\square$, opaque SPARQL/JS: compile a subset, fall back otherwise).
+
+\subsection{Cleanly covered ($\checkmark$): sugar over the core}
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+W3C component & lowering \\
+\midrule
+\code{sh:datatype} / \code{sh:min/maxLength} / \code{sh:pattern} & $\test(\tau)$ facets \\
+\code{sh:min/maxInclusive}, \code{sh:min/maxExclusive} & $\test(\tau)$ \code{NumericRange} \\
+\code{sh:minCount} $n$ / \code{sh:maxCount} $n$ on $\pi$ & $\exists^{\geq n}\pi.\top$ / $\exists^{\leq n}\pi.\top$ \\
+\code{sh:qualifiedValueShape}+\code{qualifiedMin/MaxCount} & $\exists^{\geq n}\pi.\varphi$ / $\exists^{\leq n}\pi.\varphi$ \\
+\code{sh:node} $S$ (in a property shape) & $\forall\pi.\varphi_S = \exists^{\leq0}\pi.\neg\varphi_S$ \\
+\code{sh:and}/\code{sh:or}/\code{sh:not} & $\wedge$/$\vee$/$\neg$ \\
+\code{sh:xone} & $\bigvee_i(\varphi_i\wedge\bigwedge_{j\neq i}\neg\varphi_j)$ \\
+\code{sh:closed} (+\code{sh:ignoredProperties}) & $\closedc(Q)$, $Q=\{\text{used paths}\}\cup\text{ignored}$ \\
+\code{sh:equals} / \code{sh:disjoint} & $\eqc(\pi,p)$ / $\disjc(\pi,p)$ \\
+\code{sh:hasValue} $c$ / \code{sh:in} $(c_1\dots c_k)$ & $\exists^{\geq1}\pi.\test(c)$ / $\exists^{\geq1}\pi.\bigvee_i\test(c_i)$ \\
+\code{sh:targetSubjectsOf}/\code{ObjectsOf} $p$ & $\exists p.\top$ / $\exists p^{-}.\top$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Extensions ($\triangle$): new but still algebraic}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{K1} \code{sh:nodeKind} $\Rightarrow$ \code{TestKind(NodeKindSet)},
+  a primitive on $\kind(v)$ over $\{$IRI, Blank, Literal$\}$ and unions.
+  \item \textbf{C1} \code{sh:class}/\code{sh:targetClass} as \emph{pure sugar
+  over the path algebra} --- no class-specific machinery:
+  \[
+  \text{\code{sh:class} } C \ \equiv\ \exists^{\geq1}\,(\code{rdf:type}\cdot\code{rdfs:subClassOf}^{\Star}).\test_{\mathrm{node}}(C),
+  \]
+  and \code{sh:targetClass} is the same expression as a \code{HasPath} selector.
+  The class-hierarchy path is configurable.
+  \item \textbf{V1} widen $\test(c)$ from $c\in\Val$ to $c\in\Term$
+  (\code{TestConst(Term)}) --- semantics unchanged, larger constant domain;
+  enables IRI-valued \code{hasValue}/\code{in}/\code{targetNode}.
+  \item \textbf{O1} \code{sh:lessThan(OrEquals)} $\Rightarrow$
+  \code{Lt}/\code{Le} over the SPARQL term ordering.
+  \item \textbf{L1} \code{sh:languageIn} $\Rightarrow$ $\test(\tau)$ \code{LangIn};
+  \code{sh:uniqueLang} $\Rightarrow$ \code{UniqueLang}$(\pi)$ (counting over
+  language tags).
+  \item \textbf{P1} $\pi^{?}$/$\pi^{+}$ are parser-side sugar (no IR change).
+\end{itemize}
+
+\subsection{SHACL-AF: two whole subsystems}
+SHACL-AF is absent from the paper and is the bulk of the new work.
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{AF-R Rules.} A separate \emph{rule algebra}:
+  \code{Rule \{ selector, conditions: Vec<Shape>, head: RuleHead, order \}}.
+  \begin{itemize}
+    \item \code{TripleRule} head $=(\text{subjectExpr},p,\text{objectExpr})$ built
+    from node expressions;
+    \item \code{SPARQLRule} head $=$ \code{CONSTRUCT} ($\square$).
+  \end{itemize}
+  Semantics: add inferred triples, iterate to a \emph{fixpoint} respecting
+  \code{sh:order} and \code{sh:condition} (\S\ref{sec:infer}).
+  \item \textbf{AF-E Node expressions} (\code{sh:path}, focus \code{sh:this},
+  \code{sh:filterShape}, function application, \code{sh:intersection}/\code{union},
+  constants) are \emph{value-producing} and map almost 1:1 onto $\pi$ plus
+  literals plus function calls. They are the shared substrate for rule heads, AF
+  targets, and computed values.
+  \item \textbf{AF-T/AF-C/AF-CC/AF-F} (SPARQL targets, SPARQL constraints, custom
+  components, SHACL functions) are escape-hatches: recognize a compilable subset
+  back into the algebra, else evaluate opaquely; never silently wrong. JS
+  features are out of scope with a clear diagnostic.
+\end{itemize}
+
+\paragraph{Invention worth flagging.} Class handling (C1) reduces what every
+other SHACL engine treats as bespoke machinery (a type/subclass closure
+subsystem) to \emph{one path expression}, so the same path planner, indexes, and
+normalization apply to it for free.
+
+% ===========================================================================
+\section{Recursion semantics and semantic polarity}\label{sec:recursion}
+% ===========================================================================
+
+The paper is non-recursive; the W3C spec leaves recursion \emph{undefined}. Shape
+references can be cyclic (\code{sh:node}/\code{sh:property}/\code{qualifiedValueShape}),
+and the arena represents that natively. This section is load-bearing: every
+optimization in \S\ref{sec:norm}+ is sound only relative to this choice.
+
+\subsection{The decision}
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Stratified} semantics over the shape/rule dependency graph, with
+  a \emph{diagnostic} (not a guess) when a schema is not stratifiable.
+  \item Within a stratum:
+  \begin{itemize}
+    \item \textbf{Validation} uses the \textbf{greatest fixpoint} ($\gfp$) ---
+    coinductive ``no reachable counterexample.''
+    \item \textbf{Inference} uses the \textbf{least fixpoint} ($\lfp$) --- only
+    finitely-justified triples.
+  \end{itemize}
+  These run in separate phases (infer \emph{then} validate), so the directions
+  never conflict.
+\end{enumerate}
+
+\subsection{Why stratified}
+Pure positive recursion has clean fixpoints; \emph{negation through a cycle} does
+not. The minimal paradox is
+\[
+S := \neg\,\exists p.\,S \qquad\text{over a $p$-self-loop,}
+\]
+which has no consistent 2-valued answer. A schema is \emph{stratifiable} iff its
+shape-dependency graph has no cycle through a \emph{negative} edge. We evaluate
+stratum by stratum (lower strata fully decided first). This is deterministic,
+2-valued, optimizer-friendly, and --- crucially --- \textbf{the same machinery
+serves AF rule inference} (Datalog with stratified negation), unifying recursive
+validation and inference under one engine.
+
+\subsection{Polarity must be computed \emph{semantically}}\label{sec:polarity}
+This is the subtle part. Because the IR encodes $\forall\pi.\varphi$ as
+$\exists^{\leq0}\pi.\neg\varphi$ (a \code{Count} with $\max{=}0$ over $\neg\varphi$),
+a \emph{positive} SHACL constraint (\code{sh:node} $S$ in a property shape) looks
+\emph{syntactically negative}. But two anti-monotone operators compose to
+monotone, so the \emph{semantic} polarity is positive. The dependency analysis
+tracks monotonicity, not surface $\neg$:
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+construct & polarity of the referenced shape \\
+\midrule
+\code{sh:node}/\code{sh:property}/\code{minCount}/$\exists^{\geq n}$ qualifier & \textbf{positive} (monotone) \\
+\code{sh:not} & \textbf{negative} \\
+\code{maxCount}/$\exists^{\leq n}$/qualified-max qualifier & \textbf{negative} (anti-monotone) \\
+\code{closed}/\code{disjoint} & \textbf{negative} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\begin{itemize}[leftmargin=1.4em]
+  \item Because \code{Count\{min,max\}} carries \emph{one} qualifier governed by
+  \emph{both} bounds, the analysis \textbf{un-fuses} it: the $\min$ part
+  contributes a positive edge, the $\max$ part a negative edge; a qualifier under
+  both yields a negative (non-monotone) edge.
+  \item Each \code{DepEdge} carries a \code{Polarity} with sign $\pm1$. A cycle's
+  net polarity is the \emph{product} of its edges' signs.
+\end{itemize}
+
+\subsection{The sign-balance stratification test}
+\begin{principle}[Sign balance]
+Condense strongly-connected components (Tarjan SCC) and order them by dependency
+depth (dependees first); each SCC is one stratum. A recursive SCC is
+\textbf{stratifiable} iff it is \emph{sign-balanced}: no cycle has net-negative
+(odd) polarity. A sign-unbalanced SCC is recursion through genuine negation
+(e.g.\ $S:=\neg\exists p.S$) and is reported.
+\end{principle}
+\begin{lstlisting}
+struct Stratum { shapes: Vec<ShapeId>, recursive: bool, stratifiable: bool }
+struct Stratification { strata: Vec<Stratum>, stratifiable: bool } // eval order: dependees first
+\end{lstlisting}
+
+\subsection{Why gfp for validation, lfp for inference}
+$\lfp$ and $\gfp$ differ only on cyclic data (they coincide on DAGs). For
+$\mathrm{conf}(v)\iff \mathrm{isPerson}(v)\wedge(\text{every \code{knows}-neighbour conforms})$
+over a mutual \code{knows} cycle of two Persons:
+\begin{itemize}[leftmargin=1.4em]
+  \item $\lfp$ (build up from grounded bases): the cycle never grounds out
+  $\Rightarrow$ both \textbf{fail} (inductive ``must bottom out'').
+  \item $\gfp$ (whittle away provable violators): no reachable concrete violation
+  $\Rightarrow$ both \textbf{conform} (coinductive ``no reachable
+  counterexample'').
+\end{itemize}
+For validation the coinductive reading is what universal constraints usually
+\emph{mean} and it avoids flagging legitimate cyclic data; hence $\gfp$ is the
+default. Inference must be $\lfp$ (a rule fires only when its body is actually
+satisfied; a fact cannot justify itself), which is also the standard semi-naive
+fixpoint. Stratification supports either direction per positive stratum, so this
+is \emph{not a one-way door}.
+
+\paragraph{Engine realization.} The evaluator's ``assume conforming on a
+back-edge'' cycle guard computes exactly the $\gfp$: on revisiting an active
+$(\text{ShapeId},\text{node})$ pair it returns \code{true} (provisional), and ---
+critically --- results that depend on a back-edge are \textbf{not memoized},
+because their provisional truth may be valid only in the active call context.
+\begin{lstlisting}
+struct EvalState {
+    memo:   HashMap<(ShapeId, Term), bool>,  // completed, context-free results
+    active: HashSet<(ShapeId, Term)>,        // on the current recursion stack
+}
+// back-edge => EvalResult { holds: true, cacheable: false }  (the gfp choice)
+\end{lstlisting}
+
+% ===========================================================================
+\section{Semantics-preserving algebraic transformations}\label{sec:norm}
+% ===========================================================================
+
+Normalization rebuilds the shape arena from the schema roots, hash-consing
+structurally-identical nodes and applying sound Boolean/count/path/value-type
+simplifications. \textbf{Soundness invariant}: all rules are per-node
+truth-functional / relational, hence safe under the $\gfp$ validation semantics;
+the W3C harness cross-checks
+$\mathsf{validate}(\mathsf{normalize}(S),G)\equiv\mathsf{validate}(S,G)$ on every
+core test (at the conforms + violation-focus level).
+
+\subsection{Enabler: hash-consing (CSE) + compaction}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{CSE / hash-consing.} Structurally-identical arena nodes are
+  deduplicated through a cons-table (interner). Acyclic nodes are interned
+  bottom-up; recursive SCCs are rebuilt \emph{preserving sharing} but not
+  collapsed, so cycles survive.
+  \item \textbf{Arena compaction (free).} The rebuild interns only what the roots
+  reach, so unreachable slots simply do not appear --- no orphans, no separate GC
+  pass.
+  \item CSE assigns stable ids that every later rule keys on (e.g.\
+  complementation $\varphi\wedge\neg\varphi=\bot$ is detected by id equality).
+\end{itemize}
+
+\subsection{Boolean layer ($\varphi$)}
+\begin{itemize}[leftmargin=1.4em]
+  \item Flatten \code{And}/\code{Or}; $\neg\neg\varphi=\varphi$;
+  $\code{And}([])=\top$, $\code{Or}([])=\bot$.
+  \item $\top/\bot$ absorption: $\varphi\vee\top=\top$, $\varphi\wedge\bot=\bot$,
+  $\varphi\vee\bot=\varphi$, $\varphi\wedge\top=\varphi$.
+  \item Idempotent dedup $\varphi\wedge\varphi=\varphi$,
+  $\varphi\vee\varphi=\varphi$ (sort children by id, dedup).
+  \item Complementation $\varphi\wedge\neg\varphi=\bot$,
+  $\varphi\vee\neg\varphi=\top$ (via CSE ids).
+  \item Canonical child ordering (by id) so equal \code{And}/\code{Or} collapse.
+  \item \textbf{NNF}: push $\neg$ inward with the count-flip laws
+  \[
+  \neg(\exists^{\geq n}\pi.\varphi)=\exists^{\leq n-1}\pi.\varphi,\qquad
+  \neg(\exists^{\leq m}\pi.\varphi)=\exists^{\geq m+1}\pi.\varphi
+  \]
+  (flip bounds, keep qualifier positive). Negation is \emph{not} pushed into
+  recursive nodes --- a recursive $\neg$ stays a literal, preserving
+  stratifiability.
+  \item Node-kind algebra: $\neg\,\kind(K)=\kind(\bar K)$ (or $\bot$ if empty);
+  sibling intersection $\kind(K_1)\wedge\kind(K_2)=\kind(K_1\cap K_2)$ ($\bot$ if
+  empty).
+\end{itemize}
+
+\subsection{Count layer ($\exists^{[\min..\max]}\pi.\varphi$)}
+\begin{itemize}[leftmargin=1.4em]
+  \item Trivial: $\min{=}0$ / unbounded $\Rightarrow\top$. Unsat bounds
+  $\min>\max\Rightarrow\bot$.
+  \item Qualifier collapse: $\exists^{\geq1}\pi.\bot=\bot$,
+  $\exists^{\leq m}\pi.\bot=\top$.
+  \item Same-$(\pi,\varphi)$ merge (conjunction context):
+  $\exists^{\geq a}\wedge\exists^{\geq b}=\exists^{\geq\max(a,b)}$,
+  $\exists^{\leq a}\wedge\exists^{\leq b}=\exists^{\leq\min(a,b)}$; a separate
+  min/max count over the same $(\pi,\varphi)$ is fused into \emph{one} node so the
+  path is evaluated once.
+  \item $\id$-path collapse: $\exists^{\geq1}\id.\varphi=\varphi$,
+  $\exists^{\leq0}\id.\varphi=\neg\varphi$.
+  \item Empty-path zero law: $\exists^{\geq1}\,\code{Alt}([]).\varphi=\bot$.
+\end{itemize}
+
+\subsection{Path layer ($\pi$): Kleene + converse laws}
+\begin{itemize}[leftmargin=1.4em]
+  \item Flatten \code{Seq}/\code{Alt}; $\pi\cdot\id=\pi$; $(\pi^{-})^{-}=\pi$;
+  $\id^{\Star}=\id$; $(\pi^{\Star})^{\Star}=\pi^{\Star}$ (smart constructors).
+  \item \textbf{Converse push-down to canonical}:
+  $(\pi_1\cdot\pi_2)^{-}=\pi_2^{-}\cdot\pi_1^{-}$, recursively, until $\code{Inverse}$
+  wraps only a \code{Pred}. This means downstream code only ever sees
+  $\code{Inverse}(\code{Pred}(q))$, never a compound inverse.
+  \item \code{Alt} idempotence (dedup via a \code{HashSet}); empty-relation zero
+  law.
+  \item Star laws: $(\pi\cup\id)^{\Star}=\pi^{\Star}$ (strip $\id$ from an
+  \code{Alt} before starring); $\pi^{\Star}\cdot\pi^{\Star}=\pi^{\Star}$ (merge
+  adjacent equal stars in a \code{Seq}).
+\end{itemize}
+
+\subsection{Value-type layer ($\tau$)}
+\begin{itemize}[leftmargin=1.4em]
+  \item Flatten \code{And}, drop \code{Any}.
+  \item Range/length \textbf{tightening}: fold same-family numeric/length bounds
+  to the tighter pair; conjoined $\test(\tau)$ siblings are fused. Numeric
+  ordering covers xsd numeric only --- incomparable bounds are kept, never
+  mis-merged.
+  \item Facet unsat $\Rightarrow\bot$: empty range, $\text{len.min}>\text{max}$,
+  conflicting datatypes; $\test(\mathsf{any})\Rightarrow\top$.
+  \item \textbf{Cross-facet} unsat: a known non-numeric datatype (e.g.\
+  \code{xsd:string}) conjoined with a \code{NumericRange} is declared $\bot$.
+  Unknown/custom datatypes are kept, never mis-declared.
+\end{itemize}
+
+\subsection{Schema layer}
+\begin{itemize}[leftmargin=1.4em]
+  \item Statement/selector dedup (identical $(\sel,\varphi)$ pairs after
+  normalization).
+  \item Selector canonicalization:
+  $\code{HasPath}(\code{Pred}(q),\top)\Rightarrow\code{HasOut}(q)$ and
+  $\code{HasPath}(\code{Pred}(q)^{-},\top)\Rightarrow\code{HasIn}(q)$.
+\end{itemize}
+
+\paragraph{Recursion caveat.} CSE across cycles is id-based and safe;
+inlining/unfolding \emph{into} cycles is not attempted. Recursive SCCs get only
+light rebuilding (no collapse). Normalization preserves stratifiability.
+Reporting drift is accepted: normalization changes \code{@id}s/structure, so
+per-constraint \emph{messages} can change; oracle equivalence is conforms +
+violation-focus, not message-identical.
+
+% ===========================================================================
+\section{Static analysis and logical $\to$ physical planning}\label{sec:plan}
+% ===========================================================================
+
+\subsection{Backend-agnostic static analysis}
+\nibox{The slicing / fingerprinting / context-footprint / shared-work-unit /
+data-graph-summary subsystem below was built in the prior \code{shacl-core}
+architecture and is \emph{not} present in the current \code{shifty-opt} /
+\code{shifty-engine} crates. What \emph{is} implemented today is the
+polarity-aware dependency graph and stratification (\S\ref{sec:recursion}), the
+cost model and \code{And}/\code{Or} reordering, selector seeding
+(\S\ref{sec:plan}), and per-query profiling/telemetry (query fingerprints in
+\code{profile.rs}). Treat this subsection as a design target.}
+Over a normalized program, the static analyzer can:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Slice} irrelevant shapes/rules/constraints/targets/components from
+  target roots (or explicit root shapes), recording per-item inclusion/exclusion
+  reasons; recursive SCCs stay intact in the slice.
+  \item \textbf{Classify the context footprint} of each shape/rule
+  (node-local scalar vs.\ single-hop vs.\ bounded traversal vs.\
+  shape-reference traversal vs.\ global/SPARQL).
+  \item \textbf{Fingerprint} constraints/targets/rules with stable structural
+  hashes, grouping structural duplicates into \emph{shared work units} (repeated
+  SPARQL constraints, repeated component instantiations, repeated rule bodies).
+  \item Emit static \textbf{cost hints} and separate \emph{validation-closure}
+  vs.\ \emph{inference-closure} dependency classes (validation-only,
+  inference-only, shared edges).
+  \item Optionally fold in \textbf{data-graph statistics} (predicate
+  cardinality, distinct subjects/objects, node-kind/datatype distributions,
+  class/subclass counts) to mark empty/unsatisfiable target scans and obviously
+  dead or vacuous constraints --- all advisory, never semantics-changing.
+\end{itemize}
+
+\subsection{Selector seeding (target-driven focus enumeration)}
+The principal logical-planning move is to \emph{seed focus nodes from selectors}
+instead of scanning all nodes:
+\begin{lstlisting}
+enum FocusSource {
+    SubjectsOf(NamedNode),   // subjects of (., p, .)
+    ObjectsOf(NamedNode),    // objects  of (., p, .)
+    Node(Term),              // a single sh:targetNode
+    PathToConst { path: Path, target: Term },  // class targets: backward seed
+    ScanFilter  { path: Path, qualifier: ShapeId },  // general path selector
+    Sparql(SparqlTarget),
+}
+\end{lstlisting}
+\begin{principle}[Backward seeding of class targets]
+For a class target $\exists^{\geq1}\pi.\test(c)$, instead of scanning every node
+$v$ and testing $\exists\pi.\test(c)$ \emph{forward}, seed \emph{backward} from
+the constant: the focus set is $\mathrm{pred}(c,\pi)=\{v\mid(v,c)\in\semG{\pi}\}$.
+\end{principle}
+This turns a whole-graph scan into a reverse path lookup from a single constant
+($\approx 23\times$ over a scan on a synthetic class-target graph, in the current
+build).
+
+\subsection{Cost-based short-circuit ordering}
+\code{And}/\code{Or} children are reordered cheapest-first using a static cost
+model, so the short-circuiting evaluator rejects/accepts on cheap atoms before
+walking expensive paths. The model (relative cost per arena node at one focus):
+\[
+\begin{array}{ll}
+\top,\ \text{pending} \mapsto 0 &
+\test(c),\test(\tau),\kind(K)\mapsto 1\\
+\closedc(Q)\mapsto 4 &
+\eqc/\disjc/\code{Lt}/\code{Le}\mapsto 2+\mathrm{cost}(\pi)\\
+\code{Sparql}\mapsto 100 &
+\text{back-edge (recursion)}\mapsto 50\\
+\code{And}/\code{Or}\mapsto \textstyle\sum_i \mathrm{cost}(c_i) &
+\code{Count}\mapsto \mathrm{cost}(\pi)\cdot(1+\mathrm{cost}(q))
+\end{array}
+\]
+with path cost $\mathrm{cost}(\code{Pred})=1$,
+$\mathrm{cost}(\pi^{-})=1+\mathrm{cost}(\pi)$,
+$\mathrm{cost}(\code{Seq}/\code{Alt})=\sum\mathrm{cost}(\cdot)$, and
+$\mathrm{cost}(\pi^{\Star})=10\cdot(1+\mathrm{cost}(\pi))$. Costs are memoized;
+a recursion back-edge during cost computation is charged a flat 50.
+
+\paragraph{Other plan-time work.} Implemented: common-subexpression sharing
+across shapes (the CSE in \S\ref{sec:norm}), and analysis-informed deterministic
+ordering of local/cheap before global/SPARQL constraints (the cost model charges
+$\code{Sparql}{=}100$, sorting it last).
+\NI{explicit $\test$/$\closedc$ filter pushdown as a plan rewrite, and
+incremental / focus-delta scheduling so only affected focus nodes are re-checked
+\emph{during validation}. (Predicate-delta scheduling \emph{is} implemented on
+the \emph{inference} side --- \S\ref{sec:infer}.)}
+
+% ===========================================================================
+\section{Native SPARQL lowering --- the principal speed mechanism}\label{sec:sparql}
+% ===========================================================================
+
+Profiling the 223P/NIST workload shows that \textbf{validation-side SPARQL
+evaluation dominates runtime}: the shapes lower to a small number of SPARQL
+constraint leaves, $\approx99\%$ of sampled validation time is below SPARQL
+constraint evaluation, and most self-time is Oxigraph quad iteration, range
+checks, and property-path traversal --- concentrated in
+\code{rdfs:subClassOf}$^{\Star}$, \code{rdf:type/rdfs:subClassOf}$^{\Star}$, and
+\code{s223:cnx}$^{+}$/\code{contains}$^{+}$/\code{mapsTo}$^{+}$.
+
+\paragraph{Decision.} Compile a useful Spargebra subset into a \emph{native
+physical plan} over immutable, specialized indexes. Queries outside the subset
+run through Spareval over the \emph{same} indexed dataset. A query is
+\textbf{never} partly evaluated by both engines: capability analysis chooses one
+executor before evaluation.
+
+\subsection{Execution pipeline}
+\[
+\text{canonical SPARQL}\!\rightarrow\!\text{Spargebra AST}\!\xrightarrow{\text{static SHACL subst.}}\!\text{capability+demand}\!
+\begin{cases}
+\rightarrow \text{NativeQueryPlan}\rightarrow\text{native exec}\\
+\rightarrow \text{PreparedSparqlQuery}\rightarrow\text{Spareval}
+\end{cases}\!\rightarrow\text{FrozenIndexedDataset}
+\]
+Each canonical query is parsed once; the compilation cache key is
+$(\text{canonical query},\ \text{static substitutions},\ \text{graph mode},\
+\text{index-plan version})$, mapping to either a native plan or a prepared
+fallback.
+
+\subsection{SHACL prebinding as substitution, not a VALUES row}
+SHACL prebinding is substitution \emph{throughout} the query, not an ordinary
+initial binding. The compiler represents substituted values as plan operands:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Static per constraint}: \code{\$PATH}, \code{\$currentShape},
+  \code{\$shapesGraph}, custom-component parameters --- applied once before
+  capability analysis. A complex \code{\$PATH} is substituted in
+  \emph{property-path position}, not encoded as an RDF term.
+  \item \textbf{Dynamic per invocation}: \code{\$this} --- native plans take a
+  \code{FocusId}/\code{TermId} input column so one plan evaluates many focus nodes
+  together.
+\end{itemize}
+
+\subsection{Capability analysis}
+\code{analyze\_capability} walks the AST and returns \code{Native} or
+\code{Fallback\{ first\_unsupported \}} (the first offending node, recorded for
+telemetry). The native subset:
+\begin{itemize}[leftmargin=1.4em]
+  \item \code{SELECT}/\code{ASK}; BGPs; fixed named-graph patterns;
+  \item joins, unions, projection, \code{DISTINCT};
+  \item property paths: predicate, reverse, sequence, alternative, $*$, $+$, $?$;
+  \item correlated \code{EXISTS}/\code{NOT EXISTS};
+  \item boolean connectives, \code{BOUND}, safe equality, \code{STR},
+  \code{STRSTARTS}; simple \code{BIND}; inline \code{VALUES}.
+\end{itemize}
+Fallback triggers on aggregates, \code{ORDER BY}, \code{LIMIT}/\code{OFFSET},
+\code{OPTIONAL}, \code{MINUS}, \code{LATERAL}, \code{SERVICE}, variable graph
+names, ordered comparisons, \code{IN}, and unsupported functions.
+
+\subsection{The native physical plan}
+The actual operator set (in \code{shifty-opt}) is a \emph{pipelined} plan: each
+operator threads the previous operator's solutions through its \code{input},
+which is sound because a BGP join only ever \emph{adds} bound variables.
+\begin{lstlisting}
+enum NativeOp {
+    InputFocus,                          // one seed per focus node, binds $this
+    Scan     { input, pattern: TripleScan }, // indexed nested-loop, threaded on input
+    PathScan { input, scan: PathScan },      // arbitrary-length path (*/+/?)
+    Union    { left, right },                 // over the same input
+    Filter   { input, expr: ExprPlan },       // keep rows whose EBV is true
+    Extend   { input, var, expr },            // BIND
+    Project  { input, vars }, Distinct { input },
+}
+\end{lstlisting}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Joins are pipelined scans, not a binary operator.} A multi-pattern
+  BGP is lowered to a chain of \code{Scan}/\code{PathScan} nodes, each consuming
+  the previous one's bound solutions (indexed nested-loop). Triple-pattern
+  reordering by estimated cardinality is greedy from \code{DatasetStatistics}
+  (\S\ref{sec:frozen}).
+  \item \textbf{Batched focus.} Every solution carries a \code{FocusId}; one
+  batched run keeps each focus node's results separate, so \code{DISTINCT},
+  projection, and bucketing are per-focus --- as if the query had been run once
+  per node with \code{\$this} pre-bound, but executed once.
+  \item \textbf{\code{PathScan} binding modes (implemented).}
+  bound-start+bound-end $\to$ membership probe; bound-start $\to$ forward closure;
+  bound-end $\to$ reverse closure; open endpoints $\to$ relation scan over the
+  node domain.
+  \item \textbf{Correlated \code{EXISTS}/\code{NOT EXISTS}} are handled inside
+  \code{Filter}'s \code{ExprPlan} (capability analysis admits them), not as a
+  dedicated operator.
+\end{itemize}
+\nibox{The richer plan in \code{docs/05-sparql-execution.md} --- a dedicated
+binary \code{Join \{ kind \}} with a \emph{hash}-join alternative, and a dedicated
+\code{Exists} semi-join / anti-join operator with first-match early exit, and the
+two-mode (\emph{Conforms} early-exit vs.\ \emph{Violations}) constraint executor
+--- is design only. The current executor uses pipelined indexed nested-loop
+scans and expression-level \code{EXISTS}.}
+
+\subsection{Frozen indexed dataset}\label{sec:frozen}
+Because inference runs to a fixed point \emph{before} validation, validation
+receives an immutable graph. One dictionary-encoded dataset is built at that
+boundary (actual struct):
+\begin{lstlisting}
+struct FrozenIndexedDataset {
+    terms: TermDictionary,                 // Term <-> TermId (u32)
+    default_graph: TripleIndex,            // SPO / POS / OSP sorted vecs
+    named_graphs: HashMap<TermId, Vec<[TermId;3]>>, // small; SPO-sorted
+    reach_cache: RefCell<ReachCache>,      // bounded per-start closure memo
+    stats: DatasetStatistics,
+}
+struct TripleIndex { spo, pos, osp: Vec<[TermId; 3]> }  // three orders
+struct DatasetStatistics {
+    triple_count, distinct_subjects, distinct_objects: u64,
+    predicate_cardinality: HashMap<TermId, u64>,
+}
+\end{lstlisting}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Dictionary encoding.} \code{TermId = u32} is the
+  \code{QueryableDataset::InternalTerm}, keeping each triple to 12 bytes. The
+  dictionary is interior-mutable (\code{RefCell}) so query constants absent from
+  the loaded triples are interned lazily under \code{\&self} (an unknown constant
+  gets a fresh id that matches no stored triple --- exactly what a scan needs).
+  \item \textbf{Three sorted immutable orders} (SPO, POS, OSP) cover the access
+  patterns by range scan: $(s,p)\to o$ via SPO, $(p,o)\to s$ via POS,
+  $o\to(s,p)$ via OSP, plus exact membership. Default and named graphs are
+  separate.
+  \item \textbf{Statistics} are computed at build time and \emph{used}: the native
+  lowerer (\code{lower\_query\_with\_stats}) greedily reorders BGP triple patterns
+  by estimated output cardinality from \code{predicate\_cardinality}. \PART{the
+  statistics are predicate-cardinality + distinct subject/object counts only; no
+  degree distributions or class/subclass counts.}
+  \item \textbf{Shared backend.} \code{FrozenIndexedDataset} implements
+  Spareval's \code{QueryableDataset}, so it backs \emph{both} native and fallback
+  queries; the fallback gains fast immutable triple-pattern access even though its
+  property paths are still Spareval-evaluated.
+\end{itemize}
+
+\subsection{Path demand and index planning}
+Equivalent paths share a canonical \code{PathId} (the \code{path\_to\_string}
+rendering, unique up to smart-constructor normalization). Demand is collected from
+both the native algebra and Spargebra queries:
+\begin{lstlisting}
+struct PathDemand {
+    path: PathId,
+    forward_probes, reverse_probes, membership_probes, open_scans, expected_focuses: u64,
+}
+\end{lstlisting}
+\PART{the \code{PathDemand} extractor is implemented as stage-1 \emph{static}
+counts (per-occurrence in the AST); \code{expected\_focuses} is not yet populated
+from dataset statistics.}
+\nibox{The per-path \emph{strategy selection} below is design only. The current
+engine has exactly two behaviors: base-index traversal (the \code{Traverse} row)
+and the bounded per-start closure memoization described next. The \code{Memoized}
+bitmap cache, \code{Materialized} forward/reverse CSR relations, and
+\code{SccClosure} component-reachability indexes --- together with the named
+path specializations and the budgeted, demand-driven promotion --- are \emph{not}
+built.
+
+\begin{center}\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+strategy & when \\
+\midrule
+\code{Traverse} & cheap or rarely used paths --- use base indexes directly \\
+\code{Memoized} & cache forward/reverse result bitmaps per endpoint \\
+\code{Materialized} & store the full relation in forward + reverse CSR form \\
+\code{SccClosure} & condense a transitive graph into SCCs; store component reachability bitmaps \\
+\bottomrule
+\end{tabular}
+\end{center}
+Intended specializations: \code{rdfs:subClassOf}$^{\Star}$ $\to$ SCC condensation
++ component reachability; \code{rdf:type/rdfs:subClassOf}$^{\Star}$ $\to$
+materialized instance$\leftrightarrow$class relations;
+\code{s223:contains}$^{+}$/\code{mapsTo}$^{+}$/\code{cnx}$^{+}$ $\to$ memoized
+endpoint closures, promoted to materialized only when demand and estimated size
+justify it. Index selection would be budgeted: candidates ranked by avoided
+traversal work per byte and admitted until a memory budget is exhausted, with
+\code{Traverse} always the correct fallback.}
+
+\paragraph{Closure memoization (implemented).} The executor implements bounded
+per-start memoization for native $*$/$+$ closures:
+\begin{itemize}[leftmargin=1.4em]
+  \item Cache key $=(\text{start term},\ \text{compiled reachability step},\
+  \text{closure kind},\ \text{graph selection})$.
+  \item Endpoint sets are \emph{shared} between repeated probes via \code{Rc},
+  capped at $10^6$ stored endpoint ids, and cleared if inference extends the
+  dataset.
+\end{itemize}
+
+\subsection{Compiled reachability plans (path evaluation)}
+\code{compile\_fwd}/\code{compile\_bwd} translate a \code{Path} into a
+\code{ReachStep} tree \emph{once}, at executor-creation time, doing two things
+that would otherwise recur per seed node per step:
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Predicate interning} --- each \code{Pred(q)} is resolved to a
+  \code{TermId} up front, eliminating a hash-map lookup per seed per step.
+  \item \textbf{Direction folding} --- \code{Inverse} is absorbed into the step
+  type (\code{FwdPred} vs.\ \code{BwdPred}) and \code{Seq} elements are reversed
+  for backward traversal, so the evaluator never re-dispatches on direction.
+\end{enumerate}
+\begin{lstlisting}
+enum ReachStep { Id, FwdPred(TermId), BwdPred(TermId), Seq(Vec<_>), Alt(Vec<_>), Star(Box<_>) }
+// FwdPred(q): SPO range scan(node, q, _) -> objects
+// BwdPred(q): POS range scan(_, q, node) -> subjects
+\end{lstlisting}
+The evaluator then walks the compiled tree with direct index calls; star/plus
+closures are BFS loops shared between nested \code{Path::Star} and the top-level
+\code{ClosureKind}.
+
+\subsection{Correctness, fallback, and differential testing}
+\begin{itemize}[leftmargin=1.4em]
+  \item Oxigraph/Spareval remains the \textbf{semantic oracle}. A query uses
+  fallback iff capability analysis cannot \emph{prove} every node/expression/graph
+  op/result form supported.
+  \item Native planning or execution errors are surfaced as engine errors ---
+  \emph{never} silently downgraded to fallback after partial evaluation. Fallback
+  is a \emph{planning} decision, keeping behavior deterministic.
+  \item A differential mode (under \code{debug\_assertions}) runs native-capable
+  queries through both engines and compares: \code{ASK} booleans; \code{SELECT}
+  multisets (including unbound variables); RDF term/literal identity; SHACL
+  violation values/paths; errors and unsupported prebindings.
+\end{itemize}
+
+% ===========================================================================
+\section{SHACL-AF inference: semi-naive least fixpoint}\label{sec:infer}
+% ===========================================================================
+
+\begin{itemize}[leftmargin=1.4em]
+  \item A rule fires on focus nodes for which all \code{sh:condition}s hold,
+  producing triples from its head's node expressions. Inference is the
+  \textbf{least fixpoint} (\S\ref{sec:recursion}).
+  \item Rules run in ascending \code{sh:order} groups; output from a later group
+  may reactivate an earlier group in the next pass.
+  \item \textbf{Predicate-level delta scheduling.} A rule is rerun only when newly
+  added triples can be observed by its graph reads; the first cut uses
+  conservative predicate-delta scheduling at rule granularity. Native paths
+  expose exact reads, while opaque/domain-sensitive constructs fall back to
+  wildcard rescheduling.
+  \item \textbf{Termination of the supported subset.} Triple rules only combine
+  \emph{existing} terms; SPARQL \code{CONSTRUCT} results containing \emph{fresh}
+  blank nodes are rejected. So no new domain elements are minted, bounding the
+  derivable set. Function node expressions are reported as diagnostics, not
+  silently skipped.
+  \item Interaction model: infer-then-validate, with provenance for inferred
+  triples. The same stratified framework drives both inference ($\lfp$) and
+  validation ($\gfp$).
+\end{itemize}
+
+% ===========================================================================
+\section{Symbolic repair: abduction over $\varphi$}\label{sec:repair}
+% ===========================================================================
+
+When $G\not\models S$, validation says \emph{that} a focus violates a shape and
+which component failed. Repair answers the dual: \emph{the set of ways the data
+graph could be edited so the focus satisfies the shape}. shifty ships this as a
+\textbf{library, not an autonomous repairer} --- it computes and gates; a
+\emph{driver} decides.
+
+\subsection{Repair as the abductive dual of validation}
+Validation is $G,v\conf\varphi$ by structural recursion on $\varphi$. Repair is:
+\[
+\Repair(\varphi,v)=\{\Delta G : (G\oplus\Delta G),v\conf\varphi\},
+\]
+where $\Delta G$ is a set of triple additions/deletions and $\oplus$ applies
+them. The library \emph{describes} this set via the \emph{same} structural
+recursion on $\varphi$ --- the small core (the \code{Shape} enum is $\sim$15
+variants, already in NNF, a foldable DAG) pays off twice.
+\begin{principle}[Compute from the algebra, not the report]
+The W3C report walker treats \code{and}/\code{or}/\code{not}/\code{node} as opaque
+units. Repair must drill in (to repair $\varphi_1\wedge\varphi_2$ it needs the
+repair spaces of \emph{both} conjuncts), so it recurses over the arena, using the
+report only to seed which statements failed at which focus nodes.
+\end{principle}
+
+\subsection{The witness / satisfaction-trace duality}
+To describe repairs only for the parts of $\varphi$ that failed, the engine
+computes two interlocked, mutually-recursive folds beside \code{explain}, sharing
+the same \code{holds} oracle and back-edge guard:
+\begin{itemize}[leftmargin=1.4em]
+  \item \code{witness} (additive direction --- \emph{what to add}): the failed
+  sub-DAG of $\varphi$, pruned to exactly what did not hold, carrying at each node
+  the \code{ShapeId} and the structural gap (e.g.\ \code{CountLow\{path, have,
+  min, qualifier\}}). It is the structured, lossless sibling of the human-facing
+  \code{Reason}.
+  \item \code{sat\_trace} (deletive direction --- \emph{what to delete}): a record
+  of \emph{why $\varphi$ currently holds}, needed because a $\neg\varphi$ failure
+  can only be repaired by \emph{breaking} $\varphi$.
+\end{itemize}
+The two folds return dual sum types. Each constructor mirrors a $\varphi$
+constructor, pruned to the relevant sub-DAG; \code{PathSupport} records the
+\emph{existing} edges that made a node a $\pi$-successor (the cut candidates).
+\begin{lstlisting}
+enum PathSupport { Empty, Edge(Triple), Chain(Vec<PathSupport>), Alt(Vec<PathSupport>) }
+
+enum Witness {                                  // additive: what to ADD to make phi hold
+    Atom       { shape, node, reached_by: Path, produced_by: Option<PathSupport> }, // test() leaf
+    Relational { shape, node, kind: RelKind, lhs, rhs, offending },  // Eq/Disj/Lt/Le/UniqueLang
+    Closed     { shape, node, offenders: Vec<(Pred, Term)> },
+    Not        { shape, node, inner: Box<SatTrace> },          // crosses to the deletive side
+    All        { shape, node, failed:   Vec<Witness> },        // conjunction: every child failed
+    Any        { shape, node, branches: Vec<Witness> },        // disjunction: every branch failed
+    CountLow   { shape, node, path, qualifier, have, min, sibling_qualifiers }, // under-satisfied (>= min)
+    CountHigh  { shape, node, path, qualifier, matched, max, per_value }, // over-satisfied (<= max)
+    Opaque     { shape, node },                                // sh:sparql -- no algebraic witness
+}
+enum SatTrace {                                 // deletive: what to DELETE (why phi holds)
+    Irrefutable { shape },                                     // Top: nothing to cut
+    Atom        { shape, node, reached_by: Path, produced_by: PathSupport },
+    AllHeld     { shape, node, children:  Vec<SatTrace> },     // conjunction: all hold => break one
+    AnyHeld     { shape, node, satisfied: Vec<SatTrace> },     // disjunction: these hold => break all
+    CountHeld   { shape, node, path, qualifier, matches, min, max },
+    NotHeld     { shape, node, inner_fails: Box<Witness> },    // crosses to the additive side
+    Blocked     { shape, node, reason: BlockReason },          // closed/relational/sparql in scope
+    Coinductive { shape, node },                               // gfp back-edge: no facts to delete
+}
+\end{lstlisting}
+\noindent Two reading conventions for the examples (\S\ref{sec:repair-examples}):
+the \code{qualifier} field is a \code{ShapeId}, rendered as the shape it points to
+(e.g.\ \code{Top}, \code{test("admin")}); and \code{All}/\code{Any}/\code{Atom}
+are deliberately reused across \code{Witness} and \code{RepairTree} --- they denote
+the \emph{same} skeleton in the failure tree and the repair tree --- so
+\code{RepairTree} nodes are written with their id (\code{All\#4}) and
+\code{Witness}/\code{SatTrace} nodes without one.
+\begin{principle}[Direction flips]
+\code{witness} and \code{sat\_trace} are \textbf{exact complements}: for a given
+$(\text{node},\text{id})$ exactly one returns \code{Some} (modulo the back-edge
+convention). At a \code{Not} they cross --- $\code{witness}\Rightarrow
+\code{sat\_trace}(c)\mapsto\code{Not}$ and
+$\code{sat\_trace}\Rightarrow\code{witness}(c)\mapsto\code{NotHeld}$. \code{Count}
+is the other flip point (self-dual: break the lower bound by \emph{deleting}
+matches, the upper bound by \emph{adding} them).
+\end{principle}
+\textbf{Honest limit}: a $\gfp$ support reached on a back-edge is assumed true
+without a grounded justification, so there is no finite set of facts to delete ---
+deletion-direction repair is genuinely \emph{incomplete through positive
+recursion} (reported as \code{Coinductive}).
+
+\begin{principle}[Vacuous universals are obligations, not absences]
+A \code{CountLow}\,$\exists^{\geq m}\pi.q$ that fails because $\pi$ has \emph{no}
+values shares its conjunction with any universal $\forall\pi.\varphi$
+(lowered to $\exists^{\leq0}\pi.\neg\varphi$, \S\ref{sec:gap}) on the
+\emph{same} path. Those universals \emph{hold} when the value set is empty --- so
+they never witness as failures --- yet \emph{every} value added to discharge the
+\code{CountLow} is checked against them. Witnessing therefore records the inner
+$\varphi$ of each such sibling in \code{CountLow.sibling\_qualifiers}, so synthesis
+constrains the new value to $q$ \emph{and} all the $\varphi$'s rather than to the
+deficient count's qualifier alone --- the difference between ``add some
+\code{ex:p}'' and ``add an \code{ex:p} that is a \code{Temperature\_Sensor}.''
+The collection is by \emph{conjunctive scope}, not lexical adjacency: \code{witness}
+threads the universals down the tree, each \code{And} adding its $\forall\pi.\varphi$
+children, so a count and a universal that sit in \emph{different} property shapes
+(hence different \code{And} nodes) on the same path still meet. A disjunction does
+\emph{not} extend the scope into its branches --- a $\forall\pi.\varphi$ under one
+\code{sh:or} arm must not constrain a count under another --- which is exactly why
+a flat ``all universals on $\pi$'' index would be unsound.
+\end{principle}
+
+\subsection{The template IR (\code{RepairTree})}
+A parametric, \emph{inspectable} description of the repair space for one
+violation: four constructs mirroring $\varphi$ (a repair tree is the skeleton of
+a satisfaction proof), with typed holes and variadic blocks.
+\begin{lstlisting}
+struct NodeId(u32);   // a RepairTree node's stable address          (written #n)
+struct Hole(u32);     // a typed placeholder a driver binds to a term (written ?n)
+enum   Slot { Bound(Term), Open(Hole) }              // a triple position: fixed term or hole
+struct TriplePattern { s: Slot, p: Slot, o: Slot }   // a triple whose slots may be holes
+enum   Edit { Add(TriplePattern), Delete(TriplePattern) }  // each carries a driver-overridable Cost
+enum HoleConstraint {                                // what a bound term must satisfy
+    AnyNode, Fresh, Const(Term), Typed(ValueType), Kind(NodeKindSet),
+    OneOf(BTreeSet<Term>), ConformsTo(ShapeId),       // value must satisfy a sub-shape
+    ConformsToAll(Vec<ShapeId>),                      // ...or every one of several at once
+}
+enum RepairTree {
+    Noop(NodeId), Blocked(NodeId, BlockReason),
+    Edits  { id, edits: Vec<Edit>, holes: Vec<(Hole, HoleConstraint)> },
+    All    { id, children: Vec<RepairTree> },  // satisfy every child
+    Any    { id, children: Vec<RepairTree> },  // satisfy any one child
+    Repeat { id, body: Box<RepairTree>, min: u64, max: Option<u64> },
+}
+\end{lstlisting}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Holes and edits.} A \code{Hole} is a typed placeholder (written
+  \code{?n}); the \code{HoleConstraint} paired with it in an \code{Edits} node
+  states the admissible bindings --- a value type, a constant, \code{OneOf} a
+  finite set, \code{ConformsTo} a sub-shape (the deferral point for
+  \textbf{fuel}, below), or \code{ConformsToAll} a \emph{conjunction} of
+  sub-shapes when one fresh value must discharge several obligations at once (a
+  count qualifier plus its vacuous-universal siblings). An \code{Edits} node is a set of
+  add/delete \code{TriplePattern}s whose \code{Open} slots are exactly those holes;
+  a driver \emph{fills} a tree by choosing \code{Any}/\code{Repeat} options and
+  binding every reachable hole.
+  \item \textbf{Why \code{ConformsToAll}, and why no disjunctive dual.}
+  \code{ConformsToAll} is not ``the $\wedge$ constraint'' for its own sake: it
+  plugs a \emph{representational} gap. Its members are sibling \code{ShapeId}s
+  collected independently during witnessing, and the arena is immutable during
+  synthesis, so there is no slot standing for their conjunction to point a plain
+  \code{ConformsTo} at. Disjunction never hits this gap: every shape-level
+  alternative \emph{already} lowers to a single backing node --- \code{sh:or} and
+  \code{sh:in} to an \code{Or}, \code{sh:xone} to the \code{Or} of its
+  mutual-exclusion expansion $\bigvee_i(\varphi_i\wedge\bigwedge_{j\neq i}\neg\varphi_j)$ ---
+  so a one-of-several-shapes hole is just \code{ConformsTo} of that node, and a
+  failing \code{Or} is branched \emph{structurally} as an \code{Any} subtree, not
+  carried on a hole. (Term-level disjunction is \code{OneOf}; the deletive
+  \code{maxCount} hole is exactly that --- which existing values to drop --- so it
+  needs no shape disjunction either.) The asymmetry is therefore real but benign:
+  a \code{ConformsToOneOf} would have no source that produces un-backed disjuncts.
+  \item \textbf{Blocked propagation invariant} (like the arena's smart
+  constructors): \code{All} with any \code{Blocked} child $\Rightarrow$
+  \code{Blocked}; \code{Any} drops \code{Blocked} children and is \code{Blocked}
+  only if all are. So a returned subtree never hides a dead branch inside a
+  satisfiable one; a top-level \code{Blocked} means ``no data repair exists in
+  scope.''
+  \item \code{BlockReason}: \code{OpaqueSparql}, \code{CannotMutateIdentity}
+  (focus-scoped nodeKind/identity), \code{Coinductive}, \code{Unsupported}.
+\end{itemize}
+
+\subsection{Synthesis: three mutually-recursive folds}
+\code{synthesize\_focus} is graph-free (all contact with $G$ happened during
+witnessing) and decides nothing. It is:
+\begin{itemize}[leftmargin=1.4em]
+  \item $\Repair(\code{Witness})$ --- additive: make a \emph{failing existing}
+  node hold. Walks the (already-pruned) witness; finite.
+  \item $\Break(\code{SatTrace})$ --- deletive: falsify a \emph{holding existing}
+  node. The De~Morgan mirror of $\Repair$.
+  \item $\Build(\code{ShapeId},\code{Hole})$ --- additive, \emph{hypothetical}:
+  constrain a \emph{not-yet-existing} node to satisfy a shape. Walks the
+  \code{Shape} (everything must be constructed, so unlike $\Repair$/$\Break$ it can
+  diverge on a recursive shape); this is the fold that \textbf{fuel} governs (below).
+\end{itemize}
+
+\paragraph{Fuel: bounding hypothetical construction.} $\Repair$ and $\Break$ are
+structurally terminating because they walk an \emph{already-pruned} witness /
+satisfaction trace --- finite objects produced by witnessing against a concrete
+$G$. $\Build$ has no such bound: satisfying a \emph{not-yet-existing} value against
+a shape can require satisfying \emph{another} fresh value against the \emph{same}
+shape. A recursive qualifier (a \code{:Person} that must have a \code{:knows}-edge
+to a node that is itself a \code{:Person}) turns naive structural expansion into an
+infinite tower of minted nodes. \textbf{Fuel} is the depth budget that cuts this
+off: a counter decremented each time the builder descends through a \code{Count}
+qualifier into a fresh value, and when it reaches $0$ the still-recursive
+obligation is emitted as a \code{ConformsTo(id)} hole --- an explicit ``some node
+must satisfy shape \code{id} here'' --- rather than expanded further. The driver
+then discharges that hole, typically by \emph{reuse} (binding it to a node already
+conforming to \code{id}) instead of minting an unbounded chain. Fuel is therefore
+the boundary between \emph{deferring} a recursive obligation and \emph{eagerly
+materializing} it.
+
+\PART{In the current engine \code{synthesize} carries \emph{no} fuel counter at
+all: rather than expand recursive qualifiers to any depth, every \code{CountLow}
+qualifier is lowered to a single \code{ConformsTo} hole at its first recursive step
+(value-type leaves still get a precise \code{Typed}/\code{Kind} constraint), so the
+fold bottoms out trivially at the witness/trace leaves --- it always
+\emph{defers}. Fuel re-appears \emph{in the driver}: a driver that elects to
+\emph{expand} a \code{ConformsTo} hole --- mint a fresh node and recursively build
+it out against shape \code{id} (\code{RepairSession.repair\_node\_against}) ---
+carries its own depth budget. The shipped interactive driver uses
+\code{BUILD\_FUEL = 6} and halts with a ``build depth limit reached'' diagnostic at
+$0$, falling back to reuse or manual authoring.}
+Selected dispatch ($\Repair$):
+\[
+\begin{array}{ll}
+\code{CountLow}\{\pi,q,\mathrm{have},\min\} & \mapsto \code{Repeat}\{\min{-}\mathrm{have},\ \code{build\_value}(\pi,\,q\wedge\textstyle\bigwedge_i\varphi_i)\}\\
+\code{CountHigh (plain max)} & \mapsto \code{Repeat}\{\mathrm{have}{-}\max,\ \code{Delete over OneOf(matched)}\}\\
+\code{CountHigh}\ (\forall\text{-encoding}) & \mapsto \code{All}(\text{per-value } \Repair(\text{inner}))\\
+\code{Not}\{\text{inner}\} & \mapsto \Break(\text{inner})\\
+\code{Atom (value-scoped)} & \mapsto \code{Any}([\text{delete offender, build a good value}])\\
+\end{array}
+\]
+The \code{CountLow} qualifier $q\wedge\bigwedge_i\varphi_i$ is the count's own
+qualifier conjoined with every sibling universal collected during witnessing
+(above): $\top$ conjuncts drop out, a lone survivor becomes the precise leaf or
+\code{ConformsTo} constraint, and several become a \code{ConformsToAll}. So when a
+\code{sh:qualifiedValueShape} count and a sibling \code{sh:class} both govern the
+empty path, the hole carries \emph{both} obligations, not the count's qualifier
+alone --- the gate would reject a value missing either, and now the repair space
+\emph{says so}.
+\textbf{Path materialization} is the key structural move: when the governing path
+$\pi$ is a \code{Seq}, adding ``a $\pi$-reachable value'' mints the interior nodes
+too --- each interior step becomes a \code{Fresh} hole and a chained \code{Add},
+so one \code{Count} over a multi-step path yields a deep repair block.
+\code{Inverse} flips subject/object; \code{Alt} becomes an \code{Any};
+\code{Star} is bounded. Its deletion-side dual, \code{PathSupport}, enumerates the
+\emph{existing} triples that made \code{node} a $\pi$-successor (for \code{Seq}, an
+OR over the chain --- cut any one edge).
+
+\subsection{Two worked examples}\label{sec:repair-examples}
+Both examples target one node and run the whole pipeline
+\emph{shape\,+\,data $\to$ witness/trace $\to$ \code{RepairTree}}. The node ids
+(\code{\#n}) and hole ids (\code{?n}) shown are exactly those synthesis assigns
+(both examples are regression tests in \code{synthesize.rs}). A single-constraint
+node shape is \emph{not} wrapped in an \code{And}, so the witness trees below are
+bare leaves rather than singleton conjunctions.
+
+\paragraph{Example 1 --- additive: an under-satisfied count.} A minimum count with
+too few values is the canonical \emph{additive} repair.
+\begin{lstlisting}[language={}]
+ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+     sh:property [ sh:path ex:p ; sh:minCount 2 ] .   # shape: >=2 values on ex:p
+ex:x ex:p ex:y .                                       # data:  only one present
+\end{lstlisting}
+Lowering yields $\exists^{\geq 2}\,\code{ex:p}.\top$. Witnessing \code{ex:x} counts
+one matching value where two are required, so the witness is a single
+\code{CountLow} leaf:
+\begin{lstlisting}[language={}]
+CountLow{ node: ex:x, path: ex:p, qualifier: Top, have: 1, min: 2 }
+\end{lstlisting}
+$\Repair$ turns the deficit $\min-\mathrm{have}=1$ into a \code{Repeat} whose body
+\emph{materializes} one fresh \code{ex:p}-value; the value hole \code{?0} carries
+the qualifier's constraint --- here \code{AnyNode}, because the qualifier is $\top$:
+\begin{lstlisting}[language={}]
+Repeat#1 { min: 1, max: None
+  body: Edits#0 { add( ex:x  ex:p  ?0 ),  hole ?0 : AnyNode } }
+\end{lstlisting}
+A driver fills this by choosing the \code{Repeat} count ($1$) and binding \code{?0}
+--- to an existing node (reuse) or a freshly minted one --- giving the single add
+\code{ex:x ex:p <v>}. Had the qualifier been a value type (e.g.\
+\code{sh:qualifiedValueShape [ sh:datatype xsd:integer ]}), \code{?0} would instead
+carry \code{Typed(xsd:integer)}; and a \code{Seq} path would mint the interior hops
+as \code{Fresh} holes (path materialization).
+
+\paragraph{Example 2 --- the witness/trace duality through \code{sh:not}.} The
+illuminating case is a violation fixable only by \emph{deletion}, which is exactly
+where the \code{SatTrace} surfaces. ``This account must \emph{not} be flagged
+banned'':
+\begin{lstlisting}[language={}]
+ex:S a sh:NodeShape ; sh:targetNode ex:acct ;
+     sh:not [ sh:path ex:status ; sh:hasValue "banned" ] .  # shape: must NOT hold
+ex:acct ex:status "banned" .                                # data:  but it does
+\end{lstlisting}
+Lowering yields
+$\neg\,\exists^{\geq 1}\,\code{ex:status}.\test(\text{``banned''})$. The inner
+$\exists$ \emph{holds}, so the $\neg$ \emph{fails} --- and witnessing therefore
+crosses onto the satisfaction side: a \code{Not} witness embeds the \code{SatTrace}
+that records \emph{why} the inner shape holds. This \textbf{is} the duality --- a
+negation failure is an inner \emph{success} that must be dismantled:
+\begin{lstlisting}[language={}]
+Not{ node: ex:acct,
+  inner: CountHeld{ path: ex:status, qualifier: test("banned"), min: 1,
+           matches: [ ("banned", Atom{ produced_by: edge(ex:acct ex:status "banned") }) ] } }
+\end{lstlisting}
+Synthesis flips folds at the \code{Not}: $\Repair(\code{Not})=\Break(\text{inner})$.
+$\Break(\code{CountHeld})$ with $\min>0$ drops the count below the minimum by
+breaking every match, and $\Break(\code{Atom})$ cuts the edge that produced the
+value --- a concrete deletion, no holes:
+\begin{lstlisting}[language={}]
+Edits#0 { delete( ex:acct  ex:status  "banned" ) }
+\end{lstlisting}
+The dual subtlety: a \emph{bare} \code{sh:not} over \code{minCount} alone
+(qualifier $\top$) yields an \code{Irrefutable} match trace, and \code{break\_}
+returns \code{Blocked} --- there is no value-type leaf to cut, only the path edge,
+which this cut does not delete to falsify a bare $\exists$.
+
+\paragraph{Example 3 --- both directions in one violation.} A node shape with
+several constraints produces an \code{All} witness, and when one of those
+constraints is a \code{sh:not} over a compound shape, that single violation report
+carries a \emph{witness above the \code{Not}} and a \emph{satisfaction trace below
+it} --- the two halves of the duality side by side. Policy: an account must carry
+an email \emph{and} must not be an admin without MFA.
+\begin{lstlisting}[language={}]
+ex:S a sh:NodeShape ; sh:targetNode ex:acct ;
+     sh:property [ sh:path ex:email ; sh:minCount 1 ] ;   # (A) >=1 email
+     sh:not [ sh:and (                                     # (B) NOT (admin AND no MFA)
+        [ sh:path ex:role ; sh:hasValue "admin" ]
+        [ sh:path ex:mfa  ; sh:maxCount 0 ] ) ] .
+ex:acct ex:role "admin" .       # an admin, with no MFA and no email -> fails (A) and (B)
+\end{lstlisting}
+The node shape lowers to
+$\exists^{\geq1}\code{ex:email}.\top \;\wedge\;
+\neg\big(\exists^{\geq1}\code{ex:role}.\test(\text{``admin''}) \wedge
+\exists^{\leq0}\code{ex:mfa}.\top\big)$. Both conjuncts fail (no email; and the
+account \emph{is} an un-MFA'd admin, so the negated inner shape holds), giving an
+\code{All} witness whose second child is a \code{Not} embedding the \code{SatTrace}
+for the inner \code{And}:
+\begin{lstlisting}[language={}]
+All{ node: ex:acct                                              <-- Witness (additive) world
+  CountLow{ path: ex:email, qualifier: Top, have: 0, min: 1 }              # (A)
+  Not{ node: ex:acct                                                       # (B): inner holds
+    inner: AllHeld{                                             <-- SatTrace (deletive) world
+      CountHeld{ path: ex:role, qualifier: test("admin"), min: 1,
+        matches: [ ("admin", Atom{ produced_by: edge(ex:acct ex:role "admin") }) ] },
+      CountHeld{ path: ex:mfa,  qualifier: Top, max: 0, matches: [] } } } }
+\end{lstlisting}
+Synthesis recurses over the \code{All}, producing one repair per failed conjunct
+and conjoining them --- here an \emph{additive} \code{Repeat} for (A) and a
+\emph{deletive} \code{Edits} for (B), in a single \code{All} repair:
+\begin{lstlisting}[language={}]
+All#4 {
+  Repeat#1 { min: 1, max: None                                             # (A): add an email
+    body: Edits#0 { add( ex:acct  ex:email  ?0 ),  hole ?0 : AnyNode } },
+  Edits#2 { delete( ex:acct  ex:role  "admin" ) } }                        # (B): drop admin role
+\end{lstlisting}
+Two things to read off the (B) branch. First, $\Break(\code{AllHeld})$ is an
+\code{Any} over its children's breaks --- breaking \emph{any one} conjunct
+falsifies the \code{And}, hence un-admins the account. Second, the \code{ex:mfa}
+\code{maxCount}-$0$ conjunct can only be falsified by \emph{adding} an MFA value,
+which the deletive fold will not do, so it synthesizes \code{Blocked} (consuming
+node id \code{\#3}); the enclosing \code{Any} then drops it (the
+\code{Blocked}-propagation invariant of \S\ref{sec:repair}), which is why the ids
+jump \code{\#2}$\to$\code{\#4} and why the surviving fix is ``drop the admin role''
+rather than ``add MFA.'' The repair is sound regardless of which the gate accepts.
+
+\subsection{The gate (whole-graph, returned not acted on)}
+A repair is sound only if it does not trade one violation for another, so the gate
+re-validates over the whole graph:
+\[
+\code{gate}(G,S,\Delta G)=\big(\underbrace{\text{fixed}}_{\text{removed}},\ \underbrace{\text{introduced}}_{\text{new}},\ \underbrace{\text{remaining}}_{\text{still unfixed}}\big)
+= \mathrm{violations}(G\oplus\Delta G,S)\ominus\mathrm{violations}(G,S).
+\]
+A delta is \emph{sound} iff \code{introduced} is empty; sound + non-empty
+\code{fixed} is \emph{progress}. The gate reuses \code{validate} unchanged, so an
+\emph{affected-set} re-validation (only nodes $\Delta G$ can touch, from the
+dependency/demand analysis) can replace it later with identical semantics.
+
+\subsection{Rendering to a self-hosted SHACL sidecar}
+\nibox{\code{render} $\to$ \code{RepairProgram} (the parameterized-RDF view, the
+\code{urn:shifty:hole\#} parameter nodes, the self-hosted SHACL sidecar over the
+holes, and DNF flattening) is design only --- it is not in the current
+\code{shifty-repair} / \code{shifty-engine} crates. The witness/\code{sat\_trace}
+folds, the \code{RepairTree}/\code{Plan}/\code{instantiate} IR, \code{synthesize},
+and \code{gate} \emph{are} implemented; drivers consume those directly.}
+For graph-matching/display drivers, \code{render} restates the tree as a
+parameterized RDF graph:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Holes as parameter nodes}: each \code{Hole} renders to
+  \code{urn:shifty:hole\#<id>} (the BuildingMOTIF \code{urn:\_\_\_param\_\_\_\#}
+  analogue); a \code{TriplePattern} renders with bound slots as terms, open slots
+  as the hole IRI.
+  \item \textbf{Constraints as a self-hosted sidecar}: a \code{HoleConstraint}
+  \emph{is} a shape, so it renders as a node shape on the hole IRI \emph{in the
+  engine's own algebra} (\code{Const}$\to\test(c)$, \code{Typed}$\to$value-type,
+  \code{Kind}$\to$\code{sh:nodeKind}, \code{OneOf}$\to$\code{sh:in},
+  \code{ConformsTo}$\to$\code{sh:node}, \code{ConformsToAll}$\to$ several
+  \code{sh:node}). No second constraint language; the
+  sidecar is a \code{Schema} over the holes, checked by the \emph{same} validator
+  the repair targets.
+  \item \textbf{Flattening to DNF}: \code{Any}$\to$alternatives;
+  \code{All}$\to$merge add-graphs/sidecars/delete-sets (contradictions prune the
+  branch); \code{Repeat}$\to$count-parameterized block.
+\end{itemize}
+
+\subsection{Reference drivers}
+\nibox{Of the four drivers below, only \emph{enumeration}-style filling is backed
+by code today: \code{Hole.candidates()} (reuse-first candidates from the data
+graph) is implemented, and two simple Python example drivers ship
+(\code{python/examples/repair.py}, take-first-option; and
+\code{repair\_interactive.py}, a numbered gated menu). The \emph{monomorphism},
+\emph{ASP}, and \emph{LLM} drivers --- including the entire ASP lowering below
+(\code{viol}/\code{conf}/\code{reach} Datalog, generate--define--test,
+\code{\#minimize}) --- are specified in \code{docs/07-repair-drivers.md} as
+worked examples, not implemented in the tree.}
+The library is solver-agnostic; drivers bring data and policy and run the loop
+(witness $\to$ synthesize $\to$ fill \code{Plan} $\to$ instantiate $\to$ gate
+$\to$ accept/re-witness). Termination is the driver's, but easy: require each
+accepted $\Delta G$ to shrink the violation set (\code{gate} reports this).
+\begin{center}
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+driver & fills holes by & strength & joint? \\
+\midrule
+Monomorphism & matching existing subgraphs & reuse / structural overlap & no (greedy) \\
+Enumeration & brute force over finite domains & simplicity, IR oracle & no (greedy) \\
+LLM & model proposal & semantic / infinite holes & no (greedy) \\
+ASP & constraint solving & minimality, cascades & \textbf{yes} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The ASP driver --- joint solving + minimality.} The key observation is
+that \emph{lowering $\varphi$ to a logic program is mechanical because the
+recursion semantics is already stratified negation}, and the engine already runs
+it as least-fixpoint forward chaining with a computed stratum order: $\varphi$
+\emph{is} a logic program; lowering reuses the same strata.
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Generate} (template-bounded): choose hole bindings, repeat-instance
+  counts, and deletions \emph{restricted to what the \code{RepairTree} proposes}
+  --- not ``any triple in the universe'' --- keeping the search finite.
+  \item \textbf{Define}: post-repair \code{holds/3}, the path relations
+  \code{reach/3}, and \code{viol/2} (= the witness) as Datalog over \code{holds}.
+  \item \textbf{Test}: \code{:- not conf(root, focus).} for every root shape in the
+  focus group (the conjoined integrity constraints \emph{are} the joint solve).
+  \item \textbf{Optimize}: \code{\#minimize} over chosen edits with reuse$<$mint
+  weights.
+\end{itemize}
+\begin{principle}[Lower \code{viol}, not \code{conf}]
+Validation is $\gfp$ but ASP stable models are $\lfp$. Lowering \code{viol} (the
+finitely-justified failure --- exactly the witness) and defining \code{conf} as
+its stratified negation makes the reading $\lfp$/finitely-justified, which is the
+\emph{correct} semantics for repair: a repair must actually \emph{construct}
+supporting structure, not lean on a coinductive cycle. The divergence is contained
+because the driver only runs on genuine $\gfp$ witnesses and every answer set
+still passes the $\gfp$ \code{gate}.
+\end{principle}
+The non-logical leaf checks ASP cannot express (\code{sh:datatype}, numeric range,
+\code{sh:pattern}, \code{sh:nodeKind}, \code{sh:in}, \code{Lt}/\code{Le}/\code{Eq})
+are \textbf{precomputed by the engine} and emitted as facts (\code{sat(Leaf,X)},
+\code{lt(X,Y)}, \dots), reusing the same \code{value\_type\_holds}/\code{compare\_terms}
+the validator uses. ASP decides structure/reuse/counts; novel infinite literals
+are left to the enumeration/LLM drivers.
+
+% ===========================================================================
+\section{Catalog of invention (what was pulled together vs.\ created)}
+% ===========================================================================
+
+\paragraph{Pulled together (adapted from existing theory).}
+\begin{itemize}[leftmargin=1.4em]
+  \item The $\pi$/$\varphi$ core and its denotational semantics, from the
+  \emph{Common Foundations} paper --- but \textbf{specialized to RDF} (D0/D1
+  re-unification) rather than common graphs.
+  \item Stratified negation / $\lfp$ Datalog evaluation (classical), reused
+  verbatim for both AF inference and ASP repair lowering.
+  \item Dictionary-encoded, sorted, multi-order triple indexes (standard triple
+  store engineering), specialized to an \emph{immutable} post-inference snapshot.
+\end{itemize}
+
+\paragraph{Created / non-obvious for this engine.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Class-as-path (C1).} Eliminating the class/subclass subsystem by
+  expressing \code{sh:class}/\code{targetClass} as a single
+  \code{rdf:type}$\cdot$\code{rdfs:subClassOf}$^{\Star}$ path, so the path planner
+  and indexes serve it for free.
+  \item \textbf{Fused \code{Count}} as the single counting primitive subsuming
+  min/max/qualified cardinality, \code{node}/\code{property} nesting, and
+  $\forall/\exists$ --- with deliberate \emph{un-fusing} for polarity analysis.
+  \item \textbf{Semantic polarity \& sign-balance stratification.} Computing
+  monotonicity through the $\exists^{\leq0}\pi.\neg\varphi$ encoding of $\forall$
+  (so a syntactically-negative IR node is correctly positive), and testing
+  stratifiability as net-sign balance of SCC cycles.
+  \item \textbf{$\gfp$-validation / $\lfp$-inference split} under one stratified
+  framework, with a non-cacheable back-edge guard that realizes the $\gfp$ exactly.
+  \item \textbf{Backward seeding of class targets} (reverse path lookup from the
+  class constant) instead of node scans.
+  \item \textbf{Native SPARQL subset over a frozen indexed dataset}: capability
+  analysis as a whole-query gate, substitution-based prebinding,
+  \code{FocusId}-batched execution, compiled direction-folded reachability plans,
+  bounded shared-\code{Rc} closure memoization, and stats-driven greedy BGP
+  reordering --- plus differential testing against Spareval as the oracle.
+  \PART{the \emph{budgeted multi-strategy per-path index catalog} (Memoized /
+  Materialized / SccClosure) is design only; see \S\ref{sec:sparql}.}
+  \item \textbf{Symbolic repair as abduction over $\varphi$}: the
+  witness/satisfaction-trace duality with provable add/delete flips at
+  \code{Not}/\code{Count}, the fuel-governed \code{build} for hypothetical nodes
+  (recursion deferred via \code{ConformsTo} holes; \S\ref{sec:repair}),
+  path materialization / \code{PathSupport} as additive/deletive duals, and the
+  whole-graph \code{gate} returned-not-acted-on. \NI{the self-hosted SHACL sidecar
+  rendering of hole constraints.}
+  \item \NI{\textbf{ASP repair lowering that reuses the validation strata},
+  lowering \code{viol} (not \code{conf}) to get $\lfp$/finitely-justified repair
+  semantics while still gating against the $\gfp$ validator --- specified, not
+  built.}
+\end{enumerate}
+
+% ===========================================================================
+\section*{Open problems / future work}
+\addcontentsline{toc}{section}{Open problems / future work}
+% ===========================================================================
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Demand-driven index promotion} (Memoized $\to$ Materialized $\to$
+  SccClosure) from \emph{observed} demand is designed but only partially
+  implemented (bounded per-start memoization exists; promotion is planned).
+  \item \textbf{Affected-set re-validation} for the gate and for incremental
+  focus-delta scheduling.
+  \item \textbf{Repair completeness through positive recursion}
+  (\code{Coinductive} limit) and finer \code{sh:equals} set-reconciliation.
+  \item \textbf{Layer 7 compilation/JIT}: staged closures then optional Cranelift
+  codegen for hot validators; vectorized batch evaluation; parallel strata.
+  \item \textbf{Provenance side-table}: per-\code{sh:ValidationResult} provenance
+  (the IR is pure, so reporting is currently focus-level for the algebra path).
+\end{itemize}
+
+% ===========================================================================
+\section*{References (informal)}
+\addcontentsline{toc}{section}{References}
+% ===========================================================================
+\begin{itemize}[leftmargin=1.4em]
+  \item S.\ Ahmetaj et al., \emph{Common Foundations for SHACL, ShEx, and
+  PG-Schema}, arXiv:2502.01295. (Source of the $\pi$/$\varphi$ core.)
+  \item W3C, \emph{Shapes Constraint Language (SHACL)}, \url{https://www.w3.org/TR/shacl/}.
+  \item W3C, \emph{SHACL Advanced Features}, \url{https://www.w3.org/TR/shacl-af/}.
+  \item W3C data-shapes test suite, \url{https://w3c.github.io/data-shapes/data-shapes-test-suite/}.
+  \item Project design docs: \code{docs/00-formalism.md} through
+  \code{docs/07-repair-drivers.md}, \code{docs/static-analysis-plan.md}.
+\end{itemize}
+
+\end{document}
