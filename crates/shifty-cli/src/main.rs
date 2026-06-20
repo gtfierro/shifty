@@ -560,8 +560,7 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let witnesses = match shifty_engine::witness_violations(&data_graph, &context, schema)
-    {
+    let witnesses = match shifty_engine::witness_violations(&data_graph, &context, schema) {
         Ok(ws) => ws,
         Err(e) => {
             return Err(format!("{e}; cannot witness (see `inspect --stage strata`)").into());
@@ -640,7 +639,11 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
             for fw in &witnesses {
                 let tree = shifty_engine::synthesize(&schema.arena, fw);
                 let sol = match shifty_engine::enumerate_repair(
-                    &tree, &data_graph, &context, schema, opts,
+                    &tree,
+                    &data_graph,
+                    &context,
+                    schema,
+                    opts,
                 ) {
                     Ok(s) => s,
                     Err(e) => return Err(format!("{e}; cannot solve").into()),

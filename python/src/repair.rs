@@ -598,9 +598,7 @@ impl RepairSession {
     /// The horizon: one [`FocusWitness`] per `(focus, failed statement)`.
     fn witnesses(&self, py: Python<'_>) -> PyResult<Vec<Py<FocusWitness>>> {
         let raw = py
-            .allow_threads(|| {
-                witness_violations(&self.data, &self.context, &self.schema)
-            })
+            .allow_threads(|| witness_violations(&self.data, &self.context, &self.schema))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
@@ -631,9 +629,7 @@ impl RepairSession {
     fn witnesses_for(&self, py: Python<'_>, shape_iri: &str) -> PyResult<Vec<Py<FocusWitness>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| {
-                witness_shape(&self.data, &self.context, &self.schema, shape)
-            })
+            .allow_threads(|| witness_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
@@ -668,9 +664,7 @@ impl RepairSession {
     ) -> PyResult<Vec<Py<FocusSatisfaction>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| {
-                satisfy_shape(&self.data, &self.context, &self.schema, shape)
-            })
+            .allow_threads(|| satisfy_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fs| {
@@ -742,9 +736,7 @@ impl RepairSession {
     ) -> PyResult<Option<RepairTree>> {
         let term = parse_term(node).map_err(py_value_error)?;
         let fw = py
-            .allow_threads(|| {
-                witness_node(&self.context, &self.schema, &term, ShapeId(shape_id))
-            })
+            .allow_threads(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         Ok(fw.map(|fw| RepairTree {
             inner: synthesize(&self.schema.arena, &fw),

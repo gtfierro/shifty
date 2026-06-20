@@ -1023,7 +1023,8 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
+        let ws =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
         assert_eq!(ws.len(), 1);
         let sibs = count_low_siblings(&ws[0].failure);
         assert_eq!(sibs.len(), 1, "one CountLow");

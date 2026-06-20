@@ -205,7 +205,8 @@ fn solve(
                 for i in 0..*n {
                     let mut p = plan.clone();
                     p.branch.insert(node, i);
-                    if let Some(sol) = solve(tree, data, context, schema, choices, p, budget, opts)? {
+                    if let Some(sol) = solve(tree, data, context, schema, choices, p, budget, opts)?
+                    {
                         return Ok(Some(sol));
                     }
                 }
@@ -326,8 +327,14 @@ mod tests {
         let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).unwrap();
         assert_eq!(ws.len(), 1);
         let tree = synthesize(&parsed.schema.arena, &ws[0]);
-        let sol =
-            enumerate_repair(&tree, &loaded.graph, &loaded.graph, &parsed.schema, EnumOptions::default()).unwrap();
+        let sol = enumerate_repair(
+            &tree,
+            &loaded.graph,
+            &loaded.graph,
+            &parsed.schema,
+            EnumOptions::default(),
+        )
+        .unwrap();
         (sol, parsed.schema, loaded.graph)
     }
 
@@ -383,8 +390,13 @@ mod tests {
                 .len(),
             2
         );
-        let result =
-            repair_to_fixpoint(&loaded.graph, &loaded.graph, &parsed.schema, EnumOptions::default()).unwrap();
+        let result = repair_to_fixpoint(
+            &loaded.graph,
+            &loaded.graph,
+            &parsed.schema,
+            EnumOptions::default(),
+        )
+        .unwrap();
         assert_eq!(result.remaining, 0, "repaired to conformance");
         assert_eq!(result.applied.len(), 2, "one repair per focus");
         // the repaired graph genuinely conforms.
