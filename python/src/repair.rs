@@ -14,8 +14,8 @@ use pyo3::pybacked::PyBackedBytes;
 use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
     FocusSat as IrSat, FocusWitness as IrFocus, SatTrace, Witness, apply as engine_apply,
-    candidates as engine_candidates, gate as engine_gate, satisfy_shape, shape_id_for_iri,
-    synthesize, witness_node, witness_shape, witness_violations,
+    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
+    shape_id_for_iri, synthesize, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -467,15 +467,27 @@ fn parse_term(s: &str) -> Result<Term, String> {
 #[pyclass(name = "RepairSession")]
 pub struct RepairSession {
     schema: Arc<Schema>,
+    /// The focus/output graph: data (+ inferred triples). What `to_graph` emits
+    /// and where focus nodes and reuse candidates are drawn from.
     data: Arc<Graph>,
+    /// The evaluation graph paths and class hierarchy read: `data ∪ shapes`. The
+    /// shapes/ontology triples live here so `sh:class` can follow `subClassOf`
+    /// into the hierarchy, but they never leak into the emitted data graph.
+    context: Arc<Graph>,
     diagnostics: Vec<String>,
 }
 
 impl RepairSession {
-    fn from_parts(schema: Arc<Schema>, data: Arc<Graph>, diagnostics: Vec<String>) -> Self {
+    fn from_parts(
+        schema: Arc<Schema>,
+        data: Arc<Graph>,
+        context: Arc<Graph>,
+        diagnostics: Vec<String>,
+    ) -> Self {
         Self {
             schema,
             data,
+            context,
             diagnostics,
         }
     }
@@ -556,9 +568,22 @@ impl RepairSession {
                 base_data.clone()
             };
 
+            // Evaluation reads `data ∪ shapes` so paths and the class hierarchy
+            // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the
+            // shapes/ontology graph, while focus discovery and the emitted graph
+            // stay the data graph. When the shapes embed the data, `eval` already
+            // is the union, so share the Arc rather than building a second copy.
+            let data = Arc::new(eval);
+            let context = if data_loaded.is_some() {
+                Arc::new(graph_union(&data, &shapes_loaded.graph))
+            } else {
+                Arc::clone(&data)
+            };
+
             Ok(RepairSession::from_parts(
                 Arc::new(schema),
-                Arc::new(eval),
+                data,
+                context,
                 diagnostics,
             ))
         })
@@ -573,7 +598,9 @@ impl RepairSession {
     /// The horizon: one [`FocusWitness`] per `(focus, failed statement)`.
     fn witnesses(&self, py: Python<'_>) -> PyResult<Vec<Py<FocusWitness>>> {
         let raw = py
-            .allow_threads(|| witness_violations(&self.data, &self.schema))
+            .allow_threads(|| {
+                witness_violations(&self.data, &self.context, &self.schema)
+            })
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
@@ -604,7 +631,9 @@ impl RepairSession {
     fn witnesses_for(&self, py: Python<'_>, shape_iri: &str) -> PyResult<Vec<Py<FocusWitness>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| witness_shape(&self.data, &self.schema, shape))
+            .allow_threads(|| {
+                witness_shape(&self.data, &self.context, &self.schema, shape)
+            })
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
@@ -639,7 +668,9 @@ impl RepairSession {
     ) -> PyResult<Vec<Py<FocusSatisfaction>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| satisfy_shape(&self.data, &self.schema, shape))
+            .allow_threads(|| {
+                satisfy_shape(&self.data, &self.context, &self.schema, shape)
+            })
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fs| {
@@ -665,7 +696,7 @@ impl RepairSession {
     /// Decides and applies nothing; returns a [`RepairOutcome`].
     fn gate(&self, py: Python<'_>, delta: &RepairDelta) -> PyResult<RepairOutcome> {
         let outcome = py
-            .allow_threads(|| engine_gate(&self.data, &self.schema, &delta.inner))
+            .allow_threads(|| engine_gate(&self.data, &self.context, &self.schema, &delta.inner))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         let sound = outcome.is_sound();
         let progress = outcome.is_progress();
@@ -711,7 +742,9 @@ impl RepairSession {
     ) -> PyResult<Option<RepairTree>> {
         let term = parse_term(node).map_err(py_value_error)?;
         let fw = py
-            .allow_threads(|| witness_node(&self.data, &self.schema, &term, ShapeId(shape_id)))
+            .allow_threads(|| {
+                witness_node(&self.context, &self.schema, &term, ShapeId(shape_id))
+            })
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         Ok(fw.map(|fw| RepairTree {
             inner: synthesize(&self.schema.arena, &fw),
@@ -729,12 +762,20 @@ impl RepairSession {
     }
 
     /// A new session over `G ⊕ ΔG` (same schema, no re-inference) so a driver can
-    /// accept a repair and re-witness from the patched graph.
+    /// accept a repair and re-witness from the patched graph. The delta patches
+    /// both the data graph and the evaluation context (which contains it), so the
+    /// next session evaluates against `(data ⊕ ΔG) ∪ shapes`.
     fn advance(&self, py: Python<'_>, delta: &RepairDelta) -> Self {
-        let next = py.allow_threads(|| engine_apply(&self.data, &delta.inner));
+        let (next_data, next_context) = py.allow_threads(|| {
+            (
+                engine_apply(&self.data, &delta.inner),
+                engine_apply(&self.context, &delta.inner),
+            )
+        });
         RepairSession::from_parts(
             Arc::clone(&self.schema),
-            Arc::new(next),
+            Arc::new(next_data),
+            Arc::new(next_context),
             self.diagnostics.clone(),
         )
     }

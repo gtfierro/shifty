@@ -517,19 +517,27 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     };
-    let data_graph = inference.as_ref().map_or_else(
-        || {
-            data_loaded
-                .as_ref()
-                .map_or(&shapes_loaded.graph, |d| &d.graph)
-        },
-        |inf| &inf.graph,
-    );
+    let data_graph = match inference {
+        Some(inf) => inf.graph,
+        None => data_loaded
+            .as_ref()
+            .map_or_else(|| shapes_loaded.graph.clone(), |d| d.graph.clone()),
+    };
+    // Witness/gate against `data ∪ shapes` so paths and the class hierarchy
+    // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the shapes/ontology
+    // graph, while focus and the emitted repair stay the data graph. When the
+    // shapes embed the data, `data_graph` already is the union.
+    let context = if data_loaded.is_some() {
+        shifty_engine::graph_union(&data_graph, &shapes_loaded.graph)
+    } else {
+        data_graph.clone()
+    };
 
     // --apply: run the fixpoint driver and emit the repaired graph.
     if args.apply {
         let result = match shifty_engine::repair_to_fixpoint(
-            data_graph,
+            &data_graph,
+            &context,
             schema,
             shifty_engine::EnumOptions::default(),
         ) {
@@ -552,7 +560,8 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let witnesses = match shifty_engine::witness_violations(data_graph, schema) {
+    let witnesses = match shifty_engine::witness_violations(&data_graph, &context, schema)
+    {
         Ok(ws) => ws,
         Err(e) => {
             return Err(format!("{e}; cannot witness (see `inspect --stage strata`)").into());
@@ -630,7 +639,9 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
             }
             for fw in &witnesses {
                 let tree = shifty_engine::synthesize(&schema.arena, fw);
-                let sol = match shifty_engine::enumerate_repair(&tree, data_graph, schema, opts) {
+                let sol = match shifty_engine::enumerate_repair(
+                    &tree, &data_graph, &context, schema, opts,
+                ) {
                     Ok(s) => s,
                     Err(e) => return Err(format!("{e}; cannot solve").into()),
                 };

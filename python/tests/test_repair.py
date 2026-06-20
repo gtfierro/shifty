@@ -306,6 +306,41 @@ def test_class_qualified_build_is_not_blocked_and_types_the_node():
     assert s.gate(delta).is_progress
 
 
+# The class hierarchy lives only in the shapes graph (split data/shapes). A value
+# typed with a *subclass* of the required class must still clear `sh:class`: the
+# session evaluates against the data ∪ shapes context, so `rdf:type/subClassOf*`
+# can follow `ex:Sub ⊑ ex:Super` even though the axiom is not in the data graph.
+SUBCLASS_SHAPES = """
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:   <http://example.org/> .
+ex:Sub rdfs:subClassOf ex:Super .
+ex:VavShape a sh:NodeShape ; sh:targetClass ex:Vav ;
+    sh:property [ sh:path ex:hasPoint ; sh:minCount 1 ; sh:class ex:Super ] .
+"""
+
+SUBCLASS_DATA = """
+@prefix ex: <http://example.org/> .
+ex:vav1 a ex:Vav .
+"""
+
+
+def test_subclass_typed_proposal_makes_progress_via_shapes_hierarchy():
+    import rdflib
+
+    s = shifty.RepairSession(SUBCLASS_SHAPES, SUBCLASS_DATA, infer=False)
+    # propose a point typed with the *subclass* of the required class.
+    delta = shifty.delta_from_graph(
+        "@prefix ex: <http://example.org/> ."
+        " ex:vav1 ex:hasPoint ex:p1 . ex:p1 a ex:Sub ."
+    )
+    assert s.gate(delta).is_progress
+    # the evaluation context is internal: the shapes/ontology (subClassOf) never
+    # leak into the emitted data graph.
+    g = s.to_graph()
+    assert not any(p == rdflib.RDFS.subClassOf for _, p, _ in g)
+
+
 # ── full rendering & multi-shape obligations ─────────────────────────────────
 
 # minCount + an sh:or of two classes on the same path: the added value must be

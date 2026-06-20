@@ -200,9 +200,12 @@ pub enum BlockReason {
 type Stack = HashSet<(ShapeId, Term)>;
 
 /// Strat-check and build the SPARQL executor shared by every witnessing entry
-/// point. The caller derives `backend`/`ShapeEvaluator` from the returned
-/// executor — those borrow it, so they can't be bundled in here.
-fn prepare(data: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifiable> {
+/// point. The executor's frozen dataset is built over `context` — the graph that
+/// paths, class hierarchy, and SPARQL read; focus discovery is the caller's job
+/// and reads the (possibly narrower) data graph. The caller derives
+/// `backend`/`ShapeEvaluator` from the returned executor — those borrow it, so
+/// they can't be bundled in here.
+fn prepare(context: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -216,19 +219,24 @@ fn prepare(data: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifia
 
     let uses_shapes = uses_shapes_graph(&schema.arena);
     let frozen = if uses_shapes {
-        FrozenIndexedDataset::from_graphs(data, data)
+        FrozenIndexedDataset::from_graphs(context, context)
     } else {
-        FrozenIndexedDataset::from_graph(data)
+        FrozenIndexedDataset::from_graph(context)
     };
     Ok(SparqlExecutor::from_frozen(frozen, uses_shapes))
 }
 
 /// Witness every `(focus, statement)` that fails, mirroring `validate`'s driver.
+/// Focus discovery uses `data`; paths, class hierarchy, and SPARQL are evaluated
+/// against `context`, which should contain `data` (pass `data` again when there
+/// is no separate shapes graph; for split inputs `context = data ∪ shapes`). The
+/// witnessing dual of [`crate::validate_with_context`].
 pub fn witness_violations(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
 ) -> Result<Vec<FocusWitness>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -274,10 +282,11 @@ pub fn shape_id_for_iri(schema: &Schema, iri: &str) -> Option<ShapeId> {
 /// `ShapeId`.
 pub fn witness_shape(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     shape: ShapeId,
 ) -> Result<Vec<FocusWitness>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -327,10 +336,11 @@ pub struct FocusSat {
 /// [`SatTrace`]). Use [`shape_id_for_iri`] to resolve an IRI to its `ShapeId`.
 pub fn satisfy_shape(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     shape: ShapeId,
 ) -> Result<Vec<FocusSat>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -360,17 +370,20 @@ pub fn satisfy_shape(
 /// Witness one specific `node` against one specific `shape` (by id) — the building
 /// block for repairing a `ConformsTo` hole: bind it to a node, then witness that
 /// node against the sub-shape and synthesize its repair. Returns `Ok(None)` when
-/// the node already conforms (nothing to build), `Ok(Some(_))` otherwise.
+/// the node already conforms (nothing to build), `Ok(Some(_))` otherwise. Paths
+/// and class hierarchy are evaluated over `context`; there is no focus discovery
+/// here (`node` is given), so unlike the other entry points this takes no
+/// separate data graph.
 ///
 /// The `statement` field of the returned [`FocusWitness`] is a sentinel
 /// (`usize::MAX`): this is not a top-level statement, and synthesis ignores it.
 pub fn witness_node(
-    data: &Graph,
+    context: &Graph,
     schema: &Schema,
     node: &Term,
     shape: ShapeId,
 ) -> Result<Option<FocusWitness>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -924,7 +937,7 @@ mod tests {
     fn run(ttl: &str) -> Vec<FocusWitness> {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        witness_violations(&loaded.graph, &parsed.schema).expect("stratifiable")
+        witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable")
     }
 
     /// Does any node in the witness tree satisfy `pred`?
@@ -1010,7 +1023,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &parsed.schema).expect("stratifiable");
+        let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
         assert_eq!(ws.len(), 1);
         let sibs = count_low_siblings(&ws[0].failure);
         assert_eq!(sibs.len(), 1, "one CountLow");
@@ -1117,7 +1130,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        assert!(witness_violations(&loaded.graph, &parsed.schema).is_err());
+        assert!(witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).is_err());
     }
 
     #[test]
@@ -1143,12 +1156,12 @@ mod tests {
         assert!(shape_id_for_iri(schema, "http://ex/missing").is_none());
 
         // Failures: just ex:bad, never the ex:T violation on ex:other.
-        let fails = witness_shape(&loaded.graph, schema, s).expect("stratifiable");
+        let fails = witness_shape(&loaded.graph, &loaded.graph, schema, s).expect("stratifiable");
         assert_eq!(fails.len(), 1);
         assert_eq!(fails[0].focus.to_string(), "<http://ex/bad>");
 
         // Satisfactions: just ex:good, with the matched value recorded.
-        let sats = satisfy_shape(&loaded.graph, schema, s).expect("stratifiable");
+        let sats = satisfy_shape(&loaded.graph, &loaded.graph, schema, s).expect("stratifiable");
         assert_eq!(sats.len(), 1);
         assert_eq!(sats[0].focus.to_string(), "<http://ex/good>");
         // ex:good holds because the ex:p count is met by ex:y.
