@@ -12,7 +12,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.8"
+version = "0.2.0"
 authors = ["Gabe Fierro <gtfierro@mines.edu>"]
 license = "BSD-3-Clause"
 edition = "2024"
@@ -24,11 +24,11 @@ documentation = "https://github.com/gtfierro/shifty#readme"
 
 [workspace.dependencies]
 # internal crates
-shifty-algebra = { path = "crates/shifty-algebra", version = "0.1.1" }
-shifty-parse = { path = "crates/shifty-parse", version = "0.1.1" }
-shifty-opt = { path = "crates/shifty-opt", version = "0.1.1" }
-shifty-engine = { path = "crates/shifty-engine", version = "0.1.1" }
-shifty-repair = { path = "crates/shifty-repair", version = "0.1.1" }
+shifty-algebra = { path = "crates/shifty-algebra", version = "0.2.0" }
+shifty-parse = { path = "crates/shifty-parse", version = "0.2.0" }
+shifty-opt = { path = "crates/shifty-opt", version = "0.2.0" }
+shifty-engine = { path = "crates/shifty-engine", version = "0.2.0" }
+shifty-repair = { path = "crates/shifty-repair", version = "0.2.0" }
 
 # external
 oxrdf = { version = "=0.3.3", features = ["serde", "oxsdatatypes"] }
