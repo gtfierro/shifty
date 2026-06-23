@@ -400,7 +400,10 @@ pub(crate) fn uses_shapes_graph(arena: &ShapeArena) -> bool {
     })
 }
 
-pub(crate) fn graph_union(left: &Graph, right: &Graph) -> Graph {
+/// The RDF merge of two graphs (`left ∪ right`). The standard way to build the
+/// `context` graph the `*_with_context` repair entry points expect: the union of
+/// a data graph and a shapes/ontology graph.
+pub fn graph_union(left: &Graph, right: &Graph) -> Graph {
     let mut union = left.clone();
     for triple in right.iter() {
         union.insert(triple);

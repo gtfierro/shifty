@@ -10,7 +10,7 @@
 //! a cheaper *affected-set* re-validation can replace the implementation later
 //! with identical semantics.
 
-use crate::validate::{NonStratifiable, Violation, validate};
+use crate::validate::{NonStratifiable, Violation, validate_with_context};
 use oxrdf::{Graph, Term};
 use serde::{Deserialize, Serialize};
 use shifty_algebra::Schema;
@@ -41,15 +41,24 @@ impl RepairOutcome {
 }
 
 /// Validate `data ⊕ delta` against `schema` and diff the violations against
-/// `data`'s. Errors only if the schema is not stratifiable (as `validate` does).
+/// `data`'s. Paths and the class hierarchy are evaluated against `context`, which
+/// should contain `data`; pass `data` again when there is no separate
+/// shapes/ontology graph. For split inputs `context = data ∪ shapes`, so the
+/// re-validation sees `(data ⊕ δ)` for focus and `(context ⊕ δ)` for evaluation
+/// — letting the gate discharge a constraint like `sh:class C` against a value
+/// typed with a *subclass* of `C` when the hierarchy lives in the shapes graph.
+/// The gate dual of [`crate::validate_with_context`]. Errors only if the schema
+/// is not stratifiable.
 pub fn gate(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     delta: &GraphDelta,
 ) -> Result<RepairOutcome, NonStratifiable> {
-    let baseline = validate(data, schema)?.violations;
-    let patched_graph = apply(data, delta);
-    let patched = validate(&patched_graph, schema)?.violations;
+    let baseline = validate_with_context(data, context, schema)?.violations;
+    let patched_data = apply(data, delta);
+    let patched_context = apply(context, delta);
+    let patched = validate_with_context(&patched_data, &patched_context, schema)?.violations;
     Ok(diff(baseline, patched))
 }
 
@@ -149,7 +158,7 @@ mod tests {
             add: vec![t("http://ex/x", "http://ex/p", "http://ex/y")],
             delete: vec![],
         };
-        let outcome = gate(&graph, &schema, &delta).unwrap();
+        let outcome = gate(&graph, &graph, &schema, &delta).unwrap();
         assert!(outcome.is_sound());
         assert!(outcome.is_progress());
         assert_eq!(outcome.fixed.len(), 1);
@@ -172,7 +181,7 @@ mod tests {
             add: vec![],
             delete: vec![t("http://ex/y", "http://ex/p", "http://ex/b")],
         };
-        let outcome = gate(&graph, &schema, &delta).unwrap();
+        let outcome = gate(&graph, &graph, &schema, &delta).unwrap();
         assert!(!outcome.is_sound(), "introduces a violation at ex:y");
         assert_eq!(outcome.introduced.len(), 1);
         assert_eq!(outcome.introduced[0].focus.to_string(), "<http://ex/y>");
@@ -188,7 +197,7 @@ mod tests {
             ex:x ex:p ex:y .
             "
         ));
-        let outcome = gate(&graph, &schema, &GraphDelta::default()).unwrap();
+        let outcome = gate(&graph, &graph, &schema, &GraphDelta::default()).unwrap();
         assert_eq!(outcome, RepairOutcome::default());
     }
 
@@ -208,7 +217,7 @@ mod tests {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
 
-        let ws = witness_violations(&loaded.graph, &parsed.schema).unwrap();
+        let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).unwrap();
         let tree = synthesize(&parsed.schema.arena, &ws[0]);
 
         // fill the replacement hole with a good integer.
@@ -220,8 +229,51 @@ mod tests {
         );
         let delta = instantiate(&tree, &plan).delta;
 
-        let outcome = gate(&loaded.graph, &parsed.schema, &delta).unwrap();
+        let outcome = gate(&loaded.graph, &loaded.graph, &parsed.schema, &delta).unwrap();
         assert!(outcome.is_progress(), "{outcome:?}");
         assert!(outcome.introduced.is_empty());
+    }
+
+    #[test]
+    fn context_gate_discharges_subclass_from_shapes_hierarchy() {
+        use crate::validate::graph_union;
+
+        // `sh:class ex:Super` on a path with `minCount 1`; the only class-hierarchy
+        // axiom (`ex:Sub ⊑ ex:Super`) lives in the *shapes* graph, not the data.
+        let shapes_ttl = r#"
+            @prefix sh:   <http://www.w3.org/ns/shacl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            @prefix ex:   <http://ex/> .
+            ex:Sub rdfs:subClassOf ex:Super .
+            ex:S a sh:NodeShape ; sh:targetClass ex:Vav ;
+                sh:property [ sh:path ex:hasPoint ; sh:minCount 1 ; sh:class ex:Super ] .
+        "#;
+        let data_ttl = "@prefix ex: <http://ex/> . ex:vav1 a ex:Vav .";
+
+        let schema = parse_turtle(shapes_ttl.as_bytes(), None).unwrap().schema;
+        let shapes = load_turtle(shapes_ttl.as_bytes(), None).unwrap().graph;
+        let data = load_turtle(data_ttl.as_bytes(), None).unwrap().graph;
+        let context = graph_union(&data, &shapes);
+
+        // Propose a point typed with the *subclass* of the required class.
+        let rdf_type = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+        let delta = GraphDelta {
+            add: vec![
+                t("http://ex/n1", rdf_type, "http://ex/Sub"),
+                t("http://ex/vav1", "http://ex/hasPoint", "http://ex/n1"),
+            ],
+            delete: vec![],
+        };
+
+        // Data-only: the gate can't follow `subClassOf` (the axiom isn't in the
+        // data), so `sh:class ex:Super` stays unsatisfied — no progress.
+        let data_only = gate(&data, &data, &schema, &delta).unwrap();
+        assert!(!data_only.is_progress(), "{data_only:?}");
+
+        // Union context: the hierarchy is visible, so the subclass-typed value
+        // discharges `sh:class` and the violation is fixed.
+        let with_ctx = gate(&data, &context, &schema, &delta).unwrap();
+        assert!(with_ctx.is_progress(), "{with_ctx:?}");
+        assert!(with_ctx.introduced.is_empty(), "{with_ctx:?}");
     }
 }

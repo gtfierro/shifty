@@ -34,7 +34,7 @@ pub use report::{
 pub use synthesize::{synthesize, synthesize_focus};
 pub use validate::{
     NonStratifiable, Reason, ValidationGraphMode, ValidationOptions, ValidationOutcome, Violation,
-    focus_nodes, validate, validate_graphs, validate_graphs_with_mode,
+    focus_nodes, graph_union, validate, validate_graphs, validate_graphs_with_mode,
     validate_graphs_with_mode_and_options, validate_plan, validate_plan_graphs,
     validate_plan_graphs_with_mode, validate_plan_graphs_with_mode_and_options,
     validate_plan_with_context, validate_plan_with_context_and_options, validate_plan_with_options,

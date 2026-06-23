@@ -15,7 +15,7 @@ use crate::sparql::SparqlExecutor;
 use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, uses_shapes_graph};
 use oxrdf::{Graph, NamedNode, Term, Triple};
 use serde::{Deserialize, Serialize};
-use shifty_algebra::{Path, Schema, Shape, ShapeId};
+use shifty_algebra::{Path, Schema, Shape, ShapeArena, ShapeId};
 use shifty_opt::analyze;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
@@ -101,6 +101,13 @@ pub enum Witness {
         branches: Vec<Witness>,
     },
     /// `∃≥min π.q` under-satisfied: `have` values match, `min` required.
+    ///
+    /// `sibling_qualifiers` collects the inner shapes of every `∀π.φ` universal
+    /// (encoded as `∃≤0 π.¬φ`) on this same path that is *conjoined above* this
+    /// count — including ones from sibling property shapes, i.e. a different `And`
+    /// node. Those universals are vacuously satisfied when their path is empty, so
+    /// they never witness as failures themselves, yet any value added to satisfy
+    /// this `CountLow` must also conform to each of them.
     CountLow {
         shape: ShapeId,
         node: Term,
@@ -108,6 +115,7 @@ pub enum Witness {
         qualifier: ShapeId,
         have: u64,
         min: u64,
+        sibling_qualifiers: Vec<ShapeId>,
     },
     /// `∃≤max π.q` over-satisfied. `matched` pairs each counted value with its
     /// support (so deletion cuts the right edges for `Seq`/`Star` paths).
@@ -192,9 +200,12 @@ pub enum BlockReason {
 type Stack = HashSet<(ShapeId, Term)>;
 
 /// Strat-check and build the SPARQL executor shared by every witnessing entry
-/// point. The caller derives `backend`/`ShapeEvaluator` from the returned
-/// executor — those borrow it, so they can't be bundled in here.
-fn prepare(data: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifiable> {
+/// point. The executor's frozen dataset is built over `context` — the graph that
+/// paths, class hierarchy, and SPARQL read; focus discovery is the caller's job
+/// and reads the (possibly narrower) data graph. The caller derives
+/// `backend`/`ShapeEvaluator` from the returned executor — those borrow it, so
+/// they can't be bundled in here.
+fn prepare(context: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -208,19 +219,24 @@ fn prepare(data: &Graph, schema: &Schema) -> Result<SparqlExecutor, NonStratifia
 
     let uses_shapes = uses_shapes_graph(&schema.arena);
     let frozen = if uses_shapes {
-        FrozenIndexedDataset::from_graphs(data, data)
+        FrozenIndexedDataset::from_graphs(context, context)
     } else {
-        FrozenIndexedDataset::from_graph(data)
+        FrozenIndexedDataset::from_graph(context)
     };
     Ok(SparqlExecutor::from_frozen(frozen, uses_shapes))
 }
 
 /// Witness every `(focus, statement)` that fails, mirroring `validate`'s driver.
+/// Focus discovery uses `data`; paths, class hierarchy, and SPARQL are evaluated
+/// against `context`, which should contain `data` (pass `data` again when there
+/// is no separate shapes graph; for split inputs `context = data ∪ shapes`). The
+/// witnessing dual of [`crate::validate_with_context`].
 pub fn witness_violations(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
 ) -> Result<Vec<FocusWitness>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -230,9 +246,15 @@ pub fn witness_violations(
     for (i, st) in schema.statements.iter().enumerate() {
         for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
             let mut stack = Stack::new();
-            if let Some(failure) =
-                witness(&mut evaluator, &v, st.shape, &Path::Id, None, &mut stack)
-            {
+            if let Some(failure) = witness(
+                &mut evaluator,
+                &v,
+                st.shape,
+                &Path::Id,
+                None,
+                &[],
+                &mut stack,
+            ) {
                 out.push(FocusWitness {
                     focus: v,
                     statement: i,
@@ -260,10 +282,11 @@ pub fn shape_id_for_iri(schema: &Schema, iri: &str) -> Option<ShapeId> {
 /// `ShapeId`.
 pub fn witness_shape(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     shape: ShapeId,
 ) -> Result<Vec<FocusWitness>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -276,9 +299,15 @@ pub fn witness_shape(
         }
         for v in focus_nodes_with(data, backend, &st.selector, &schema.arena, &sparql) {
             let mut stack = Stack::new();
-            if let Some(failure) =
-                witness(&mut evaluator, &v, st.shape, &Path::Id, None, &mut stack)
-            {
+            if let Some(failure) = witness(
+                &mut evaluator,
+                &v,
+                st.shape,
+                &Path::Id,
+                None,
+                &[],
+                &mut stack,
+            ) {
                 out.push(FocusWitness {
                     focus: v,
                     statement: i,
@@ -307,10 +336,11 @@ pub struct FocusSat {
 /// [`SatTrace`]). Use [`shape_id_for_iri`] to resolve an IRI to its `ShapeId`.
 pub fn satisfy_shape(
     data: &Graph,
+    context: &Graph,
     schema: &Schema,
     shape: ShapeId,
 ) -> Result<Vec<FocusSat>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
@@ -340,43 +370,59 @@ pub fn satisfy_shape(
 /// Witness one specific `node` against one specific `shape` (by id) — the building
 /// block for repairing a `ConformsTo` hole: bind it to a node, then witness that
 /// node against the sub-shape and synthesize its repair. Returns `Ok(None)` when
-/// the node already conforms (nothing to build), `Ok(Some(_))` otherwise.
+/// the node already conforms (nothing to build), `Ok(Some(_))` otherwise. Paths
+/// and class hierarchy are evaluated over `context`; there is no focus discovery
+/// here (`node` is given), so unlike the other entry points this takes no
+/// separate data graph.
 ///
 /// The `statement` field of the returned [`FocusWitness`] is a sentinel
 /// (`usize::MAX`): this is not a top-level statement, and synthesis ignores it.
 pub fn witness_node(
-    data: &Graph,
+    context: &Graph,
     schema: &Schema,
     node: &Term,
     shape: ShapeId,
 ) -> Result<Option<FocusWitness>, NonStratifiable> {
-    let sparql = prepare(data, schema)?;
+    let sparql = prepare(context, schema)?;
     let backend = sparql
         .frozen()
         .expect("witness executor always has a frozen dataset");
     let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
 
     let mut stack = Stack::new();
-    Ok(
-        witness(&mut evaluator, node, shape, &Path::Id, None, &mut stack).map(|failure| {
-            FocusWitness {
-                focus: node.clone(),
-                statement: usize::MAX,
-                failure,
-            }
-        }),
+    Ok(witness(
+        &mut evaluator,
+        node,
+        shape,
+        &Path::Id,
+        None,
+        &[],
+        &mut stack,
     )
+    .map(|failure| FocusWitness {
+        focus: node.clone(),
+        statement: usize::MAX,
+        failure,
+    }))
 }
 
 /// Reasons `φ` (slot `id`) fails at `node`. `None` ⟺ it holds (incl. on a gfp
 /// back-edge). `reached_by` is the structured path from the focus; `produced_by`
 /// is how `node` was reached from its parent value (for replace-in-place).
+///
+/// `scope` carries the universals `∀π.φ` (encoded `∃≤0 π.¬φ`) conjoined *above*
+/// this point — every `And` ancestor contributes its universal children. They
+/// hold vacuously when their path is empty, so they never witness as failures of
+/// their own; a `CountLow` on the same path attaches them as `sibling_qualifiers`
+/// so a value built to satisfy the count also satisfies them (`∀` and a sibling
+/// count may live in *different* property shapes, hence different `And` nodes).
 fn witness(
     eval: &mut ShapeEvaluator<'_>,
     node: &Term,
     id: ShapeId,
     reached_by: &Path,
     produced_by: Option<&PathSupport>,
+    scope: &[(Path, ShapeId)],
     stack: &mut Stack,
 ) -> Option<Witness> {
     let key = (id, node.clone());
@@ -392,7 +438,7 @@ fn witness(
         Shape::Top | Shape::Pending => None,
         // `sh:severity` is transparent to witnessing: repair the wrapped shape.
         Shape::Annotated { shape, .. } => {
-            let inner = witness(eval, node, shape, reached_by, produced_by, stack);
+            let inner = witness(eval, node, shape, reached_by, produced_by, scope, stack);
             stack.remove(&key);
             return inner;
         }
@@ -414,6 +460,8 @@ fn witness(
             })
         }
         Shape::Not(c) => {
+            // Crossing to the deletive side: outer universals don't constrain the
+            // value rebuild, so the inner witness starts from an empty scope.
             sat_trace(eval, node, c, reached_by, produced_by, stack).map(|t| Witness::Not {
                 shape: id,
                 node: node.clone(),
@@ -421,9 +469,15 @@ fn witness(
             })
         }
         Shape::And(cs) => {
+            // This `And`'s universals join the scope its children witness under, so
+            // a count in one conjunct sees the `∀π.φ` siblings in the others.
+            let mut child_scope: Vec<(Path, ShapeId)> = scope.to_vec();
+            child_scope.extend(cs.iter().filter_map(|&c| as_universal(eval.arena(), c)));
             let failed: Vec<Witness> = cs
                 .iter()
-                .filter_map(|c| witness(eval, node, *c, reached_by, produced_by, stack))
+                .filter_map(|c| {
+                    witness(eval, node, *c, reached_by, produced_by, &child_scope, stack)
+                })
                 .collect();
             (!failed.is_empty()).then(|| Witness::All {
                 shape: id,
@@ -432,10 +486,12 @@ fn witness(
             })
         }
         Shape::Or(cs) => {
-            // Or failed ⟹ every disjunct failed.
+            // Or failed ⟹ every disjunct failed. A disjunction does not conjoin its
+            // branches, so the scope passes through unchanged (no branch's
+            // universals constrain another's).
             let branches: Vec<Witness> = cs
                 .iter()
-                .filter_map(|c| witness(eval, node, *c, reached_by, produced_by, stack))
+                .filter_map(|c| witness(eval, node, *c, reached_by, produced_by, scope, stack))
                 .collect();
             (!branches.is_empty()).then(|| Witness::Any {
                 shape: id,
@@ -449,7 +505,7 @@ fn witness(
             max,
             qualifier,
         } => count_witness(
-            eval, node, id, &path, min, max, qualifier, reached_by, stack,
+            eval, node, id, &path, min, max, qualifier, reached_by, scope, stack,
         ),
         Shape::Sparql(_) => Some(Witness::Opaque {
             shape: id,
@@ -458,6 +514,34 @@ fn witness(
     };
     stack.remove(&key);
     result
+}
+
+/// Peel transparent `sh:severity` (`Annotated`) wrappers to the shape beneath.
+fn peel_annotated(arena: &ShapeArena, mut id: ShapeId) -> ShapeId {
+    while let Shape::Annotated { shape, .. } = arena.get(id) {
+        id = *shape;
+    }
+    id
+}
+
+/// If `id` is a universal `∀π.φ` (encoded `∃≤0 π.¬φ`, modulo `Annotated`
+/// wrappers), its `(π, φ)`. `None` for any other shape. This is what an `And`
+/// contributes to the scope its children witness under: such universals hold
+/// vacuously on an empty path, yet any value later added there must satisfy `φ`.
+fn as_universal(arena: &ShapeArena, id: ShapeId) -> Option<(Path, ShapeId)> {
+    let Shape::Count {
+        path,
+        max: Some(0),
+        qualifier,
+        ..
+    } = arena.get(peel_annotated(arena, id)).clone()
+    else {
+        return None;
+    };
+    match arena.get(peel_annotated(arena, qualifier)) {
+        Shape::Not(inner) => Some((path, *inner)),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -470,6 +554,7 @@ fn count_witness(
     max: Option<u64>,
     qualifier: ShapeId,
     reached_by: &Path,
+    scope: &[(Path, ShapeId)],
     stack: &mut Stack,
 ) -> Option<Witness> {
     let values: Vec<Term> = succ(eval.backend(), node, path).into_iter().collect();
@@ -482,6 +567,12 @@ fn count_witness(
     if let Some(m) = min
         && n < m
     {
+        // Universals conjoined on this same path apply to every value we add.
+        let sibling_qualifiers = scope
+            .iter()
+            .filter(|(p, _)| p == path)
+            .map(|(_, inner)| *inner)
+            .collect();
         return Some(Witness::CountLow {
             shape: id,
             node: node.clone(),
@@ -489,6 +580,7 @@ fn count_witness(
             qualifier,
             have: n,
             min: m,
+            sibling_qualifiers,
         });
     }
     if let Some(m) = max
@@ -510,7 +602,9 @@ fn count_witness(
                 let mut pv = Vec::new();
                 for u in &matched {
                     let ps = path_support(eval.backend(), node, path, u);
-                    if let Some(w) = witness(eval, u, inner, &reached, ps.as_ref(), stack) {
+                    // Replace-in-place rebuilds `u` against `inner` from a fresh
+                    // scope; sibling universals for this dual are future work.
+                    if let Some(w) = witness(eval, u, inner, &reached, ps.as_ref(), &[], stack) {
                         pv.push((u.clone(), w));
                     }
                 }
@@ -683,7 +777,7 @@ fn sat_trace(
             reason: BlockReason::OpaqueSparql,
         }),
         Shape::Not(c) => {
-            witness(eval, node, c, reached_by, produced_by, stack).map(|w| SatTrace::NotHeld {
+            witness(eval, node, c, reached_by, produced_by, &[], stack).map(|w| SatTrace::NotHeld {
                 shape: id,
                 node: node.clone(),
                 inner_fails: Box::new(w),
@@ -843,7 +937,7 @@ mod tests {
     fn run(ttl: &str) -> Vec<FocusWitness> {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        witness_violations(&loaded.graph, &parsed.schema).expect("stratifiable")
+        witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable")
     }
 
     /// Does any node in the witness tree satisfy `pred`?
@@ -891,6 +985,88 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    /// Every `CountLow`'s `sibling_qualifiers`, in pre-order.
+    fn count_low_siblings(w: &Witness) -> Vec<Vec<ShapeId>> {
+        fn go(w: &Witness, out: &mut Vec<Vec<ShapeId>>) {
+            match w {
+                Witness::CountLow {
+                    sibling_qualifiers, ..
+                } => out.push(sibling_qualifiers.clone()),
+                Witness::All { failed, .. } => failed.iter().for_each(|c| go(c, out)),
+                Witness::Any { branches, .. } => branches.iter().for_each(|c| go(c, out)),
+                Witness::CountHigh { per_value, .. } => {
+                    per_value.iter().for_each(|(_, c)| go(c, out))
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        go(w, &mut out);
+        out
+    }
+
+    #[test]
+    fn cross_property_universals_attach_to_count_low() {
+        // The min-count and the `sh:class` live in *separate* property shapes on the
+        // same path — different `And` conjuncts. The class universal holds vacuously
+        // (no values), so it never witnesses as a failure, yet a value added for the
+        // count must still satisfy it: it must reach the `CountLow` across `And`s.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] ;
+                sh:property [ sh:path ex:p ; sh:class ex:C ] .
+            ex:x a ex:Thing .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let ws =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
+        assert_eq!(ws.len(), 1);
+        let sibs = count_low_siblings(&ws[0].failure);
+        assert_eq!(sibs.len(), 1, "one CountLow");
+        assert_eq!(sibs[0].len(), 1, "the class universal is attached");
+        assert_eq!(
+            class_of(sibs[0][0], &parsed.schema.arena),
+            Some("http://ex/C".to_string()),
+        );
+    }
+
+    #[test]
+    fn disjoint_or_branch_universal_does_not_attach() {
+        // The `sh:class` sits in a *different* `sh:or` branch than the count, so the
+        // two are not conjoined — a value satisfying the count branch need not be a
+        // class. Scope must not cross the disjunction: the CountLow carries no
+        // sibling. (Both branches fail here, so the Or genuinely witnesses.)
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:or (
+                    [ sh:path ex:p ; sh:minCount 2 ]
+                    [ sh:path ex:p ; sh:class ex:C ]
+                ) .
+            ex:x a ex:Thing ; ex:p ex:y .
+            "
+        );
+        let ws = run(&ttl);
+        assert_eq!(ws.len(), 1);
+        let sibs = count_low_siblings(&ws[0].failure);
+        assert!(!sibs.is_empty(), "the count branch yields a CountLow");
+        assert!(
+            sibs.iter().all(|s| s.is_empty()),
+            "no universal leaks across the disjunction: {sibs:?}",
+        );
+    }
+
+    /// The class IRI of a `∃≥1 (rdf:type/subClassOf*).test(C)` shape, as a string.
+    fn class_of(id: ShapeId, arena: &ShapeArena) -> Option<String> {
+        match shifty_algebra::render::class_target_shape(id, arena)? {
+            Term::NamedNode(n) => Some(n.as_str().to_string()),
+            _ => None,
+        }
     }
 
     #[test]
@@ -955,7 +1131,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        assert!(witness_violations(&loaded.graph, &parsed.schema).is_err());
+        assert!(witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).is_err());
     }
 
     #[test]
@@ -981,12 +1157,12 @@ mod tests {
         assert!(shape_id_for_iri(schema, "http://ex/missing").is_none());
 
         // Failures: just ex:bad, never the ex:T violation on ex:other.
-        let fails = witness_shape(&loaded.graph, schema, s).expect("stratifiable");
+        let fails = witness_shape(&loaded.graph, &loaded.graph, schema, s).expect("stratifiable");
         assert_eq!(fails.len(), 1);
         assert_eq!(fails[0].focus.to_string(), "<http://ex/bad>");
 
         // Satisfactions: just ex:good, with the matched value recorded.
-        let sats = satisfy_shape(&loaded.graph, schema, s).expect("stratifiable");
+        let sats = satisfy_shape(&loaded.graph, &loaded.graph, schema, s).expect("stratifiable");
         assert_eq!(sats.len(), 1);
         assert_eq!(sats[0].focus.to_string(), "<http://ex/good>");
         // ex:good holds because the ex:p count is met by ex:y.

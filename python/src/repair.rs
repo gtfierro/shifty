@@ -11,11 +11,11 @@ use crate::{InputSpec, Violation, graph_to_ntriples, py_value_error, violation_t
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use shifty_algebra::{Schema, Selector, ShapeId};
+use shifty_algebra::{Schema, Selector, ShapeArena, ShapeId};
 use shifty_engine::{
     FocusSat as IrSat, FocusWitness as IrFocus, SatTrace, Witness, apply as engine_apply,
-    candidates as engine_candidates, gate as engine_gate, satisfy_shape, shape_id_for_iri,
-    synthesize, witness_node, witness_shape, witness_violations,
+    candidates as engine_candidates, gate as engine_gate, graph_union, satisfy_shape,
+    shape_id_for_iri, synthesize, witness_node, witness_shape, witness_violations,
 };
 use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
@@ -29,7 +29,7 @@ fn path_str(p: &shifty_algebra::Path) -> String {
     shifty_algebra::render::path_to_string(p)
 }
 
-fn constraint_str(c: &HoleConstraint) -> String {
+fn constraint_str(c: &HoleConstraint, arena: &ShapeArena) -> String {
     match c {
         HoleConstraint::AnyNode => "any node".to_string(),
         HoleConstraint::Fresh => "fresh node".to_string(),
@@ -37,7 +37,9 @@ fn constraint_str(c: &HoleConstraint) -> String {
         HoleConstraint::Typed(vt) => shifty_algebra::render::value_type_to_string(vt),
         HoleConstraint::Kind(_) => "nodeKind".to_string(),
         HoleConstraint::OneOf(v) => format!("one of {} value(s)", v.len()),
-        HoleConstraint::ConformsTo(s) => format!("conforms to @{}", s.0),
+        // Fully expand the sub-shape(s) so no bare `@id` pointers leak out.
+        HoleConstraint::ConformsTo(s) => shifty_algebra::render::describe_shape(arena, *s),
+        HoleConstraint::ConformsToAll(ss) => shifty_algebra::render::describe_shapes(arena, ss),
     }
 }
 
@@ -167,7 +169,7 @@ fn render_sat(s: &SatTrace, indent: usize, out: &mut Vec<String>) {
     }
 }
 
-fn render_tree(t: &IrTree, indent: usize, out: &mut Vec<String>) {
+fn render_tree(t: &IrTree, arena: &ShapeArena, indent: usize, out: &mut Vec<String>) {
     let pad = " ".repeat(indent);
     match t {
         IrTree::Noop(_) => out.push(format!("{pad}Noop")),
@@ -178,25 +180,25 @@ fn render_tree(t: &IrTree, indent: usize, out: &mut Vec<String>) {
                 out.push(format!("{pad}  {}", edit_str(e)));
             }
             for (h, c) in holes {
-                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c)));
+                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c, arena)));
             }
         }
         IrTree::All { children, .. } => {
             out.push(format!("{pad}All — do all:"));
             for c in children {
-                render_tree(c, indent + 2, out);
+                render_tree(c, arena, indent + 2, out);
             }
         }
         IrTree::Any { children, .. } => {
             out.push(format!("{pad}Any — choose one:"));
             for c in children {
-                render_tree(c, indent + 2, out);
+                render_tree(c, arena, indent + 2, out);
             }
         }
         IrTree::Repeat { body, min, max, .. } => {
             let hi = max.map_or_else(|| "∞".to_string(), |m| m.to_string());
             out.push(format!("{pad}Repeat [{min}..{hi}]:"));
-            render_tree(body, indent + 2, out);
+            render_tree(body, arena, indent + 2, out);
         }
     }
 }
@@ -465,15 +467,27 @@ fn parse_term(s: &str) -> Result<Term, String> {
 #[pyclass(name = "RepairSession")]
 pub struct RepairSession {
     schema: Arc<Schema>,
+    /// The focus/output graph: data (+ inferred triples). What `to_graph` emits
+    /// and where focus nodes and reuse candidates are drawn from.
     data: Arc<Graph>,
+    /// The evaluation graph paths and class hierarchy read: `data ∪ shapes`. The
+    /// shapes/ontology triples live here so `sh:class` can follow `subClassOf`
+    /// into the hierarchy, but they never leak into the emitted data graph.
+    context: Arc<Graph>,
     diagnostics: Vec<String>,
 }
 
 impl RepairSession {
-    fn from_parts(schema: Arc<Schema>, data: Arc<Graph>, diagnostics: Vec<String>) -> Self {
+    fn from_parts(
+        schema: Arc<Schema>,
+        data: Arc<Graph>,
+        context: Arc<Graph>,
+        diagnostics: Vec<String>,
+    ) -> Self {
         Self {
             schema,
             data,
+            context,
             diagnostics,
         }
     }
@@ -554,9 +568,22 @@ impl RepairSession {
                 base_data.clone()
             };
 
+            // Evaluation reads `data ∪ shapes` so paths and the class hierarchy
+            // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the
+            // shapes/ontology graph, while focus discovery and the emitted graph
+            // stay the data graph. When the shapes embed the data, `eval` already
+            // is the union, so share the Arc rather than building a second copy.
+            let data = Arc::new(eval);
+            let context = if data_loaded.is_some() {
+                Arc::new(graph_union(&data, &shapes_loaded.graph))
+            } else {
+                Arc::clone(&data)
+            };
+
             Ok(RepairSession::from_parts(
                 Arc::new(schema),
-                Arc::new(eval),
+                data,
+                context,
                 diagnostics,
             ))
         })
@@ -571,7 +598,7 @@ impl RepairSession {
     /// The horizon: one [`FocusWitness`] per `(focus, failed statement)`.
     fn witnesses(&self, py: Python<'_>) -> PyResult<Vec<Py<FocusWitness>>> {
         let raw = py
-            .allow_threads(|| witness_violations(&self.data, &self.schema))
+            .allow_threads(|| witness_violations(&self.data, &self.context, &self.schema))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
@@ -602,7 +629,7 @@ impl RepairSession {
     fn witnesses_for(&self, py: Python<'_>, shape_iri: &str) -> PyResult<Vec<Py<FocusWitness>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| witness_shape(&self.data, &self.schema, shape))
+            .allow_threads(|| witness_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fw| {
@@ -637,7 +664,7 @@ impl RepairSession {
     ) -> PyResult<Vec<Py<FocusSatisfaction>>> {
         let shape = self.resolve_shape(shape_iri)?;
         let raw = py
-            .allow_threads(|| satisfy_shape(&self.data, &self.schema, shape))
+            .allow_threads(|| satisfy_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         raw.into_iter()
             .map(|fs| {
@@ -663,7 +690,7 @@ impl RepairSession {
     /// Decides and applies nothing; returns a [`RepairOutcome`].
     fn gate(&self, py: Python<'_>, delta: &RepairDelta) -> PyResult<RepairOutcome> {
         let outcome = py
-            .allow_threads(|| engine_gate(&self.data, &self.schema, &delta.inner))
+            .allow_threads(|| engine_gate(&self.data, &self.context, &self.schema, &delta.inner))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         let sound = outcome.is_sound();
         let progress = outcome.is_progress();
@@ -709,21 +736,38 @@ impl RepairSession {
     ) -> PyResult<Option<RepairTree>> {
         let term = parse_term(node).map_err(py_value_error)?;
         let fw = py
-            .allow_threads(|| witness_node(&self.data, &self.schema, &term, ShapeId(shape_id)))
+            .allow_threads(|| witness_node(&self.context, &self.schema, &term, ShapeId(shape_id)))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
         Ok(fw.map(|fw| RepairTree {
             inner: synthesize(&self.schema.arena, &fw),
+            schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }))
     }
 
+    /// A fully-expanded, human-readable definition of shape `shape_id` (the
+    /// integer from `Hole.conforms_to` / `Hole.conforms_to_shapes`): every child
+    /// shape inlined, no `@id` pointers. The lookup a driver uses to understand
+    /// what a `conforms to` hole actually demands.
+    fn describe_shape(&self, shape_id: u32) -> String {
+        shifty_algebra::render::describe_shape(&self.schema.arena, ShapeId(shape_id))
+    }
+
     /// A new session over `G ⊕ ΔG` (same schema, no re-inference) so a driver can
-    /// accept a repair and re-witness from the patched graph.
+    /// accept a repair and re-witness from the patched graph. The delta patches
+    /// both the data graph and the evaluation context (which contains it), so the
+    /// next session evaluates against `(data ⊕ ΔG) ∪ shapes`.
     fn advance(&self, py: Python<'_>, delta: &RepairDelta) -> Self {
-        let next = py.allow_threads(|| engine_apply(&self.data, &delta.inner));
+        let (next_data, next_context) = py.allow_threads(|| {
+            (
+                engine_apply(&self.data, &delta.inner),
+                engine_apply(&self.context, &delta.inner),
+            )
+        });
         RepairSession::from_parts(
             Arc::clone(&self.schema),
-            Arc::new(next),
+            Arc::new(next_data),
+            Arc::new(next_context),
             self.diagnostics.clone(),
         )
     }
@@ -880,6 +924,7 @@ impl FocusWitness {
         let tree = py.allow_threads(|| synthesize(&self.schema.arena, &self.inner));
         RepairTree {
             inner: tree,
+            schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }
     }
@@ -948,6 +993,7 @@ impl FocusSatisfaction {
 #[pyclass(name = "RepairTree")]
 pub struct RepairTree {
     inner: IrTree,
+    schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
@@ -963,7 +1009,7 @@ impl RepairTree {
     /// The tree rendered as indented text.
     fn explain(&self) -> String {
         let mut out = Vec::new();
-        render_tree(&self.inner, 0, &mut out);
+        render_tree(&self.inner, &self.schema.arena, 0, &mut out);
         out.join("\n")
     }
 
@@ -979,8 +1025,9 @@ impl RepairTree {
                     py,
                     Hole {
                         id: h.0,
-                        constraint: constraint_str(&c),
+                        constraint: constraint_str(&c, &self.schema.arena),
                         inner: c,
+                        schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
                     },
                 )
@@ -1005,6 +1052,7 @@ impl RepairTree {
             delta: inst.delta,
             open_holes,
             open_choices,
+            schema: Arc::clone(&self.schema),
             data: Arc::clone(&self.data),
         }
     }
@@ -1072,10 +1120,12 @@ fn collect_choices(tree: &IrTree, out: &mut Vec<Choice>) {
 pub struct Hole {
     #[pyo3(get)]
     id: u32,
-    /// The constraint, rendered (e.g. `typed value`, `one of 2 value(s)`).
+    /// The constraint, fully rendered (e.g. `typed value`, `instance of <C>`,
+    /// `instance of <A> or instance of <B>`) — every sub-shape inlined, no `@id`.
     #[pyo3(get)]
     constraint: String,
     inner: HoleConstraint,
+    schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
@@ -1094,14 +1144,42 @@ impl Hole {
         })
     }
 
-    /// The sub-shape id for a `conforms to @N` hole (else `None`). Feed it to
-    /// [`RepairSession.repair_node_against`] to build the value out recursively.
+    /// The sub-shape id for a single `conforms to` hole (`None` for a multi-shape
+    /// `ConformsToAll` or a non-conformance hole — use `conforms_to_shapes` to
+    /// cover both). Feed it to [`RepairSession.repair_node_against`].
     #[getter]
     fn conforms_to(&self) -> Option<u32> {
         match &self.inner {
             HoleConstraint::ConformsTo(s) => Some(s.0),
             _ => None,
         }
+    }
+
+    /// Every sub-shape id the bound value must conform to: one for `ConformsTo`,
+    /// all of them for `ConformsToAll`, empty otherwise. The complete set a driver
+    /// must build the value against (each via `RepairSession.repair_node_against`).
+    #[getter]
+    fn conforms_to_shapes(&self) -> Vec<u32> {
+        match &self.inner {
+            HoleConstraint::ConformsTo(s) => vec![s.0],
+            HoleConstraint::ConformsToAll(ss) => ss.iter().map(|s| s.0).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Each conform-to sub-shape as `(id, definition)`: its arena id plus a
+    /// fully-expanded, human-readable definition. Empty for non-conformance holes.
+    /// Lets a driver read *and* recursively build every obligation on the value.
+    fn sub_shapes(&self) -> Vec<(u32, String)> {
+        self.conforms_to_shapes()
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    shifty_algebra::render::describe_shape(&self.schema.arena, ShapeId(id)),
+                )
+            })
+            .collect()
     }
 
     fn __repr__(&self) -> String {
@@ -1196,6 +1274,7 @@ pub struct Instantiated {
     delta: shifty_repair::GraphDelta,
     open_holes: Vec<(u32, HoleConstraint)>,
     open_choices: Vec<u32>,
+    schema: Arc<Schema>,
     data: Arc<Graph>,
 }
 
@@ -1219,8 +1298,9 @@ impl Instantiated {
                     py,
                     Hole {
                         id: *id,
-                        constraint: constraint_str(c),
+                        constraint: constraint_str(c, &self.schema.arena),
                         inner: c.clone(),
+                        schema: Arc::clone(&self.schema),
                         data: Arc::clone(&self.data),
                     },
                 )

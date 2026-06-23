@@ -517,19 +517,27 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
             }
         }
     };
-    let data_graph = inference.as_ref().map_or_else(
-        || {
-            data_loaded
-                .as_ref()
-                .map_or(&shapes_loaded.graph, |d| &d.graph)
-        },
-        |inf| &inf.graph,
-    );
+    let data_graph = match inference {
+        Some(inf) => inf.graph,
+        None => data_loaded
+            .as_ref()
+            .map_or_else(|| shapes_loaded.graph.clone(), |d| d.graph.clone()),
+    };
+    // Witness/gate against `data ∪ shapes` so paths and the class hierarchy
+    // (e.g. `rdfs:subClassOf` for `sh:class`) resolve against the shapes/ontology
+    // graph, while focus and the emitted repair stay the data graph. When the
+    // shapes embed the data, `data_graph` already is the union.
+    let context = if data_loaded.is_some() {
+        shifty_engine::graph_union(&data_graph, &shapes_loaded.graph)
+    } else {
+        data_graph.clone()
+    };
 
     // --apply: run the fixpoint driver and emit the repaired graph.
     if args.apply {
         let result = match shifty_engine::repair_to_fixpoint(
-            data_graph,
+            &data_graph,
+            &context,
             schema,
             shifty_engine::EnumOptions::default(),
         ) {
@@ -552,7 +560,7 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let witnesses = match shifty_engine::witness_violations(data_graph, schema) {
+    let witnesses = match shifty_engine::witness_violations(&data_graph, &context, schema) {
         Ok(ws) => ws,
         Err(e) => {
             return Err(format!("{e}; cannot witness (see `inspect --stage strata`)").into());
@@ -611,7 +619,7 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
                     }
                     for (fw, t) in &trees {
                         println!("{}  [target: {}]", fw.focus, target(fw.statement));
-                        for line in render_tree(t, 2) {
+                        for line in render_tree(t, &schema.arena, 2) {
                             println!("{line}");
                         }
                     }
@@ -630,7 +638,13 @@ fn repair(args: RepairArgs) -> Result<(), Box<dyn Error>> {
             }
             for fw in &witnesses {
                 let tree = shifty_engine::synthesize(&schema.arena, fw);
-                let sol = match shifty_engine::enumerate_repair(&tree, data_graph, schema, opts) {
+                let sol = match shifty_engine::enumerate_repair(
+                    &tree,
+                    &data_graph,
+                    &context,
+                    schema,
+                    opts,
+                ) {
                     Ok(s) => s,
                     Err(e) => return Err(format!("{e}; cannot solve").into()),
                 };
@@ -789,7 +803,11 @@ fn render_sat(s: &shifty_engine::SatTrace, indent: usize) -> Vec<String> {
     out
 }
 
-fn render_tree(t: &shifty_repair::RepairTree, indent: usize) -> Vec<String> {
+fn render_tree(
+    t: &shifty_repair::RepairTree,
+    arena: &shifty_algebra::ShapeArena,
+    indent: usize,
+) -> Vec<String> {
     use shifty_repair::RepairTree as T;
     let pad = " ".repeat(indent);
     let mut out = Vec::new();
@@ -802,25 +820,25 @@ fn render_tree(t: &shifty_repair::RepairTree, indent: usize) -> Vec<String> {
                 out.push(format!("{pad}  {}", edit_str(e)));
             }
             for (h, c) in holes {
-                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c)));
+                out.push(format!("{pad}  ?{} : {}", h.0, constraint_str(c, arena)));
             }
         }
         T::All { children, .. } => {
             out.push(format!("{pad}All — do all:"));
             for c in children {
-                out.extend(render_tree(c, indent + 2));
+                out.extend(render_tree(c, arena, indent + 2));
             }
         }
         T::Any { children, .. } => {
             out.push(format!("{pad}Any — choose one:"));
             for c in children {
-                out.extend(render_tree(c, indent + 2));
+                out.extend(render_tree(c, arena, indent + 2));
             }
         }
         T::Repeat { body, min, max, .. } => {
             let hi = max.map_or_else(|| "∞".to_string(), |m| m.to_string());
             out.push(format!("{pad}Repeat [{min}..{hi}]:"));
-            out.extend(render_tree(body, indent + 2));
+            out.extend(render_tree(body, arena, indent + 2));
         }
     }
     out
@@ -847,7 +865,7 @@ fn slot_str(s: &shifty_repair::Slot) -> String {
     }
 }
 
-fn constraint_str(c: &shifty_repair::HoleConstraint) -> String {
+fn constraint_str(c: &shifty_repair::HoleConstraint, arena: &shifty_algebra::ShapeArena) -> String {
     use shifty_repair::HoleConstraint as H;
     match c {
         H::AnyNode => "any node".to_string(),
@@ -856,7 +874,8 @@ fn constraint_str(c: &shifty_repair::HoleConstraint) -> String {
         H::Typed(_) => "typed value".to_string(),
         H::Kind(_) => "nodeKind".to_string(),
         H::OneOf(v) => format!("one of {} value(s)", v.len()),
-        H::ConformsTo(s) => format!("conforms to @{}", s.0),
+        H::ConformsTo(s) => shifty_algebra::render::describe_shape(arena, *s),
+        H::ConformsToAll(ss) => shifty_algebra::render::describe_shapes(arena, ss),
     }
 }
 

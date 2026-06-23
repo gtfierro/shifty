@@ -167,9 +167,11 @@ impl<'a> Synth<'a> {
                 qualifier,
                 have,
                 min,
+                sibling_qualifiers,
                 ..
             } => {
-                let body = self.build_value(node, path, *qualifier);
+                let effective = self.effective_qualifiers(*qualifier, sibling_qualifiers);
+                let body = self.build_value(node, path, &effective);
                 if body.is_blocked() {
                     return body;
                 }
@@ -316,14 +318,16 @@ impl<'a> Synth<'a> {
     }
 
     /// Materialize a fresh `π`-reachable value from `subject`, constrained to the
-    /// qualifier. The value hole carries `Typed`/`Kind`/`Const` for a value-type
-    /// qualifier, else `ConformsTo` (structural expansion deferred to the driver).
-    fn build_value(&mut self, subject: &Term, path: &Path, qualifier: ShapeId) -> RepairTree {
+    /// `qualifiers` it must satisfy. The value hole carries `Typed`/`Kind`/`Const`
+    /// for a single value-type qualifier, a `ConformsTo` for a single structural
+    /// one, or a `ConformsToAll` conjunction for several (structural expansion
+    /// deferred to the driver).
+    fn build_value(&mut self, subject: &Term, path: &Path, qualifiers: &[ShapeId]) -> RepairTree {
         let vh = self.hole();
         let Some((edits, mut holes)) = self.materialize_path(subject.clone(), path, vh) else {
             return self.blocked(BlockReason::Unsupported("path materialization".into()));
         };
-        holes.push((vh, self.value_constraint(qualifier)));
+        holes.push((vh, self.value_constraint(qualifiers)));
         self.edits(edits, holes)
     }
 
@@ -411,7 +415,40 @@ impl<'a> Synth<'a> {
         Some((edits, holes))
     }
 
-    fn value_constraint(&self, qualifier: ShapeId) -> HoleConstraint {
+    /// Every shape a value added to satisfy this `CountLow` must conform to: the
+    /// count's own qualifier together with the inner shape of each sibling
+    /// universal `∀π.φ` on the same path. Those universals are vacuously satisfied
+    /// while `have == 0`, so they never witness as their own failures — but a
+    /// freshly-added value is checked against all of them, so the hole must carry
+    /// the *full* conjunction, not just the base qualifier or a single sibling.
+    /// `⊤` qualifiers contribute nothing and are dropped; duplicates are merged.
+    fn effective_qualifiers(&self, qualifier: ShapeId, siblings: &[ShapeId]) -> Vec<ShapeId> {
+        let mut out: Vec<ShapeId> = Vec::with_capacity(1 + siblings.len());
+        for id in std::iter::once(qualifier).chain(siblings.iter().copied()) {
+            if matches!(self.arena.get(id), Shape::Top | Shape::Pending) {
+                continue;
+            }
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        }
+        out
+    }
+
+    /// The constraint a freshly-built value hole carries, given every shape it must
+    /// conform to. No effective qualifier (all were `⊤`) is `AnyNode`; a single one
+    /// gets the precise leaf constraint or a `ConformsTo`; several are kept whole as
+    /// a `ConformsToAll` conjunction (the gate still enforces each, but the hole now
+    /// *describes* the complete obligation rather than an arbitrary representative).
+    fn value_constraint(&self, qualifiers: &[ShapeId]) -> HoleConstraint {
+        match qualifiers {
+            [] => HoleConstraint::AnyNode,
+            [single] => self.single_value_constraint(*single),
+            many => HoleConstraint::ConformsToAll(many.to_vec()),
+        }
+    }
+
+    fn single_value_constraint(&self, qualifier: ShapeId) -> HoleConstraint {
         match self.arena.get(qualifier) {
             Shape::Top | Shape::Pending => HoleConstraint::AnyNode,
             Shape::TestConst(c) => HoleConstraint::Const(c.clone()),
@@ -526,7 +563,8 @@ mod tests {
     fn synth_one(ttl: &str) -> (RepairTree, shifty_algebra::Schema) {
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &parsed.schema).expect("stratifiable");
+        let ws =
+            witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).expect("stratifiable");
         assert_eq!(ws.len(), 1, "expected exactly one focus witness");
         (synthesize(&parsed.schema.arena, &ws[0]), parsed.schema)
     }
@@ -625,7 +663,7 @@ mod tests {
         );
         let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
         let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
-        let ws = witness_violations(&loaded.graph, &parsed.schema).unwrap();
+        let ws = witness_violations(&loaded.graph, &loaded.graph, &parsed.schema).unwrap();
         let parent = synthesize(&parsed.schema.arena, &ws[0]);
         // the parent hole is the part value (ConformsTo PartShape).
         let mut plan = Plan {
@@ -700,6 +738,83 @@ mod tests {
         assert_eq!(
             out.delta.delete[0].predicate,
             oxrdf::NamedNode::new("http://ex/extra").unwrap()
+        );
+    }
+
+    /// The sole open hole of `tree`, taking exactly one instance of any `Repeat`.
+    fn sole_hole(tree: &RepairTree) -> HoleConstraint {
+        let disc = instantiate(
+            tree,
+            &Plan {
+                count: std::collections::HashMap::from([(tree.id(), 1)]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(disc.open_holes.len(), 1, "expected exactly one open hole");
+        disc.open_holes[0].1.clone()
+    }
+
+    fn class_named(name: &str) -> Term {
+        Term::NamedNode(oxrdf::NamedNode::new(name).unwrap())
+    }
+
+    #[test]
+    fn min_count_with_class_value_constraint_carries_the_class() {
+        // `sh:minCount 1 ; sh:class ex:C` on one property: the count's qualifier is
+        // ⊤, but the `∀ex:p.(class ex:C)` universal is vacuously satisfied while no
+        // value exists. The single effective qualifier is that class, so the hole
+        // is a `ConformsTo` of it — not an unconstrained `AnyNode`.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ; sh:class ex:C ] .
+            ex:x a ex:Thing .
+            "
+        );
+        let (tree, schema) = synth_one(&ttl);
+        let HoleConstraint::ConformsTo(s) = sole_hole(&tree) else {
+            panic!("expected a single ConformsTo hole");
+        };
+        assert_eq!(
+            shifty_algebra::render::class_target_shape(s, &schema.arena),
+            Some(class_named("http://ex/C")),
+        );
+    }
+
+    #[test]
+    fn qualified_min_count_carries_qualifier_and_sibling_universal() {
+        // The motivating case: a non-⊤ count qualifier (`sh:qualifiedValueShape`)
+        // *and* a sibling `∀ex:p.(class ex:C)`. The old synthesis kept only the
+        // qualifier and dropped the class; now the hole is a `ConformsToAll`
+        // carrying *both*, so the description reflects every obligation.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ; sh:targetNode ex:x ;
+                sh:property [ sh:path ex:p ;
+                    sh:qualifiedValueShape ex:Q ; sh:qualifiedMinCount 1 ;
+                    sh:class ex:C ] .
+            ex:Q a sh:NodeShape ; sh:nodeKind sh:IRI .
+            ex:x a ex:Thing .
+            "
+        );
+        let (tree, schema) = synth_one(&ttl);
+        let HoleConstraint::ConformsToAll(ss) = sole_hole(&tree) else {
+            panic!("expected a ConformsToAll hole carrying every qualifier");
+        };
+        assert_eq!(ss.len(), 2, "qualifier + sibling universal");
+        // Exactly one member is the class ex:C; the other is the qualifier shape.
+        let classes: Vec<Term> = ss
+            .iter()
+            .filter_map(|s| shifty_algebra::render::class_target_shape(*s, &schema.arena))
+            .collect();
+        assert_eq!(classes, vec![class_named("http://ex/C")]);
+        // …and the non-class member is the qualifier (nodeKind IRI), not dropped.
+        assert!(
+            ss.iter().any(|s| matches!(
+                schema.arena.get(*s),
+                Shape::Annotated { .. } | Shape::TestKind(_)
+            )),
+            "the qualifiedValueShape must still be present: {ss:?}",
         );
     }
 }
