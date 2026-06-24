@@ -43,6 +43,11 @@ pub(crate) struct SparqlExecutor {
     compiled: RefCell<HashMap<CompileKey, Rc<Compiled>>>,
     /// Native plans for SPARQL rule WHERE clauses, keyed by canonical query.
     constructs: RefCell<HashMap<String, Rc<CompiledConstruct>>>,
+    /// CONSTRUCT-rule queries whose per-focus probe blew its time budget once
+    /// (doc §189): subsequent firings within this inference run skip the probe and
+    /// go straight to the batched free-`?this` run. Memoizing the decision avoids
+    /// re-paying the probe budget on every fixpoint pass.
+    batch_construct: RefCell<HashSet<String>>,
     /// IRI of the loaded shapes graph, pre-bound to `$shapesGraph`. `None` when
     /// no shapes graph was loaded (so `$shapesGraph` is left unsupported).
     shapes_graph: Option<NamedNode>,
@@ -141,6 +146,7 @@ impl SparqlExecutor {
             parsed: RefCell::new(HashMap::new()),
             compiled: RefCell::new(HashMap::new()),
             constructs: RefCell::new(HashMap::new()),
+            batch_construct: RefCell::new(HashSet::new()),
             shapes_graph,
         })
     }
@@ -153,6 +159,7 @@ impl SparqlExecutor {
             parsed: RefCell::new(HashMap::new()),
             compiled: RefCell::new(HashMap::new()),
             constructs: RefCell::new(HashMap::new()),
+            batch_construct: RefCell::new(HashSet::new()),
             shapes_graph: has_shapes_graph
                 .then(|| NamedNode::new(SHAPES_GRAPH_IRI).expect("static IRI is valid")),
         }
@@ -541,37 +548,100 @@ impl SparqlExecutor {
             }
             profile::ExecutorKind::Native
         } else {
-            // Named-node foci: pre-bind ?this via algebra substitution before
-            // evaluation, so Oxigraph can use subject–predicate index lookups.
-            for focus in foci.iter().filter(|f| !matches!(f, Term::BlankNode(_))) {
-                triples.extend(self.construct_one(query, focus)?);
-            }
+            // A single free-`?this` run binds `?this` to every node matching the
+            // WHERE clause and emits the union of what the per-focus runs would,
+            // so filtering the output by subject identity recovers the per-focus
+            // results exactly. This is the CONSTRUCT analog of the batched-fallback
+            // SELECT path (doc §189): for aggregate / sub-SELECT bodies it computes
+            // the `GROUP BY ?this` once over the whole graph instead of re-running
+            // it per focus.
+            //
+            // Soundness preconditions: every template triple's subject is `?this`
+            // (so output subjects identify their focus), and `?this` is positively
+            // bound by the required part of the WHERE clause (so the free run
+            // actually constrains it). When `?this` is unbound by the body — e.g.
+            // `CONSTRUCT { ?this ex:p [] } WHERE {}` — the free run produces nothing
+            // while per-focus produces a triple per focus.
+            //
+            // Cost gate: the free run scans the whole graph once regardless of how
+            // many foci there are, while per-focus cost grows with the focus set.
+            // Rather than guess a focus-count threshold, we *time-box* the per-focus
+            // probe: run foci one at a time and, if the loop spends more than
+            // `PROBE_BUDGET` with foci still pending, abandon the partial work and
+            // do one free run. Budget ≈ the whole-graph free-run cost, so we bail
+            // exactly when per-focus has already cost as much as a full free run and
+            // is not done — the point past which batching is the cheaper path. Small
+            // / medium focus sets finish under budget and stay on the fast per-focus
+            // path; large sets (where per-focus also starts to blow up) bail to the
+            // batched run. The decision is memoized per query so later fixpoint
+            // passes skip the probe instead of re-paying the budget each time.
+            const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+            let this_var = variable("this");
+            let parsed = self.parse(query)?;
+            let body_binds_this = matches!(
+                &parsed,
+                Query::Construct { pattern, .. } if this_required(pattern, &this_var)
+            );
+            let subject_is_focus = !compiled.template.is_empty()
+                && compiled
+                    .template
+                    .iter()
+                    .all(|t| term_pattern_is(&t.subject, &this_var))
+                && body_binds_this;
+            drop(parsed);
 
-            // Blank-node foci: sparopt converts TermPattern::BlankNode to a
-            // fresh query variable rather than a constant, so per-focus
-            // substitution degrades to a full predicate scan. Run the CONSTRUCT
-            // once with ?this free and filter the results by blank-node subject
-            // identity instead.
-            let blank_foci: Vec<&Term> = foci
-                .iter()
-                .filter(|f| matches!(f, Term::BlankNode(_)))
-                .collect();
-            if !blank_foci.is_empty() {
-                let foci_set: HashSet<Term> = blank_foci.iter().map(|&f| f.clone()).collect();
-                let store = self.store()?;
-                let raw_triples: Vec<Triple> = match SparqlEvaluator::new()
-                    .for_query(self.parse(query)?)
-                    .on_store(store)
-                    .execute()
-                    .map_err(err)?
-                {
-                    QueryResults::Graph(iter) => iter
-                        .filter_map(|t| t.ok())
-                        .filter(|t| foci_set.contains(&Term::from(t.subject.clone())))
-                        .collect(),
-                    _ => return Err("SPARQL rule did not produce CONSTRUCT graph results".into()),
-                };
-                triples.extend(raw_triples);
+            let blank_foci = || foci.iter().filter(|f| matches!(f, Term::BlankNode(_)));
+
+            if subject_is_focus && self.batch_construct.borrow().contains(query) {
+                // A prior firing of this query already bailed; batch directly over
+                // all foci (named and blank), skipping the per-focus probe.
+                let foci_set: HashSet<Term> = foci.iter().cloned().collect();
+                self.construct_free_filtered(query, &foci_set, &mut triples)?;
+            } else if subject_is_focus {
+                // Probe per-focus with a wall-clock budget; bail to one free run if
+                // it runs long with foci still pending.
+                let named: Vec<&Term> = foci
+                    .iter()
+                    .filter(|f| !matches!(f, Term::BlankNode(_)))
+                    .collect();
+                let deadline = std::time::Instant::now() + PROBE_BUDGET;
+                let mut probed = Vec::new();
+                let mut bailed = false;
+                for (i, focus) in named.iter().enumerate() {
+                    probed.extend(self.construct_one(query, focus)?);
+                    if i + 1 < named.len() && std::time::Instant::now() >= deadline {
+                        bailed = true;
+                        break;
+                    }
+                }
+                if bailed {
+                    // Discard the partial per-focus work and cover every focus
+                    // (named + blank) with one free run. Remember the decision.
+                    self.batch_construct.borrow_mut().insert(query.to_string());
+                    let foci_set: HashSet<Term> = foci.iter().cloned().collect();
+                    self.construct_free_filtered(query, &foci_set, &mut triples)?;
+                } else {
+                    triples.append(&mut probed);
+                    // Blank-node foci can't be matched by per-focus substitution
+                    // (sparopt rewrites `TermPattern::BlankNode` to a fresh
+                    // variable), so they always take the free run, filtered by
+                    // blank-node subject identity.
+                    if blank_foci().next().is_some() {
+                        let blank_set: HashSet<Term> = blank_foci().cloned().collect();
+                        self.construct_free_filtered(query, &blank_set, &mut triples)?;
+                    }
+                }
+            } else {
+                // Not batchable (template subject is not `?this`, or `?this` is
+                // unbound by the body). Named-node foci: pre-bind ?this via algebra
+                // substitution so Oxigraph can use subject–predicate index lookups.
+                for focus in foci.iter().filter(|f| !matches!(f, Term::BlankNode(_))) {
+                    triples.extend(self.construct_one(query, focus)?);
+                }
+                if blank_foci().next().is_some() {
+                    let blank_set: HashSet<Term> = blank_foci().cloned().collect();
+                    self.construct_free_filtered(query, &blank_set, &mut triples)?;
+                }
             }
 
             let store = self.store()?;
@@ -656,6 +726,35 @@ impl SparqlExecutor {
         let prepared = SparqlEvaluator::new().for_query(query);
         match prepared.on_store(self.store()?).execute().map_err(err)? {
             QueryResults::Graph(triples) => triples.map(|triple| triple.map_err(err)).collect(),
+            _ => Err("SPARQL rule did not produce CONSTRUCT graph results".to_string()),
+        }
+    }
+
+    /// Run a CONSTRUCT rule once with `?this` free and append the output triples
+    /// whose subject is in `foci_set`. This is the batched analog of
+    /// [`construct_one`]: one whole-graph evaluation covers every focus, and a
+    /// `subject == ?this` template makes the output subject identify its focus.
+    fn construct_free_filtered(
+        &self,
+        query: &str,
+        foci_set: &HashSet<Term>,
+        out: &mut Vec<Triple>,
+    ) -> Result<(), String> {
+        match SparqlEvaluator::new()
+            .for_query(self.parse(query)?)
+            .on_store(self.store()?)
+            .execute()
+            .map_err(err)?
+        {
+            QueryResults::Graph(iter) => {
+                for triple in iter {
+                    let triple = triple.map_err(err)?;
+                    if foci_set.contains(&Term::from(triple.subject.clone())) {
+                        out.push(triple);
+                    }
+                }
+                Ok(())
+            }
             _ => Err("SPARQL rule did not produce CONSTRUCT graph results".to_string()),
         }
     }
@@ -1647,5 +1746,60 @@ mod batch_tests {
         let got = per_focus(&batched, &constraint, &foci);
 
         assert_eq!(want, got); // none violate; importantly, no panic / divergence
+    }
+
+    #[test]
+    fn batched_construct_matches_per_focus() {
+        // An aggregate (GROUP BY / COUNT DISTINCT) CONSTRUCT body cannot lower to
+        // the native executor, so it runs on the Spareval fallback. Seeding the
+        // batch memo forces the free-`?this` path; its output must equal the
+        // per-focus path. ex:a reads two properties of one kind (distinct count 1,
+        // eligible); ex:b reads two kinds (count 2, not eligible).
+        let query = "CONSTRUCT { $this <http://ex/uniqueKind> ?k } WHERE { \
+            { SELECT $this (COUNT(DISTINCT ?k0) AS ?c) \
+              WHERE { $this <http://ex/reads>/<http://ex/kind> ?k0 } GROUP BY $this } \
+            FILTER(?c = 1) \
+            $this <http://ex/reads>/<http://ex/kind> ?k }";
+
+        let mut g = Graph::new();
+        let mut edge = |s: &str, p: &str, o: &str| {
+            g.insert(&Triple::new(
+                nn(&format!("http://ex/{s}")),
+                nn(&format!("http://ex/{p}")),
+                nn(&format!("http://ex/{o}")),
+            ));
+        };
+        edge("a", "reads", "pa1");
+        edge("pa1", "kind", "Temp");
+        edge("a", "reads", "pa2");
+        edge("pa2", "kind", "Temp");
+        edge("b", "reads", "qb1");
+        edge("qb1", "kind", "Temp");
+        edge("b", "reads", "qb2");
+        edge("qb2", "kind", "Flow");
+
+        let foci = vec![subject("a"), subject("b")];
+        let sorted = |mut v: Vec<Triple>| -> Vec<Triple> {
+            v.sort_by_key(|t| t.to_string());
+            v
+        };
+
+        // Per-focus baseline: the small focus set finishes within the probe budget,
+        // so construct_many stays on the per-focus path.
+        let baseline = SparqlExecutor::new(&g).unwrap();
+        let want = sorted(baseline.construct_many(query, &foci, None).unwrap());
+
+        // Memo-forced batched path: one free-`?this` run, filtered by subject.
+        let batched = SparqlExecutor::new(&g).unwrap();
+        batched.batch_construct.borrow_mut().insert(query.to_string());
+        let got = sorted(batched.construct_many(query, &foci, None).unwrap());
+
+        let expected = Triple::new(
+            nn("http://ex/a"),
+            nn("http://ex/uniqueKind"),
+            nn("http://ex/Temp"),
+        );
+        assert_eq!(want, vec![expected], "per-focus oracle: only ex:a is inferred");
+        assert_eq!(got, want, "batched output must match per-focus exactly");
     }
 }

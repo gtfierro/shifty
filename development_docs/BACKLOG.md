@@ -186,6 +186,36 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   identity.  Measured speedup on `water-closure.ttl`:
   `ns3:QuantifiablePropertyShape` rule (GROUP BY / COUNT DISTINCT) 33 s → 1.8 s;
   total 39 s → 7.6 s.
+- **[done]** Batched CONSTRUCT fallback with a time-boxed per-focus probe —
+  extends the blank-node free-`?this` dispatch above to named foci when the rule's
+  template triples are all subject-`?this` and `?this` is positively bound by the
+  WHERE clause (`this_required`). Aggregate / sub-SELECT rule bodies cannot lower
+  to the native executor, so per-focus runs one Spareval evaluation *per focus* —
+  re-computing a `GROUP BY ?this` aggregate from scratch for each of thousands of
+  foci. The batched path instead runs once with `?this` free (the aggregate groups
+  over the whole graph in a single pass) and recovers per-focus results by
+  output-subject identity. Choosing between them is a cost question: the free run
+  scans the whole graph once regardless of focus count (its cost is dominated by
+  the large shapes-graph class hierarchy, ~1.9 s per firing on 223P), so per-focus
+  SP-index lookups are cheaper for small/medium focus sets but blow up for large
+  ones. Rather than a fixed focus-count threshold (which a model with high
+  per-focus cost at moderate cardinality could defeat), `construct_many`
+  *time-boxes* the probe: it runs foci one at a time and, if the loop exceeds a
+  2 s budget with foci still pending, discards the partial work and does one free
+  run. The budget ≈ the free-run cost, so it bails exactly when per-focus has
+  already cost as much as a full free run and isn't done. The decision is memoized
+  per query (`batch_construct`) so later fixpoint passes skip the probe instead of
+  re-paying the budget. Unbound-`?this` bodies (e.g. `CONSTRUCT { ?this ex:p [] }
+  WHERE {}`) always stay per-focus, since a free run binds nothing. Measured: the
+  223P `lazlo_sdh` model (two aggregate s223 rules, `hasObservationLocation`
+  4 610 foci and `hasQuantityKind` 9 617 foci) went from **>1 h (did not finish)**
+  to **~1 min 49 s**; the other 18 `s223/models` benchmarks are unchanged (ratio
+  0.89–1.02 vs the per-focus baseline, identical violation counts). Output verified
+  identical to the per-focus path both by a `batched_construct_matches_per_focus`
+  unit test (memo-forced batched run vs per-focus oracle) and the W3C report on a
+  model subset. **[todo]** the probe is checked *between* foci, so a single focus
+  that explodes inside one Spareval call is not interrupted; a `CancellationToken`
+  watchdog (oxigraph exposes `with_cancellation_token`) would bound that case.
 - **[done]** Bulk fallback SELECT validation — the SELECT analog of the global
   CONSTRUCT fix. `prefetch_constraint` (in `sparql.rs`) evaluates a constraint
   over a whole focus set in one Spareval run and caches the per-focus violations
