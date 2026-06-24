@@ -178,7 +178,7 @@ pub fn infer_with_context(
                     _ => focus_nodes.as_slice(),
                 };
                 let rule_label = format!("rule[{}]", start + position);
-                let rule_t = std::time::Instant::now();
+                let rule_t = web_time::Instant::now();
                 fire_rule(
                     execution_focus_nodes,
                     &context,

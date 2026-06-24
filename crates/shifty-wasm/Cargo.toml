@@ -1,0 +1,37 @@
+[package]
+name = "shifty-wasm"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "WebAssembly bindings for the shifty SHACL engine (infer + validate in the browser)"
+repository.workspace = true
+publish = false
+
+[lib]
+name = "shifty_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+shifty-algebra.workspace = true
+shifty-parse.workspace = true
+shifty-opt.workspace = true
+shifty-engine.workspace = true
+oxrdf.workspace = true
+oxttl.workspace = true
+serde.workspace = true
+
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = { version = "0.1", optional = true }
+
+# Blank-node IDs in oxrdf/oxigraph go through `rand` -> `getrandom 0.3`, which
+# has no default backend on wasm32-unknown-unknown. The `wasm_js` feature plus
+# the `getrandom_backend="wasm_js"` cfg (see .cargo/config.toml) wires it to the
+# browser's crypto.getRandomValues.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[features]
+default = ["console_error_panic_hook"]
+console_error_panic_hook = ["dep:console_error_panic_hook"]

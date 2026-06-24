@@ -6,7 +6,7 @@
 //! once when it is dropped, avoiding a thread-local operation per lookup.
 
 use std::cell::RefCell;
-use std::time::Instant;
+use web_time::Instant;
 
 /// Per-query performance record.
 #[derive(Debug, Clone)]

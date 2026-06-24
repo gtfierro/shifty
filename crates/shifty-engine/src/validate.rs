@@ -362,7 +362,7 @@ fn validate_with_frozen(
         let foci = focus_nodes_with_evaluator(data, &st.selector, &mut evaluator);
         prefetch_sparql_constraints(&schema.arena, st.shape, &foci, &sparql);
         for v in foci {
-            let t = std::time::Instant::now();
+            let t = web_time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(
                 &mut evaluator,
@@ -555,7 +555,7 @@ fn validate_plan_with_frozen(
         let foci = focus_for_source(data, &sp.source, &mut evaluator);
         prefetch_sparql_constraints(&plan.arena, sp.shape, &foci, &sparql);
         for v in foci {
-            let t = std::time::Instant::now();
+            let t = web_time::Instant::now();
             let mut stack = HashSet::new();
             let mut reasons = explain(
                 &mut evaluator,

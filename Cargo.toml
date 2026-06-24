@@ -6,6 +6,7 @@ members = [
     "crates/shifty-engine",
     "crates/shifty-repair",
     "crates/shifty-cli",
+    "crates/shifty-wasm",
     "cpp",
     "python",
 ]
@@ -47,6 +48,21 @@ env_logger = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sparesults = "0.3.3"
+# Monotonic clock that maps to std::time on native and performance.now() on
+# wasm32 (std::time::Instant panics there). Drop-in API-compatible with std.
+web-time = "1.1"
 
 [profile.release]
 debug = true
+
+# Slim profile for the wasm bundle: the workspace `release` keeps full debuginfo
+# (for perf), which balloons the .wasm to ~100 MB. Build the browser module with
+# `--profile wasm-release` to strip it and optimize for size.
+[profile.wasm-release]
+inherits = "release"
+debug = false
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -1,0 +1,2 @@
+# wasm-bindgen build output (regenerate with ./build.sh)
+/pkg/
