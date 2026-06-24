@@ -30,7 +30,7 @@ if command -v wasm-opt >/dev/null 2>&1; then
   # Enable the post-MVP features the Rust toolchain emits (bulk-memory, etc.);
   # otherwise wasm-opt's validator rejects the module.
   wasm-opt -Oz \
-    --enable-bulk-memory --enable-bulk-memory-opt \
+    --enable-bulk-memory \
     --enable-nontrapping-float-to-int --enable-sign-ext \
     --enable-mutable-globals --enable-multivalue --enable-reference-types \
     "$OUT/shifty_wasm_bg.wasm" -o "$OUT/shifty_wasm_bg.wasm"
