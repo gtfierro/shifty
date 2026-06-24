@@ -1,2 +1,4 @@
 # wasm-bindgen build output (regenerate with ./build.sh)
 /pkg/
+# Node-target binding used by the CI smoke test (ci/smoke.mjs)
+/pkg-node/
