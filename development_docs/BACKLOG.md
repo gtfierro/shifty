@@ -273,6 +273,26 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   predicate set), build a hash set from the smaller side and use it as a
   membership filter during the scan rather than relying on sort-merge range
   lookups. Pairs naturally with BGP reordering above.
+- **[done]** Precise read-predicate dependencies for SPARQL `CONSTRUCT` rules.
+  Inference delta-schedules rules by predicate: after a pass adds triples, only
+  rules that read a changed predicate rerun. SPARQL rule heads were previously
+  treated as **wildcard** dependencies (rule_deps.rs) — opaque query text, so
+  reschedule on every pass — which made the expensive aggregate rules rerun the
+  full fixpoint (6 passes on `lazlo_sdh`) while producing nothing after pass 1.
+  `sparql_construct_dependencies` now parses the CONSTRUCT body and collects the
+  predicates its WHERE clause reads (BGP/path predicates, `EXISTS`/`NOT EXISTS`
+  sub-patterns, OPTIONAL filters), falling back to wildcard only for genuinely
+  open-ended constructs (variable predicate, negated property set, SERVICE) so
+  the analysis is sound — too small a read set would skip a needed rerun.
+  Measured: profiling showed ~75 s of `lazlo_sdh`'s ~95 s inference was wasted
+  re-evaluation (the 3 heaviest rules each fired 6× but produced output only on
+  pass 1); precise deps cut them to 2 fires each. Full `validate` (with
+  inference): **lazlo_sdh 109 s → 48 s**; the medium/large `s223/models` improve
+  2–2.7× (e.g. `pnnl-bdg2-1` 17.7 s → 7.5 s, `lbnl-bdg4-1` 11.9 s → 4.4 s); all
+  18 models' violation counts unchanged. **[todo]** the remaining 1 no-op fire
+  per heavy rule is the semi-naive convergence check (the rule's own output
+  predicate is in its read set, but at a triple position that cannot affect its
+  result); affected-focus / relational (position-aware) deltas would remove it.
 - **[do]** Finer inference deltas: replace rule-level predicate invalidation
   with affected-focus and relational deltas where dependency analysis can prove
   them sound; retain wildcard rescheduling for opaque/domain-sensitive rules.

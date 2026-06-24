@@ -8,6 +8,9 @@
 use shifty_algebra::{
     NamedNode, NodeExpr, Path, Rule, RuleHead, Selector, Shape, ShapeArena, ShapeId,
 };
+use spargebra::algebra::{Expression, GraphPattern, PropertyPathExpression};
+use spargebra::term::{NamedNodePattern, TriplePattern};
+use spargebra::{Query, SparqlParser};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -41,9 +44,167 @@ pub fn rule_dependencies(rule: &Rule, arena: &ShapeArena) -> RuleDependencies {
             node_expr_dependencies(predicate, arena, &mut deps);
             node_expr_dependencies(object, arena, &mut deps);
         }
-        RuleHead::Sparql(_) => deps.wildcard = true,
+        // Analyze the CONSTRUCT body for the predicates it reads. A rule whose
+        // read set is fully known need only rerun when one of those predicates
+        // changes, instead of on every pass (wildcard). Anything we cannot
+        // analyze soundly (a variable predicate, negated property set, SERVICE,
+        // …) falls back to wildcard.
+        RuleHead::Sparql(construct) => match sparql_construct_dependencies(&construct.query) {
+            Some(predicates) => deps.predicates.extend(predicates),
+            None => deps.wildcard = true,
+        },
     }
     deps
+}
+
+/// Predicates read by a SPARQL `CONSTRUCT` rule's WHERE clause, or `None` when
+/// the body contains a construct we cannot analyze soundly — in which case the
+/// rule must be treated as a wildcard dependency (rerun whenever anything
+/// changes). Returning `None` is always safe; returning too small a set would
+/// be unsound (a rule that should rerun would be skipped), so every
+/// unrecognized or open-ended construct yields `None`.
+fn sparql_construct_dependencies(query: &str) -> Option<HashSet<NamedNode>> {
+    let parsed = SparqlParser::new().parse_query(query).ok()?;
+    let pattern = match &parsed {
+        Query::Construct { pattern, .. } => pattern,
+        _ => return None,
+    };
+    let mut predicates = HashSet::new();
+    pattern_read_predicates(pattern, &mut predicates)?;
+    Some(predicates)
+}
+
+/// Collect the predicates a graph pattern reads. `None` on any unanalyzable
+/// construct (variable predicate, negated property set, SERVICE).
+fn pattern_read_predicates(pattern: &GraphPattern, out: &mut HashSet<NamedNode>) -> Option<()> {
+    match pattern {
+        GraphPattern::Bgp { patterns } => {
+            for triple in patterns {
+                triple_read_predicate(triple, out)?;
+            }
+        }
+        GraphPattern::Path { path, .. } => path_read_predicates(path, out)?,
+        GraphPattern::Join { left, right }
+        | GraphPattern::Union { left, right }
+        | GraphPattern::Minus { left, right }
+        | GraphPattern::Lateral { left, right } => {
+            pattern_read_predicates(left, out)?;
+            pattern_read_predicates(right, out)?;
+        }
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
+            pattern_read_predicates(left, out)?;
+            pattern_read_predicates(right, out)?;
+            if let Some(expr) = expression {
+                expr_read_predicates(expr, out)?;
+            }
+        }
+        GraphPattern::Filter { expr, inner } => {
+            pattern_read_predicates(inner, out)?;
+            expr_read_predicates(expr, out)?;
+        }
+        GraphPattern::Extend {
+            inner, expression, ..
+        } => {
+            pattern_read_predicates(inner, out)?;
+            expr_read_predicates(expression, out)?;
+        }
+        // The shapes graph (the only non-default GRAPH target shifty binds) is
+        // immutable during inference, so reads there never trigger a rerun;
+        // walking the inner pattern is sound regardless of the graph name.
+        GraphPattern::Graph { inner, .. }
+        | GraphPattern::Project { inner, .. }
+        | GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        // ORDER BY / aggregate expressions operate on already-bound solutions,
+        // not on fresh graph reads, and cannot change a CONSTRUCT's result set.
+        | GraphPattern::OrderBy { inner, .. }
+        | GraphPattern::Slice { inner, .. }
+        | GraphPattern::Group { inner, .. } => pattern_read_predicates(inner, out)?,
+        GraphPattern::Values { .. } => {}
+        GraphPattern::Service { .. } => return None,
+    }
+    Some(())
+}
+
+fn triple_read_predicate(triple: &TriplePattern, out: &mut HashSet<NamedNode>) -> Option<()> {
+    match &triple.predicate {
+        NamedNodePattern::NamedNode(predicate) => {
+            out.insert(predicate.clone());
+            Some(())
+        }
+        // A variable predicate can match any predicate in the graph.
+        NamedNodePattern::Variable(_) => None,
+    }
+}
+
+fn path_read_predicates(path: &PropertyPathExpression, out: &mut HashSet<NamedNode>) -> Option<()> {
+    match path {
+        PropertyPathExpression::NamedNode(predicate) => {
+            out.insert(predicate.clone());
+        }
+        PropertyPathExpression::Reverse(inner)
+        | PropertyPathExpression::ZeroOrMore(inner)
+        | PropertyPathExpression::OneOrMore(inner)
+        | PropertyPathExpression::ZeroOrOne(inner) => path_read_predicates(inner, out)?,
+        PropertyPathExpression::Sequence(a, b) | PropertyPathExpression::Alternative(a, b) => {
+            path_read_predicates(a, out)?;
+            path_read_predicates(b, out)?;
+        }
+        // `!(...)` matches every predicate outside the set, so it reads any.
+        PropertyPathExpression::NegatedPropertySet(_) => return None,
+    }
+    Some(())
+}
+
+/// Walk an expression for `EXISTS` / `NOT EXISTS` sub-patterns, whose reads also
+/// affect the rule's output. All other expression nodes operate on bound values.
+fn expr_read_predicates(expr: &Expression, out: &mut HashSet<NamedNode>) -> Option<()> {
+    match expr {
+        Expression::Exists(pattern) => pattern_read_predicates(pattern, out)?,
+        Expression::NamedNode(_)
+        | Expression::Literal(_)
+        | Expression::Variable(_)
+        | Expression::Bound(_) => {}
+        Expression::Not(a) | Expression::UnaryPlus(a) | Expression::UnaryMinus(a) => {
+            expr_read_predicates(a, out)?
+        }
+        Expression::And(a, b)
+        | Expression::Or(a, b)
+        | Expression::SameTerm(a, b)
+        | Expression::Equal(a, b)
+        | Expression::Greater(a, b)
+        | Expression::GreaterOrEqual(a, b)
+        | Expression::Less(a, b)
+        | Expression::LessOrEqual(a, b)
+        | Expression::Add(a, b)
+        | Expression::Subtract(a, b)
+        | Expression::Multiply(a, b)
+        | Expression::Divide(a, b) => {
+            expr_read_predicates(a, out)?;
+            expr_read_predicates(b, out)?;
+        }
+        Expression::In(a, list) => {
+            expr_read_predicates(a, out)?;
+            for item in list {
+                expr_read_predicates(item, out)?;
+            }
+        }
+        Expression::If(a, b, c) => {
+            expr_read_predicates(a, out)?;
+            expr_read_predicates(b, out)?;
+            expr_read_predicates(c, out)?;
+        }
+        Expression::Coalesce(list) | Expression::FunctionCall(_, list) => {
+            for item in list {
+                expr_read_predicates(item, out)?;
+            }
+        }
+    }
+    Some(())
 }
 
 /// Predicates whose triples may change a rule's focus nodes or conditions.
@@ -221,23 +382,55 @@ mod tests {
         assert!(deps.wildcard);
     }
 
-    #[test]
-    fn sparql_head_does_not_make_unchanged_guards_wildcard() {
-        let arena = ShapeArena::new();
-        let rule = Rule {
+    fn sparql_rule(query: &str) -> Rule {
+        Rule {
             selector: Selector::IsConst(Term::NamedNode(named("focus"))),
             conditions: Vec::new(),
             head: RuleHead::Sparql(shifty_algebra::SparqlConstruct {
-                query: "CONSTRUCT {} WHERE {}".to_string(),
+                query: query.to_string(),
             }),
             order: None,
             deactivated: false,
-        };
+        }
+    }
 
-        assert!(rule_dependencies(&rule, &arena).wildcard);
+    #[test]
+    fn sparql_construct_reads_become_precise_dependencies() {
+        // The WHERE clause reads ex:in (and the EXISTS guard reads ex:has); the
+        // template predicate ex:out is written, not read, so it is not a dep.
+        let arena = ShapeArena::new();
+        let rule = sparql_rule(
+            "PREFIX ex: <http://ex/> \
+             CONSTRUCT { ?this ex:out ?o } \
+             WHERE { ?this ex:in ?o . FILTER NOT EXISTS { ?this ex:has ?x } }",
+        );
+        let deps = rule_dependencies(&rule, &arena);
+        assert!(!deps.wildcard, "analyzable body should not be wildcard");
+        assert_eq!(
+            deps.predicates,
+            HashSet::from([named("in"), named("has")])
+        );
+        // The head must not leak into the guard dependencies.
         assert_eq!(
             rule_guard_dependencies(&rule, &arena),
             RuleDependencies::default()
         );
+    }
+
+    #[test]
+    fn sparql_construct_variable_predicate_is_wildcard() {
+        let arena = ShapeArena::new();
+        let rule = sparql_rule("CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }");
+        assert!(rule_dependencies(&rule, &arena).wildcard);
+    }
+
+    #[test]
+    fn sparql_construct_negated_property_set_is_wildcard() {
+        let arena = ShapeArena::new();
+        let rule = sparql_rule(
+            "PREFIX ex: <http://ex/> \
+             CONSTRUCT { ?s ex:out ?o } WHERE { ?s !(ex:a|ex:b) ?o }",
+        );
+        assert!(rule_dependencies(&rule, &arena).wildcard);
     }
 }
