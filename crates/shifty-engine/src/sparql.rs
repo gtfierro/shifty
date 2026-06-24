@@ -1791,7 +1791,10 @@ mod batch_tests {
 
         // Memo-forced batched path: one free-`?this` run, filtered by subject.
         let batched = SparqlExecutor::new(&g).unwrap();
-        batched.batch_construct.borrow_mut().insert(query.to_string());
+        batched
+            .batch_construct
+            .borrow_mut()
+            .insert(query.to_string());
         let got = sorted(batched.construct_many(query, &foci, None).unwrap());
 
         let expected = Triple::new(
@@ -1799,7 +1802,11 @@ mod batch_tests {
             nn("http://ex/uniqueKind"),
             nn("http://ex/Temp"),
         );
-        assert_eq!(want, vec![expected], "per-focus oracle: only ex:a is inferred");
+        assert_eq!(
+            want,
+            vec![expected],
+            "per-focus oracle: only ex:a is inferred"
+        );
         assert_eq!(got, want, "batched output must match per-focus exactly");
     }
 }
