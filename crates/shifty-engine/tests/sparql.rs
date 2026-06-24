@@ -267,6 +267,79 @@ fn construct_blank_nodes_are_rejected_to_preserve_termination() {
     );
 }
 
+/// A CONSTRUCT rule whose body has a `GROUP BY`/`COUNT` aggregate cannot lower to
+/// the native executor, so it runs on the Spareval fallback. This checks the
+/// aggregate is evaluated correctly end-to-end through `infer`: only the focus
+/// whose grouped distinct count is 1 gets the inferred triple. (The free-`?this`
+/// batched path that large focus sets take is covered deterministically by the
+/// `batched_construct_matches_per_focus` unit test in `sparql.rs`.)
+#[test]
+fn aggregate_construct_rule_infers_only_eligible_focus() {
+    let ttl = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+
+        ex:MeterShape a sh:NodeShape ;
+            sh:targetClass ex:Meter ;
+            sh:rule [
+                a sh:SPARQLRule ;
+                sh:construct """
+                    CONSTRUCT { $this ex:uniqueKind ?k }
+                    WHERE {
+                        { SELECT $this (COUNT(DISTINCT ?k0) AS ?c)
+                          WHERE { $this ex:reads/ex:kind ?k0 }
+                          GROUP BY $this }
+                        FILTER(?c = 1)
+                        $this ex:reads/ex:kind ?k .
+                    }
+                """
+            ] .
+
+        # M1 reads two properties of the same kind -> distinct count 1 -> inferred.
+        ex:M1 a ex:Meter ; ex:reads ex:p1, ex:p2 .
+        ex:p1 ex:kind ex:Temp .
+        ex:p2 ex:kind ex:Temp .
+
+        # M2 reads two properties of different kinds -> count 2 -> not inferred.
+        ex:M2 a ex:Meter ; ex:reads ex:q1, ex:q2 .
+        ex:q1 ex:kind ex:Temp .
+        ex:q2 ex:kind ex:Flow .
+    "#;
+    let loaded = shifty_parse::load_turtle(ttl, None).expect("valid Turtle");
+    let parsed = shifty_parse::parse_turtle(ttl, None).expect("valid shapes");
+    let outcome = infer(&loaded.graph, &parsed.schema).expect("stratifiable");
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "diags: {:?}",
+        outcome.diagnostics
+    );
+
+    let unique_kind = NamedNode::new("http://ex/uniqueKind").unwrap();
+    let m1 = NamedNode::new("http://ex/M1").unwrap();
+    let m2 = NamedNode::new("http://ex/M2").unwrap();
+    let temp = NamedNode::new("http://ex/Temp").unwrap();
+
+    // M1 (grouped count 1) gets the triple; M2 (grouped count 2) does not.
+    assert!(
+        outcome
+            .graph
+            .contains(&Triple::new(m1, unique_kind.clone(), temp))
+    );
+    assert!(
+        !outcome
+            .inferred
+            .iter()
+            .any(|t| t.subject == m2.clone().into() && t.predicate == unique_kind)
+    );
+    // Exactly one triple is inferred (M1 ex:uniqueKind ex:Temp).
+    assert_eq!(
+        outcome.inferred.len(),
+        1,
+        "inferred: {:?}",
+        outcome.inferred
+    );
+}
+
 /// All reason messages produced by the plan-path validator for `ttl`.
 fn reason_messages(ttl: &[u8]) -> Vec<String> {
     let loaded = shifty_parse::load_turtle(ttl, None).expect("valid Turtle");

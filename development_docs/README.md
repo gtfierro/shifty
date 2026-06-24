@@ -1,8 +1,11 @@
-# shacl-formalism — design docs
+# shifty — development docs
 
 A clean-room SHACL + SHACL-AF engine (inference + validation) grounded in the
 SHACL fragment of *Common Foundations for SHACL, ShEx, and PG-Schema*
 (arXiv:2502.01295), specialized to RDF and built to be heavily optimized.
+
+These are internal design and implementation notes.  The public documentation
+lives in `docs/`.
 
 Read in order:
 
