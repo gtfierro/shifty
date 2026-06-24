@@ -1,0 +1,229 @@
+Python API Reference
+====================
+
+.. raw:: html
+
+   <div class="sh-section-intro">
+     The <strong>pyshifty</strong> package exposes the full Shifty engine through
+     <a href="https://pyo3.rs">PyO3</a> bindings with native
+     <a href="https://rdflib.readthedocs.io">rdflib</a> interop.
+     Pre-built wheels are on PyPI — no Rust toolchain required.
+   </div>
+
+Install
+-------
+
+.. code-block:: bash
+
+   pip install pyshifty   # Python 3.9+
+
+.. code-block:: python
+
+   import shifty   # the package imports as `shifty`
+
+Graph inputs throughout the API can be a ``str`` (Turtle text), ``bytes``,
+``pathlib.Path``, or an ``rdflib.Graph``.
+
+validate
+--------
+
+The primary validation entry point is compatible with the ``pyshacl`` interface:
+
+.. code-block:: python
+
+   conforms, report_graph, results_text = shifty.validate(data, shapes)
+
+- ``data`` — the data graph to validate
+- ``shapes`` — the SHACL shapes graph (optional; if omitted, shapes are read from ``data``)
+- Returns: ``(bool, rdflib.Graph, str)`` — conforms flag, W3C ``sh:ValidationReport`` graph, human-readable summary
+
+.. code-block:: python
+
+   shapes = """
+   @prefix sh:  <http://www.w3.org/ns/shacl#> .
+   @prefix ex:  <http://example.org/> .
+   @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+   ex:PersonShape a sh:NodeShape ;
+       sh:targetClass ex:Person ;
+       sh:property [
+           sh:path ex:name ;
+           sh:minCount 1 ;
+           sh:datatype xsd:string ;
+       ] ;
+       sh:property [
+           sh:path ex:age ;
+           sh:maxCount 1 ;
+           sh:datatype xsd:integer ;
+       ] .
+   """
+
+   data = """
+   @prefix ex: <http://example.org/> .
+
+   ex:Alice a ex:Person ; ex:name "Alice" ; ex:age 30 .
+   ex:Bob   a ex:Person .
+   """
+
+   conforms, report_graph, results_text = shifty.validate(data, shapes)
+   # conforms → False
+   # report_graph → rdflib.Graph with sh:ValidationReport
+   # results_text → human-readable summary
+
+Keyword arguments
+~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
+
+   * - Argument
+     - Description
+   * - ``graph_mode``
+     - ``"data"`` (default), ``"union"``, or ``"union-all"`` — controls which triples are visible to path traversal and SPARQL evaluation
+   * - ``infer``
+     - ``True`` (default) — run SHACL-AF ``sh:rule`` entries to a fixed point before validating; set ``False`` to skip inference
+
+.. code-block:: python
+
+   # Skip inference, validate data only
+   conforms, report, text = shifty.validate(data, shapes, infer=False)
+
+   # Use the fully-merged graph for path evaluation
+   conforms, report, text = shifty.validate(data, shapes, graph_mode="union")
+
+Embedded shapes
+~~~~~~~~~~~~~~~
+
+If shapes are embedded in the data graph, omit the second argument or pass ``None``:
+
+.. code-block:: python
+
+   conforms, report, text = shifty.validate("combined.ttl")
+   conforms, report, text = shifty.validate(combined_graph, None)
+
+Do **not** pass an empty ``rdflib.Graph()`` for this case — an empty graph is treated
+as an explicit empty shapes graph and will produce no violations.
+
+validate_algebra
+~~~~~~~~~~~~~~~~
+
+Returns structured ``Violation`` objects instead of an RDF report graph:
+
+.. code-block:: python
+
+   result = shifty.validate_algebra(data, shapes)
+
+   print(result.conforms)           # False
+   for v in result.violations:
+       print(v.focus_node)          # IRI of the failing focus node
+       print(v.shape_name)          # shape that targeted this node (if any)
+       for r in v.reasons:
+           print(r.message)         # human-readable failure description
+           print(r.path)            # property path checked, if applicable
+           print(r.value)           # the offending value node
+
+Accepts the same ``infer=`` and ``graph_mode=`` keyword arguments as ``validate()``.
+
+PreparedValidator
+~~~~~~~~~~~~~~~~~
+
+For repeated validation against the same shapes graph, compile once:
+
+.. code-block:: python
+
+   validator = shifty.PreparedValidator(shapes)
+
+   # Validate many data graphs against the compiled shapes
+   for data_file in data_files:
+       conforms, report, text = validator.validate(data_file)
+
+   # Or use the structured result form
+   result = validator.validate_algebra(data, infer=False)
+
+File inputs
+~~~~~~~~~~~
+
+.. code-block:: python
+
+   import pathlib
+
+   conforms, report, text = shifty.validate(
+       pathlib.Path("data.ttl"),
+       pathlib.Path("shapes.ttl"),
+   )
+
+``pathlib.Path`` inputs are parsed directly by Rust. ``rdflib.Graph`` inputs
+use N-Triples for the Python-to-Rust transfer to avoid rdflib's slower Turtle
+serializer.
+
+infer
+-----
+
+Run SHACL-AF ``sh:rule`` entries to a fixed point:
+
+.. code-block:: python
+
+   result = shifty.infer(data, rules)
+
+   print(result.inferred_count)    # number of newly derived triples
+   g = result.graph()              # rdflib.Graph with original + inferred data
+
+.. code-block:: python
+
+   rules = """
+   @prefix sh: <http://www.w3.org/ns/shacl#> .
+   @prefix ex: <http://example.org/> .
+
+   ex:RectangleShape a sh:NodeShape ;
+       sh:targetClass ex:Rectangle ;
+       sh:rule [
+           a sh:TripleRule ;
+           sh:subject sh:this ;
+           sh:predicate ex:area ;
+           sh:object [ sh:path ex:width ] ;
+       ] .
+   """
+
+   data = """
+   @prefix ex: <http://example.org/> .
+   ex:r1 a ex:Rectangle ; ex:width 3 ; ex:height 2 .
+   """
+
+   result = shifty.infer(data, rules)
+   print(result.inferred_count)    # 1
+   g = result.graph()              # graph contains ex:r1 ex:area 3 .
+
+If rules are embedded in the data graph, omit the second argument or pass ``None``:
+
+.. code-block:: python
+
+   result = shifty.infer(combined_data_and_rules)
+   result = shifty.infer(combined_data_and_rules, None)
+
+Passing ``rdflib.Graph()`` as the second argument means "run with an explicit
+empty rules graph" — no embedded rules will be parsed.
+
+graph_mode
+----------
+
+Both ``validate()`` and ``validate_algebra()`` accept a ``graph_mode`` keyword argument
+that controls which triples are visible to path traversal and SPARQL evaluation:
+
+.. list-table::
+   :widths: 20 80
+   :header-rows: 1
+
+   * - Mode
+     - Behaviour
+   * - ``"data"`` *(default)*
+     - Focus nodes come from the data graph; path traversal and SPARQL use data only
+   * - ``"union"``
+     - Focus nodes from data; paths and SPARQL use data ∪ shapes
+   * - ``"union-all"``
+     - Focus nodes and evaluation both use data ∪ shapes
+
+``infer()`` does not accept ``graph_mode``.
+
+For full API documentation including the ``RepairSession`` interface, see
+`docs.rs/shifty-engine <https://docs.rs/shifty-engine>`_.

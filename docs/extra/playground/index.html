@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shifty — SHACL playground</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-title" href="https://shifty.gtf.fyi/">shifty</a>
+      <span class="header-sub">SHACL inference + validation in the browser</span>
+      <div class="header-spacer"></div>
+      <nav class="header-nav">
+        <a href="https://shifty.gtf.fyi/">← Docs</a>
+        <a href="https://github.com/gtfierro/shifty">GitHub</a>
+      </nav>
+      <button id="manageCache" class="btn-sm">Files</button>
+      <span id="engineStatus" class="status-pill busy">loading…</span>
+    </header>
+
+    <main>
+      <section class="editors">
+        <div class="panel" id="panel-shapes" data-slot="shapes">
+          <div class="panel-header">
+            <span class="panel-title">Shapes graph</span>
+            <span class="panel-meta" data-meta></span>
+            <span class="panel-grow"></span>
+            <select data-library title="Load a cached file"><option value="">cached…</option></select>
+            <button class="btn-sm" data-upload>Upload</button>
+            <button class="btn-sm" data-save>Save</button>
+            <button class="btn-sm" data-clear>Clear</button>
+            <input type="file" accept=".ttl,.turtle,.n3,.nt,text/turtle,text/plain" hidden data-file />
+          </div>
+          <textarea data-input spellcheck="false" placeholder="Paste Turtle, drop a file, or load a sample…"></textarea>
+        </div>
+
+        <div class="panel" id="panel-data" data-slot="data">
+          <div class="panel-header">
+            <span class="panel-title">Data graph</span>
+            <span class="panel-meta" data-meta>optional — leave empty to use one combined graph</span>
+            <span class="panel-grow"></span>
+            <select data-library title="Load a cached file"><option value="">cached…</option></select>
+            <button class="btn-sm" data-upload>Upload</button>
+            <button class="btn-sm" data-save>Save</button>
+            <button class="btn-sm" data-clear>Clear</button>
+            <input type="file" accept=".ttl,.turtle,.n3,.nt,text/turtle,text/plain" hidden data-file />
+          </div>
+          <textarea data-input spellcheck="false" placeholder="Paste Turtle, drop a file, or leave empty…"></textarea>
+        </div>
+      </section>
+
+      <details class="advanced">
+        <summary>Advanced options</summary>
+        <div class="options-grid">
+          <div class="opt opt-check">
+            <input type="checkbox" id="opt-infer" checked />
+            <div>
+              <label for="opt-infer">Run inference</label>
+              <div class="opt-hint">Apply SHACL-AF rules (<code>sh:rule</code>) to materialise triples before validating.</div>
+            </div>
+          </div>
+
+          <div class="opt">
+            <label for="opt-graphmode">Graph mode</label>
+            <select id="opt-graphmode">
+              <option value="data" selected>data — validate the data graph only</option>
+              <option value="union">union — data ∪ shapes (per-default-graph)</option>
+              <option value="union-all">union-all — fully merged graph</option>
+            </select>
+            <div class="opt-hint">How the data and shapes graphs combine. Only matters when both are provided.</div>
+          </div>
+
+          <div class="opt">
+            <label for="opt-severity">Minimum severity</label>
+            <select id="opt-severity">
+              <option value="info" selected>Info — any finding fails</option>
+              <option value="warning">Warning — warnings &amp; violations fail</option>
+              <option value="violation">Violation — only violations fail</option>
+            </select>
+            <div class="opt-hint">Lowest severity that makes the graph non-conforming.</div>
+          </div>
+
+          <div class="opt opt-check">
+            <input type="checkbox" id="opt-sort" checked />
+            <div>
+              <label for="opt-sort">Sort results</label>
+              <div class="opt-hint">Deterministic ordering by severity, focus node, then constraint.</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button id="btnValidate" class="btn-primary" disabled>Validate</button>
+        <button id="btnInfer" class="btn-secondary" disabled>Infer</button>
+        <span class="actions-grow"></span>
+        <button id="btnSample" class="btn-sm">Load sample</button>
+        <button id="btnClearAll" class="btn-sm">Reset</button>
+        <span id="timing" class="timing"></span>
+      </div>
+
+      <section id="results"></section>
+    </main>
+
+    <dialog id="cacheModal">
+      <div class="modal-header">
+        <h2>Cached files</h2>
+        <span style="flex:1"></span>
+        <button id="closeCache" class="btn-sm">Close</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-top:0">
+          Files are stored in your browser (IndexedDB). They stay on this device and are never uploaded.
+        </p>
+        <div id="cacheList"></div>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

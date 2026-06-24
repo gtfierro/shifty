@@ -1,0 +1,98 @@
+/* Shifty documentation styles */
+
+/* ─────────────────────────────────────────────────────────
+   Hero (landing page only)
+   ───────────────────────────────────────────────────────── */
+.sh-hero {
+  text-align: center;
+  padding: 2.5rem 1rem 2rem;
+  border-bottom: 1px solid var(--color-background-border);
+  margin-bottom: 2.5rem;
+}
+
+.sh-tagline {
+  font-size: 1.15rem;
+  color: var(--color-foreground-secondary);
+  max-width: 640px;
+  margin: 0 auto 1.6rem;
+  line-height: 1.6;
+}
+
+.sh-badges {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.8rem;
+}
+
+.sh-badges a img {
+  height: 22px;
+  vertical-align: middle;
+}
+
+.sh-installs {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.sh-install-cmd {
+  display: inline-block;
+  background: var(--color-code-background);
+  border: 1px solid var(--color-background-border);
+  border-radius: 6px;
+  padding: 0.4rem 1rem;
+  font-family: var(--font-stack--monospace);
+  font-size: 0.92rem;
+  color: var(--color-foreground-primary);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Section intro blurbs
+   ───────────────────────────────────────────────────────── */
+.sh-section-intro {
+  font-size: 1.05rem;
+  color: var(--color-foreground-secondary);
+  border-left: 3px solid var(--color-brand-primary);
+  padding: 0.6rem 1rem;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+  background: var(--color-background-secondary);
+  border-radius: 0 6px 6px 0;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Playground launch box
+   ───────────────────────────────────────────────────────── */
+.sh-playground-launch {
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-background-border);
+  border-radius: 10px;
+  margin: 1.5rem 0 2.5rem;
+}
+
+.sh-playground-launch p {
+  color: var(--color-foreground-secondary);
+  margin-bottom: 1.4rem;
+  font-size: 1.05rem;
+}
+
+.sh-launch-btn {
+  display: inline-block;
+  background: var(--color-brand-primary);
+  color: var(--color-background-primary) !important;
+  text-decoration: none !important;
+  padding: 0.65rem 1.8rem;
+  border-radius: 7px;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: opacity 0.15s;
+}
+
+.sh-launch-btn:hover {
+  opacity: 0.85;
+}

@@ -185,7 +185,7 @@ impl SparqlExecutor {
 
     pub fn target_nodes(&self, query: &str) -> Result<Vec<Term>, String> {
         let fp = profile::fingerprint(query);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let results = if let Some(frozen) = &self.frozen {
             self.prepared(query)?
                 .on_queryable_dataset(frozen)
@@ -221,7 +221,7 @@ impl SparqlExecutor {
     ) -> Result<Vec<SparqlViolation>, String> {
         let compiled = self.compile_constraint(constraint)?;
         let fp = profile::fingerprint(&constraint.query);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
 
         // A prior `prefetch_constraint` may have evaluated this focus in one
         // batched fallback run (doc §189). Serve from that map when the focus is
@@ -438,7 +438,7 @@ impl SparqlExecutor {
             return Ok(());
         }
         let fp = profile::fingerprint(&constraint.query);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         if let Some(batched) = self.run_fallback_batch(&compiled.query, foci)? {
             *compiled.batched.borrow_mut() = Some(batched);
             profile::record(
@@ -527,7 +527,7 @@ impl SparqlExecutor {
         }
 
         let fp = profile::fingerprint(query);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let mut triples = Vec::new();
         let compiled = self.compile_construct(query)?;
         let executor = if let (Some(plan), Some(frozen)) = (&compiled.plan, frozen) {
@@ -604,12 +604,12 @@ impl SparqlExecutor {
                     .iter()
                     .filter(|f| !matches!(f, Term::BlankNode(_)))
                     .collect();
-                let deadline = std::time::Instant::now() + PROBE_BUDGET;
+                let deadline = web_time::Instant::now() + PROBE_BUDGET;
                 let mut probed = Vec::new();
                 let mut bailed = false;
                 for (i, focus) in named.iter().enumerate() {
                     probed.extend(self.construct_one(query, focus)?);
-                    if i + 1 < named.len() && std::time::Instant::now() >= deadline {
+                    if i + 1 < named.len() && web_time::Instant::now() >= deadline {
                         bailed = true;
                         break;
                     }

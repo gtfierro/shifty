@@ -1,0 +1,51 @@
+name: WASM
+
+concurrency:
+  group: wasm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install Rust toolchain (+ wasm32 target)
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    # wasm-bindgen-cli must match the wasm-bindgen version in Cargo.lock, or it
+    # refuses to process the module — read the pinned version straight from the
+    # lockfile so this never drifts.
+    - name: Install wasm-bindgen-cli
+      run: |
+        WBV=$(awk '/^name = "wasm-bindgen"$/{getline; print}' Cargo.lock | head -1 | sed -E 's/.*"(.*)".*/\1/')
+        echo "wasm-bindgen-cli version: $WBV"
+        cargo install wasm-bindgen-cli --version "$WBV" --locked
+
+    # Build for wasm32 and run the engine through SPARQL-based shapes in Node.
+    # This is the guardrail: a wasm-only runtime panic (e.g. std SystemTime or
+    # Instant, which are unimplemented on wasm32) surfaces as a thrown error and
+    # fails the job, instead of silently shipping a module that traps in the
+    # browser. A debug build reproduces such panics and is much faster than the
+    # size-optimized release profile.
+    - name: Build shifty-wasm (wasm32-unknown-unknown)
+      run: cargo build -p shifty-wasm --target wasm32-unknown-unknown
+
+    - name: Generate Node bindings
+      run: wasm-bindgen target/wasm32-unknown-unknown/debug/shifty_wasm.wasm --out-dir crates/shifty-wasm/pkg-node --target nodejs
+
+    - name: WASM smoke test
+      run: node crates/shifty-wasm/ci/smoke.mjs

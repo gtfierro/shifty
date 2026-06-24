@@ -15,3 +15,9 @@ rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+# wasm32 has no OS RNG; route getrandom 0.3 (pulled in by rand -> oxrdf/oxigraph
+# for blank-node IDs) to the browser's crypto.getRandomValues. Pairs with the
+# `wasm_js` feature on getrandom in crates/shifty-wasm/Cargo.toml.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
