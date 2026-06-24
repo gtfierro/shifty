@@ -406,10 +406,7 @@ mod tests {
         );
         let deps = rule_dependencies(&rule, &arena);
         assert!(!deps.wildcard, "analyzable body should not be wildcard");
-        assert_eq!(
-            deps.predicates,
-            HashSet::from([named("in"), named("has")])
-        );
+        assert_eq!(deps.predicates, HashSet::from([named("in"), named("has")]));
         // The head must not leak into the guard dependencies.
         assert_eq!(
             rule_guard_dependencies(&rule, &arena),

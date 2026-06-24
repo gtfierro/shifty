@@ -385,7 +385,12 @@ fn format_algebra_text(conforms: &bool, violations: &[Violation], schema: &Schem
     use std::fmt::Write;
     let mut out = String::new();
     writeln!(out, "Validation Report").unwrap();
-    writeln!(out, "Conforms: {}", if *conforms { "True" } else { "False" }).unwrap();
+    writeln!(
+        out,
+        "Conforms: {}",
+        if *conforms { "True" } else { "False" }
+    )
+    .unwrap();
     writeln!(out, "Results ({}):", violations.len()).unwrap();
     for v in violations {
         let shape = shape_name_for(v, schema).unwrap_or_else(|| "<unnamed>".to_string());
@@ -424,7 +429,12 @@ fn format_report_text(report: &ValidationReport) -> String {
     }
     writeln!(out, "Results ({}):", report.results.len()).unwrap();
     for r in &report.results {
-        writeln!(out, "Constraint Violation in {}", local_name(r.component.as_str())).unwrap();
+        writeln!(
+            out,
+            "Constraint Violation in {}",
+            local_name(r.component.as_str())
+        )
+        .unwrap();
         writeln!(out, "  Severity: sh:{}", local_name(r.severity.as_str())).unwrap();
         writeln!(out, "  Source Shape: {}", r.source_shape).unwrap();
         writeln!(out, "  Focus Node: {}", r.focus).unwrap();

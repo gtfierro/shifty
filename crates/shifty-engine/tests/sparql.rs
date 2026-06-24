@@ -320,11 +320,11 @@ fn aggregate_construct_rule_infers_only_eligible_focus() {
     let temp = NamedNode::new("http://ex/Temp").unwrap();
 
     // M1 (grouped count 1) gets the triple; M2 (grouped count 2) does not.
-    assert!(outcome.graph.contains(&Triple::new(
-        m1,
-        unique_kind.clone(),
-        temp
-    )));
+    assert!(
+        outcome
+            .graph
+            .contains(&Triple::new(m1, unique_kind.clone(), temp))
+    );
     assert!(
         !outcome
             .inferred
@@ -332,7 +332,12 @@ fn aggregate_construct_rule_infers_only_eligible_focus() {
             .any(|t| t.subject == m2.clone().into() && t.predicate == unique_kind)
     );
     // Exactly one triple is inferred (M1 ex:uniqueKind ex:Temp).
-    assert_eq!(outcome.inferred.len(), 1, "inferred: {:?}", outcome.inferred);
+    assert_eq!(
+        outcome.inferred.len(),
+        1,
+        "inferred: {:?}",
+        outcome.inferred
+    );
 }
 
 /// All reason messages produced by the plan-path validator for `ttl`.
