@@ -29,22 +29,84 @@ A plain object; every field is optional:
 }
 ```
 
-## Building
+## Building / rebuilding
+
+### One-time prerequisites
 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.125   # must match Cargo.lock
 # optional, for a smaller bundle: install binaryen (provides wasm-opt)
+```
 
-./build.sh                 # -> crates/shifty-wasm/pkg/ (ESM, target=web)
-./build.sh --target bundler   # for webpack/vite
+> The `wasm-bindgen-cli` version **must** match the `wasm-bindgen` dependency in
+> `Cargo.lock`, or it refuses to process the module. To find the pinned version:
+> `awk '/^name = "wasm-bindgen"$/{getline; print}' Cargo.lock`.
+
+### Rebuild
+
+[`build.sh`](build.sh) does the whole pipeline — compile → generate JS/TS
+bindings → size-optimize — and writes to `crates/shifty-wasm/pkg/`:
+
+```sh
+./build.sh                    # -> pkg/ (ESM, target=web) — the default
+./build.sh --target bundler   # for webpack / vite
 ./build.sh --target nodejs    # for Node
 ```
 
-The build uses the workspace `wasm-release` profile (size-optimized, debuginfo
-stripped). The `wasm_js` getrandom backend (browser `crypto.getRandomValues`,
-needed for blank-node IDs) is wired up via this crate's `Cargo.toml` and the
-`.cargo/config.toml` rustflags at the repo root.
+Then serve and open the playground (ES modules + wasm need a real origin, not
+`file://`):
+
+```sh
+python3 -m http.server -d crates/shifty-wasm
+# open http://localhost:8000/example/
+```
+
+**You only need to rebuild when the Rust changes.** Edits to the front-end
+(`example/*.js`, `*.css`, `*.html`) take effect on a plain page reload — no build
+step.
+
+`pkg/` is a build artifact and is **git-ignored**; regenerate it rather than
+committing it.
+
+### Doing it by hand
+
+`build.sh` is just these three steps if you'd rather run them yourself:
+
+```sh
+# 1. compile — the `wasm-release` profile strips debuginfo and optimizes for
+#    size (the workspace `release` profile keeps full debuginfo: ~100 MB .wasm).
+cargo build -p shifty-wasm --target wasm32-unknown-unknown --profile wasm-release
+
+# 2. generate JS/TS bindings
+wasm-bindgen target/wasm32-unknown-unknown/wasm-release/shifty_wasm.wasm \
+  --out-dir crates/shifty-wasm/pkg --target web
+
+# 3. (optional) shrink with binaryen; needs the post-MVP feature flags rustc
+#    emits, e.g. --enable-bulk-memory (build.sh passes the full set)
+wasm-opt -Oz --enable-bulk-memory pkg/shifty_wasm_bg.wasm -o pkg/shifty_wasm_bg.wasm
+```
+
+### wasm compatibility plumbing
+
+Three things make the engine run on `wasm32-unknown-unknown`; if you touch the
+build or bump dependencies, keep them in mind:
+
+- **Randomness** — blank-node IDs go through `rand` → `getrandom`, which has no
+  default backend on wasm. The `wasm_js` feature (this crate's `Cargo.toml`)
+  plus `getrandom_backend="wasm_js"` (`.cargo/config.toml` rustflags) routes it
+  to the browser's `crypto.getRandomValues`.
+- **Wall-clock time** — `oxsdatatypes`' `js` feature (this crate's `Cargo.toml`)
+  sources the SPARQL `NOW()` timestamp from `Date.now()` instead of std
+  `SystemTime`, which panics on wasm.
+- **Monotonic time** — `shifty-engine` uses `web_time::Instant` instead of
+  `std::time::Instant` (also a wasm panic) for its profiling/timeout clocks.
+
+These failure modes only surface at runtime on specific inputs (e.g. SPARQL
+shapes), so the [`WASM` CI workflow](../../.github/workflows/wasm.yml) builds
+for wasm32 and runs [`ci/smoke.mjs`](ci/smoke.mjs) through SPARQL fixtures in
+Node — a reintroduced panic fails the build instead of shipping a module that
+traps in the browser.
 
 ## Using it
 
@@ -77,6 +139,9 @@ step) that exercises the whole API:
 - **Advanced-options accordion**: `infer`, `graphMode`, `minimumSeverity`,
   `sortResults`.
 - Last session (buffers + options) is restored from `localStorage` on reload.
+
+All engine calls run in a [Web Worker](example/worker.js) so a large model never
+freezes the UI.
 
 ES modules + wasm need a real origin (not `file://`), so serve over HTTP:
 

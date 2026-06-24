@@ -1,6 +1,6 @@
 # shifty
 
-A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool, Python bindings (`pyshifty`), and a C++17 static-library SDK.
+A formalism-first SHACL validation and SHACL-AF inference engine written in Rust, grounded in the algebraic treatment of *Common Foundations for SHACL, ShEx, and PG-Schema* (arXiv:2502.01295). Available as a command-line tool, Python bindings (`pyshifty`), a C++17 static-library SDK, and a WebAssembly module that runs in the browser.
 
 See the `archive-first-attempt` branch for an older attempt, which was published as shifty 0.0.7
 
@@ -73,6 +73,21 @@ auto report = validator.validate(dataset);
 ```
 
 See [`cpp/README.md`](cpp/README.md) for installation and CMake package usage.
+
+### Browser / WebAssembly
+
+The `shifty-wasm` crate compiles the engine to WebAssembly so the full inference
++ validation pipeline runs entirely in the browser — no server, no round-trips.
+It ships a framework-free playground (file upload + caching, rich report
+rendering, inference downloads), with all engine work on a Web Worker.
+
+```sh
+./crates/shifty-wasm/build.sh
+python3 -m http.server -d crates/shifty-wasm   # open http://localhost:8000/example/
+```
+
+See [`crates/shifty-wasm/README.md`](crates/shifty-wasm/README.md) for the JS
+API, build/rebuild instructions, and embedding details.
 
 ## CLI usage
 
