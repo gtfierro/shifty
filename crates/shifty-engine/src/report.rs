@@ -778,15 +778,12 @@ impl Reporter<'_> {
             };
             let Some(validator) = validator else { continue };
 
-            // Bindings shared across value nodes: parameters, $currentShape, and
-            // $PATH (simple predicate paths only; complex paths are skipped).
+            // Bindings shared across value nodes: parameters and $currentShape.
+            // For property shapes, `$PATH` is pre-bound to the shape's path
+            // (simple predicate or complex property path) inside the executor.
             let mut base = params;
             base.push(("currentShape".to_string(), node_term_ref(shape)));
-            if let Some(Path::Pred(predicate)) = parsed_path {
-                base.push(("PATH".to_string(), Term::NamedNode(predicate.clone())));
-            } else if is_property_shape {
-                continue; // complex $PATH not supported in the validator path yet
-            }
+            let path = parsed_path.as_ref();
 
             match validator.kind {
                 SparqlQueryKind::Ask => {
@@ -795,7 +792,8 @@ impl Reporter<'_> {
                         bindings.push(("this".to_string(), focus.clone()));
                         bindings.push(("value".to_string(), value.clone()));
                         // Conform iff ASK is true; a runtime error fails closed.
-                        let violates = match self.sparql.eval_ask(&validator.query, &bindings) {
+                        let violates = match self.sparql.eval_ask(&validator.query, path, &bindings)
+                        {
                             Ok(conforms) => !conforms,
                             Err(_) => true,
                         };
@@ -816,7 +814,7 @@ impl Reporter<'_> {
                 SparqlQueryKind::Select => {
                     let mut bindings = base.clone();
                     bindings.push(("this".to_string(), focus.clone()));
-                    match self.sparql.eval_select(&validator.query, &bindings) {
+                    match self.sparql.eval_select(&validator.query, path, &bindings) {
                         Ok(rows) => {
                             for row in rows {
                                 // ?value projected; for node validators it is the

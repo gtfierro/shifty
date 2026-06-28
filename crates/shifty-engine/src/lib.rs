@@ -786,6 +786,74 @@ mod tests {
     }
 
     #[test]
+    fn custom_component_property_validator_complex_path() {
+        // A property shape with a *sequence* path activates a SELECT property
+        // validator: `$PATH` is pre-bound to ex:a/ex:b, so the validator reaches
+        // the value nodes two hops away and flags the forbidden one.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:ForbidComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:forbidden ] ;
+                sh:propertyValidator [ a sh:SPARQLSelectValidator ;
+                    sh:select """SELECT $this ?value WHERE {
+                        $this $PATH ?value .
+                        FILTER (STR(?value) = STR($forbidden))
+                    }""" ] .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:property [ sh:path ( ex:a ex:b ) ; ex:forbidden "bad" ] .
+            ex:x ex:a ex:m .
+            ex:m ex:b "bad", "ok" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1, "results: {:?}", report.results);
+        let r = &report.results[0];
+        assert_eq!(r.component.as_str(), "http://ex/ForbidComponent");
+        assert_eq!(r.focus.to_string(), "<http://ex/x>");
+        assert_eq!(
+            r.value.as_ref().map(ToString::to_string),
+            Some("\"bad\"".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_component_property_validator_inverse_path() {
+        // An inverse path `^ex:parent`: the value nodes are the subjects that
+        // point at the focus via ex:parent. The ASK validator runs per value node
+        // with `$PATH` pre-bound, flagging values whose label is not "ok".
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:OkComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:want ] ;
+                sh:validator [ a sh:SPARQLAskValidator ;
+                    sh:ask "ASK { $value <http://ex/label> $want }" ] .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:p ;
+                sh:property [ sh:path [ sh:inversePath ex:parent ] ; ex:want "ok" ] .
+            ex:c1 ex:parent ex:p ; ex:label "ok" .
+            ex:c2 ex:parent ex:p ; ex:label "no" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let report = validate_report(&loaded, &loaded.graph);
+        // Value nodes of ex:p along ^ex:parent are {ex:c1, ex:c2}; only ex:c2
+        // lacks `ex:label "ok"`, so the ASK is false there → one violation.
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1, "results: {:?}", report.results);
+        assert_eq!(
+            report.results[0].component.as_str(),
+            "http://ex/OkComponent"
+        );
+        assert_eq!(
+            report.results[0].value.as_ref().map(ToString::to_string),
+            Some("<http://ex/c2>".to_string())
+        );
+    }
+
+    #[test]
     fn equals_on_node_shape_uses_the_focus_node_as_the_value() {
         let ttl = format!(
             "{PREFIXES}

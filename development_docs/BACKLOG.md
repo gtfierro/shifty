@@ -35,10 +35,13 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `sh:SPARQLSelectValidator` once per focus (each solution row a violation), via
   `SparqlExecutor::eval_ask`/`eval_select`. Optional parameters bind only when
   present. The result's `sh:sourceConstraintComponent` is the component IRI.
-  Simple-predicate `$PATH` only; the algebra path diagnoses activated components
+  `$PATH` pre-binding handles both simple predicates and **complex paths**
+  (inverse/sequence/alternative/`*`), via the shared `apply_path_prebinding`
+  helper (`path_to_property_path` + `rewrite_path_query`) that `sh:sparql`
+  constraints also use. The algebra path diagnoses activated components
   (`diagnose_custom_components`) rather than under-validating. W3C advanced
   `sparql/component/{validator,nodeValidator,propertyValidator-select,optional}`
-  all pass. **[todo]** complex `$PATH`, JS validators.
+  all pass. **[todo]** JS validators.
 - **[done]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F). Already evaluated
   inside node expressions (`infer.rs`); now also registered as **custom SPARQL
   functions** so calls resolve inside any Spareval-executed query — `sh:sparql`

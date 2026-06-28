@@ -362,21 +362,7 @@ impl SparqlExecutor {
         // executor binds it per focus, and the fallback substitutes it per call.
         let mut query = self.parse(&constraint.query)?;
         if let Some(path) = &constraint.path {
-            match path {
-                Path::Pred(predicate) => substitute_query(
-                    &mut query,
-                    &variable("PATH"),
-                    &Term::NamedNode(predicate.clone()),
-                ),
-                complex => {
-                    let sparql_path = path_to_property_path(complex).ok_or_else(|| {
-                        format!(
-                            "SHACL path cannot be expressed as a SPARQL property path: {complex:?}"
-                        )
-                    })?;
-                    query = rewrite_path_query(query, &sparql_path);
-                }
-            }
+            query = apply_path_prebinding(query, path)?;
         }
         if let Some(shape) = &constraint.shape {
             substitute_query(&mut query, &variable("currentShape"), shape);
@@ -904,28 +890,32 @@ impl SparqlExecutor {
     }
 
     /// Run a custom constraint-component **ASK** validator (SHACL §6.3.2) with
-    /// the given variable substitutions (`$value`, `$this`, parameter vars, …).
-    /// Returns the ASK's boolean. The value node conforms iff this is `true`.
+    /// the given variable substitutions (`$value`, `$this`, parameter vars, …)
+    /// and, for property shapes, `$PATH` pre-bound to `path`. Returns the ASK's
+    /// boolean. The value node conforms iff this is `true`.
     pub(crate) fn eval_ask(
         &self,
         raw_query: &str,
+        path: Option<&Path>,
         bindings: &[(String, Term)],
     ) -> Result<bool, String> {
-        match self.run_substituted(raw_query, bindings)? {
+        match self.run_substituted(raw_query, path, bindings)? {
             QueryResults::Boolean(b) => Ok(b),
             _ => Err("sh:SPARQLAskValidator query is not an ASK".to_string()),
         }
     }
 
     /// Run a custom constraint-component **SELECT** validator (SHACL §6.3.3) with
-    /// the given variable substitutions. Each solution row (its variable →
-    /// term map) is one violation.
+    /// the given variable substitutions and, for property shapes, `$PATH`
+    /// pre-bound to `path`. Each solution row (its variable → term map) is one
+    /// violation.
     pub(crate) fn eval_select(
         &self,
         raw_query: &str,
+        path: Option<&Path>,
         bindings: &[(String, Term)],
     ) -> Result<Vec<HashMap<String, Term>>, String> {
-        match self.run_substituted(raw_query, bindings)? {
+        match self.run_substituted(raw_query, path, bindings)? {
             QueryResults::Solutions(solutions) => {
                 let vars: Vec<String> = solutions
                     .variables()
@@ -955,9 +945,13 @@ impl SparqlExecutor {
     fn run_substituted(
         &self,
         raw_query: &str,
+        path: Option<&Path>,
         bindings: &[(String, Term)],
     ) -> Result<QueryResults<'_>, String> {
         let mut query = self.parse(raw_query)?;
+        if let Some(path) = path {
+            query = apply_path_prebinding(query, path)?;
+        }
         for (name, value) in bindings {
             let var = Variable::new(name).map_err(err)?;
             substitute_query(&mut query, &var, value);
@@ -1115,6 +1109,31 @@ fn path_to_property_path(path: &Path) -> Option<PropertyPathExpression> {
         }
         Path::Star(inner) => {
             path_to_property_path(inner).map(|p| PropertyPathExpression::ZeroOrMore(Box::new(p)))
+        }
+    }
+}
+
+/// Apply SHACL `$PATH` pre-binding (SHACL §5.2.1) to `query` for a property
+/// shape's `path`: a simple predicate is substituted as a `$PATH` term; a
+/// complex path is rewritten to a SPARQL property path. Shared by `sh:sparql`
+/// constraints ([`SparqlExecutor::compile_constraint`]) and custom-component
+/// validators ([`SparqlExecutor::run_substituted`]). Errors (fail-closed) for
+/// paths with no SPARQL property-path form (e.g. `Path::Id`).
+fn apply_path_prebinding(mut query: Query, path: &Path) -> Result<Query, String> {
+    match path {
+        Path::Pred(predicate) => {
+            substitute_query(
+                &mut query,
+                &variable("PATH"),
+                &Term::NamedNode(predicate.clone()),
+            );
+            Ok(query)
+        }
+        complex => {
+            let sparql_path = path_to_property_path(complex).ok_or_else(|| {
+                format!("SHACL path cannot be expressed as a SPARQL property path: {complex:?}")
+            })?;
+            Ok(rewrite_path_query(query, &sparql_path))
         }
     }
 }
