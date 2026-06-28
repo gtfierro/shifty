@@ -137,6 +137,31 @@ pub struct ValidationOutcome {
     pub violations: Vec<Violation>,
 }
 
+/// How the engine treats SHACL features it only partially supports (rather than
+/// silently producing a best-effort, possibly wrong, result).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnsupportedPolicy {
+    /// Best-effort: run anyway and accept that the result may be unreliable.
+    /// This preserves the historical behavior, so it is the default.
+    #[default]
+    Ignore,
+    /// Fail loudly: refuse to evaluate the unsupported construct so the failure
+    /// surfaces (e.g. as a constraint error) instead of a silent wrong answer.
+    Error,
+}
+
+/// Optional, forward-looking engine configuration. New feature toggles are added
+/// here as fields; both validation ([`ValidationOptions`]) and inference
+/// ([`crate::infer_with_options`]) accept it, so callers configure behavior in
+/// one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EngineOptions {
+    /// How to handle partially supported features encountered at run time —
+    /// currently graph-reading `sh:SPARQLFunction` bodies called from a SPARQL
+    /// context (which the engine can only evaluate as pure functions).
+    pub unsupported: UnsupportedPolicy,
+}
+
 /// Controls which retained findings make a validation outcome non-conforming.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationOptions {
@@ -146,6 +171,8 @@ pub struct ValidationOptions {
     /// Whether to sort violations by severity, focus node, and statement.
     /// Defaults to `true` for deterministic output.
     pub sort_results: bool,
+    /// Feature-handling policy (see [`EngineOptions`]).
+    pub engine: EngineOptions,
 }
 
 impl Default for ValidationOptions {
@@ -153,6 +180,7 @@ impl Default for ValidationOptions {
         Self {
             minimum_severity: Severity::Info,
             sort_results: true,
+            engine: EngineOptions::default(),
         }
     }
 }

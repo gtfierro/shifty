@@ -7,6 +7,7 @@
 use crate::frozen::{FrozenIndexedDataset, TermId};
 use crate::native_exec;
 use crate::profile;
+use crate::validate::UnsupportedPolicy;
 use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator};
 use oxigraph::store::Store;
 use oxrdf::{
@@ -55,6 +56,8 @@ pub(crate) struct SparqlExecutor {
     /// them inside constraint / CONSTRUCT / expression queries resolve. Empty
     /// unless [`set_functions`](Self::set_functions) was called.
     functions: Vec<FunctionDef>,
+    /// How partially supported features are handled (see [`UnsupportedPolicy`]).
+    unsupported: UnsupportedPolicy,
 }
 
 /// A `sh:SPARQLFunction` (SHACL-AF §5) registered as a custom SPARQL function.
@@ -72,6 +75,11 @@ pub(crate) struct FunctionDef {
     pub params: Vec<String>,
     /// The function body (`sh:select` or `sh:ask`), prefix-expanded.
     pub query: String,
+    /// Whether the body reads the data graph (has a non-trivial WHERE pattern).
+    /// Such functions only return correct results in node expressions, where the
+    /// real dataset is available; from a SPARQL context they run over an empty
+    /// dataset, so `UnsupportedPolicy::Error` declines to register them.
+    pub reads_graph: bool,
 }
 
 /// Cache key for a compiled constraint: the canonical query plus the static
@@ -170,6 +178,7 @@ impl SparqlExecutor {
             batch_construct: RefCell::new(HashSet::new()),
             shapes_graph,
             functions: Vec::new(),
+            unsupported: UnsupportedPolicy::default(),
         })
     }
 
@@ -185,22 +194,34 @@ impl SparqlExecutor {
             shapes_graph: has_shapes_graph
                 .then(|| NamedNode::new(SHAPES_GRAPH_IRI).expect("static IRI is valid")),
             functions: Vec::new(),
+            unsupported: UnsupportedPolicy::default(),
         }
     }
 
     /// Register `sh:SPARQLFunction`s so that calls to them inside constraint,
-    /// CONSTRUCT, target, and expression queries resolve.
-    pub(crate) fn set_functions(&mut self, functions: Vec<FunctionDef>) {
+    /// CONSTRUCT, target, and expression queries resolve. `policy` decides what
+    /// happens to graph-reading function bodies (which this layer can only run
+    /// as pure functions over an empty dataset).
+    pub(crate) fn set_functions(&mut self, functions: Vec<FunctionDef>, policy: UnsupportedPolicy) {
         self.functions = functions;
+        self.unsupported = policy;
     }
 
     /// A fresh evaluator with every registered SHACL function available as a
     /// custom SPARQL function. Use in place of `SparqlEvaluator::new()` for any
     /// Spareval execution so function calls in the query resolve. When no
     /// functions are registered this is exactly `SparqlEvaluator::new()`.
+    ///
+    /// Under [`UnsupportedPolicy::Error`], a graph-reading function is *not*
+    /// registered: a SPARQL call to it then raises an unknown-function error
+    /// (surfaced as a constraint failure) rather than silently evaluating its
+    /// body over an empty dataset.
     fn evaluator(&self) -> SparqlEvaluator {
         let mut evaluator = SparqlEvaluator::new();
         for f in &self.functions {
+            if f.reads_graph && self.unsupported == UnsupportedPolicy::Error {
+                continue;
+            }
             let query = f.query.clone();
             let params = f.params.clone();
             evaluator = evaluator.with_custom_function(f.iri.clone(), move |args| {
@@ -1470,6 +1491,42 @@ fn term_pattern_is(t: &TermPattern, var: &Variable) -> bool {
 
 /// Substitute every occurrence of `var` with the pre-bound `value` throughout a
 /// query, implementing SHACL-SPARQL pre-binding by algebra substitution.
+/// Whether a function body reads the data graph: it contains a non-empty BGP, a
+/// property path, a named `GRAPH`, or a `SERVICE`. A pure function (only
+/// `BIND`/`FILTER`/`VALUES` over no triples) returns `false` and is safe to run
+/// over an empty dataset. Unparseable queries are treated as graph-reading
+/// (conservative). Used to decide registration under `UnsupportedPolicy`.
+pub(crate) fn query_reads_graph(query: &str) -> bool {
+    let Ok(parsed) = SparqlParser::new().parse_query(query) else {
+        return true;
+    };
+    fn walk(pattern: &GraphPattern) -> bool {
+        use GraphPattern::*;
+        match pattern {
+            Bgp { patterns } => !patterns.is_empty(),
+            Path { .. } | Graph { .. } | Service { .. } => true,
+            Join { left, right }
+            | Union { left, right }
+            | Minus { left, right }
+            | Lateral { left, right } => walk(left) || walk(right),
+            LeftJoin { left, right, .. } => walk(left) || walk(right),
+            Filter { inner, .. }
+            | Extend { inner, .. }
+            | Project { inner, .. }
+            | Distinct { inner }
+            | Reduced { inner }
+            | Slice { inner, .. }
+            | OrderBy { inner, .. }
+            | Group { inner, .. } => walk(inner),
+            _ => false,
+        }
+    }
+    match &parsed {
+        Query::Select { pattern, .. } | Query::Ask { pattern, .. } => walk(pattern),
+        _ => true,
+    }
+}
+
 /// Evaluate a SHACL function body as a pure function of `args`: substitute the
 /// call arguments positionally for the parameter variables and run the body
 /// over an empty store. Returns the `?result` binding (SELECT) or the boolean

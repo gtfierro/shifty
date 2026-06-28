@@ -25,7 +25,10 @@ pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
 };
 pub use gate::{RepairOutcome, apply, gate};
-pub use infer::{InferenceOutcome, infer, infer_graphs, infer_with_context};
+pub use infer::{
+    InferenceOutcome, infer, infer_graphs, infer_with_context, infer_with_context_and_options,
+    infer_with_options,
+};
 pub use report::{
     ValidationReport, ValidationResult, evaluate_function_expression, report_to_graph,
     validate_report, validate_report_graphs, validate_report_graphs_with_mode,
@@ -33,12 +36,13 @@ pub use report::{
 };
 pub use synthesize::{synthesize, synthesize_focus};
 pub use validate::{
-    NonStratifiable, Reason, ValidationGraphMode, ValidationOptions, ValidationOutcome, Violation,
-    focus_nodes, graph_union, validate, validate_graphs, validate_graphs_with_mode,
-    validate_graphs_with_mode_and_options, validate_plan, validate_plan_graphs,
-    validate_plan_graphs_with_mode, validate_plan_graphs_with_mode_and_options,
-    validate_plan_with_context, validate_plan_with_context_and_options, validate_plan_with_options,
-    validate_with_context, validate_with_context_and_options, validate_with_options,
+    EngineOptions, NonStratifiable, Reason, UnsupportedPolicy, ValidationGraphMode,
+    ValidationOptions, ValidationOutcome, Violation, focus_nodes, graph_union, validate,
+    validate_graphs, validate_graphs_with_mode, validate_graphs_with_mode_and_options,
+    validate_plan, validate_plan_graphs, validate_plan_graphs_with_mode,
+    validate_plan_graphs_with_mode_and_options, validate_plan_with_context,
+    validate_plan_with_context_and_options, validate_plan_with_options, validate_with_context,
+    validate_with_context_and_options, validate_with_options,
 };
 pub use witness::{
     BlockReason, FocusSat, FocusWitness, PathSupport, RelKind, SatTrace, Witness, satisfy_shape,
@@ -252,6 +256,7 @@ mod tests {
             &ValidationOptions {
                 minimum_severity: shifty_algebra::Severity::Info,
                 sort_results: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -281,6 +286,7 @@ mod tests {
             &ValidationOptions {
                 minimum_severity: shifty_algebra::Severity::Warning,
                 sort_results: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -292,6 +298,7 @@ mod tests {
             &ValidationOptions {
                 minimum_severity: shifty_algebra::Severity::Violation,
                 sort_results: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -304,6 +311,7 @@ mod tests {
             &ValidationOptions {
                 minimum_severity: shifty_algebra::Severity::Violation,
                 sort_results: true,
+                ..Default::default()
             },
         );
         assert!(report.conforms);
@@ -678,6 +686,45 @@ mod tests {
             report.results[0].value.as_ref().map(ToString::to_string),
             Some("\"bad\"".to_string())
         );
+    }
+
+    #[test]
+    fn graph_reading_function_policy_gates_loud_failure() {
+        // `ex:exists` reads the data graph, so from a SPARQL context it can only
+        // be evaluated over an empty dataset. The UnsupportedPolicy decides what
+        // happens when it is called from a sh:sparql constraint.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            ex:exists a sh:SPARQLFunction ;
+                sh:returnType xsd:boolean ;
+                sh:ask "ASK { ?s <http://ex/marker> ?o }" .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:sparql [ sh:select
+                    "SELECT $this WHERE { $this a <http://ex/T> . FILTER (<http://ex/exists>()) }" ] .
+            ex:x a <http://ex/T> .
+            ex:y <http://ex/marker> "m" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+
+        // Ignore (default): the function runs over an empty dataset (best-effort);
+        // here it returns false, so the constraint silently conforms.
+        let lenient = validate_report(&loaded, &loaded.graph);
+        assert!(lenient.conforms, "results: {:?}", lenient.results);
+
+        // Error: the graph-reading function is not registered, so the SPARQL call
+        // fails and the constraint fails closed (loud) rather than silently wrong.
+        let strict_opts = ValidationOptions {
+            engine: EngineOptions {
+                unsupported: UnsupportedPolicy::Error,
+            },
+            ..Default::default()
+        };
+        let strict = validate_report_with_options(&loaded, &loaded.graph, &strict_opts);
+        assert!(!strict.conforms);
+        assert_eq!(strict.results.len(), 1, "results: {:?}", strict.results);
     }
 
     #[test]

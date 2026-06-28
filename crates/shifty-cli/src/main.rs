@@ -326,6 +326,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let validation_options = shifty_engine::ValidationOptions {
         minimum_severity: threshold.clone(),
         sort_results: true,
+        ..Default::default()
     };
 
     let data_loaded = if args.data.is_empty() {

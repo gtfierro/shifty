@@ -3,8 +3,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
-    ValidationGraphMode, ValidationOptions, ValidationReport, report_to_graph,
-    validate_plan_graphs_with_mode_and_options, validate_plan_with_options,
+    EngineOptions, UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport,
+    report_to_graph, validate_plan_graphs_with_mode_and_options, validate_plan_with_options,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
 use std::path::PathBuf;
@@ -210,6 +210,25 @@ fn parse_minimum_severity(value: &str) -> Result<shifty_algebra::Severity, Strin
             "unknown minimum_severity {value:?}; expected 'info', 'warning', or 'violation'"
         )),
     }
+}
+
+/// Parse the `on_unsupported` kwarg into an [`UnsupportedPolicy`]: `"ignore"`
+/// (best-effort, the default) or `"error"`/`"strict"` (fail loudly).
+fn parse_unsupported_policy(value: &str) -> Result<UnsupportedPolicy, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "ignore" | "lenient" => Ok(UnsupportedPolicy::Ignore),
+        "error" | "strict" => Ok(UnsupportedPolicy::Error),
+        _ => Err(format!(
+            "unknown on_unsupported {value:?}; expected 'ignore' or 'error'"
+        )),
+    }
+}
+
+/// Build [`EngineOptions`] from the `on_unsupported` kwarg.
+fn engine_options(on_unsupported: &str) -> Result<EngineOptions, String> {
+    Ok(EngineOptions {
+        unsupported: parse_unsupported_policy(on_unsupported)?,
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -662,6 +681,7 @@ fn load_validation_inputs(
     run_infer=true,
     minimum_severity="info",
     sort_results=true,
+    on_unsupported="ignore",
     base=None
 ))]
 pub fn _validate_algebra(
@@ -676,6 +696,7 @@ pub fn _validate_algebra(
     run_infer: bool,
     minimum_severity: &str,
     sort_results: bool,
+    on_unsupported: &str,
     base: Option<String>,
 ) -> PyResult<AlgebraResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
@@ -689,6 +710,7 @@ pub fn _validate_algebra(
     let options = ValidationOptions {
         minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
         sort_results,
+        engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
     let raw = py
         .allow_threads(move || {
@@ -729,6 +751,7 @@ pub fn _validate_algebra(
     run_infer=true,
     minimum_severity="info",
     sort_results=true,
+    on_unsupported="ignore",
     base=None
 ))]
 pub fn _validate_w3c(
@@ -743,6 +766,7 @@ pub fn _validate_w3c(
     run_infer: bool,
     minimum_severity: &str,
     sort_results: bool,
+    on_unsupported: &str,
     base: Option<String>,
 ) -> PyResult<W3cResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
@@ -756,6 +780,7 @@ pub fn _validate_w3c(
     let options = ValidationOptions {
         minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
         sort_results,
+        engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _) =
@@ -786,6 +811,7 @@ pub fn _validate_w3c(
     shapes=None,
     shapes_path=None,
     shapes_format="turtle",
+    on_unsupported="ignore",
     base=None
 ))]
 pub fn _infer(
@@ -796,6 +822,7 @@ pub fn _infer(
     shapes: Option<PyBackedBytes>,
     shapes_path: Option<String>,
     shapes_format: &str,
+    on_unsupported: &str,
     base: Option<String>,
 ) -> PyResult<InferResult> {
     let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
@@ -805,14 +832,18 @@ pub fn _infer(
             Some(InputSpec::new(data, path, shapes_format, "shapes").map_err(py_value_error)?)
         }
     };
+    let engine = engine_options(on_unsupported).map_err(py_value_error)?;
     py.allow_threads(move || {
         let (data_loaded, shapes_loaded, schema, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
         let outcome = match shapes_loaded.as_ref() {
-            Some(shapes_loaded) => {
-                shifty_engine::infer_graphs(&data_loaded.graph, &shapes_loaded.graph, &schema)
-            }
-            None => shifty_engine::infer(&data_loaded.graph, &schema),
+            Some(shapes_loaded) => shifty_engine::infer_with_context_and_options(
+                &data_loaded.graph,
+                &shifty_engine::graph_union(&data_loaded.graph, &shapes_loaded.graph),
+                &schema,
+                &engine,
+            ),
+            None => shifty_engine::infer_with_options(&data_loaded.graph, &schema, &engine),
         }
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
         Ok(InferResult {
@@ -881,7 +912,8 @@ impl PreparedValidator {
         graph_mode="union",
         run_infer=true,
         minimum_severity="info",
-        sort_results=true
+        sort_results=true,
+        on_unsupported="ignore"
     ))]
     #[allow(clippy::too_many_arguments)]
     fn validate_algebra(
@@ -894,12 +926,14 @@ impl PreparedValidator {
         run_infer: bool,
         minimum_severity: &str,
         sort_results: bool,
+        on_unsupported: &str,
     ) -> PyResult<AlgebraResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
         let options = ValidationOptions {
             minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
             sort_results,
+            engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
         let raw = py
             .allow_threads(|| {
@@ -925,7 +959,8 @@ impl PreparedValidator {
         graph_mode="union",
         run_infer=true,
         minimum_severity="info",
-        sort_results=true
+        sort_results=true,
+        on_unsupported="ignore"
     ))]
     #[allow(clippy::too_many_arguments)]
     fn validate_w3c(
@@ -938,12 +973,14 @@ impl PreparedValidator {
         run_infer: bool,
         minimum_severity: &str,
         sort_results: bool,
+        on_unsupported: &str,
     ) -> PyResult<W3cResult> {
         let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
         let mode = parse_mode(graph_mode).map_err(py_value_error)?;
         let options = ValidationOptions {
             minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
             sort_results,
+            engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
         py.allow_threads(|| {
             let data_loaded = data.load(self.base.as_deref())?;

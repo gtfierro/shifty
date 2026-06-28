@@ -217,6 +217,7 @@ class PreparedValidator:
         infer: bool = True,
         minimum_severity: str = "info",
         sort_results: bool = True,
+        on_unsupported: str = "ignore",
     ) -> "tuple[bool, rdflib.Graph, str]":
         import rdflib
 
@@ -229,6 +230,7 @@ class PreparedValidator:
             infer,
             minimum_severity,
             sort_results,
+            on_unsupported,
         )
         graph = rdflib.Graph()
         graph.parse(data=result.report_turtle, format="turtle")
@@ -242,6 +244,7 @@ class PreparedValidator:
         infer: bool = True,
         minimum_severity: str = "info",
         sort_results: bool = True,
+        on_unsupported: str = "ignore",
     ) -> AlgebraResult:
         data = _to_rdf_input(data_graph)
         return self._inner.validate_algebra(
@@ -252,6 +255,7 @@ class PreparedValidator:
             infer,
             minimum_severity,
             sort_results,
+            on_unsupported,
         )
 
     def __repr__(self) -> str:
@@ -447,6 +451,7 @@ def validate(
     infer: bool = True,
     minimum_severity: str = "info",
     sort_results: bool = True,
+    on_unsupported: str = "ignore",
     base: Optional[str] = None,
 ) -> "tuple[bool, rdflib.Graph, str]":
     """Validate *data_graph* against *shacl_graph* (pyshacl-compatible).
@@ -496,6 +501,7 @@ def validate(
         infer,
         minimum_severity,
         sort_results,
+        on_unsupported,
         base,
     )
 
@@ -513,6 +519,7 @@ def validate_algebra(
     infer: bool = True,
     minimum_severity: str = "info",
     sort_results: bool = True,
+    on_unsupported: str = "ignore",
     base: Optional[str] = None,
 ) -> AlgebraResult:
     """Validate and return a structured algebraic result.
@@ -551,6 +558,7 @@ def validate_algebra(
         infer,
         minimum_severity,
         sort_results,
+        on_unsupported,
         base,
     )
 
@@ -559,6 +567,7 @@ def infer(
     data_graph: GraphInput,
     shapes_graph: Optional[GraphInput] = None,
     *,
+    on_unsupported: str = "ignore",
     base: Optional[str] = None,
 ) -> InferResult:
     """Run SHACL-AF forward-chaining rules to a fixed point.
@@ -589,6 +598,7 @@ def infer(
         shapes.data,
         shapes.path,
         shapes.format,
+        on_unsupported,
         base,
     )
     return InferResult(inner)

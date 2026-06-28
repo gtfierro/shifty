@@ -92,6 +92,7 @@ impl Options {
         Ok(ValidationOptions {
             minimum_severity,
             sort_results: self.sort_results,
+            ..Default::default()
         })
     }
 }

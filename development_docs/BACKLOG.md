@@ -50,13 +50,26 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   graph (params ordered by `sh:order`/local name, body prefix-expanded);
   `SparqlExecutor::evaluator()` registers each via Oxigraph
   `with_custom_function` and is used by every fallback execution path.
-  `evaluate_function_expression` drives `dash:FunctionTestCase`s. Functions are
-  evaluated as **pure** functions of their arguments (body over an empty
-  dataset): the frozen dataset is `Rc`-based and can't cross the
+  `evaluate_function_expression` drives `dash:FunctionTestCase`s. Inference also
+  registers functions (`infer_with_options` /
+  `infer_with_context_and_options`), so CONSTRUCT rule bodies can call them.
+  Functions are evaluated as **pure** functions of their arguments (body over an
+  empty dataset): the frozen dataset is `Rc`-based and can't cross the
   `Send + Sync` custom-function boundary, so graph-reading function bodies in
-  SPARQL contexts are unsupported (node-expression calls keep full graph
-  access). JS functions unsupported. W3C advanced `function/simpleSPARQLFunction`
-  (both cases) passes.
+  SPARQL contexts are gated by `UnsupportedPolicy` (node-expression calls keep
+  full graph access). JS functions unsupported. W3C advanced
+  `function/simpleSPARQLFunction` (both cases) passes.
+- **[done]** Feature-handling policy: `EngineOptions { unsupported:
+  UnsupportedPolicy::Ignore | Error }`, embedded in `ValidationOptions` and
+  accepted by `infer_with_options`. `Ignore` (default) keeps the historical
+  best-effort behavior; `Error` declines to register graph-reading functions in
+  the custom-function registry, so a SPARQL call to one fails loudly (fail-closed
+  constraint, with the error surfaced in the result message) instead of silently
+  evaluating over an empty dataset. Exposed in Python as the `on_unsupported=`
+  keyword on `validate`/`validate_algebra`/`infer` and `PreparedValidator`. The
+  `query_reads_graph` classifier (non-empty BGP / path / `GRAPH` / `SERVICE`)
+  decides which bodies are graph-reading. Add new gated behaviors as fields on
+  `EngineOptions`. See the feature-support table in `README.md`.
 - **[done]** `sh:qualifiedValueShapesDisjoint` is lowered into the algebra count
   qualifier as the qualified shape conjoined with the negation of every sibling
   qualified shape. The RDF-driven report path uses the same parent-based sibling

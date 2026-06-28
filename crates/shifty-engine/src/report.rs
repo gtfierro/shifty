@@ -16,7 +16,8 @@ use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::{FunctionDef, SparqlExecutor};
 use crate::validate::{
-    ValidationGraphMode, ValidationOptions, apply_message_template, graph_union, is_boolean_true,
+    UnsupportedPolicy, ValidationGraphMode, ValidationOptions, apply_message_template, graph_union,
+    is_boolean_true,
 };
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
@@ -65,7 +66,9 @@ pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
 pub fn evaluate_function_expression(shapes: &Loaded, expr: &str) -> Result<Option<Term>, String> {
     let frozen = FrozenIndexedDataset::from_graph(&shapes.graph);
     let mut sparql = SparqlExecutor::from_frozen(frozen, false);
-    sparql.set_functions(collect_functions(shapes));
+    // Expression evaluation is the function's own dataset-free path; register
+    // every function (Ignore) so pure dash:expressions resolve.
+    sparql.set_functions(collect_functions(shapes), UnsupportedPolicy::Ignore);
     let mut prologue = String::new();
     if let Some(base) = &shapes.base {
         prologue.push_str(&format!("BASE <{base}>\n"));
@@ -167,7 +170,7 @@ fn validate_report_context(
             .next()
             .is_some();
     let mut sparql = SparqlExecutor::from_frozen(frozen, needs_sparql && has_shapes_graph);
-    sparql.set_functions(collect_functions(shapes));
+    sparql.set_functions(collect_functions(shapes), options.engine.unsupported);
     // Index class membership once (instead of a forward scan over every node per
     // class-target shape): this is the report path's analogue of the plan's
     // backward `PathToConst` focus source, amortized across all shapes.
@@ -458,6 +461,7 @@ pub(crate) fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
         out.push(FunctionDef {
             iri: iri.clone(),
             params: function_param_names(shapes, &func),
+            reads_graph: crate::sparql::query_reads_graph(&query),
             query,
         });
     }
@@ -1101,17 +1105,24 @@ impl Reporter<'_> {
                         });
                     }
                 }
-                // Runtime failure (e.g. complex-path prebinding is unsupported):
-                // fail closed, matching the algebra validator.
-                Err(_) => out.push(ValidationResult {
-                    focus: focus.clone(),
-                    path: path_term.clone(),
-                    value: None,
-                    component: vocab::SH_CC_SPARQL.into_owned(),
-                    source_shape: node_term_ref(shape),
-                    severity: severity.clone(),
-                    messages: raw_messages,
-                }),
+                // Runtime failure (e.g. an unsupported graph-reading function
+                // under UnsupportedPolicy::Error, or complex-path prebinding):
+                // fail closed, surfacing the error so it is not a silent miss.
+                Err(error) => {
+                    let mut messages = raw_messages;
+                    messages.push(Term::Literal(Literal::new_simple_literal(format!(
+                        "SPARQL constraint evaluation failed: {error}"
+                    ))));
+                    out.push(ValidationResult {
+                        focus: focus.clone(),
+                        path: path_term.clone(),
+                        value: None,
+                        component: vocab::SH_CC_SPARQL.into_owned(),
+                        source_shape: node_term_ref(shape),
+                        severity: severity.clone(),
+                        messages,
+                    });
+                }
             }
         }
     }

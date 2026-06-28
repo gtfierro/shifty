@@ -15,8 +15,10 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{node_of, succ};
-use crate::sparql::SparqlExecutor;
-use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, graph_union};
+use crate::sparql::{FunctionDef, SparqlExecutor, query_reads_graph};
+use crate::validate::{
+    EngineOptions, NonStratifiable, ShapeEvaluator, focus_nodes_with, graph_union,
+};
 use oxrdf::{Graph, NamedNode, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::{NodeExpr, Rule, RuleHead, Schema, Selector, ShapeArena};
 use shifty_opt::{RuleDependencies, analyze, rule_dependencies, rule_guard_dependencies};
@@ -36,6 +38,16 @@ pub struct InferenceOutcome {
 /// Run rule inference to a least fixpoint, ordered by `sh:order`.
 pub fn infer(data: &Graph, schema: &Schema) -> Result<InferenceOutcome, NonStratifiable> {
     infer_with_context(data, data, schema)
+}
+
+/// Run inference with explicit [`EngineOptions`] (e.g. the `UnsupportedPolicy`
+/// for graph-reading SHACL functions called from CONSTRUCT rule bodies).
+pub fn infer_with_options(
+    data: &Graph,
+    schema: &Schema,
+    options: &EngineOptions,
+) -> Result<InferenceOutcome, NonStratifiable> {
+    infer_with_context_and_options(data, data, schema, options)
 }
 
 /// Run inference over split data and shapes graphs.
@@ -59,6 +71,16 @@ pub fn infer_with_context(
     context: &Graph,
     schema: &Schema,
 ) -> Result<InferenceOutcome, NonStratifiable> {
+    infer_with_context_and_options(data, context, schema, &EngineOptions::default())
+}
+
+/// [`infer_with_context`] with an explicit feature-handling policy.
+pub fn infer_with_context_and_options(
+    data: &Graph,
+    context: &Graph,
+    schema: &Schema,
+    options: &EngineOptions,
+) -> Result<InferenceOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -72,8 +94,11 @@ pub fn infer_with_context(
 
     let mut graph = data.clone();
     let mut context = context.clone();
-    let sparql =
+    let mut sparql =
         SparqlExecutor::new(&context).expect("building an in-memory Oxigraph store should succeed");
+    // Register sh:SPARQLFunctions so CONSTRUCT rule bodies can call them (node
+    // expressions use the graph-aware call_sparql_function path separately).
+    sparql.set_functions(collect_functions(&context), options.unsupported);
     let mut inferred: Vec<Triple> = Vec::new();
     let mut diags: BTreeSet<String> = BTreeSet::new();
 
@@ -413,6 +438,36 @@ fn once(t: Term) -> HashSet<Term> {
 /// Return the local name of an IRI (the part after the last `#` or `/`).
 fn local_name(iri: &str) -> &str {
     iri.rsplit(['#', '/']).next().unwrap_or(iri)
+}
+
+/// Build registrable [`FunctionDef`]s for every `sh:SPARQLFunction` in the
+/// context graph (raw bodies; node-expression calls handle their own prefixes).
+fn collect_functions(g: &Graph) -> Vec<FunctionDef> {
+    let mut out = Vec::new();
+    for func in g
+        .subjects_for_predicate_object(vocab::RDF_TYPE, vocab::SH_SPARQL_FUNCTION)
+        .map(|s| s.into_owned())
+        .collect::<Vec<_>>()
+    {
+        let NamedOrBlankNode::NamedNode(iri) = &func else {
+            continue;
+        };
+        let raw = match g
+            .object_for_subject_predicate(&func, vocab::SH_SELECT)
+            .or_else(|| g.object_for_subject_predicate(&func, vocab::SH_ASK))
+            .map(|t| t.into_owned())
+        {
+            Some(Term::Literal(l)) => l.value().to_string(),
+            _ => continue,
+        };
+        out.push(FunctionDef {
+            iri: iri.clone(),
+            params: function_params(g, &func),
+            reads_graph: query_reads_graph(&raw),
+            query: raw,
+        });
+    }
+    out
 }
 
 /// Resolve a SPARQL function's parameter names from the context graph,

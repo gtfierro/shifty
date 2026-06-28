@@ -72,6 +72,7 @@ Contents
    :maxdepth: 2
 
    getting-started
+   feature-support
    cli/index
    python-api/index
    playground
