@@ -160,6 +160,22 @@ iri!(SH_RULE, "http://www.w3.org/ns/shacl#rule");
 iri!(SH_PARAMETER, "http://www.w3.org/ns/shacl#parameter");
 iri!(SH_NAME, "http://www.w3.org/ns/shacl#name");
 
+// AF custom constraint components (SHACL §6.2–6.3)
+iri!(
+    SH_CONSTRAINT_COMPONENT,
+    "http://www.w3.org/ns/shacl#ConstraintComponent"
+);
+iri!(SH_VALIDATOR, "http://www.w3.org/ns/shacl#validator");
+iri!(
+    SH_NODE_VALIDATOR,
+    "http://www.w3.org/ns/shacl#nodeValidator"
+);
+iri!(
+    SH_PROPERTY_VALIDATOR,
+    "http://www.w3.org/ns/shacl#propertyValidator"
+);
+iri!(SH_OPTIONAL, "http://www.w3.org/ns/shacl#optional");
+
 // AF expression constraints (SHACL-AF §5)
 iri!(SH_EXPRESSION, "http://www.w3.org/ns/shacl#expression");
 

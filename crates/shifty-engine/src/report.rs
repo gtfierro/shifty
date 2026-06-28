@@ -180,6 +180,7 @@ fn validate_report_context(
         needs_sparql,
         class_index,
         path_cache: RefCell::new(HashMap::new()),
+        components: build_components(shapes),
     };
     let mut results = Vec::new();
     for shape in r.target_shapes() {
@@ -294,6 +295,121 @@ fn substitute_messages(
         .collect()
 }
 
+/// A SPARQL-based custom constraint component (SHACL §6.2–6.3): a named
+/// component IRI, its parameters, and the validators that apply to node shapes,
+/// property shapes, or both.
+struct CustomComponent {
+    /// The component IRI, reported as `sh:sourceConstraintComponent`.
+    iri: NamedNode,
+    params: Vec<ComponentParam>,
+    /// `sh:nodeValidator` — used when the component is applied to a node shape.
+    node_validator: Option<ComponentValidator>,
+    /// `sh:propertyValidator` — used when applied to a property shape.
+    property_validator: Option<ComponentValidator>,
+    /// `sh:validator` — an ASK validator usable for either shape kind.
+    generic_validator: Option<ComponentValidator>,
+}
+
+struct ComponentParam {
+    /// The parameter's `sh:path` predicate; the shape supplies its value here.
+    path: NamedNode,
+    /// The pre-bound SPARQL variable name (the local name of `path`).
+    var: String,
+    optional: bool,
+}
+
+struct ComponentValidator {
+    kind: SparqlQueryKind,
+    /// Prefix-expanded query text (`sh:ask` / `sh:select`).
+    query: String,
+    messages: Vec<Term>,
+}
+
+/// Discover every SPARQL-based custom constraint component in the shapes graph:
+/// a named subject carrying `sh:parameter`(s) and at least one validator. (A
+/// `sh:SPARQLFunction` also has `sh:parameter` but no validator, so it is
+/// excluded.)
+fn build_components(shapes: &Loaded) -> Vec<CustomComponent> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for triple in shapes.graph.triples_for_predicate(vocab::SH_PARAMETER) {
+        let subject = triple.subject.into_owned();
+        if !seen.insert(subject.clone()) {
+            continue;
+        }
+        let NamedOrBlankNode::NamedNode(iri) = &subject else {
+            continue; // a component must be named to be a sourceConstraintComponent
+        };
+        let node_validator = shapes
+            .object(&subject, vocab::SH_NODE_VALIDATOR)
+            .and_then(|v| parse_validator(shapes, &v));
+        let property_validator = shapes
+            .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
+            .and_then(|v| parse_validator(shapes, &v));
+        let generic_validator = shapes
+            .object(&subject, vocab::SH_VALIDATOR)
+            .and_then(|v| parse_validator(shapes, &v));
+        if node_validator.is_none() && property_validator.is_none() && generic_validator.is_none() {
+            continue; // not a constraint component (e.g. a sh:SPARQLFunction)
+        }
+        let mut params = Vec::new();
+        for p in shapes.objects(&subject, vocab::SH_PARAMETER) {
+            let Some(pn) = term_to_node(&p) else { continue };
+            let Some(Term::NamedNode(path)) = shapes.object(&pn, vocab::SH_PATH) else {
+                continue;
+            };
+            let var = local_name(path.as_str()).to_string();
+            let optional = matches!(
+                shapes.object(&pn, vocab::SH_OPTIONAL),
+                Some(Term::Literal(ref l)) if l.value() == "true"
+            );
+            params.push(ComponentParam {
+                path,
+                var,
+                optional,
+            });
+        }
+        if params.is_empty() {
+            continue;
+        }
+        out.push(CustomComponent {
+            iri: iri.clone(),
+            params,
+            node_validator,
+            property_validator,
+            generic_validator,
+        });
+    }
+    out.sort_by(|a, b| a.iri.as_str().cmp(b.iri.as_str()));
+    out
+}
+
+/// Parse a validator node (`sh:SPARQLAskValidator` / `sh:SPARQLSelectValidator`
+/// or a subclass), resolving its `sh:prefixes` into a canonical query string.
+fn parse_validator(shapes: &Loaded, node: &Term) -> Option<ComponentValidator> {
+    let node = term_to_node(node)?;
+    let (kind, raw) = if let Some(Term::Literal(q)) = shapes.object(&node, vocab::SH_ASK) {
+        (SparqlQueryKind::Ask, q.value().to_string())
+    } else if let Some(Term::Literal(q)) = shapes.object(&node, vocab::SH_SELECT) {
+        (SparqlQueryKind::Select, q.value().to_string())
+    } else {
+        return None;
+    };
+    let (_, query) = canonical_sparql_query(shapes, &node, &raw).ok()?;
+    let messages = shapes.objects(&node, vocab::SH_MESSAGE);
+    Some(ComponentValidator {
+        kind,
+        query,
+        messages,
+    })
+}
+
+/// The local name of an IRI (after the last `#` or `/`) — the SHACL rule for a
+/// parameter's pre-bound variable name (SHACL §6.2.1).
+fn local_name(iri: &str) -> &str {
+    iri.rsplit(['#', '/']).next().unwrap_or(iri)
+}
+
 struct Reporter<'a> {
     shapes: &'a Loaded,
     focus_data: &'a Graph,
@@ -305,6 +421,9 @@ struct Reporter<'a> {
     /// Parsed `sh:path` per shape node, so `collect` does not re-parse the path
     /// RDF on every (shape, focus) visit. `None` = shape has no/invalid path.
     path_cache: RefCell<HashMap<NamedOrBlankNode, PathCacheEntry>>,
+    /// SPARQL-based custom constraint components declared in the shapes graph
+    /// (empty for the common case of no custom components).
+    components: Vec<CustomComponent>,
 }
 
 type Visited = HashSet<(NamedOrBlankNode, Term)>;
@@ -526,8 +645,165 @@ impl Reporter<'_> {
 
         self.collect_sparql(shape, focus, &path_term, &parsed, out);
         self.collect_expression(shape, focus, out, visited);
+        self.collect_components(shape, focus, &path_term, &parsed, &value_nodes, out);
 
         visited.remove(&key);
+    }
+
+    /// SPARQL-based custom constraint components (SHACL §6.3). A component is
+    /// *activated* for `shape` iff the shape supplies a value for each of its
+    /// mandatory parameters; those values (plus `$this`, `$value`, `$PATH`,
+    /// `$currentShape`) are pre-bound into the validator query. ASK validators
+    /// run per value node (violation iff they return `false`); SELECT validators
+    /// run once per focus (each solution row is a violation).
+    fn collect_components(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path_term: &Option<Term>,
+        parsed_path: &Option<Path>,
+        value_nodes: &[Term],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if self.components.is_empty() {
+            return;
+        }
+        let is_property_shape = parsed_path.is_some();
+        for component in &self.components {
+            // Activation: every mandatory parameter must have a value on `shape`.
+            let mut params: Vec<(String, Term)> = Vec::new();
+            let mut activated = true;
+            for p in &component.params {
+                if let Some(value) = self.shapes.object(shape, p.path.as_ref()) {
+                    params.push((p.var.clone(), value));
+                } else if !p.optional {
+                    activated = false;
+                    break;
+                }
+            }
+            if !activated {
+                continue;
+            }
+
+            let validator = if is_property_shape {
+                component
+                    .property_validator
+                    .as_ref()
+                    .or(component.generic_validator.as_ref())
+            } else {
+                component
+                    .node_validator
+                    .as_ref()
+                    .or(component.generic_validator.as_ref())
+            };
+            let Some(validator) = validator else { continue };
+
+            // Bindings shared across value nodes: parameters, $currentShape, and
+            // $PATH (simple predicate paths only; complex paths are skipped).
+            let mut base = params;
+            base.push(("currentShape".to_string(), node_term_ref(shape)));
+            if let Some(Path::Pred(predicate)) = parsed_path {
+                base.push(("PATH".to_string(), Term::NamedNode(predicate.clone())));
+            } else if is_property_shape {
+                continue; // complex $PATH not supported in the validator path yet
+            }
+
+            match validator.kind {
+                SparqlQueryKind::Ask => {
+                    for value in value_nodes {
+                        let mut bindings = base.clone();
+                        bindings.push(("this".to_string(), focus.clone()));
+                        bindings.push(("value".to_string(), value.clone()));
+                        // Conform iff ASK is true; a runtime error fails closed.
+                        let violates = match self.sparql.eval_ask(&validator.query, &bindings) {
+                            Ok(conforms) => !conforms,
+                            Err(_) => true,
+                        };
+                        if violates {
+                            self.push_component_result(
+                                out,
+                                component,
+                                shape,
+                                focus,
+                                path_term.clone(),
+                                Some(value.clone()),
+                                &bindings,
+                                &validator.messages,
+                            );
+                        }
+                    }
+                }
+                SparqlQueryKind::Select => {
+                    let mut bindings = base.clone();
+                    bindings.push(("this".to_string(), focus.clone()));
+                    match self.sparql.eval_select(&validator.query, &bindings) {
+                        Ok(rows) => {
+                            for row in rows {
+                                // ?value projected; for node validators it is the
+                                // focus node itself when not projected.
+                                let value = row
+                                    .get("value")
+                                    .cloned()
+                                    .or_else(|| (!is_property_shape).then(|| focus.clone()));
+                                let path = row.get("path").cloned().or_else(|| path_term.clone());
+                                let mut binds = bindings.clone();
+                                binds.extend(row);
+                                self.push_component_result(
+                                    out,
+                                    component,
+                                    shape,
+                                    focus,
+                                    path,
+                                    value,
+                                    &binds,
+                                    &validator.messages,
+                                );
+                            }
+                        }
+                        Err(_) => self.push_component_result(
+                            out,
+                            component,
+                            shape,
+                            focus,
+                            path_term.clone(),
+                            None,
+                            &bindings,
+                            &validator.messages,
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_component_result(
+        &self,
+        out: &mut Vec<ValidationResult>,
+        component: &CustomComponent,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        path: Option<Term>,
+        value: Option<Term>,
+        bindings: &[(String, Term)],
+        validator_messages: &[Term],
+    ) {
+        let raw = if validator_messages.is_empty() {
+            self.messages(shape)
+        } else {
+            validator_messages.to_vec()
+        };
+        let bind_map: HashMap<String, Term> = bindings.iter().cloned().collect();
+        let messages = substitute_messages(&raw, focus, &bind_map);
+        out.push(ValidationResult {
+            focus: focus.clone(),
+            path,
+            value,
+            component: component.iri.clone(),
+            source_shape: node_term_ref(shape),
+            severity: self.severity(shape),
+            messages,
+        });
     }
 
     /// `sh:expression` constraints (SHACL-AF §5). The node expression is

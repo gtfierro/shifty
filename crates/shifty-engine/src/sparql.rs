@@ -824,6 +824,73 @@ impl SparqlExecutor {
         }
     }
 
+    /// Run a custom constraint-component **ASK** validator (SHACL §6.3.2) with
+    /// the given variable substitutions (`$value`, `$this`, parameter vars, …).
+    /// Returns the ASK's boolean. The value node conforms iff this is `true`.
+    pub(crate) fn eval_ask(
+        &self,
+        raw_query: &str,
+        bindings: &[(String, Term)],
+    ) -> Result<bool, String> {
+        match self.run_substituted(raw_query, bindings)? {
+            QueryResults::Boolean(b) => Ok(b),
+            _ => Err("sh:SPARQLAskValidator query is not an ASK".to_string()),
+        }
+    }
+
+    /// Run a custom constraint-component **SELECT** validator (SHACL §6.3.3) with
+    /// the given variable substitutions. Each solution row (its variable →
+    /// term map) is one violation.
+    pub(crate) fn eval_select(
+        &self,
+        raw_query: &str,
+        bindings: &[(String, Term)],
+    ) -> Result<Vec<HashMap<String, Term>>, String> {
+        match self.run_substituted(raw_query, bindings)? {
+            QueryResults::Solutions(solutions) => {
+                let vars: Vec<String> = solutions
+                    .variables()
+                    .iter()
+                    .map(|v| v.as_str().to_string())
+                    .collect();
+                solutions
+                    .map(|solution| {
+                        let solution = solution.map_err(err)?;
+                        Ok(vars
+                            .iter()
+                            .filter_map(|name| {
+                                solution
+                                    .get(name.as_str())
+                                    .map(|t| (name.clone(), t.clone()))
+                            })
+                            .collect())
+                    })
+                    .collect()
+            }
+            _ => Err("sh:SPARQLSelectValidator query is not a SELECT".to_string()),
+        }
+    }
+
+    /// Parse `raw_query`, substitute each `(var, value)` binding throughout
+    /// (SHACL pre-binding), and execute over the frozen dataset (or store).
+    fn run_substituted(
+        &self,
+        raw_query: &str,
+        bindings: &[(String, Term)],
+    ) -> Result<QueryResults<'_>, String> {
+        let mut query = self.parse(raw_query)?;
+        for (name, value) in bindings {
+            let var = Variable::new(name).map_err(err)?;
+            substitute_query(&mut query, &var, value);
+        }
+        let prepared = SparqlEvaluator::new().for_query(query);
+        if let Some(frozen) = &self.frozen {
+            prepared.on_queryable_dataset(frozen).execute().map_err(err)
+        } else {
+            prepared.on_store(self.store()?).execute().map_err(err)
+        }
+    }
+
     fn store(&self) -> Result<&Store, String> {
         self.store
             .as_ref()

@@ -618,6 +618,111 @@ mod tests {
     }
 
     #[test]
+    fn custom_component_ask_validator() {
+        // A two-parameter ASK component (the W3C validator-001 shape): a value
+        // conforms iff it is the concatenation of the two parameters.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:TestConstraintComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:test1 ] , [ sh:path ex:test2 ] ;
+                sh:validator [ a sh:SPARQLAskValidator ;
+                    sh:ask "ASK { FILTER (?value = CONCAT($test1, $test2)) }" ] .
+            ex:TestShape a sh:NodeShape ;
+                ex:test1 "Hello " ;
+                ex:test2 "World" ;
+                sh:targetNode "Hallo Welt", "Hello World" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        let r = &report.results[0];
+        assert_eq!(r.component.as_str(), "http://ex/TestConstraintComponent");
+        assert_eq!(r.focus.to_string(), "\"Hallo Welt\"");
+        assert_eq!(
+            r.value.as_ref().map(ToString::to_string),
+            Some("\"Hallo Welt\"".to_string())
+        );
+        assert_eq!(r.source_shape.to_string(), "<http://ex/TestShape>");
+        assert_eq!(r.path, None);
+
+        // The lowered algebra cannot evaluate components, so it diagnoses the
+        // activation rather than silently under-validating.
+        let parsed = parse_turtle(ttl, None).unwrap();
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("custom constraint component")),
+            "expected a custom-component diagnostic, got: {:?}",
+            parsed.diagnostics
+        );
+    }
+
+    #[test]
+    fn custom_component_select_node_validator() {
+        // A SELECT node validator with a required parameter: a focus violates
+        // when it lacks an ex:property edge equal to the bound $requiredParam.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:C a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:requiredParam ] ;
+                sh:nodeValidator [ a sh:SPARQLSelectValidator ;
+                    sh:select """SELECT $this WHERE {
+                        $this ?p ?o .
+                        FILTER NOT EXISTS { $this <http://ex/property> $requiredParam }
+                    }""" ] .
+            ex:S a sh:NodeShape ;
+                ex:requiredParam "Value" ;
+                sh:targetNode ex:Good, ex:Bad .
+            ex:Good <http://ex/property> "Value" .
+            ex:Bad <http://ex/property> "Other" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        let r = &report.results[0];
+        assert_eq!(r.component.as_str(), "http://ex/C");
+        assert_eq!(r.focus.to_string(), "<http://ex/Bad>");
+        assert_eq!(
+            r.value.as_ref().map(ToString::to_string),
+            Some("<http://ex/Bad>".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_component_not_activated_when_mandatory_param_absent() {
+        // The component is only activated for shapes that supply every mandatory
+        // parameter; a shape missing it produces no results (and no diagnostic).
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:C a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:requiredParam ] ;
+                sh:validator [ a sh:SPARQLAskValidator ; sh:ask "ASK { FILTER (false) }" ] .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x .
+            ex:x ex:other "z" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(report.conforms, "results: {:?}", report.results);
+
+        let parsed = parse_turtle(ttl, None).unwrap();
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("custom constraint component")),
+            "an inactive component must not be diagnosed: {:?}",
+            parsed.diagnostics
+        );
+    }
+
+    #[test]
     fn equals_on_node_shape_uses_the_focus_node_as_the_value() {
         let ttl = format!(
             "{PREFIXES}

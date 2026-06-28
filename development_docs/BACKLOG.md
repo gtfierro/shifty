@@ -24,8 +24,24 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   (`Reporter::collect_expression`). Function-bearing expressions are diagnosed
   (the validation evaluators can't do shapes-graph function lookups). W3C
   advanced `expression/booleans-001` passes.
-- **[todo]** Custom constraint **components** (`sh:parameter`+`sh:validator`) (AF-CC).
-- **[todo]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F); JS features unsupported.
+- **[done]** Custom constraint **components** (`sh:parameter` +
+  `sh:validator`/`sh:nodeValidator`/`sh:propertyValidator`) (AF-CC), on the
+  RDF-driven report path. `Reporter::collect_components` discovers components
+  (named subjects with `sh:parameter` + a validator), *activates* one for a
+  shape when the shape supplies every mandatory parameter, pre-binds the
+  parameter values (variable = the parameter path's local name) plus
+  `$this`/`$value`/`$PATH`/`$currentShape`, and runs the validator:
+  `sh:SPARQLAskValidator` per value node (violation iff ASK is false),
+  `sh:SPARQLSelectValidator` once per focus (each solution row a violation), via
+  `SparqlExecutor::eval_ask`/`eval_select`. Optional parameters bind only when
+  present. The result's `sh:sourceConstraintComponent` is the component IRI.
+  Simple-predicate `$PATH` only; the algebra path diagnoses activated components
+  (`diagnose_custom_components`) rather than under-validating. W3C advanced
+  `sparql/component/{validator,nodeValidator,propertyValidator-select,optional}`
+  all pass. **[todo]** complex `$PATH`, JS validators.
+- **[todo]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F) callable from
+  `sh:sparql` / CONSTRUCT bodies and standalone `dash:FunctionTestCase`s; already
+  evaluated inside node expressions (`infer.rs`). JS features unsupported.
 - **[done]** `sh:qualifiedValueShapesDisjoint` is lowered into the algebra count
   qualifier as the qualified shape conjoined with the negation of every sibling
   qualified shape. The RDF-driven report path uses the same parent-based sibling
@@ -90,13 +106,13 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `dash:InferencingTestCase` → `infer` + expected-triple check;
   `sht:Validate` / `dash:GraphValidationTestCase` → `validate_report` result-set
   match. Advanced files use relative IRIs, so a `file://` base is supplied.
-  Current: **99 pass (6 inferencing + 93 validation), 0 fail, 6 skip (of 105)**.
+  Current: **103 pass (6 inferencing + 97 validation), 0 fail, 2 skip (of 105)**.
   Wiring `sh:filterShape`/`sh:intersection`/`sh:union` node-expression parsing
   un-skipped 2 inferencing cases (4→6 pass); `sh:expression` constraints
-  un-skipped the `expression/` validation case (92→93 pass). The 6 remaining
-  skips are the still-unsupported features below: **[todo]** SHACL functions
-  (AF-F, `sh:SPARQLFunction`) → 1 inferencing skip + the `function/` cases; plus
-  custom components → 5 validation skips.
+  un-skipped the `expression/` validation case; custom constraint components
+  (AF-CC) un-skipped the 4 `sparql/component/` cases (93→97 pass). The 2
+  remaining skips are both **[todo]** SHACL functions (AF-F, `sh:SPARQLFunction`):
+  1 inferencing rule case + the `function/` validation case.
 - the algebra path's `Violation`/`Reason` reports stay focus-node + `@id` level
   (the report validator is the W3C-faithful path).
 - **[done]** Term ordering extended: `compare_terms` now handles `xsd:date`,

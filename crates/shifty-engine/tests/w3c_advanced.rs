@@ -38,10 +38,6 @@ const RDF_OBJECT: NamedNodeRef =
 /// validator / inference engine doesn't support yet; skip rather than report a
 /// spurious failure.
 const UNSUPPORTED_VALIDATION: &[&str] = &[
-    "http://www.w3.org/ns/shacl#parameter",
-    "http://www.w3.org/ns/shacl#validator",
-    "http://www.w3.org/ns/shacl#nodeValidator",
-    "http://www.w3.org/ns/shacl#propertyValidator",
     "http://www.w3.org/ns/shacl#js",
     "http://www.w3.org/ns/shacl#jsLibrary",
     "http://www.w3.org/ns/shacl#jsFunctionName",

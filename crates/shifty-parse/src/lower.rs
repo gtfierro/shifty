@@ -38,6 +38,7 @@ pub fn lower(g: &Loaded) -> Lowered {
     for s in &shapes {
         l.lower_shape(s);
     }
+    l.diagnose_custom_components(&shapes);
     for s in &shapes {
         // selectors are shared by the shape's statements and its rules
         let selectors = l.target_selectors(s);
@@ -568,6 +569,67 @@ impl Lowerer<'_> {
         }
 
         sels
+    }
+
+    /// SPARQL-based custom constraint components (SHACL §6.3) are evaluated only
+    /// on the RDF-driven report path (`validate_report`), not in the lowered
+    /// algebra. When a discovered shape *activates* such a component — i.e. it
+    /// supplies a value for every mandatory parameter — emit a diagnostic so the
+    /// algebra validators don't silently under-constrain rather than evaluate it.
+    fn diagnose_custom_components(&mut self, shapes: &[NamedOrBlankNode]) {
+        // Components: named subjects with sh:parameter and at least one validator.
+        let mut components: Vec<(NamedNode, Vec<NamedNode>)> = Vec::new();
+        let mut seen = HashSet::new();
+        for triple in self.g.graph.triples_for_predicate(vocab::SH_PARAMETER) {
+            let subject = triple.subject.into_owned();
+            if !seen.insert(subject.clone()) {
+                continue;
+            }
+            let NamedOrBlankNode::NamedNode(iri) = &subject else {
+                continue;
+            };
+            let has_validator = self.g.object(&subject, vocab::SH_VALIDATOR).is_some()
+                || self.g.object(&subject, vocab::SH_NODE_VALIDATOR).is_some()
+                || self
+                    .g
+                    .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
+                    .is_some();
+            if !has_validator {
+                continue; // e.g. a sh:SPARQLFunction
+            }
+            let mut mandatory = Vec::new();
+            for p in self.g.objects(&subject, vocab::SH_PARAMETER) {
+                let Some(pn) = term_to_node(&p) else { continue };
+                let optional = matches!(self.g.object(&pn, vocab::SH_OPTIONAL),
+                    Some(Term::Literal(l)) if l.value() == "true");
+                if !optional && let Some(Term::NamedNode(path)) = self.g.object(&pn, vocab::SH_PATH)
+                {
+                    mandatory.push(path);
+                }
+            }
+            components.push((iri.clone(), mandatory));
+        }
+        if components.is_empty() {
+            return;
+        }
+        for s in shapes {
+            for (iri, mandatory) in &components {
+                if mandatory
+                    .iter()
+                    .all(|path| self.g.object(s, path.as_ref()).is_some())
+                {
+                    self.diag(
+                        DiagLevel::Unsupported,
+                        format!(
+                            "shape activates custom constraint component <{}>, evaluated only on \
+                             the report path (validate_report), not in the algebra validator",
+                            iri.as_str()
+                        ),
+                        s,
+                    );
+                }
+            }
+        }
     }
 
     /// Lower the `sh:rule`s of a shape (SHACL-AF). A rule fires on the shape's
