@@ -81,6 +81,7 @@ heart of the "inference + validation" goal.
 | **AF-E** | **Node expressions** (`sh:path`, focus `sh:this`, `sh:filterShape`, function application, `sh:intersection`/`sh:union`, constants) | 🔧 | node expressions are *value-producing*; they map almost 1:1 onto our `Path` algebra plus literals plus function calls. Define `NodeExpr` reusing `Path`; this is the shared substrate for rule heads, AF targets, and computed values. |
 | **AF-T** | **SPARQL-based targets** (`sh:target` + `sh:select`) | 🚪 | `Selector::Sparql`; try to recognize/compile simple BGP selectors back into `HasOut/HasIn/HasPath`, else evaluate opaquely. |
 | **AF-C** | **SPARQL-based constraints** (`sh:sparql` with `sh:select`/`sh:ask`) | 🚪 | opaque `Shape::Sparql` leaf; subset (single-BGP, no aggregates) recognizable → algebra. |
+| **AF-X** | **Expression constraints** (`sh:expression`, SHACL-AF §5) | 🔧 *(done)* | `Shape::Expression(NodeExpr)`: conform iff the node expression over `?this` yields only `true`; each non-true value is one `sh:ExpressionConstraintComponent` result. Function-bearing expressions diagnosed. |
 | **AF-CC** | **Custom constraint components** (`sh:parameter` + `sh:validator`/`sh:nodeValidator`/`sh:propertyValidator`) | 🚪/🔧 | parameterized macro: bind parameters, then either expand the validator's SPARQL to algebra (preferred) or keep opaque. |
 | **AF-F** | **SHACL functions** (`sh:SPARQLFunction`, `sh:JSFunction`) | 🚪 | callable from node expressions; SPARQL functions get a compiled/interpreted path, JS stays opaque/unsupported initially. |
 

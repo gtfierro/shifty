@@ -42,7 +42,6 @@ const UNSUPPORTED_VALIDATION: &[&str] = &[
     "http://www.w3.org/ns/shacl#validator",
     "http://www.w3.org/ns/shacl#nodeValidator",
     "http://www.w3.org/ns/shacl#propertyValidator",
-    "http://www.w3.org/ns/shacl#expression",
     "http://www.w3.org/ns/shacl#js",
     "http://www.w3.org/ns/shacl#jsLibrary",
     "http://www.w3.org/ns/shacl#jsFunctionName",

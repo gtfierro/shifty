@@ -88,6 +88,19 @@ pub fn dependency_edges(arena: &ShapeArena) -> Vec<DepEdge> {
                     });
                 }
             }
+            Shape::Expression(e) => {
+                // A `Filter` inside the expression keeps inputs satisfying its
+                // shape — monotone, so the edge is positive.
+                let mut refs = Vec::new();
+                e.referenced_shapes(&mut refs);
+                for to in refs {
+                    edges.push(DepEdge {
+                        from,
+                        to,
+                        polarity: Polarity::Positive,
+                    });
+                }
+            }
             _ => {}
         }
     }

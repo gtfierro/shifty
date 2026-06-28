@@ -16,7 +16,7 @@ use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::SparqlExecutor;
 use crate::validate::{
-    ValidationGraphMode, ValidationOptions, apply_message_template, graph_union,
+    ValidationGraphMode, ValidationOptions, apply_message_template, graph_union, is_boolean_true,
 };
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
@@ -525,8 +525,115 @@ impl Reporter<'_> {
         }
 
         self.collect_sparql(shape, focus, &path_term, &parsed, out);
+        self.collect_expression(shape, focus, out, visited);
 
         visited.remove(&key);
+    }
+
+    /// `sh:expression` constraints (SHACL-AF §5). The node expression is
+    /// evaluated with the focus node as `?this`; every produced value that is
+    /// not the boolean `true` yields one `sh:ExpressionConstraintComponent`
+    /// result whose `sh:value` is that value. Expression forms the report path
+    /// cannot evaluate (function applications) are skipped, matching the
+    /// lowering path which diagnoses them rather than under-constraining.
+    fn collect_expression(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        out: &mut Vec<ValidationResult>,
+        visited: &mut Visited,
+    ) {
+        for expr_term in self.shapes.objects(shape, vocab::SH_EXPRESSION) {
+            let Some(results) = self.eval_node_expr(&expr_term, focus, visited) else {
+                continue;
+            };
+            for value in results {
+                if is_boolean_true(&value) {
+                    continue;
+                }
+                out.push(ValidationResult {
+                    focus: focus.clone(),
+                    path: None,
+                    value: Some(value),
+                    component: vocab::SH_CC_EXPRESSION.into_owned(),
+                    source_shape: node_term_ref(shape),
+                    severity: self.severity(shape),
+                    messages: self.messages(shape),
+                });
+            }
+        }
+    }
+
+    /// Evaluate a SHACL-AF node expression term (read straight from the shapes
+    /// graph) with `focus` as `?this`. `None` means the expression uses a form
+    /// the report path cannot evaluate (e.g. a function application), so the
+    /// caller skips the owning constraint.
+    fn eval_node_expr(
+        &self,
+        term: &Term,
+        focus: &Term,
+        visited: &mut Visited,
+    ) -> Option<Vec<Term>> {
+        match term {
+            Term::NamedNode(n) if n.as_ref() == vocab::SH_THIS => Some(vec![focus.clone()]),
+            Term::NamedNode(_) | Term::Literal(_) => Some(vec![term.clone()]),
+            Term::BlankNode(_) => {
+                let node = term_to_node(term)?;
+                if let Some(path_term) = self.shapes.object(&node, vocab::SH_PATH) {
+                    let path = parse_path(self.shapes, &path_term).ok()?;
+                    Some(succ(self.frozen(), focus, &path).into_iter().collect())
+                } else if let Some(filter_shape) = self.shapes.object(&node, vocab::SH_FILTER_SHAPE)
+                {
+                    let filter_shape = term_to_node(&filter_shape)?;
+                    let nodes_term = self.shapes.object(&node, vocab::SH_NODES)?;
+                    let inputs = self.eval_node_expr(&nodes_term, focus, visited)?;
+                    Some(
+                        inputs
+                            .into_iter()
+                            .filter(|x| self.conforms(&filter_shape, x, visited))
+                            .collect(),
+                    )
+                } else if let Some(list) = self.shapes.object(&node, vocab::SH_INTERSECTION) {
+                    self.eval_node_expr_set(&list, focus, visited, true)
+                } else if let Some(list) = self.shapes.object(&node, vocab::SH_UNION) {
+                    self.eval_node_expr_set(&list, focus, visited, false)
+                } else {
+                    // Function application or unrecognized form: unsupported here.
+                    None
+                }
+            }
+        }
+    }
+
+    /// Evaluate the members of an `sh:intersection` / `sh:union` list and combine
+    /// them (`intersect = true` for intersection, set union otherwise),
+    /// preserving each member's order while deduplicating.
+    fn eval_node_expr_set(
+        &self,
+        list_head: &Term,
+        focus: &Term,
+        visited: &mut Visited,
+        intersect: bool,
+    ) -> Option<Vec<Term>> {
+        let members = self.shapes.read_list(list_head);
+        if members.is_empty() {
+            return None;
+        }
+        let mut iter = members.iter();
+        let mut acc = self.eval_node_expr(iter.next().unwrap(), focus, visited)?;
+        for member in iter {
+            let next = self.eval_node_expr(member, focus, visited)?;
+            if intersect {
+                acc.retain(|x| next.contains(x));
+            } else {
+                for t in next {
+                    if !acc.contains(&t) {
+                        acc.push(t);
+                    }
+                }
+            }
+        }
+        Some(acc)
     }
 
     /// `sh:sparql` constraints (SHACL-SPARQL). Each `SELECT`/`ASK` query runs for

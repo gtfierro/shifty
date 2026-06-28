@@ -15,6 +15,15 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `Selector::Sparql` (AF-T), parsed and canonicalized with Spargebra.
 - **[done]** SPARQL-based **constraints** (`sh:sparql`) → `Shape::Sparql`
   (AF-C), including `sh:prefixes` resolution and query-kind validation.
+- **[done]** **Expression constraints** (`sh:expression`, SHACL-AF §5) →
+  `Shape::Expression(NodeExpr)`: the focus node conforms iff the node expression
+  (evaluated with the focus as `?this`) yields only the boolean `true`; each
+  non-true value is one `sh:ExpressionConstraintComponent` result. Lowered as a
+  focus-scoped conjunct in `lower.rs`; evaluated in the algebra path
+  (`holds_memoized` + `eval_expr`) and RDF-driven report path
+  (`Reporter::collect_expression`). Function-bearing expressions are diagnosed
+  (the validation evaluators can't do shapes-graph function lookups). W3C
+  advanced `expression/booleans-001` passes.
 - **[todo]** Custom constraint **components** (`sh:parameter`+`sh:validator`) (AF-CC).
 - **[todo]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F); JS features unsupported.
 - **[done]** `sh:qualifiedValueShapesDisjoint` is lowered into the algebra count
@@ -81,12 +90,13 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `dash:InferencingTestCase` → `infer` + expected-triple check;
   `sht:Validate` / `dash:GraphValidationTestCase` → `validate_report` result-set
   match. Advanced files use relative IRIs, so a `file://` base is supplied.
-  Current: **98 pass (6 inferencing + 92 validation), 0 fail, 7 skip (of 105)**.
+  Current: **99 pass (6 inferencing + 93 validation), 0 fail, 6 skip (of 105)**.
   Wiring `sh:filterShape`/`sh:intersection`/`sh:union` node-expression parsing
-  un-skipped 2 inferencing cases (4→6 pass). The 7 remaining skips are the
-  still-unsupported features below: **[todo]** SHACL functions (AF-F,
-  `sh:SPARQLFunction`) → 1 inferencing skip + the `function/` cases; plus custom
-  components / `sh:expression` → 6 validation skips.
+  un-skipped 2 inferencing cases (4→6 pass); `sh:expression` constraints
+  un-skipped the `expression/` validation case (92→93 pass). The 6 remaining
+  skips are the still-unsupported features below: **[todo]** SHACL functions
+  (AF-F, `sh:SPARQLFunction`) → 1 inferencing skip + the `function/` cases; plus
+  custom components → 5 validation skips.
 - the algebra path's `Violation`/`Reason` reports stay focus-node + `@id` level
   (the report validator is the W3C-faithful path).
 - **[done]** Term ordering extended: `compare_terms` now handles `xsd:date`,

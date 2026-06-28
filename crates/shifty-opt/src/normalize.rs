@@ -243,6 +243,11 @@ impl<'a> Interner<'a> {
             Shape::Lt(path, nn) => self.cons(Shape::Lt(normalize_path(path), nn)),
             Shape::Le(path, nn) => self.cons(Shape::Le(normalize_path(path), nn)),
             Shape::UniqueLang(path) => self.cons(Shape::UniqueLang(normalize_path(path))),
+            // re-intern the node expression's `Filter` shape references into dst
+            Shape::Expression(e) => {
+                let e = self.node_expr(&e);
+                self.cons(Shape::Expression(e))
+            }
             // remaining leaves (and the transient Pending) are interned verbatim
             leaf => self.cons(leaf),
         }
@@ -270,6 +275,7 @@ impl<'a> Interner<'a> {
                 max,
                 qualifier: self.intern(qualifier),
             },
+            Shape::Expression(e) => Shape::Expression(self.node_expr(&e)),
             leaf => leaf,
         }
     }

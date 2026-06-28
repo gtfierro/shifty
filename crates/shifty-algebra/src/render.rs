@@ -211,6 +211,7 @@ fn shape_def(arena: &ShapeArena, id: ShapeId) -> String {
             )
         }
         Shape::Sparql(c) => format!("sparql({:?}){{…}}", c.kind),
+        Shape::Expression(e) => format!("expr({}) = true", node_expr_to_string(e)),
     }
 }
 
@@ -639,6 +640,7 @@ fn shape_def_dot(arena: &ShapeArena, id: ShapeId) -> String {
             format!("∃[{lo}..{hi}] {}", path_to_string(path))
         }
         Shape::Sparql(c) => format!("sparql({:?})", c.kind),
+        Shape::Expression(_) => "expr = true".to_string(),
     }
 }
 

@@ -32,3 +32,29 @@ pub enum NodeExpr {
     /// Application of a SHACL function (gap-analysis **AF-F**).
     Function { iri: NamedNode, args: Vec<NodeExpr> },
 }
+
+impl NodeExpr {
+    /// Append every [`ShapeId`] this expression references (via `Filter`
+    /// sub-expressions) to `out`. Used by reachability, dependency, and
+    /// normalization passes that must follow shape references inside
+    /// expressions just as they do inside the shape grammar.
+    pub fn referenced_shapes(&self, out: &mut Vec<ShapeId>) {
+        match self {
+            NodeExpr::Filter { input, shape } => {
+                out.push(*shape);
+                input.referenced_shapes(out);
+            }
+            NodeExpr::Intersection(es) | NodeExpr::Union(es) => {
+                for e in es {
+                    e.referenced_shapes(out);
+                }
+            }
+            NodeExpr::Function { args, .. } => {
+                for e in args {
+                    e.referenced_shapes(out);
+                }
+            }
+            NodeExpr::This | NodeExpr::Constant(_) | NodeExpr::Path(_) => {}
+        }
+    }
+}

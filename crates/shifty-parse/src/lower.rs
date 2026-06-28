@@ -198,6 +198,26 @@ impl Lowerer<'_> {
             }
         }
 
+        // sh:expression (SHACL-AF §5): the node expression must evaluate to
+        // `true` with the focus node as `?this`. Focus-scoped, so it joins the
+        // conjuncts directly rather than under a `∀π` wrapper.
+        for expr_term in self.g.objects(s, vocab::SH_EXPRESSION) {
+            if let Some(expr) = self.parse_node_expr(expr_term, s) {
+                if node_expr_has_function(&expr) {
+                    // SPARQL functions inside expressions need shapes-graph
+                    // lookups the validation evaluators don't perform; refuse
+                    // rather than silently under-constrain.
+                    self.diag(
+                        DiagLevel::Unsupported,
+                        "sh:expression with a function call is not yet evaluated",
+                        s,
+                    );
+                } else {
+                    conjuncts.push(self.arena.insert(Shape::Expression(expr)));
+                }
+            }
+        }
+
         let body = if conjuncts.is_empty() {
             self.arena.top()
         } else if conjuncts.len() == 1 {
@@ -984,6 +1004,19 @@ fn class_path() -> Path {
         Path::Pred(vocab::rdf_type()),
         Path::star(Path::Pred(vocab::rdfs_subclassof())),
     ])
+}
+
+/// Whether a node expression contains a SPARQL function application anywhere in
+/// its tree. Such expressions cannot yet be evaluated in the validation paths
+/// (they need shapes-graph function lookups), so expression constraints over
+/// them are diagnosed rather than lowered.
+fn node_expr_has_function(e: &NodeExpr) -> bool {
+    match e {
+        NodeExpr::Function { .. } => true,
+        NodeExpr::Filter { input, .. } => node_expr_has_function(input),
+        NodeExpr::Intersection(es) | NodeExpr::Union(es) => es.iter().any(node_expr_has_function),
+        NodeExpr::This | NodeExpr::Constant(_) | NodeExpr::Path(_) => false,
+    }
 }
 
 fn map_node_kind(term: &Term) -> Option<NodeKindSet> {

@@ -499,6 +499,125 @@ mod tests {
     }
 
     #[test]
+    fn expression_constraint_reports_non_true_values() {
+        // The W3C booleans-001 shape: sh:expression sh:this over boolean foci.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode true, false ;
+                sh:expression sh:this .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "diags: {:?}",
+            parsed.diagnostics
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+
+        // algebra path: only the `false` focus violates.
+        let algebra = validate(&loaded.graph, &parsed.schema).unwrap();
+        assert!(!algebra.conforms);
+        assert_eq!(algebra.violations.len(), 1);
+        assert_eq!(
+            algebra.violations[0].focus,
+            oxrdf::Term::Literal(oxrdf::Literal::new_typed_literal(
+                "false",
+                oxrdf::vocab::xsd::BOOLEAN
+            ))
+        );
+
+        // planned path agrees with the algebra oracle.
+        let normalized = shifty_opt::normalize(&parsed.schema);
+        let plan = shifty_opt::plan(&normalized);
+        let planned = validate_plan(&loaded.graph, &plan).unwrap();
+        assert_eq!(planned.conforms, algebra.conforms);
+        assert_eq!(planned.violations.len(), algebra.violations.len());
+
+        // W3C report path: one ExpressionConstraintComponent result, sh:value false.
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        let result = &report.results[0];
+        assert_eq!(
+            result.component.as_str(),
+            "http://www.w3.org/ns/shacl#ExpressionConstraintComponent"
+        );
+        assert_eq!(result.path, None);
+        assert_eq!(
+            result.value.as_ref().map(ToString::to_string),
+            Some("\"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>".to_string())
+        );
+    }
+
+    #[test]
+    fn expression_constraint_with_path_and_filter() {
+        // The expression traverses a path from the focus and filters the values
+        // by a shape; only nodes passing the filter must (here, fail to) be true,
+        // exercising Path + Filter node expressions on the report path.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:expression [
+                    sh:filterShape [ sh:datatype xsd:boolean ] ;
+                    sh:nodes [ sh:path ex:flag ] ;
+                ] .
+            ex:x ex:flag true, false, \"not-a-bool\" .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "diags: {:?}",
+            parsed.diagnostics
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+
+        // The boolean values that survive the filter are {true, false}; `false`
+        // is the lone non-true value, so exactly one result, sh:value false.
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(
+            report.results[0].component.as_str(),
+            "http://www.w3.org/ns/shacl#ExpressionConstraintComponent"
+        );
+        assert_eq!(
+            report.results[0].value.as_ref().map(ToString::to_string),
+            Some("\"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>".to_string())
+        );
+
+        // algebra path agrees on (non-)conformance.
+        let algebra = validate(&loaded.graph, &parsed.schema).unwrap();
+        assert!(!algebra.conforms);
+        assert_eq!(algebra.violations.len(), 1);
+    }
+
+    #[test]
+    fn expression_constraint_with_function_is_diagnosed() {
+        // A function application inside sh:expression cannot be evaluated by the
+        // validation paths yet, so it is diagnosed rather than silently dropped.
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x ;
+                sh:expression [ ex:fn ( sh:this ) ] .
+            "
+        );
+        let parsed = parse_turtle(ttl.as_bytes(), None).unwrap();
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("sh:expression")),
+            "expected an unsupported-expression diagnostic, got: {:?}",
+            parsed.diagnostics
+        );
+    }
+
+    #[test]
     fn equals_on_node_shape_uses_the_focus_node_as_the_value() {
         let ttl = format!(
             "{PREFIXES}

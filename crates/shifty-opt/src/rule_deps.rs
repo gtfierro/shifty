@@ -279,6 +279,7 @@ fn shape_dependencies(
         | Shape::TestType(_)
         | Shape::TestKind(_) => {}
         Shape::Closed(_) | Shape::Sparql(_) => deps.wildcard = true,
+        Shape::Expression(e) => node_expr_dependencies(e, arena, deps),
         Shape::Eq(path, predicate)
         | Shape::Disj(path, predicate)
         | Shape::Lt(path, predicate)

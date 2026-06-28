@@ -14,6 +14,7 @@
 //! The smart constructors apply only *light, always-sound* Boolean
 //! simplifications; real normalization (NNF, unsat detection, CSE) is Layer 4.
 
+use crate::expr::NodeExpr;
 use crate::path::Path;
 use crate::severity::Severity;
 use crate::sparql::SparqlConstraint;
@@ -77,6 +78,11 @@ pub enum Shape {
     /// Opaque SPARQL-based constraint (gap-analysis **AF-C**), evaluated by the
     /// engine rather than reasoned about algebraically.
     Sparql(SparqlConstraint),
+    /// `sh:expression` constraint (SHACL-AF §5): the focus node satisfies the
+    /// shape iff evaluating the node expression with the focus as `?this`
+    /// yields only the boolean `true`. A `Filter` sub-expression may reference
+    /// other shapes (carried as [`ShapeId`]s inside the [`NodeExpr`]).
+    Expression(NodeExpr),
 }
 
 /// Arena of interned shapes. References between shapes are [`ShapeId`] indices,

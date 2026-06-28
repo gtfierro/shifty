@@ -160,6 +160,9 @@ iri!(SH_RULE, "http://www.w3.org/ns/shacl#rule");
 iri!(SH_PARAMETER, "http://www.w3.org/ns/shacl#parameter");
 iri!(SH_NAME, "http://www.w3.org/ns/shacl#name");
 
+// AF expression constraints (SHACL-AF §5)
+iri!(SH_EXPRESSION, "http://www.w3.org/ns/shacl#expression");
+
 // AF node expressions (SHACL-AF §6)
 iri!(SH_FILTER_SHAPE, "http://www.w3.org/ns/shacl#filterShape");
 iri!(SH_NODES, "http://www.w3.org/ns/shacl#nodes");
@@ -216,6 +219,10 @@ iri!(
 iri!(
     SH_CC_SPARQL,
     "http://www.w3.org/ns/shacl#SPARQLConstraintComponent"
+);
+iri!(
+    SH_CC_EXPRESSION,
+    "http://www.w3.org/ns/shacl#ExpressionConstraintComponent"
 );
 iri!(
     SH_CC_CLASS,

@@ -171,6 +171,10 @@ fn cost_of(
             path_cost(&path) * (1 + q)
         }
         Shape::Sparql(_) => C_SPARQL,
+        // An expression constraint evaluates a node expression (paths + nested
+        // shape filters); price it like a SPARQL leaf so cost-ordered planning
+        // runs cheaper structural checks first.
+        Shape::Expression(_) => C_SPARQL,
     };
     computing[i] = false;
     memo[i] = Some(cost);
@@ -246,6 +250,7 @@ fn reachable_shapes(plan: &PhysicalPlan) -> BTreeSet<ShapeId> {
                 Shape::Not(c) => stack.push(*c),
                 Shape::And(cs) | Shape::Or(cs) => stack.extend(cs.iter().copied()),
                 Shape::Count { qualifier, .. } => stack.push(*qualifier),
+                Shape::Expression(e) => e.referenced_shapes(&mut stack),
                 _ => {}
             }
         }

@@ -507,7 +507,7 @@ fn witness(
         } => count_witness(
             eval, node, id, &path, min, max, qualifier, reached_by, scope, stack,
         ),
-        Shape::Sparql(_) => Some(Witness::Opaque {
+        Shape::Sparql(_) | Shape::Expression(_) => Some(Witness::Opaque {
             shape: id,
             node: node.clone(),
         }),
@@ -775,6 +775,13 @@ fn sat_trace(
             shape: id,
             node: node.clone(),
             reason: BlockReason::OpaqueSparql,
+        }),
+        // An expression constraint computes a boolean; there is no data repair
+        // the synthesizer can derive from it, so the trace is blocked.
+        Shape::Expression(_) => Some(SatTrace::Blocked {
+            shape: id,
+            node: node.clone(),
+            reason: BlockReason::Unsupported,
         }),
         Shape::Not(c) => {
             witness(eval, node, c, reached_by, produced_by, &[], stack).map(|w| SatTrace::NotHeld {

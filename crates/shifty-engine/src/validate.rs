@@ -19,7 +19,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shifty_algebra::render::{path_to_string, shape_to_string};
 use shifty_algebra::{
-    Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId, SparqlConstraint,
+    NodeExpr, Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId, SparqlConstraint,
 };
 use shifty_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
@@ -722,6 +722,16 @@ fn holds_memoized(
                 .is_ok_and(|violations| violations.is_empty()),
             cacheable: true,
         },
+        Shape::Expression(expr) => {
+            // SHACL-AF §5: conform iff every value the expression produces (with
+            // `v` as `?this`) is the boolean `true`.
+            let mut cacheable = true;
+            let results = eval_expr(g, arena, v, expr, sparql, state, &mut cacheable);
+            EvalResult {
+                holds: results.iter().all(is_boolean_true),
+                cacheable,
+            }
+        }
         Shape::TestConst(c) => EvalResult {
             holds: v == c,
             cacheable: true,
@@ -824,6 +834,73 @@ fn holds_memoized(
         telemetry.non_cacheable_results += 1;
     }
     result
+}
+
+/// Evaluate a SHACL-AF node expression at focus `v` to its set of result terms,
+/// over the same low-level primitives as [`holds_memoized`]. `cacheable` is
+/// cleared if any nested shape evaluation observed a recursion back-edge, so the
+/// enclosing `Shape::Expression` result is not memoized on a provisional truth.
+/// `Function` applications are refused at parse time, so they never appear here.
+fn eval_expr(
+    g: &dyn PathBackend,
+    arena: &ShapeArena,
+    v: &Term,
+    expr: &NodeExpr,
+    sparql: &SparqlExecutor,
+    state: &mut EvalState,
+    cacheable: &mut bool,
+) -> HashSet<Term> {
+    match expr {
+        NodeExpr::This => {
+            let mut s = HashSet::with_capacity(1);
+            s.insert(v.clone());
+            s
+        }
+        NodeExpr::Constant(t) => {
+            let mut s = HashSet::with_capacity(1);
+            s.insert(t.clone());
+            s
+        }
+        NodeExpr::Path(p) => succ(g, v, p),
+        NodeExpr::Filter { input, shape } => {
+            let inputs = eval_expr(g, arena, v, input, sparql, state, cacheable);
+            inputs
+                .into_iter()
+                .filter(|x| {
+                    let r = holds_memoized(g, arena, x, *shape, sparql, state);
+                    *cacheable &= r.cacheable;
+                    r.holds
+                })
+                .collect()
+        }
+        NodeExpr::Intersection(es) => {
+            let mut iter = es.iter();
+            match iter.next() {
+                Some(first) => {
+                    let mut acc = eval_expr(g, arena, v, first, sparql, state, cacheable);
+                    for e in iter {
+                        let s = eval_expr(g, arena, v, e, sparql, state, cacheable);
+                        acc.retain(|x| s.contains(x));
+                    }
+                    acc
+                }
+                None => HashSet::new(),
+            }
+        }
+        NodeExpr::Union(es) => {
+            let mut acc = HashSet::new();
+            for e in es {
+                acc.extend(eval_expr(g, arena, v, e, sparql, state, cacheable));
+            }
+            acc
+        }
+        NodeExpr::Function { .. } => HashSet::new(),
+    }
+}
+
+/// The boolean literal `true` (`"true"^^xsd:boolean`).
+pub(crate) fn is_boolean_true(t: &Term) -> bool {
+    matches!(t, Term::Literal(l) if l.datatype() == oxrdf::vocab::xsd::BOOLEAN && l.value() == "true")
 }
 
 fn estimated_memo_bytes(memo: &HashMap<(ShapeId, Term), bool>) -> usize {
@@ -1042,6 +1119,14 @@ fn explain(
             qualifier,
         } => explain_count(
             evaluator, node, id, &path, min, max, qualifier, severity, stack,
+        ),
+        Shape::Expression(_) => leaf(
+            false, // reached only because the constraint failed (line ~923)
+            node,
+            id,
+            path_ctx,
+            severity,
+            "sh:expression did not evaluate to true".to_string(),
         ),
     };
     stack.remove(&key);
