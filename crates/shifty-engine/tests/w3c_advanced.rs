@@ -9,13 +9,11 @@
 //!   * `sht:Validate` / `dash:GraphValidationTestCase` — run the RDF-driven
 //!     report validator (`validate_report`) and match the result-set against the
 //!     expected `sh:ValidationReport`, the same way `data_shapes_report` does.
-//!   * `dash:FunctionTestCase` — SHACL `sh:SPARQLFunction` (AF-F): unsupported,
-//!     skipped.
+//!   * `dash:FunctionTestCase` — evaluate the `dash:expression` (a
+//!     `sh:SPARQLFunction` call) and compare against `dash:expectedResult`.
 //!
-//! Tests exercising features we don't implement yet (custom components, JS,
-//! SHACL functions, SPARQL constraints/targets on the report path, expression
-//! constraints) are SKIPPED so the gate measures only what we claim to support
-//! and tightens as we grow.
+//! `owl:imports` to vendored sibling ontologies are merged so a test's data
+//! graph is complete. Only JS-based cases (`sh:js*`) remain skipped.
 
 use oxrdf::{Graph, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
 use shifty_algebra::render::path_to_string;
@@ -23,8 +21,16 @@ use shifty_engine::ValidationResult;
 use shifty_parse::vocab;
 use std::path::{Path, PathBuf};
 
+const OWL_IMPORTS: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/2002/07/owl#imports");
+const OWL_ONTOLOGY: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/2002/07/owl#Ontology");
 const DASH_INFERENCING_TEST_CASE: NamedNodeRef =
     NamedNodeRef::new_unchecked("http://datashapes.org/dash#InferencingTestCase");
+const DASH_FUNCTION_TEST_CASE: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://datashapes.org/dash#FunctionTestCase");
+const DASH_EXPRESSION: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://datashapes.org/dash#expression");
 const DASH_EXPECTED_RESULT: NamedNodeRef =
     NamedNodeRef::new_unchecked("http://datashapes.org/dash#expectedResult");
 const RDF_SUBJECT: NamedNodeRef =
@@ -73,6 +79,105 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 
 fn uses_any(g: &Graph, predicates: &[&str]) -> bool {
     g.iter().any(|t| predicates.contains(&t.predicate.as_str()))
+}
+
+/// Every `.ttl` file under the suite (including non-`.test.ttl` ontologies like
+/// `person.ttl` that tests import).
+fn collect_all_ttl(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_all_ttl(&path, out);
+        } else if path.extension().is_some_and(|e| e == "ttl") {
+            out.push(path);
+        }
+    }
+}
+
+/// Index `owl:Ontology` IRIs to the file that declares them, so `owl:imports`
+/// can be resolved to vendored sibling ontologies (a minimal local stand-in for
+/// full owl:imports resolution).
+fn ontology_index(dir: &Path) -> std::collections::HashMap<String, PathBuf> {
+    let mut files = Vec::new();
+    collect_all_ttl(dir, &mut files);
+    let mut index = std::collections::HashMap::new();
+    for file in files {
+        let Ok(bytes) = std::fs::read(&file) else {
+            continue;
+        };
+        let base = format!("file://{}", file.display());
+        let Ok(loaded) = shifty_parse::load_turtle(&bytes, Some(&base)) else {
+            continue;
+        };
+        for subject in loaded
+            .graph
+            .subjects_for_predicate_object(vocab::RDF_TYPE, OWL_ONTOLOGY)
+        {
+            if let NamedOrBlankNode::NamedNode(n) = subject.into_owned() {
+                index.insert(n.as_str().to_string(), file.clone());
+            }
+        }
+    }
+    index
+}
+
+/// Merge the transitive closure of `owl:imports` (those resolvable to a local
+/// ontology file) into `loaded`'s graph. Imports with no local file (e.g.
+/// `http://datashapes.org/dash`) are skipped.
+fn resolve_imports(
+    mut loaded: shifty_parse::Loaded,
+    index: &std::collections::HashMap<String, PathBuf>,
+) -> shifty_parse::Loaded {
+    let mut pending: Vec<String> = import_iris(&loaded.graph);
+    let mut visited = std::collections::HashSet::new();
+    while let Some(iri) = pending.pop() {
+        if !visited.insert(iri.clone()) {
+            continue;
+        }
+        let Some(file) = index.get(&iri) else {
+            continue;
+        };
+        let base = format!("file://{}", file.display());
+        let Ok(imported) = shifty_parse::load_turtle(&std::fs::read(file).unwrap(), Some(&base))
+        else {
+            continue;
+        };
+        pending.extend(import_iris(&imported.graph));
+        for triple in imported.graph.iter() {
+            loaded.graph.insert(triple);
+        }
+    }
+    loaded
+}
+
+fn import_iris(g: &Graph) -> Vec<String> {
+    g.triples_for_predicate(OWL_IMPORTS)
+        .filter_map(|t| match t.object {
+            oxrdf::TermRef::NamedNode(n) => Some(n.as_str().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `(dash:expression, dash:expectedResult)` pairs of every
+/// `dash:FunctionTestCase` in the graph.
+fn function_tests(loaded: &shifty_parse::Loaded) -> Vec<(String, Term)> {
+    let mut out = Vec::new();
+    for case in loaded
+        .graph
+        .subjects_for_predicate_object(vocab::RDF_TYPE, DASH_FUNCTION_TEST_CASE)
+        .map(|s| s.into_owned())
+        .collect::<Vec<_>>()
+    {
+        let (Some(Term::Literal(expr)), Some(expected)) = (
+            loaded.object(&case, DASH_EXPRESSION),
+            loaded.object(&case, DASH_EXPECTED_RESULT),
+        ) else {
+            continue;
+        };
+        out.push((expr.value().to_string(), expected));
+    }
+    out
 }
 
 /// True when the graph declares any `dash:InferencingTestCase`.
@@ -197,9 +302,12 @@ fn w3c_advanced_conformance() {
     collect(&suite_dir(), &mut files);
     files.sort();
     assert!(!files.is_empty(), "no advanced test files found");
+    // owl:imports resolution against vendored sibling ontologies.
+    let imports_index = ontology_index(&suite_dir());
 
     let (mut inf_pass, mut inf_fail, mut inf_skip) = (0u32, 0u32, 0u32);
     let (mut val_pass, mut val_fail, mut val_skip) = (0u32, 0u32, 0u32);
+    let (mut fn_pass, mut fn_fail) = (0u32, 0u32);
     let mut failures: Vec<String> = Vec::new();
 
     for file in &files {
@@ -218,6 +326,21 @@ fn w3c_advanced_conformance() {
             continue;
         };
 
+        // dash:FunctionTestCase — evaluate each function-call expression.
+        let fn_tests = function_tests(&loaded);
+        if !fn_tests.is_empty() {
+            for (expr, expected) in fn_tests {
+                match shifty_engine::evaluate_function_expression(&loaded, &expr) {
+                    Ok(Some(result)) if result == expected => fn_pass += 1,
+                    other => {
+                        fn_fail += 1;
+                        failures.push(format!("FUNCTION {name}: {expr} -> {other:?}"));
+                    }
+                }
+            }
+            continue;
+        }
+
         if is_inferencing(&loaded) {
             if uses_any(&loaded.graph, UNSUPPORTED_INFERENCE) {
                 inf_skip += 1;
@@ -230,6 +353,9 @@ fn w3c_advanced_conformance() {
                     continue;
                 }
             };
+            // Merge any vendored ontologies the test imports so its data graph is
+            // complete (the rules/schema still come from the test file itself).
+            let loaded = resolve_imports(loaded, &imports_index);
             let expected = expected_inferred(&loaded);
             if expected.is_empty() {
                 inf_skip += 1;
@@ -281,7 +407,7 @@ fn w3c_advanced_conformance() {
     }
 
     eprintln!(
-        "\nW3C advanced conformance:\n  inferencing: {inf_pass} pass, {inf_fail} fail, {inf_skip} skip\n  validation:  {val_pass} pass, {val_fail} fail, {val_skip} skip\n  (of {} files)",
+        "\nW3C advanced conformance:\n  inferencing: {inf_pass} pass, {inf_fail} fail, {inf_skip} skip\n  validation:  {val_pass} pass, {val_fail} fail, {val_skip} skip\n  functions:   {fn_pass} pass, {fn_fail} fail\n  (of {} files)",
         files.len()
     );
     for f in failures.iter().take(40) {
@@ -290,6 +416,8 @@ fn w3c_advanced_conformance() {
 
     assert_eq!(inf_fail, 0, "inferencing has {inf_fail} failing cases");
     assert_eq!(val_fail, 0, "validation has {val_fail} failing cases");
+    assert_eq!(fn_fail, 0, "functions have {fn_fail} failing cases");
     assert!(inf_pass >= 1, "expected at least one inferencing pass");
     assert!(val_pass >= 1, "expected at least one validation pass");
+    assert!(fn_pass >= 1, "expected at least one function pass");
 }

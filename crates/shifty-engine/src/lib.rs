@@ -27,9 +27,9 @@ pub use enumerate::{
 pub use gate::{RepairOutcome, apply, gate};
 pub use infer::{InferenceOutcome, infer, infer_graphs, infer_with_context};
 pub use report::{
-    ValidationReport, ValidationResult, report_to_graph, validate_report, validate_report_graphs,
-    validate_report_graphs_with_mode, validate_report_graphs_with_mode_and_options,
-    validate_report_with_options,
+    ValidationReport, ValidationResult, evaluate_function_expression, report_to_graph,
+    validate_report, validate_report_graphs, validate_report_graphs_with_mode,
+    validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
 pub use synthesize::{synthesize, synthesize_focus};
 pub use validate::{
@@ -614,6 +614,69 @@ mod tests {
                 .any(|d| d.message.contains("sh:expression")),
             "expected an unsupported-expression diagnostic, got: {:?}",
             parsed.diagnostics
+        );
+    }
+
+    #[test]
+    fn sparql_function_expression_evaluates() {
+        // The W3C simpleSPARQLFunction shapes: a no-arg ASK function and a
+        // two-argument SELECT function, called via dash:expression strings.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            ex:booleanFunction a sh:SPARQLFunction ;
+                sh:returnType xsd:boolean ;
+                sh:ask "ASK { FILTER (true) }" .
+            ex:withArguments a sh:SPARQLFunction ;
+                sh:parameter [ sh:name "arg1" ; sh:path ex:arg1 ] ,
+                             [ sh:name "arg2" ; sh:path ex:arg2 ] ;
+                sh:returnType xsd:string ;
+                sh:select "SELECT ?result WHERE { BIND (CONCAT($arg1, \"-\", $arg2) AS ?result) }" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+
+        let b = evaluate_function_expression(&loaded, "ex:booleanFunction()").unwrap();
+        assert_eq!(b, Some(oxrdf::Term::Literal(oxrdf::Literal::from(true))));
+
+        let s = evaluate_function_expression(&loaded, "ex:withArguments(\"A\", \"B\")").unwrap();
+        assert_eq!(
+            s,
+            Some(oxrdf::Term::Literal(oxrdf::Literal::new_simple_literal(
+                "A-B"
+            )))
+        );
+    }
+
+    #[test]
+    fn sparql_function_called_from_sparql_constraint() {
+        // A SHACL function is callable inside a sh:sparql constraint query: the
+        // constraint flags values for which ex:isOk returns false.
+        let ttl = br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            ex:isOk a sh:SPARQLFunction ;
+                sh:parameter [ sh:path ex:arg ] ;
+                sh:returnType xsd:boolean ;
+                sh:ask "ASK { FILTER (STR($arg) = \"ok\") }" .
+            ex:S a sh:NodeShape ;
+                sh:targetNode ex:x, ex:y ;
+                sh:sparql [ sh:select """SELECT $this ?value WHERE {
+                    $this <http://ex/val> ?value .
+                    FILTER (! <http://ex/isOk>(?value))
+                }""" ] .
+            ex:x <http://ex/val> "ok" .
+            ex:y <http://ex/val> "bad" .
+        "#;
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let report = validate_report(&loaded, &loaded.graph);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1, "results: {:?}", report.results);
+        assert_eq!(report.results[0].focus.to_string(), "<http://ex/y>");
+        assert_eq!(
+            report.results[0].value.as_ref().map(ToString::to_string),
+            Some("\"bad\"".to_string())
         );
     }
 

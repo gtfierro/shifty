@@ -39,9 +39,21 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   (`diagnose_custom_components`) rather than under-validating. W3C advanced
   `sparql/component/{validator,nodeValidator,propertyValidator-select,optional}`
   all pass. **[todo]** complex `$PATH`, JS validators.
-- **[todo]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F) callable from
-  `sh:sparql` / CONSTRUCT bodies and standalone `dash:FunctionTestCase`s; already
-  evaluated inside node expressions (`infer.rs`). JS features unsupported.
+- **[done]** SHACL **functions** (`sh:SPARQLFunction`) (AF-F). Already evaluated
+  inside node expressions (`infer.rs`); now also registered as **custom SPARQL
+  functions** so calls resolve inside any Spareval-executed query — `sh:sparql`
+  constraints, custom-component validators, CONSTRUCT bodies, and standalone
+  `dash:expression`s. `collect_functions` builds the registry from the shapes
+  graph (params ordered by `sh:order`/local name, body prefix-expanded);
+  `SparqlExecutor::evaluator()` registers each via Oxigraph
+  `with_custom_function` and is used by every fallback execution path.
+  `evaluate_function_expression` drives `dash:FunctionTestCase`s. Functions are
+  evaluated as **pure** functions of their arguments (body over an empty
+  dataset): the frozen dataset is `Rc`-based and can't cross the
+  `Send + Sync` custom-function boundary, so graph-reading function bodies in
+  SPARQL contexts are unsupported (node-expression calls keep full graph
+  access). JS functions unsupported. W3C advanced `function/simpleSPARQLFunction`
+  (both cases) passes.
 - **[done]** `sh:qualifiedValueShapesDisjoint` is lowered into the algebra count
   qualifier as the qualified shape conjoined with the negation of every sibling
   qualified shape. The RDF-driven report path uses the same parent-based sibling
@@ -106,13 +118,15 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `dash:InferencingTestCase` → `infer` + expected-triple check;
   `sht:Validate` / `dash:GraphValidationTestCase` → `validate_report` result-set
   match. Advanced files use relative IRIs, so a `file://` base is supplied.
-  Current: **103 pass (6 inferencing + 97 validation), 0 fail, 2 skip (of 105)**.
-  Wiring `sh:filterShape`/`sh:intersection`/`sh:union` node-expression parsing
-  un-skipped 2 inferencing cases (4→6 pass); `sh:expression` constraints
-  un-skipped the `expression/` validation case; custom constraint components
-  (AF-CC) un-skipped the 4 `sparql/component/` cases (93→97 pass). The 2
-  remaining skips are both **[todo]** SHACL functions (AF-F, `sh:SPARQLFunction`):
-  1 inferencing rule case + the `function/` validation case.
+  Current: **106 pass (7 inferencing + 97 validation + 2 function), 0 fail,
+  0 skip (of 105)** — the advanced suite is fully green. Node-expression parsing
+  (`sh:filterShape`/`intersection`/`union`) un-skipped 2 inferencing cases;
+  `sh:expression` un-skipped the `expression/` case; custom components (AF-CC)
+  un-skipped the 4 `sparql/component/` cases; SHACL functions (AF-F) added a
+  `dash:FunctionTestCase` category (`function/simpleSPARQLFunction`, 2 cases); and
+  a harness `owl:imports` resolver (`ontology_index`/`resolve_imports`, merging
+  vendored sibling ontologies) un-skipped `rules/triple/person2schema`. Only
+  JS-based cases (`sh:js*`) would now skip.
 - the algebra path's `Violation`/`Reason` reports stay focus-node + `@id` level
   (the report validator is the W3C-faithful path).
 - **[done]** Term ordering extended: `compare_terms` now handles `xsd:date`,

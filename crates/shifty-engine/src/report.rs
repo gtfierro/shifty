@@ -14,7 +14,7 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
-use crate::sparql::SparqlExecutor;
+use crate::sparql::{FunctionDef, SparqlExecutor};
 use crate::validate::{
     ValidationGraphMode, ValidationOptions, apply_message_template, graph_union, is_boolean_true,
 };
@@ -55,6 +55,25 @@ pub struct ValidationReport {
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
 pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
     validate_report_with_options(shapes, data, &ValidationOptions::default())
+}
+
+/// Evaluate a SPARQL expression (a `dash:expression` function-call string such
+/// as `ex:fn("A", "B")`) against the `sh:SPARQLFunction`s declared in `shapes`,
+/// returning the result term. Drives `dash:FunctionTestCase`s and exposes SHACL
+/// functions as a standalone capability. The document's prefixes and base form
+/// the query prologue so prefixed function names resolve.
+pub fn evaluate_function_expression(shapes: &Loaded, expr: &str) -> Result<Option<Term>, String> {
+    let frozen = FrozenIndexedDataset::from_graph(&shapes.graph);
+    let mut sparql = SparqlExecutor::from_frozen(frozen, false);
+    sparql.set_functions(collect_functions(shapes));
+    let mut prologue = String::new();
+    if let Some(base) = &shapes.base {
+        prologue.push_str(&format!("BASE <{base}>\n"));
+    }
+    for (prefix, namespace) in &shapes.prefixes {
+        prologue.push_str(&format!("PREFIX {prefix}: <{namespace}>\n"));
+    }
+    sparql.evaluate_expression(&prologue, expr)
 }
 
 /// Validate and build a W3C report using an explicit severity policy.
@@ -147,7 +166,8 @@ fn validate_report_context(
             .triples_for_predicate(vocab::SH_TARGET)
             .next()
             .is_some();
-    let sparql = SparqlExecutor::from_frozen(frozen, needs_sparql && has_shapes_graph);
+    let mut sparql = SparqlExecutor::from_frozen(frozen, needs_sparql && has_shapes_graph);
+    sparql.set_functions(collect_functions(shapes));
     // Index class membership once (instead of a forward scan over every node per
     // class-target shape): this is the report path's analogue of the plan's
     // backward `PathToConst` focus source, amortized across all shapes.
@@ -408,6 +428,66 @@ fn parse_validator(shapes: &Loaded, node: &Term) -> Option<ComponentValidator> {
 /// parameter's pre-bound variable name (SHACL §6.2.1).
 fn local_name(iri: &str) -> &str {
     iri.rsplit(['#', '/']).next().unwrap_or(iri)
+}
+
+/// Discover `sh:SPARQLFunction`s in the shapes graph (SHACL-AF §5) and build
+/// their registrable [`FunctionDef`]s: the function IRI, its parameter variable
+/// names in positional order (`sh:order`, then local name), and its prefix-
+/// expanded `sh:select`/`sh:ask` body.
+pub(crate) fn collect_functions(shapes: &Loaded) -> Vec<FunctionDef> {
+    let mut out = Vec::new();
+    for func in shapes
+        .graph
+        .subjects_for_predicate_object(vocab::RDF_TYPE, vocab::SH_SPARQL_FUNCTION)
+        .map(|s| s.into_owned())
+        .collect::<Vec<_>>()
+    {
+        let NamedOrBlankNode::NamedNode(iri) = &func else {
+            continue;
+        };
+        let raw = match shapes
+            .object(&func, vocab::SH_SELECT)
+            .or_else(|| shapes.object(&func, vocab::SH_ASK))
+        {
+            Some(Term::Literal(q)) => q.value().to_string(),
+            _ => continue,
+        };
+        let Ok((_, query)) = canonical_sparql_query(shapes, &func, &raw) else {
+            continue;
+        };
+        out.push(FunctionDef {
+            iri: iri.clone(),
+            params: function_param_names(shapes, &func),
+            query,
+        });
+    }
+    out
+}
+
+/// Parameter variable names of a function, ordered by `sh:order` then by the
+/// local name of `sh:path` (matching the node-expression evaluator).
+fn function_param_names(shapes: &Loaded, func: &NamedOrBlankNode) -> Vec<String> {
+    let mut params: Vec<(i64, String)> = shapes
+        .objects(func, vocab::SH_PARAMETER)
+        .iter()
+        .filter_map(|p| {
+            let pn = term_to_node(p)?;
+            let order = match shapes.object(&pn, vocab::SH_ORDER) {
+                Some(Term::Literal(l)) => l.value().parse::<i64>().unwrap_or(0),
+                _ => 0,
+            };
+            let name = match shapes.object(&pn, vocab::SH_NAME) {
+                Some(Term::Literal(l)) => l.value().to_string(),
+                _ => match shapes.object(&pn, vocab::SH_PATH) {
+                    Some(Term::NamedNode(n)) => local_name(n.as_str()).to_string(),
+                    _ => return None,
+                },
+            };
+            Some((order, name))
+        })
+        .collect();
+    params.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    params.into_iter().map(|(_, name)| name).collect()
 }
 
 struct Reporter<'a> {

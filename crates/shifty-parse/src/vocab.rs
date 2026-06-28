@@ -159,6 +159,10 @@ iri!(SH_RULE, "http://www.w3.org/ns/shacl#rule");
 // AF functions (SHACL-AF §4.3)
 iri!(SH_PARAMETER, "http://www.w3.org/ns/shacl#parameter");
 iri!(SH_NAME, "http://www.w3.org/ns/shacl#name");
+iri!(
+    SH_SPARQL_FUNCTION,
+    "http://www.w3.org/ns/shacl#SPARQLFunction"
+);
 
 // AF custom constraint components (SHACL §6.2–6.3)
 iri!(
