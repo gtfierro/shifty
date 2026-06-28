@@ -6,8 +6,11 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
 
 ## Parsing & features (Layer 2) — see [`01-gap-analysis.md`](01-gap-analysis.md)
 - **[done]** SHACL-AF **rules** *parsing*: `sh:TripleRule` / `sh:SPARQLRule` +
-  node expressions (`sh:this`, constants, paths) lowered into the IR (AF-R,
-  AF-E). Richer node expressions (functions, filterShape) still diagnosed.
+  node expressions (`sh:this`, constants, paths, `sh:filterShape`+`sh:nodes`,
+  `sh:intersection`, `sh:union`, and SPARQL-function calls) lowered into the IR
+  (AF-R, AF-E). `parse_filter_expr`/`parse_set_expr` in `lower.rs` produce the
+  `NodeExpr::Filter`/`Intersection`/`Union` variants the engine already
+  evaluates. JS-function node expressions still diagnosed.
 - **[done]** SPARQL-based **targets** (`sh:target`+`sh:select`) →
   `Selector::Sparql` (AF-T), parsed and canonicalized with Spargebra.
 - **[done]** SPARQL-based **constraints** (`sh:sparql`) → `Shape::Sparql`
@@ -78,11 +81,12 @@ lives in the layer docs (linked); this is the index so nothing is lost. Tags:
   `dash:InferencingTestCase` → `infer` + expected-triple check;
   `sht:Validate` / `dash:GraphValidationTestCase` → `validate_report` result-set
   match. Advanced files use relative IRIs, so a `file://` base is supplied.
-  Current: **96 pass (4 inferencing + 92 validation), 0 fail, 9 skip (of 105)**.
-  The 9 skips are the still-unsupported features below:
-  **[todo]** SHACL functions (AF-F, `sh:SPARQLFunction`) → 3 inferencing skips +
-  the `function/` cases; plus custom components / `sh:expression` → 6 validation
-  skips.
+  Current: **98 pass (6 inferencing + 92 validation), 0 fail, 7 skip (of 105)**.
+  Wiring `sh:filterShape`/`sh:intersection`/`sh:union` node-expression parsing
+  un-skipped 2 inferencing cases (4→6 pass). The 7 remaining skips are the
+  still-unsupported features below: **[todo]** SHACL functions (AF-F,
+  `sh:SPARQLFunction`) → 1 inferencing skip + the `function/` cases; plus custom
+  components / `sh:expression` → 6 validation skips.
 - the algebra path's `Violation`/`Reason` reports stay focus-node + `@id` level
   (the report validator is the W3C-faithful path).
 - **[done]** Term ordering extended: `compare_terms` now handles `xsd:date`,

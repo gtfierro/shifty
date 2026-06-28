@@ -645,8 +645,9 @@ impl Lowerer<'_> {
         })
     }
 
-    /// Parse a node expression (SHACL-AF §5). Handles `sh:this`, constants,
-    /// path expressions, and SPARQL function calls `[ ex:fn (arg …) ]`.
+    /// Parse a node expression (SHACL-AF §6). Handles `sh:this`, constants,
+    /// path expressions, filter / intersection / union expressions, and SPARQL
+    /// function calls `[ ex:fn (arg …) ]`.
     fn parse_node_expr(&mut self, term: Term, owner: &NamedOrBlankNode) -> Option<NodeExpr> {
         match &term {
             Term::NamedNode(n) if n.as_ref() == vocab::SH_THIS => Some(NodeExpr::This),
@@ -665,6 +666,13 @@ impl Lowerer<'_> {
                             None
                         }
                     }
+                } else if self.g.object(&node, vocab::SH_FILTER_SHAPE).is_some() {
+                    self.parse_filter_expr(&node, owner)
+                } else if let Some(list) = self.g.object(&node, vocab::SH_INTERSECTION) {
+                    self.parse_set_expr(&list, owner)
+                        .map(NodeExpr::Intersection)
+                } else if let Some(list) = self.g.object(&node, vocab::SH_UNION) {
+                    self.parse_set_expr(&list, owner).map(NodeExpr::Union)
                 } else if let Some(expr) = self.try_function_call(&node, owner) {
                     Some(expr)
                 } else {
@@ -677,6 +685,69 @@ impl Lowerer<'_> {
                 }
             }
         }
+    }
+
+    /// `sh:filterShape` + `sh:nodes` — a filter node expression (SHACL-AF §6.4):
+    /// the value nodes of `sh:nodes` that conform to `sh:filterShape`.
+    fn parse_filter_expr(
+        &mut self,
+        node: &NamedOrBlankNode,
+        owner: &NamedOrBlankNode,
+    ) -> Option<NodeExpr> {
+        let Some(shape_term) = self.g.object(node, vocab::SH_FILTER_SHAPE) else {
+            self.diag(DiagLevel::Error, "sh:filterShape missing a value", owner);
+            return None;
+        };
+        let Some(shape_node) = term_to_node(&shape_term) else {
+            self.diag(
+                DiagLevel::Error,
+                "sh:filterShape must reference a shape",
+                owner,
+            );
+            return None;
+        };
+        let Some(nodes_term) = self.g.object(node, vocab::SH_NODES) else {
+            self.diag(
+                DiagLevel::Error,
+                "filter expression missing sh:nodes",
+                owner,
+            );
+            return None;
+        };
+        let input = self.parse_node_expr(nodes_term, owner)?;
+        let shape = self.lower_shape(&shape_node);
+        Some(NodeExpr::Filter {
+            input: Box::new(input),
+            shape,
+        })
+    }
+
+    /// Parse the RDF list of an `sh:intersection` / `sh:union` node expression
+    /// (SHACL-AF §6.5–6.6) into its member node expressions. Returns `None` if
+    /// the list is empty or any member fails to parse (already diagnosed).
+    fn parse_set_expr(
+        &mut self,
+        list_head: &Term,
+        owner: &NamedOrBlankNode,
+    ) -> Option<Vec<NodeExpr>> {
+        let members = self.g.read_list(list_head);
+        if members.is_empty() {
+            self.diag(
+                DiagLevel::Error,
+                "sh:intersection/sh:union expects a non-empty list",
+                owner,
+            );
+            return None;
+        }
+        let n = members.len();
+        let exprs: Vec<NodeExpr> = members
+            .into_iter()
+            .filter_map(|t| self.parse_node_expr(t, owner))
+            .collect();
+        if exprs.len() != n {
+            return None;
+        }
+        Some(exprs)
     }
 
     /// Detect a function-call node expression `[ ex:fn ( arg1 arg2 … ) ]`.

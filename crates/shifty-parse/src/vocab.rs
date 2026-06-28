@@ -160,6 +160,12 @@ iri!(SH_RULE, "http://www.w3.org/ns/shacl#rule");
 iri!(SH_PARAMETER, "http://www.w3.org/ns/shacl#parameter");
 iri!(SH_NAME, "http://www.w3.org/ns/shacl#name");
 
+// AF node expressions (SHACL-AF §6)
+iri!(SH_FILTER_SHAPE, "http://www.w3.org/ns/shacl#filterShape");
+iri!(SH_NODES, "http://www.w3.org/ns/shacl#nodes");
+iri!(SH_INTERSECTION, "http://www.w3.org/ns/shacl#intersection");
+iri!(SH_UNION, "http://www.w3.org/ns/shacl#union");
+
 // AF rules (SHACL-AF §4)
 iri!(SH_THIS, "http://www.w3.org/ns/shacl#this");
 iri!(SH_SUBJECT, "http://www.w3.org/ns/shacl#subject");

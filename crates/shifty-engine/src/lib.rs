@@ -98,6 +98,132 @@ mod tests {
         )));
     }
 
+    /// Parse + normalize + infer, asserting the parser emitted no diagnostics
+    /// (so the node expressions under test were actually lowered, not skipped).
+    fn infer_ttl(ttl: &[u8]) -> InferenceOutcome {
+        let loaded = shifty_parse::load_turtle(ttl, None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "parse diagnostics: {:?}",
+            parsed.diagnostics
+        );
+        let normalized = shifty_opt::normalize(&parsed.schema);
+        infer(&loaded.graph, &normalized).expect("stratifiable schema")
+    }
+
+    fn triple_term(s: &str, p: &str, o: impl Into<oxrdf::Term>) -> oxrdf::Triple {
+        oxrdf::Triple::new(
+            oxrdf::NamedNode::new_unchecked(s),
+            oxrdf::NamedNode::new_unchecked(p),
+            o,
+        )
+    }
+
+    #[test]
+    fn rule_object_union_node_expression() {
+        // sh:union of two paths: both reachable values are inferred.
+        let outcome = infer_ttl(
+            br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:PersonShape a sh:NodeShape ;
+                sh:targetClass ex:Person ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ;
+                    sh:predicate ex:contact ;
+                    sh:object [ sh:union ( [ sh:path ex:email ] [ sh:path ex:phone ] ) ]
+                ] .
+            ex:alice a ex:Person ; ex:email "a@x.org" ; ex:phone "555-1234" .
+        "#,
+        );
+        let email = oxrdf::Literal::new_simple_literal("a@x.org");
+        let phone = oxrdf::Literal::new_simple_literal("555-1234");
+        assert!(outcome.graph.contains(&triple_term(
+            "http://ex/alice",
+            "http://ex/contact",
+            email
+        )));
+        assert!(outcome.graph.contains(&triple_term(
+            "http://ex/alice",
+            "http://ex/contact",
+            phone
+        )));
+    }
+
+    #[test]
+    fn rule_object_intersection_node_expression() {
+        // sh:intersection of two paths: only the value reachable by both is inferred.
+        let outcome = infer_ttl(
+            br#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <http://ex/> .
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:T ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ;
+                    sh:predicate ex:both ;
+                    sh:object [ sh:intersection ( [ sh:path ex:a ] [ sh:path ex:b ] ) ]
+                ] .
+            ex:x a ex:T ; ex:a ex:shared, ex:onlyA ; ex:b ex:shared, ex:onlyB .
+        "#,
+        );
+        let both = "http://ex/both";
+        assert!(outcome.graph.contains(&triple_term(
+            "http://ex/x",
+            both,
+            oxrdf::NamedNode::new_unchecked("http://ex/shared")
+        )));
+        assert!(!outcome.graph.contains(&triple_term(
+            "http://ex/x",
+            both,
+            oxrdf::NamedNode::new_unchecked("http://ex/onlyA")
+        )));
+        assert!(!outcome.graph.contains(&triple_term(
+            "http://ex/x",
+            both,
+            oxrdf::NamedNode::new_unchecked("http://ex/onlyB")
+        )));
+    }
+
+    #[test]
+    fn rule_object_filter_node_expression() {
+        // sh:filterShape + sh:nodes: keep only the values that conform to the shape.
+        let outcome = infer_ttl(
+            br#"
+            @prefix sh:  <http://www.w3.org/ns/shacl#> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            @prefix ex:  <http://ex/> .
+            ex:IntShape a sh:NodeShape ; sh:datatype xsd:integer .
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:T ;
+                sh:rule [
+                    a sh:TripleRule ;
+                    sh:subject sh:this ;
+                    sh:predicate ex:intValue ;
+                    sh:object [ sh:filterShape ex:IntShape ; sh:nodes [ sh:path ex:value ] ]
+                ] .
+            ex:x a ex:T ; ex:value 42, "hello" .
+        "#,
+        );
+        let int_value = "http://ex/intValue";
+        assert!(outcome.graph.contains(&triple_term(
+            "http://ex/x",
+            int_value,
+            oxrdf::Literal::new_typed_literal(
+                "42",
+                oxrdf::NamedNode::new_unchecked("http://www.w3.org/2001/XMLSchema#integer")
+            )
+        )));
+        assert!(!outcome.graph.contains(&triple_term(
+            "http://ex/x",
+            int_value,
+            oxrdf::Literal::new_simple_literal("hello")
+        )));
+    }
+
     #[test]
     fn planned_validation_preserves_severity_and_applies_threshold() {
         let ttl = format!(
