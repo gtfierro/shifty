@@ -305,24 +305,19 @@ pub(crate) fn py_value_error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
 
-/// Parse, normalize, and plan a shapes graph; return (Loaded, Schema, PhysicalPlan).
+/// Parse, normalize, and plan a shapes graph; return (Loaded, Schema, PhysicalPlan, diagnostics).
 fn prepare_loaded_shapes(
     loaded: shifty_parse::Loaded,
 ) -> (
     shifty_parse::Loaded,
     shifty_algebra::Schema,
     shifty_opt::PhysicalPlan,
-    Vec<String>,
+    Vec<shifty_parse::Diagnostic>,
 ) {
     let parse_out = shifty_parse::parse_loaded(&loaded);
-    let diagnostics = parse_out
-        .diagnostics
-        .iter()
-        .map(ToString::to_string)
-        .collect();
     let schema = shifty_opt::normalize(&parse_out.schema);
     let plan = shifty_opt::plan(&schema);
-    (loaded, schema, plan, diagnostics)
+    (loaded, schema, plan, parse_out.diagnostics)
 }
 
 /// Optionally run SHACL-AF inference; returns the graph to validate against.
@@ -652,6 +647,7 @@ fn load_validation_inputs(
         Option<shifty_parse::Loaded>,
         shifty_algebra::Schema,
         shifty_opt::PhysicalPlan,
+        Vec<shifty_parse::Diagnostic>,
     ),
     String,
 > {
@@ -661,7 +657,32 @@ fn load_validation_inputs(
     let parse_out = shifty_parse::parse_loaded(shapes_ref);
     let schema = shifty_opt::normalize(&parse_out.schema);
     let plan = shifty_opt::plan(&schema);
-    Ok((data_loaded, shapes_loaded, schema, plan))
+    Ok((data_loaded, shapes_loaded, schema, plan, parse_out.diagnostics))
+}
+
+/// Apply `UnsupportedPolicy` to parse-time diagnostics. Returns `Err` with a
+/// combined message if the policy is `Error` and any `Unsupported` diagnostics
+/// are present; otherwise returns `Ok(())`.
+fn check_unsupported_diagnostics(
+    diagnostics: &[shifty_parse::Diagnostic],
+    policy: UnsupportedPolicy,
+) -> Result<(), String> {
+    if policy != UnsupportedPolicy::Error {
+        return Ok(());
+    }
+    let unsupported: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.level == shifty_parse::DiagLevel::Unsupported)
+        .collect();
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+    let msgs = unsupported
+        .iter()
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(format!("unsupported features with on_unsupported='error': {msgs}"))
 }
 
 // ── Exported functions ────────────────────────────────────────────────────────
@@ -714,8 +735,9 @@ pub fn _validate_algebra(
     };
     let raw = py
         .allow_threads(move || {
-            let (data_loaded, shapes_loaded, schema, plan) =
+            let (data_loaded, shapes_loaded, schema, plan, diagnostics) =
                 load_validation_inputs(data, shapes, base.as_deref())?;
+            check_unsupported_diagnostics(&diagnostics, options.engine.unsupported)?;
             match shapes_loaded.as_ref() {
                 Some(shapes_loaded) => validate_algebra_loaded(
                     &data_loaded,
@@ -783,7 +805,7 @@ pub fn _validate_w3c(
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
     py.allow_threads(move || {
-        let (data_loaded, shapes_loaded, schema, _) =
+        let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
         match shapes_loaded.as_ref() {
             Some(shapes_loaded) => validate_w3c_loaded(
@@ -834,7 +856,7 @@ pub fn _infer(
     };
     let engine = engine_options(on_unsupported).map_err(py_value_error)?;
     py.allow_threads(move || {
-        let (data_loaded, shapes_loaded, schema, _) =
+        let (data_loaded, shapes_loaded, schema, _, _) =
             load_validation_inputs(data, shapes, base.as_deref())?;
         let outcome = match shapes_loaded.as_ref() {
             Some(shapes_loaded) => shifty_engine::infer_with_context_and_options(
@@ -861,7 +883,7 @@ pub struct PreparedValidator {
     shapes: shifty_parse::Loaded,
     schema: shifty_algebra::Schema,
     plan: shifty_opt::PhysicalPlan,
-    diagnostics: Vec<String>,
+    diagnostics: Vec<shifty_parse::Diagnostic>,
     base: Option<String>,
 }
 
@@ -902,7 +924,7 @@ impl PreparedValidator {
 
     #[getter]
     fn diagnostics(&self) -> Vec<String> {
-        self.diagnostics.clone()
+        self.diagnostics.iter().map(ToString::to_string).collect()
     }
 
     #[pyo3(signature = (
@@ -935,8 +957,10 @@ impl PreparedValidator {
             sort_results,
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
+        let diagnostics = self.diagnostics.clone();
         let raw = py
             .allow_threads(|| {
+                check_unsupported_diagnostics(&diagnostics, options.engine.unsupported)?;
                 let data_loaded = data.load(self.base.as_deref())?;
                 validate_algebra_loaded(
                     &data_loaded,

@@ -321,6 +321,30 @@ class TestCustomConstraintComponent:
         )
         assert not conforms, "two instances of ex:Thing with exactCount=1 must fail"
 
+    # validate_algebra does not evaluate custom constraint components; it emits
+    # an Unsupported diagnostic instead.
+
+    def test_algebra_ignores_custom_component_by_default(self):
+        # Under the default on_unsupported="ignore" the component is silently
+        # skipped, so the result appears conformant.
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
+        result = shifty.validate_algebra(
+            data,
+            _EXACT_COUNT_SHAPES.encode(),
+        )
+        assert result.conforms, (
+            "algebra path silently skips custom components under on_unsupported='ignore'"
+        )
+
+    def test_algebra_errors_on_custom_component_when_strict(self):
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
+        with pytest.raises(ValueError, match="unsupported"):
+            shifty.validate_algebra(
+                data,
+                _EXACT_COUNT_SHAPES.encode(),
+                on_unsupported="error",
+            )
+
 
 # ── Nested property paths ────────────────────────────────────────────────────
 
