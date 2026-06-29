@@ -683,7 +683,7 @@ function restoreSession() {
     if (s.options) {
       $("#opt-infer").checked = s.options.infer ?? true;
       $("#opt-graphmode").value = s.options.graphMode || "union";
-      $("#opt-severity").value = s.options.minimumSeverity || "info";
+      $("#opt-severity").value = s.options.minimumSeverity || "violation";
       $("#opt-sort").checked = s.options.sortResults ?? true;
     }
     return !!(s.shapes || s.data || ontologyWorkbench.length);
