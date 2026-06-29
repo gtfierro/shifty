@@ -1,0 +1,21 @@
+model                               infer ms     +/-  infer+val ms     +/-   report ms     +/-
+--------------------------------  ----------  ------  ----------  ------  ----------  ------
+NIST-HPL.ttl                               0       0        1332       0           0       0
+NIST-IBAL.ttl                              0       0        2922       0           0       0
+design-patterns.ttl                        0       0        1100       0           0       0
+guideline36-2021-A-1.ttl                   0       0        1090       0           0       0
+guideline36-2021-A-2.ttl                   0       0        1102       0           0       0
+guideline36-2021-A-3.ttl                   0       0        1135       0           0       0
+guideline36-2021-A-4.ttl                   0       0        1118       0           0       0
+guideline36-2021-A-7.ttl                   0       0        1089       0           0       0
+guideline36-2021-A-8.ttl                   0       0        1076       0           0       0
+guideline36-2021-A-9.ttl                   0       0        1430       0           0       0
+lbnl-bdg3-1.ttl                            0       0        2772       0           0       0
+lbnl-bdg4-1.ttl                            0       0        5412       0           0       0
+lbnl-example-radiant.ttl                   0       0        1210       0           0       0
+nist-bdg1-1.ttl                            0       0        1574       0           0       0
+nrel-example.ttl                           0       0        4188       0           0       0
+pnnl-bdg1-2.ttl                            0       0        1242       0           0       0
+pnnl-bdg2-1.ttl                            0       0        9081       0           0       0
+pnnl-bdg3-2.ttl                            0       0        7505       0           0       0
+scb-vrf.ttl                                0       0        2116       0           0       0

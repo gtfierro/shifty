@@ -96,3 +96,59 @@
 .sh-launch-btn:hover {
   opacity: 0.85;
 }
+
+/* ─────────────────────────────────────────────────────────
+   Benchmark tables
+   ───────────────────────────────────────────────────────── */
+.bench-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 2rem;
+}
+
+.bench-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.88rem;
+  font-family: var(--font-stack--monospace);
+}
+
+.bench-table th,
+.bench-table td {
+  border: 1px solid var(--color-background-border);
+  padding: 0.35rem 0.7rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bench-table th:first-child,
+.bench-table td:first-child {
+  text-align: left;
+}
+
+.bench-table thead th {
+  background: var(--color-background-secondary);
+  font-family: var(--font-stack--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-foreground-secondary);
+}
+
+.bench-table tbody tr:nth-child(even) {
+  background: var(--color-background-secondary);
+}
+
+.bench-faster {
+  color: #22a350;
+  font-weight: 600;
+}
+
+.bench-slower {
+  color: #d94f4f;
+  font-weight: 600;
+}
+
+.bench-summary th {
+  border-top: 2px solid var(--color-background-border);
+  background: var(--color-background-secondary);
+  font-style: italic;
+}

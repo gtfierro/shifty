@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 try:
@@ -11,6 +12,7 @@ except ModuleNotFoundError:
 
 
 ROOT = Path(__file__).resolve().parent.parent
+DOCS_DIR = Path(__file__).resolve().parent
 
 
 def _read_version() -> str:
@@ -21,6 +23,20 @@ def _read_version() -> str:
         return cargo.get("workspace", {}).get("package", {}).get("version", "0.0.0")
     except Exception:
         return "0.0.0"
+
+
+def _write_benchmark_js() -> None:
+    """Bake benchmark_data.json into a JS file loaded by benchmark.rst."""
+    data_file = ROOT / "benchmark" / "results" / "benchmark_data.json"
+    out_file = DOCS_DIR / "_static" / "benchmark_data.js"
+    if data_file.exists():
+        data = json.loads(data_file.read_text())
+    else:
+        data = {}
+    out_file.write_text(f"window.SHIFTY_BENCHMARK_DATA = {json.dumps(data)};\n")
+
+
+_write_benchmark_js()
 
 
 project = "Shifty"

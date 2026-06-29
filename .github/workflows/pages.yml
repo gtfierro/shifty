@@ -71,6 +71,10 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Build benchmark chart data
+        run: uv run benchmark/process_results.py
+        continue-on-error: true  # benchmark data is optional; page degrades gracefully
+
       - name: Build Sphinx HTML
         working-directory: docs
         run: uv run --with "sphinx>=7" --with furo --no-project sphinx-build . _build/html

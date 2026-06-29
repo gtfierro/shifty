@@ -73,6 +73,7 @@ Contents
 
    getting-started
    feature-support
+   benchmark
    cli/index
    python-api/index
    playground
