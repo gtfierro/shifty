@@ -255,6 +255,73 @@ class TestLogicalOperators:
         assert not result.conforms
 
 
+# ── Custom constraint components (sh:SPARQLAskValidator) ────────────────────
+
+_EXACT_COUNT_SHAPES = """\
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:  <urn:ex/> .
+
+ex:countComponent a sh:ConstraintComponent ;
+    sh:parameter [ sh:path ex:exactCount ; sh:datatype xsd:integer ] ;
+    sh:parameter [ sh:path ex:class ] ;
+    sh:validator ex:hasExactCount .
+
+ex:hasExactCount a sh:SPARQLAskValidator ;
+    sh:message "Not the right number of instances" ;
+    sh:ask \"\"\"
+        ASK {
+            {
+                SELECT (COUNT(DISTINCT ?i) AS ?count)
+                WHERE { ?i a $class . }
+            }
+            FILTER (?count = $exactCount)
+        }
+    \"\"\" .
+
+ex:shape a sh:NodeShape ;
+    sh:targetNode ex:sentinel ;
+    ex:class ex:Thing ;
+    ex:exactCount 1 .
+"""
+
+
+class TestCustomConstraintComponent:
+    """Tests for sh:SPARQLAskValidator with a graph-wide aggregate count.
+
+    The correct pattern for counting class instances uses a subquery to compute
+    the aggregate and a FILTER in the outer ASK — not SELECT * … HAVING, which
+    is invalid SPARQL (SELECT * with an implicit GROUP BY from HAVING).
+    """
+
+    def test_ask_validator_no_instances_fails(self):
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
+        conforms, _, _ = shifty.validate(
+            data,
+            _EXACT_COUNT_SHAPES.encode(),
+            minimum_severity="violation",
+        )
+        assert not conforms, "zero instances of ex:Thing with exactCount=1 must fail"
+
+    def test_ask_validator_exact_count_conforms(self):
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing ."
+        conforms, _, _ = shifty.validate(
+            data,
+            _EXACT_COUNT_SHAPES.encode(),
+            minimum_severity="violation",
+        )
+        assert conforms, "exactly one ex:Thing with exactCount=1 must conform"
+
+    def test_ask_validator_too_many_instances_fails(self):
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing . ex:t2 a ex:Thing ."
+        conforms, _, _ = shifty.validate(
+            data,
+            _EXACT_COUNT_SHAPES.encode(),
+            minimum_severity="violation",
+        )
+        assert not conforms, "two instances of ex:Thing with exactCount=1 must fail"
+
+
 # ── Nested property paths ────────────────────────────────────────────────────
 
 class TestNestedPaths:

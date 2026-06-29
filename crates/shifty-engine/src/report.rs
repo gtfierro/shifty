@@ -203,7 +203,7 @@ fn validate_report_context(
         needs_sparql,
         class_index,
         path_cache: RefCell::new(HashMap::new()),
-        components: build_components(shapes),
+        components: build_components(shapes, options.engine.unsupported),
     };
     let mut results = Vec::new();
     for shape in r.target_shapes() {
@@ -348,11 +348,35 @@ struct ComponentValidator {
     messages: Vec<Term>,
 }
 
+fn resolve_validator(
+    shapes: &Loaded,
+    node: Term,
+    component_iri: &NamedNode,
+    policy: UnsupportedPolicy,
+) -> Option<ComponentValidator> {
+    match parse_validator(shapes, &node) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            assert!(
+                policy != UnsupportedPolicy::Error,
+                "invalid SPARQL in custom constraint component <{component_iri}>: {e}"
+            );
+            None
+        }
+    }
+}
+
 /// Discover every SPARQL-based custom constraint component in the shapes graph:
 /// a named subject carrying `sh:parameter`(s) and at least one validator. (A
 /// `sh:SPARQLFunction` also has `sh:parameter` but no validator, so it is
 /// excluded.)
-fn build_components(shapes: &Loaded) -> Vec<CustomComponent> {
+///
+/// Under [`UnsupportedPolicy::Error`], a component whose validator query is
+/// invalid SPARQL causes a panic with a diagnostic message so the problem
+/// surfaces immediately rather than producing a silent wrong answer.
+/// Under [`UnsupportedPolicy::Ignore`], such components are silently skipped
+/// (the constraint is not enforced, which is the historical default behaviour).
+fn build_components(shapes: &Loaded, policy: UnsupportedPolicy) -> Vec<CustomComponent> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for triple in shapes.graph.triples_for_predicate(vocab::SH_PARAMETER) {
@@ -363,15 +387,16 @@ fn build_components(shapes: &Loaded) -> Vec<CustomComponent> {
         let NamedOrBlankNode::NamedNode(iri) = &subject else {
             continue; // a component must be named to be a sourceConstraintComponent
         };
+
         let node_validator = shapes
             .object(&subject, vocab::SH_NODE_VALIDATOR)
-            .and_then(|v| parse_validator(shapes, &v));
+            .and_then(|v| resolve_validator(shapes, v, iri, policy));
         let property_validator = shapes
             .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
-            .and_then(|v| parse_validator(shapes, &v));
+            .and_then(|v| resolve_validator(shapes, v, iri, policy));
         let generic_validator = shapes
             .object(&subject, vocab::SH_VALIDATOR)
-            .and_then(|v| parse_validator(shapes, &v));
+            .and_then(|v| resolve_validator(shapes, v, iri, policy));
         if node_validator.is_none() && property_validator.is_none() && generic_validator.is_none() {
             continue; // not a constraint component (e.g. a sh:SPARQLFunction)
         }
@@ -409,18 +434,20 @@ fn build_components(shapes: &Loaded) -> Vec<CustomComponent> {
 
 /// Parse a validator node (`sh:SPARQLAskValidator` / `sh:SPARQLSelectValidator`
 /// or a subclass), resolving its `sh:prefixes` into a canonical query string.
-fn parse_validator(shapes: &Loaded, node: &Term) -> Option<ComponentValidator> {
-    let node = term_to_node(node)?;
+/// Returns `Err` (with the parse error message) when the query is invalid SPARQL.
+fn parse_validator(shapes: &Loaded, node: &Term) -> Result<ComponentValidator, String> {
+    let node = term_to_node(node).ok_or_else(|| "validator node is not an IRI or blank node".to_string())?;
     let (kind, raw) = if let Some(Term::Literal(q)) = shapes.object(&node, vocab::SH_ASK) {
         (SparqlQueryKind::Ask, q.value().to_string())
     } else if let Some(Term::Literal(q)) = shapes.object(&node, vocab::SH_SELECT) {
         (SparqlQueryKind::Select, q.value().to_string())
     } else {
-        return None;
+        return Err("validator has neither sh:ask nor sh:select".to_string());
     };
-    let (_, query) = canonical_sparql_query(shapes, &node, &raw).ok()?;
+    let (_, query) = canonical_sparql_query(shapes, &node, &raw)
+        .map_err(|e| format!("invalid SPARQL in {node}: {e}"))?;
     let messages = shapes.objects(&node, vocab::SH_MESSAGE);
-    Some(ComponentValidator {
+    Ok(ComponentValidator {
         kind,
         query,
         messages,

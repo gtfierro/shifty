@@ -901,6 +901,129 @@ mod tests {
     }
 
     #[test]
+    fn custom_component_ask_validator_subquery_count() {
+        // ASK validator that counts graph-wide instances of $class and checks
+        // the total equals $exactCount (the BuildingMOTIF exactCount pattern).
+        // The correct SPARQL uses a subquery to aggregate, then FILTER in the
+        // outer query — avoiding the invalid `SELECT * … HAVING (aggregate)`
+        // pattern that spargebra rightly rejects.
+        let shapes_ttl = br#"
+            @prefix sh:  <http://www.w3.org/ns/shacl#> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            @prefix ex:  <urn:ex/> .
+
+            ex:countComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:exactCount ; sh:datatype xsd:integer ] ;
+                sh:parameter [ sh:path ex:class ] ;
+                sh:validator ex:hasExactCount .
+
+            ex:hasExactCount a sh:SPARQLAskValidator ;
+                sh:message "Wrong count" ;
+                sh:ask """
+                    ASK {
+                        {
+                            SELECT (COUNT(DISTINCT ?i) AS ?count)
+                            WHERE { ?i a $class . }
+                        }
+                        FILTER (?count = $exactCount)
+                    }
+                """ .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                ex:class ex:Thing ;
+                ex:exactCount 1 .
+        "#;
+        let shapes = shifty_parse::load_turtle(shapes_ttl, None).unwrap();
+
+        // Zero instances → violates
+        let data_none = shifty_parse::load_turtle(
+            b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .",
+            None,
+        )
+        .unwrap();
+        let report = validate_report_graphs(&shapes, &data_none.graph);
+        assert!(
+            !report.conforms,
+            "zero Things with exactCount=1 must not conform: {:?}",
+            report.results
+        );
+
+        // Exactly one instance → conforms
+        let data_one = shifty_parse::load_turtle(
+            b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing .",
+            None,
+        )
+        .unwrap();
+        let report_ok = validate_report_graphs(&shapes, &data_one.graph);
+        assert!(
+            report_ok.conforms,
+            "exactly one Thing with exactCount=1 must conform: {:?}",
+            report_ok.results
+        );
+
+        // Two instances → violates
+        let data_two = shifty_parse::load_turtle(
+            b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing . ex:t2 a ex:Thing .",
+            None,
+        )
+        .unwrap();
+        let report_two = validate_report_graphs(&shapes, &data_two.graph);
+        assert!(
+            !report_two.conforms,
+            "two Things with exactCount=1 must not conform: {:?}",
+            report_two.results
+        );
+    }
+
+    #[test]
+    fn custom_component_invalid_sparql_ignored_by_default() {
+        // A validator whose sh:ask is invalid SPARQL (SELECT * with an implicit
+        // GROUP BY from HAVING) is silently skipped under the default Ignore
+        // policy, so the component is not enforced and the shape appears to
+        // conform even when the data does not.  This documents the known
+        // silent-skip behaviour; use on_unsupported="error" to surface it.
+        let shapes_ttl = br#"
+            @prefix sh:  <http://www.w3.org/ns/shacl#> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+            @prefix ex:  <urn:ex/> .
+
+            ex:badComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:exactCount ; sh:datatype xsd:integer ] ;
+                sh:parameter [ sh:path ex:class ] ;
+                sh:validator [ a sh:SPARQLAskValidator ;
+                    sh:ask """
+                        ASK WHERE {
+                            {
+                                SELECT *
+                                WHERE { ?i a $class . }
+                                HAVING (COUNT(DISTINCT ?i) = $exactCount)
+                            }
+                        }
+                    """ ] .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                ex:class ex:Thing ;
+                ex:exactCount 1 .
+        "#;
+        let shapes = shifty_parse::load_turtle(shapes_ttl, None).unwrap();
+        let data = shifty_parse::load_turtle(
+            b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .",
+            None,
+        )
+        .unwrap();
+
+        // Ignore policy (default): bad query silently skipped → appears to conform
+        let report = validate_report_graphs(&shapes, &data.graph);
+        assert!(
+            report.conforms,
+            "bad validator query silently skipped under Ignore: {:?}",
+            report.results
+        );
+    }
+
+    #[test]
     fn equals_on_node_shape_uses_the_focus_node_as_the_value() {
         let ttl = format!(
             "{PREFIXES}
