@@ -20,6 +20,7 @@
 shapes.ir
 
 # Benchmark and comparison outputs
+/benchmark/results/triple_counts.json
 /benchmark-*.csv
 /benchmark/hyperfine-json/
 /benchmark/hyperfine-plots/
