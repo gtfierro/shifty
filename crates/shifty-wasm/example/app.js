@@ -652,7 +652,7 @@ function restoreSession() {
     }
     if (s.options) {
       $("#opt-infer").checked = s.options.infer ?? true;
-      $("#opt-graphmode").value = s.options.graphMode || "data";
+      $("#opt-graphmode").value = s.options.graphMode || "union";
       $("#opt-severity").value = s.options.minimumSeverity || "info";
       $("#opt-sort").checked = s.options.sortResults ?? true;
     }
