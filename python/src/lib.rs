@@ -12,6 +12,14 @@ use std::sync::OnceLock;
 
 mod repair;
 
+type ValidationInputs = (
+    shifty_parse::Loaded,
+    Option<shifty_parse::Loaded>,
+    shifty_algebra::Schema,
+    shifty_opt::PhysicalPlan,
+    Vec<shifty_parse::Diagnostic>,
+);
+
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
 #[pyclass(get_all)]
@@ -641,23 +649,20 @@ fn load_validation_inputs(
     data: InputSpec,
     shapes: Option<InputSpec>,
     base: Option<&str>,
-) -> Result<
-    (
-        shifty_parse::Loaded,
-        Option<shifty_parse::Loaded>,
-        shifty_algebra::Schema,
-        shifty_opt::PhysicalPlan,
-        Vec<shifty_parse::Diagnostic>,
-    ),
-    String,
-> {
+) -> Result<ValidationInputs, String> {
     let data_loaded = data.load(base)?;
     let shapes_loaded = shapes.map(|spec| spec.load(base)).transpose()?;
     let shapes_ref = shapes_loaded.as_ref().unwrap_or(&data_loaded);
     let parse_out = shifty_parse::parse_loaded(shapes_ref);
     let schema = shifty_opt::normalize(&parse_out.schema);
     let plan = shifty_opt::plan(&schema);
-    Ok((data_loaded, shapes_loaded, schema, plan, parse_out.diagnostics))
+    Ok((
+        data_loaded,
+        shapes_loaded,
+        schema,
+        plan,
+        parse_out.diagnostics,
+    ))
 }
 
 /// Apply `UnsupportedPolicy` to parse-time diagnostics. Returns `Err` with a
@@ -682,7 +687,9 @@ fn check_unsupported_diagnostics(
         .map(|d| d.to_string())
         .collect::<Vec<_>>()
         .join("; ");
-    Err(format!("unsupported features with on_unsupported='error': {msgs}"))
+    Err(format!(
+        "unsupported features with on_unsupported='error': {msgs}"
+    ))
 }
 
 // ── Exported functions ────────────────────────────────────────────────────────
