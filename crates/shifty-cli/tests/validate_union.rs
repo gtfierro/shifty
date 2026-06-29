@@ -1,6 +1,23 @@
 use std::process::Command;
 
 #[test]
+fn version_subcommand_prints_package_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shifty"))
+        .arg("version")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+#[test]
 fn validation_executes_over_data_and_shapes_union() {
     let dir = std::env::temp_dir().join(format!("shifty-cli-union-class-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

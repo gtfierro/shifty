@@ -20,6 +20,8 @@ type ValidationInputs = (
     Vec<shifty_parse::Diagnostic>,
 );
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
 #[pyclass(get_all)]
@@ -708,6 +710,12 @@ fn check_unsupported_diagnostics(
 
 // ── Exported functions ────────────────────────────────────────────────────────
 
+/// Return the pyshifty package version.
+#[pyfunction]
+pub fn version() -> &'static str {
+    VERSION
+}
+
 /// Run algebra-path validation. Returns an `AlgebraResult` with structured
 /// `Violation`/`Reason` objects representing the algebraic failure AST.
 #[allow(clippy::too_many_arguments)]
@@ -1054,12 +1062,14 @@ impl PreparedValidator {
 
 #[pymodule]
 fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", VERSION)?;
     m.add_class::<Reason>()?;
     m.add_class::<Violation>()?;
     m.add_class::<AlgebraResult>()?;
     m.add_class::<W3cResult>()?;
     m.add_class::<InferResult>()?;
     m.add_class::<PreparedValidator>()?;
+    m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(_validate_algebra, m)?)?;
     m.add_function(wrap_pyfunction!(_validate_w3c, m)?)?;
     m.add_function(wrap_pyfunction!(_infer, m)?)?;

@@ -9,6 +9,8 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Parser)]
 #[command(name = "shacl", about = "Formalism-first SHACL/SHACL-AF engine")]
 struct Cli {
@@ -18,6 +20,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Print the shifty CLI version.
+    Version,
     /// Show a layer's view of a shapes graph.
     Inspect(InspectArgs),
     /// Validate a data graph against a shapes graph (normalized planned evaluator).
@@ -204,6 +208,10 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
+        Command::Version => {
+            println!("{VERSION}");
+            Ok(())
+        }
         Command::Inspect(args) => inspect(args),
         Command::Validate(args) => validate(args),
         Command::Infer(args) => infer(args),
@@ -222,7 +230,10 @@ fn fetch_bytes(src: &str) -> Result<SourceBytes, Box<dyn Error>> {
         let content_type = response.header("content-type").map(ToOwned::to_owned);
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)?;
-        Ok(SourceBytes { bytes, content_type })
+        Ok(SourceBytes {
+            bytes,
+            content_type,
+        })
     } else {
         Ok(SourceBytes {
             bytes: std::fs::read(src)?,

@@ -22,6 +22,8 @@ use shifty_engine::{
 use shifty_parse::Loaded;
 use wasm_bindgen::prelude::*;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Install a panic hook that forwards Rust panics to `console.error`, making
 /// wasm panics debuggable in the browser. Safe to call more than once.
 #[wasm_bindgen(start)]
@@ -150,6 +152,12 @@ struct InferResult {
 }
 
 // ── Public entry points ───────────────────────────────────────────────────────
+
+/// Return the shifty-wasm package version.
+#[wasm_bindgen(js_name = version)]
+pub fn version() -> String {
+    VERSION.to_string()
+}
 
 /// Validate `data_ttl` against the shapes in `shapes_ttl`, returning structured
 /// findings: `{ conforms, violations: [...], resultsText }`.

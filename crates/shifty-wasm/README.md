@@ -10,9 +10,10 @@ dependencies also use response content type and URL extension hints.
 
 | Function | Returns |
 | --- | --- |
-| `validate(shapesTtl, dataTtl, options)` | `{ conforms, violations: [...], resultsText }` — structured "algebra" findings |
-| `validateW3c(shapesTtl, dataTtl, options)` | `{ conforms, reportTurtle, resultsText }` — a W3C `sh:ValidationReport` |
-| `infer(shapesTtl, dataTtl)` | `{ inferredCount, totalCount, graphNtriples, inferredNtriples, diagnostics }` — the union graph plus just the inferred delta, as N-Triples |
+| `version()` | package version string |
+| `validate(shapesRdf, dataRdf, options)` | `{ conforms, violations: [...], resultsText }` — structured "algebra" findings |
+| `validateW3c(shapesRdf, dataRdf, options)` | `{ conforms, reportTurtle, resultsText }` — a W3C `sh:ValidationReport` |
+| `infer(shapesRdf, dataRdf)` | `{ inferredCount, totalCount, graphNtriples, inferredNtriples, diagnostics }` — the union graph plus just the inferred delta, as N-Triples |
 | `ntriplesToTurtle(ntriples)` | a prettified Turtle string — re-serialize a graph the UI only holds as N-Triples (e.g. the inference union) without re-running the engine |
 
 `dataRdf` may be `null`/`""` to treat `shapesRdf` as a single combined

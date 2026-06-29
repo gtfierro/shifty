@@ -5,7 +5,8 @@ CLI Reference
 
    <div class="sh-section-intro">
      The <strong>shifty</strong> binary provides commands for validation and inference,
-     plus an <code>inspect</code> command to examine each stage of the compilation pipeline.
+     plus <code>inspect</code> and <code>version</code> commands for pipeline introspection
+     and build identification.
      Shapes files and data files can be local paths or HTTP/HTTPS URLs; both
      <code>--shapes</code> and <code>--data</code> are repeatable to merge multiple files.
    </div>
@@ -21,6 +22,12 @@ Install
    # Or build without installing:
    cargo build --release -p shifty-cli
    ./target/release/shifty --help
+
+Print the installed CLI version:
+
+.. code-block:: bash
+
+   shifty version
 
 validate
 --------

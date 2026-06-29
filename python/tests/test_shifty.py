@@ -60,6 +60,12 @@ MULTI_VIOLATION_DATA = PREFIXES + textwrap.dedent("""\
 """)
 
 
+def test_version_is_programmatically_available():
+    assert isinstance(shifty.__version__, str)
+    assert shifty.__version__
+    assert shifty.version() == shifty.__version__
+
+
 # ── validate() — pyshacl-compatible ──────────────────────────────────────────
 
 class TestValidatePyshacl:

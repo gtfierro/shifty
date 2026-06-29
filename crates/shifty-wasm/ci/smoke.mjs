@@ -14,7 +14,7 @@ const repoRoot = resolve(here, "../../.."); // crates/shifty-wasm/ci -> repo roo
 const fixtures = resolve(repoRoot, "testdata/fixtures");
 const read = (p) => readFileSync(resolve(fixtures, p), "utf8");
 
-const { validate, infer } = await import("../pkg-node/shifty_wasm.js");
+const { validate, infer, version } = await import("../pkg-node/shifty_wasm.js");
 
 let failures = 0;
 function check(name, cond, detail = "") {
@@ -28,6 +28,8 @@ function check(name, cond, detail = "") {
 
 // af_target_*: SPARQL-target shapes — the exact shape kind that used to trap
 // because spareval stamps every query with DateTime::now() (std SystemTime).
+check("version is exported", typeof version() === "string" && version().length > 0);
+
 {
   const shapes = read("af_target_shapes.ttl");
   const data = read("af_target_data.ttl");

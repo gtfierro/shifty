@@ -71,9 +71,11 @@ from ._shifty import (
     W3cResult,
     WitnessAtom,
     WitnessKind,
+    __version__,
     _infer,
     _validate_algebra,
     _validate_w3c,
+    version,
 )
 
 if TYPE_CHECKING:
@@ -83,6 +85,8 @@ __all__ = [
     "validate",
     "validate_algebra",
     "infer",
+    "version",
+    "__version__",
     "AlgebraResult",
     "Violation",
     "Reason",
