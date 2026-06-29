@@ -30,6 +30,15 @@ pub struct SparqlConstraint {
     /// the owning shape). Used as the violation message when a `SELECT` result
     /// does not bind its own `?message`. Empty when none is declared.
     pub messages: Vec<Term>,
+    /// Extra pre-bound variables injected before `$this`. Used by custom
+    /// constraint component lowering to substitute parameter values (e.g.
+    /// `$exactCount`, `$class`) that are static per activating shape.
+    /// Empty for plain `sh:sparql` constraints.
+    pub extra_bindings: Vec<(String, Term)>,
+    /// When `true`, rename `?value` to `?this` in the compiled query before
+    /// binding `$this` per focus. Set for ASK validators activated by node
+    /// shapes (no `sh:path`), where `$value` equals the focus node (`$this`).
+    pub bind_value_to_this: bool,
 }
 
 /// `sh:target` + `sh:select` — a SPARQL-based target.

@@ -38,7 +38,7 @@ pub fn lower(g: &Loaded) -> Lowered {
     for s in &shapes {
         l.lower_shape(s);
     }
-    l.diagnose_custom_components(&shapes);
+    l.lower_custom_components(&shapes);
     for s in &shapes {
         // selectors are shared by the shape's statements and its rules
         let selectors = l.target_selectors(s);
@@ -80,6 +80,32 @@ struct Lowerer<'a> {
     statements: Vec<Statement>,
     rules: Vec<Rule>,
     diags: Vec<Diagnostic>,
+}
+
+struct ComponentDef {
+    iri: NamedNode,
+    params: Vec<ParamDef>,
+    node_validator: Option<ValidatorDef>,
+    property_validator: Option<ValidatorDef>,
+    generic_validator: Option<ValidatorDef>,
+}
+
+struct ParamDef {
+    path: NamedNode,
+    var: String,
+    optional: bool,
+}
+
+struct ValidatorDef {
+    kind: SparqlQueryKind,
+    query: String,
+    messages: Vec<Term>,
+}
+
+/// The local name of an IRI (after the last `#` or `/`) — the SHACL rule for a
+/// parameter's pre-bound variable name (SHACL §6.2.1).
+fn local_name(iri: &str) -> &str {
+    iri.rsplit(['#', '/']).next().unwrap_or(iri)
 }
 
 impl Lowerer<'_> {
@@ -194,6 +220,8 @@ impl Lowerer<'_> {
                     path: path.clone(),
                     shape,
                     messages,
+                    extra_bindings: Vec::new(),
+                    bind_value_to_this: false,
                 };
                 conjuncts.push(self.arena.insert(Shape::Sparql(constraint)));
             }
@@ -571,14 +599,106 @@ impl Lowerer<'_> {
         sels
     }
 
-    /// SPARQL-based custom constraint components (SHACL §6.3) are evaluated only
-    /// on the RDF-driven report path (`validate_report`), not in the lowered
-    /// algebra. When a discovered shape *activates* such a component — i.e. it
-    /// supplies a value for every mandatory parameter — emit a diagnostic so the
-    /// algebra validators don't silently under-constrain rather than evaluate it.
-    fn diagnose_custom_components(&mut self, shapes: &[NamedOrBlankNode]) {
-        // Components: named subjects with sh:parameter and at least one validator.
-        let mut components: Vec<(NamedNode, Vec<NamedNode>)> = Vec::new();
+    /// Lower SPARQL-based custom constraint components (SHACL §6.3) into the
+    /// algebra. For each shape that *activates* a component (supplies a value for
+    /// every mandatory parameter), a `Shape::Sparql` node is appended to that
+    /// shape's conjunction. The parameter values from the activating shape are
+    /// stored as `extra_bindings` so `compile_constraint` can pre-substitute them
+    /// (§6.2.3) before binding `$this` per focus node.
+    ///
+    /// Components with an invalid SPARQL validator query emit `DiagLevel::Error`
+    /// and are skipped (the constraint is not enforced for that activation).
+    fn lower_custom_components(&mut self, shapes: &[NamedOrBlankNode]) {
+        let components = self.collect_component_defs();
+        if components.is_empty() {
+            return;
+        }
+        for s in shapes {
+            let Some(&shape_id) = self.cache.get(s) else {
+                continue;
+            };
+            let is_property_shape = self.g.object(s, vocab::SH_PATH).is_some();
+            let path = if is_property_shape {
+                self.parse_shape_path(s)
+            } else {
+                None
+            };
+            let shape_term = match s {
+                NamedOrBlankNode::NamedNode(n) => Some(Term::NamedNode(n.clone())),
+                NamedOrBlankNode::BlankNode(b) => Some(Term::BlankNode(b.clone())),
+            };
+
+            for component in &components {
+                // Activation: every mandatory parameter must be present on `s`.
+                let mut extra_bindings: Vec<(String, Term)> = Vec::new();
+                let mut activated = true;
+                for p in &component.params {
+                    if let Some(value) = self.g.object(s, p.path.as_ref()) {
+                        extra_bindings.push((p.var.clone(), value));
+                    } else if !p.optional {
+                        activated = false;
+                        break;
+                    }
+                }
+                if !activated {
+                    continue;
+                }
+
+                // Pick the right validator for the shape kind.
+                let validator = if is_property_shape {
+                    component
+                        .property_validator
+                        .as_ref()
+                        .or(component.generic_validator.as_ref())
+                } else {
+                    component
+                        .node_validator
+                        .as_ref()
+                        .or(component.generic_validator.as_ref())
+                };
+                let Some(validator) = validator else { continue };
+
+                let constraint = SparqlConstraint {
+                    kind: validator.kind,
+                    query: validator.query.clone(),
+                    path: path.clone(),
+                    shape: shape_term.clone(),
+                    messages: validator.messages.clone(),
+                    extra_bindings,
+                    // For node-shape activations (no sh:path), $value equals the
+                    // focus node, so rename ?value → ?this before binding per focus.
+                    bind_value_to_this: !is_property_shape
+                        && validator.kind == SparqlQueryKind::Ask,
+                };
+                let raw_id = self.arena.insert(Shape::Sparql(constraint));
+                // sh:SPARQLAskValidator (SHACL §6.2.3): ASK=true means the
+                // constraint is *satisfied*. The algebra evaluator treats
+                // ASK=true as a violation (matching sh:sparql semantics), so
+                // we wrap in Not to restore the correct polarity. SELECT
+                // validators are violation-per-row, same as sh:sparql — no inversion.
+                let sparql_id = if validator.kind == SparqlQueryKind::Ask {
+                    self.arena.not(raw_id)
+                } else {
+                    raw_id
+                };
+
+                // Conjoin with the shape's existing body.
+                let (severity, inner) = match self.arena.get(shape_id) {
+                    Shape::Annotated { severity, shape: inner } => (severity.clone(), *inner),
+                    _ => continue, // defensive; lower_shape always produces Annotated
+                };
+                let combined = self.arena.and(vec![inner, sparql_id]);
+                self.arena
+                    .set(shape_id, Shape::Annotated { severity, shape: combined });
+            }
+        }
+    }
+
+    /// Collect all custom constraint component definitions from the shapes graph:
+    /// named subjects that carry `sh:parameter` and at least one validator
+    /// predicate (`sh:validator`, `sh:nodeValidator`, `sh:propertyValidator`).
+    fn collect_component_defs(&mut self) -> Vec<ComponentDef> {
+        let mut out: Vec<ComponentDef> = Vec::new();
         let mut seen = HashSet::new();
         for triple in self.g.graph.triples_for_predicate(vocab::SH_PARAMETER) {
             let subject = triple.subject.into_owned();
@@ -588,48 +708,73 @@ impl Lowerer<'_> {
             let NamedOrBlankNode::NamedNode(iri) = &subject else {
                 continue;
             };
-            let has_validator = self.g.object(&subject, vocab::SH_VALIDATOR).is_some()
-                || self.g.object(&subject, vocab::SH_NODE_VALIDATOR).is_some()
-                || self
-                    .g
-                    .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
-                    .is_some();
-            if !has_validator {
-                continue; // e.g. a sh:SPARQLFunction
+            let node_validator = self
+                .g
+                .object(&subject, vocab::SH_NODE_VALIDATOR)
+                .and_then(|v| self.parse_validator_def(&v));
+            let property_validator = self
+                .g
+                .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
+                .and_then(|v| self.parse_validator_def(&v));
+            let generic_validator = self
+                .g
+                .object(&subject, vocab::SH_VALIDATOR)
+                .and_then(|v| self.parse_validator_def(&v));
+            if node_validator.is_none()
+                && property_validator.is_none()
+                && generic_validator.is_none()
+            {
+                continue; // not a constraint component (e.g. a sh:SPARQLFunction)
             }
-            let mut mandatory = Vec::new();
+            let mut params: Vec<ParamDef> = Vec::new();
             for p in self.g.objects(&subject, vocab::SH_PARAMETER) {
                 let Some(pn) = term_to_node(&p) else { continue };
-                let optional = matches!(self.g.object(&pn, vocab::SH_OPTIONAL),
-                    Some(Term::Literal(l)) if l.value() == "true");
-                if !optional && let Some(Term::NamedNode(path)) = self.g.object(&pn, vocab::SH_PATH)
-                {
-                    mandatory.push(path);
-                }
+                let Some(Term::NamedNode(path)) = self.g.object(&pn, vocab::SH_PATH) else {
+                    continue;
+                };
+                let var = local_name(path.as_str()).to_string();
+                let optional = matches!(
+                    self.g.object(&pn, vocab::SH_OPTIONAL),
+                    Some(Term::Literal(ref l)) if l.value() == "true"
+                );
+                params.push(ParamDef { path, var, optional });
             }
-            components.push((iri.clone(), mandatory));
-        }
-        if components.is_empty() {
-            return;
-        }
-        for s in shapes {
-            for (iri, mandatory) in &components {
-                if mandatory
-                    .iter()
-                    .all(|path| self.g.object(s, path.as_ref()).is_some())
-                {
-                    self.diag(
-                        DiagLevel::Unsupported,
-                        format!(
-                            "shape activates custom constraint component <{}>, evaluated only on \
-                             the report path (validate_report), not in the algebra validator",
-                            iri.as_str()
-                        ),
-                        s,
-                    );
-                }
+            if params.is_empty() {
+                continue;
             }
+            out.push(ComponentDef {
+                iri: iri.clone(),
+                params,
+                node_validator,
+                property_validator,
+                generic_validator,
+            });
         }
+        out.sort_by(|a, b| a.iri.as_str().cmp(b.iri.as_str()));
+        out
+    }
+
+    /// Parse a validator node into a `ValidatorDef`, canonicalizing its SPARQL
+    /// query. Returns `None` (and emits an error diagnostic) if the query is
+    /// invalid SPARQL.
+    fn parse_validator_def(&mut self, node: &Term) -> Option<ValidatorDef> {
+        let node = term_to_node(node)?;
+        let (kind, raw) = if let Some(Term::Literal(q)) = self.g.object(&node, vocab::SH_ASK) {
+            (SparqlQueryKind::Ask, q.value().to_string())
+        } else if let Some(Term::Literal(q)) = self.g.object(&node, vocab::SH_SELECT) {
+            (SparqlQueryKind::Select, q.value().to_string())
+        } else {
+            return None; // no query body — not a SPARQL validator
+        };
+        let canonical = match canonical_sparql_query(self.g, &node, &raw) {
+            Ok((_, c)) => c,
+            Err(msg) => {
+                self.diag(DiagLevel::Error, format!("invalid SPARQL in validator: {msg}"), &node);
+                return None;
+            }
+        };
+        let messages = self.g.objects(&node, vocab::SH_MESSAGE);
+        Some(ValidatorDef { kind, query: canonical, messages })
     }
 
     /// Lower the `sh:rule`s of a shape (SHACL-AF). A rule fires on the shape's

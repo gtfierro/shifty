@@ -1055,6 +1055,8 @@ impl Reporter<'_> {
             // The report path resolves messages itself, so the constraint's own
             // message slot is left empty here.
             messages: Vec::new(),
+            extra_bindings: Vec::new(),
+            bind_value_to_this: false,
         })
     }
 

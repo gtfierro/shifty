@@ -757,16 +757,23 @@ mod tests {
         assert_eq!(r.source_shape.to_string(), "<http://ex/TestShape>");
         assert_eq!(r.path, None);
 
-        // The lowered algebra cannot evaluate components, so it diagnoses the
-        // activation rather than silently under-validating.
-        let parsed = parse_turtle(ttl, None).unwrap();
-        assert!(
-            parsed
-                .diagnostics
-                .iter()
-                .any(|d| d.message.contains("custom constraint component")),
-            "expected a custom-component diagnostic, got: {:?}",
-            parsed.diagnostics
+        // The algebra path now evaluates components too: "Hallo Welt" should
+        // still be the only violation.
+        let parse_out = shifty_parse::parse_loaded(&loaded);
+        let schema = shifty_opt::normalize(&parse_out.schema);
+        let plan = shifty_opt::plan(&schema);
+        let outcome = validate_plan_graphs(&loaded.graph, &loaded.graph, &plan).unwrap();
+        assert!(!outcome.conforms, "algebra: Hallo Welt must still violate");
+        assert_eq!(
+            outcome.violations.len(),
+            1,
+            "algebra: exactly one violation: {:?}",
+            outcome.violations
+        );
+        assert_eq!(
+            outcome.violations[0].focus.to_string(),
+            "\"Hallo Welt\"",
+            "algebra: wrong focus node"
         );
     }
 
@@ -974,6 +981,17 @@ mod tests {
             "two Things with exactCount=1 must not conform: {:?}",
             report_two.results
         );
+
+        // Same checks via the algebra path.
+        let parse_out = shifty_parse::parse_loaded(&shapes);
+        let schema = shifty_opt::normalize(&parse_out.schema);
+        let plan = shifty_opt::plan(&schema);
+        let alg_none = validate_plan_graphs(&data_none.graph, &shapes.graph, &plan).unwrap();
+        assert!(!alg_none.conforms, "algebra: zero Things must not conform");
+        let alg_one = validate_plan_graphs(&data_one.graph, &shapes.graph, &plan).unwrap();
+        assert!(alg_one.conforms, "algebra: one Thing must conform");
+        let alg_two = validate_plan_graphs(&data_two.graph, &shapes.graph, &plan).unwrap();
+        assert!(!alg_two.conforms, "algebra: two Things must not conform");
     }
 
     #[test]

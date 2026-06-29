@@ -321,29 +321,32 @@ class TestCustomConstraintComponent:
         )
         assert not conforms, "two instances of ex:Thing with exactCount=1 must fail"
 
-    # validate_algebra does not evaluate custom constraint components; it emits
-    # an Unsupported diagnostic instead.
+    # validate_algebra now evaluates custom constraint components by lowering
+    # them into Shape::Sparql nodes with pre-substituted parameter bindings.
 
-    def test_algebra_ignores_custom_component_by_default(self):
-        # Under the default on_unsupported="ignore" the component is silently
-        # skipped, so the result appears conformant.
+    def test_algebra_no_instances_fails(self):
         data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
         result = shifty.validate_algebra(
             data,
             _EXACT_COUNT_SHAPES.encode(),
         )
-        assert result.conforms, (
-            "algebra path silently skips custom components under on_unsupported='ignore'"
-        )
+        assert not result.conforms, "zero instances of ex:Thing with exactCount=1 must fail"
 
-    def test_algebra_errors_on_custom_component_when_strict(self):
-        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel ."
-        with pytest.raises(ValueError, match="unsupported"):
-            shifty.validate_algebra(
-                data,
-                _EXACT_COUNT_SHAPES.encode(),
-                on_unsupported="error",
-            )
+    def test_algebra_exact_count_conforms(self):
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing ."
+        result = shifty.validate_algebra(
+            data,
+            _EXACT_COUNT_SHAPES.encode(),
+        )
+        assert result.conforms, "exactly one ex:Thing with exactCount=1 must conform"
+
+    def test_algebra_too_many_instances_fails(self):
+        data = b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel . ex:t1 a ex:Thing . ex:t2 a ex:Thing ."
+        result = shifty.validate_algebra(
+            data,
+            _EXACT_COUNT_SHAPES.encode(),
+        )
+        assert not result.conforms, "two instances of ex:Thing with exactCount=1 must fail"
 
 
 # ── Nested property paths ────────────────────────────────────────────────────

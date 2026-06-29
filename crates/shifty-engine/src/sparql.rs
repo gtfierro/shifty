@@ -395,6 +395,16 @@ impl SparqlExecutor {
                 &Term::NamedNode(graph.clone()),
             );
         }
+        // Custom constraint component parameters (§6.2.3): substitute static
+        // per-activation bindings before `$this` is bound per focus.
+        for (name, value) in &constraint.extra_bindings {
+            substitute_query(&mut query, &variable(name), value);
+        }
+        // For ASK validators on node shapes, $value equals the focus node.
+        // Rename ?value → ?this so the per-focus $this binding covers it.
+        if constraint.bind_value_to_this {
+            rename_variable_in_query(&mut query, &variable("value"), &variable("this"));
+        }
 
         // Native execution requires the frozen dataset as its storage backend.
         let plan = match &self.frozen {
@@ -1552,6 +1562,187 @@ fn eval_sparql_function(query: &str, params: &[String], args: &[Term]) -> Option
     }
 }
 
+/// Rename every occurrence of `from` to `to` throughout a query AST. Used to
+/// implement the `bind_value_to_this` flag: for node-shape activations of ASK
+/// validators, `?value` is the focus node (`?this`), so we rename before the
+/// per-focus `$this` binding is applied.
+fn rename_variable_in_query(query: &mut Query, from: &Variable, to: &Variable) {
+    match query {
+        Query::Select { pattern, .. }
+        | Query::Describe { pattern, .. }
+        | Query::Ask { pattern, .. } => rename_var_pattern(pattern, from, to),
+        Query::Construct {
+            template, pattern, ..
+        } => {
+            for triple in template {
+                rename_var_triple(triple, from, to);
+            }
+            rename_var_pattern(pattern, from, to);
+        }
+    }
+}
+
+fn rename_var_pattern(pattern: &mut GraphPattern, from: &Variable, to: &Variable) {
+    match pattern {
+        GraphPattern::Bgp { patterns } => {
+            for triple in patterns {
+                rename_var_triple(triple, from, to);
+            }
+        }
+        GraphPattern::Path { subject, object, .. } => {
+            rename_var_term_pattern(subject, from, to);
+            rename_var_term_pattern(object, from, to);
+        }
+        GraphPattern::Join { left, right }
+        | GraphPattern::Union { left, right }
+        | GraphPattern::Minus { left, right }
+        | GraphPattern::Lateral { left, right } => {
+            rename_var_pattern(left, from, to);
+            rename_var_pattern(right, from, to);
+        }
+        GraphPattern::LeftJoin { left, right, expression } => {
+            rename_var_pattern(left, from, to);
+            rename_var_pattern(right, from, to);
+            if let Some(expr) = expression {
+                rename_var_expr(expr, from, to);
+            }
+        }
+        GraphPattern::Filter { expr, inner } => {
+            rename_var_expr(expr, from, to);
+            rename_var_pattern(inner, from, to);
+        }
+        GraphPattern::Graph { name, inner } => {
+            if let NamedNodePattern::Variable(v) = name
+                && v == from
+            {
+                *name = NamedNodePattern::Variable(to.clone());
+            }
+            rename_var_pattern(inner, from, to);
+        }
+        GraphPattern::Extend { inner, expression, variable } => {
+            rename_var_pattern(inner, from, to);
+            rename_var_expr(expression, from, to);
+            if variable == from {
+                *variable = to.clone();
+            }
+        }
+        GraphPattern::OrderBy { inner, expression } => {
+            rename_var_pattern(inner, from, to);
+            for order in expression {
+                match order {
+                    OrderExpression::Asc(e) | OrderExpression::Desc(e) => {
+                        rename_var_expr(e, from, to);
+                    }
+                }
+            }
+        }
+        GraphPattern::Project { inner, variables } => {
+            rename_var_pattern(inner, from, to);
+            for v in variables {
+                if v == from {
+                    *v = to.clone();
+                }
+            }
+        }
+        GraphPattern::Distinct { inner }
+        | GraphPattern::Reduced { inner }
+        | GraphPattern::Slice { inner, .. } => rename_var_pattern(inner, from, to),
+        GraphPattern::Group { inner, variables, aggregates } => {
+            rename_var_pattern(inner, from, to);
+            for v in variables {
+                if v == from {
+                    *v = to.clone();
+                }
+            }
+            for (v, agg) in aggregates {
+                if v == from {
+                    *v = to.clone();
+                }
+                if let AggregateExpression::FunctionCall { expr, .. } = agg {
+                    rename_var_expr(expr, from, to);
+                }
+            }
+        }
+        GraphPattern::Service { name, inner, .. } => {
+            if let NamedNodePattern::Variable(v) = name
+                && v == from
+            {
+                *name = NamedNodePattern::Variable(to.clone());
+            }
+            rename_var_pattern(inner, from, to);
+        }
+        GraphPattern::Values { variables, bindings } => {
+            for v in variables {
+                if v == from {
+                    *v = to.clone();
+                }
+            }
+            let _ = bindings; // values are ground terms, no variables
+        }
+    }
+}
+
+fn rename_var_triple(triple: &mut TriplePattern, from: &Variable, to: &Variable) {
+    rename_var_term_pattern(&mut triple.subject, from, to);
+    if let NamedNodePattern::Variable(v) = &mut triple.predicate
+        && v == from
+    {
+        triple.predicate = NamedNodePattern::Variable(to.clone());
+    }
+    rename_var_term_pattern(&mut triple.object, from, to);
+}
+
+fn rename_var_term_pattern(pattern: &mut TermPattern, from: &Variable, to: &Variable) {
+    if let TermPattern::Variable(v) = pattern
+        && v == from
+    {
+        *pattern = TermPattern::Variable(to.clone());
+    }
+}
+
+fn rename_var_expr(expr: &mut Expression, from: &Variable, to: &Variable) {
+    match expr {
+        Expression::Variable(v) if v == from => *v = to.clone(),
+        Expression::Bound(v) if v == from => *v = to.clone(),
+        Expression::Variable(_) | Expression::Bound(_) | Expression::NamedNode(_) | Expression::Literal(_) => {}
+        Expression::Or(a, b)
+        | Expression::And(a, b)
+        | Expression::Equal(a, b)
+        | Expression::SameTerm(a, b)
+        | Expression::Greater(a, b)
+        | Expression::GreaterOrEqual(a, b)
+        | Expression::Less(a, b)
+        | Expression::LessOrEqual(a, b)
+        | Expression::Add(a, b)
+        | Expression::Subtract(a, b)
+        | Expression::Multiply(a, b)
+        | Expression::Divide(a, b) => {
+            rename_var_expr(a, from, to);
+            rename_var_expr(b, from, to);
+        }
+        Expression::In(a, list) => {
+            rename_var_expr(a, from, to);
+            for e in list {
+                rename_var_expr(e, from, to);
+            }
+        }
+        Expression::UnaryPlus(a) | Expression::UnaryMinus(a) | Expression::Not(a) => {
+            rename_var_expr(a, from, to);
+        }
+        Expression::Exists(pattern) => rename_var_pattern(pattern, from, to),
+        Expression::If(a, b, c) => {
+            rename_var_expr(a, from, to);
+            rename_var_expr(b, from, to);
+            rename_var_expr(c, from, to);
+        }
+        Expression::Coalesce(list) | Expression::FunctionCall(_, list) => {
+            for e in list {
+                rename_var_expr(e, from, to);
+            }
+        }
+    }
+}
+
 fn substitute_query(query: &mut Query, var: &Variable, value: &Term) {
     match query {
         Query::Select { pattern, .. }
@@ -1851,6 +2042,8 @@ mod batch_tests {
             path: None,
             shape: None,
             messages: Vec::new(),
+            extra_bindings: Vec::new(),
+            bind_value_to_this: false,
         };
         let g = sample_graph();
         let foci = foci();
@@ -1878,6 +2071,8 @@ mod batch_tests {
             path: None,
             shape: None,
             messages: Vec::new(),
+            extra_bindings: Vec::new(),
+            bind_value_to_this: false,
         };
         let g = sample_graph();
         let foci = foci();
@@ -1947,6 +2142,8 @@ mod batch_tests {
             path: None,
             shape: None,
             messages: Vec::new(),
+            extra_bindings: Vec::new(),
+            bind_value_to_this: false,
         };
         let foci = vec![
             Term::NamedNode(nn("http://ex/a")),
@@ -1981,6 +2178,8 @@ mod batch_tests {
             path: None,
             shape: None,
             messages: Vec::new(),
+            extra_bindings: Vec::new(),
+            bind_value_to_this: false,
         };
         let g = sample_graph();
         let foci = foci();
