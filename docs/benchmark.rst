@@ -85,6 +85,7 @@ Per-model results
 
 .. raw:: html
 
+   <div id="bench-tables"></div>
    <script>
    (function () {
      var data = window.SHIFTY_BENCHMARK_DATA || {};
@@ -130,7 +131,6 @@ Per-model results
        buildTable('brick', 'Brick') + buildTable('s223', 'ASHRAE 223P');
    })();
    </script>
-   <div id="bench-tables"></div>
 
 .. _run_history:
 
