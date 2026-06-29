@@ -900,43 +900,41 @@ fn constraint_str(c: &shifty_repair::HoleConstraint, arena: &shifty_algebra::Sha
 fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
     let bytes = std::fs::read(&args.file)?;
     let base = args.base.as_deref();
+    let source = args.file.to_string_lossy();
+    let loaded = shifty_parse::load_rdf_auto(&bytes, None, Some(source.as_ref()), base)?;
+    let out = shifty_parse::parse_loaded(&loaded);
 
     match args.stage {
-        Stage::Rdf => {
-            let loaded = shifty_parse::load_turtle(&bytes, base)?;
-            match args.format {
-                Format::Text => {
-                    let mut lines: Vec<String> =
-                        loaded.graph.iter().map(|t| t.to_string()).collect();
-                    lines.sort();
-                    for line in lines {
-                        println!("{line}");
-                    }
-                }
-                Format::Json => {
-                    let triples: Vec<_> = loaded
-                        .graph
-                        .iter()
-                        .map(|t| {
-                            serde_json::json!({
-                                "subject": t.subject.to_string(),
-                                "predicate": t.predicate.to_string(),
-                                "object": t.object.to_string(),
-                            })
-                        })
-                        .collect();
-                    println!("{}", serde_json::to_string_pretty(&triples)?);
-                }
-                Format::Dot => {
-                    return Err(
-                        "--format dot is only supported for --stage algebra or --stage normalized"
-                            .into(),
-                    );
+        Stage::Rdf => match args.format {
+            Format::Text => {
+                let mut lines: Vec<String> = loaded.graph.iter().map(|t| t.to_string()).collect();
+                lines.sort();
+                for line in lines {
+                    println!("{line}");
                 }
             }
-        }
+            Format::Json => {
+                let triples: Vec<_> = loaded
+                    .graph
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "subject": t.subject.to_string(),
+                            "predicate": t.predicate.to_string(),
+                            "object": t.object.to_string(),
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&triples)?);
+            }
+            Format::Dot => {
+                return Err(
+                    "--format dot is only supported for --stage algebra or --stage normalized"
+                        .into(),
+                );
+            }
+        },
         Stage::Algebra => {
-            let out = shifty_parse::parse_turtle(&bytes, base)?;
             match args.format {
                 Format::Text => print!("{}", shifty_algebra::render::schema_to_text(&out.schema)),
                 Format::Json => println!("{}", serde_json::to_string_pretty(&out.schema)?),
@@ -947,7 +945,6 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             }
         }
         Stage::Normalized => {
-            let out = shifty_parse::parse_turtle(&bytes, base)?;
             let schema = shifty_opt::normalize(&out.schema);
             match args.format {
                 Format::Text => print!("{}", shifty_algebra::render::schema_to_text(&schema)),
@@ -959,7 +956,6 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             }
         }
         Stage::Strata => {
-            let out = shifty_parse::parse_turtle(&bytes, base)?;
             let strat = shifty_opt::analyze(&out.schema.arena);
             match args.format {
                 Format::Json => println!("{}", serde_json::to_string_pretty(&strat)?),
@@ -976,7 +972,6 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             }
         }
         Stage::Plan => {
-            let out = shifty_parse::parse_turtle(&bytes, base)?;
             let normalized = shifty_opt::normalize(&out.schema);
             let physical = shifty_opt::plan(&normalized);
             match args.format {
@@ -992,7 +987,6 @@ fn inspect(args: InspectArgs) -> Result<(), Box<dyn Error>> {
             if !matches!(args.format, Format::Text) {
                 return Err("--stage capability only supports --format text".into());
             }
-            let out = shifty_parse::parse_turtle(&bytes, base)?;
             let normalized = shifty_opt::normalize(&out.schema);
             print_capability(&normalized);
             for d in &out.diagnostics {

@@ -24,7 +24,8 @@ enum {
 typedef uint32_t ShiftyRdfFormat;
 enum {
     SHIFTY_RDF_FORMAT_TURTLE = 0,
-    SHIFTY_RDF_FORMAT_NTRIPLES = 1
+    SHIFTY_RDF_FORMAT_NTRIPLES = 1,
+    SHIFTY_RDF_FORMAT_AUTO = 2
 };
 
 typedef uint32_t ShiftyGraphMode;

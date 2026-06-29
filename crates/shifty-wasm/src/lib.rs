@@ -6,7 +6,7 @@
 //! `sh:ValidationReport` (Turtle + human-readable text).
 //!
 //! The three entry points ([`validate`], [`validate_w3c`], [`infer`]) take
-//! Turtle strings and a small options object. Shapes and data may be supplied
+//! RDF strings and a small options object. Shapes and data may be supplied
 //! as one combined graph (pass `null`/`""` for `data_ttl`) or as two separate
 //! graphs.
 

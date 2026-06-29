@@ -510,10 +510,10 @@ impl RepairSession {
     #[pyo3(signature = (
         shapes=None,
         shapes_path=None,
-        shapes_format="turtle",
+        shapes_format="auto",
         data=None,
         data_path=None,
-        data_format="turtle",
+        data_format="auto",
         run_infer=true,
         base=None
     ))]

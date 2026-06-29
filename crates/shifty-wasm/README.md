@@ -4,7 +4,9 @@ WebAssembly bindings for the [shifty](../../README.md) SHACL engine. Run the ful
 **SHACL-AF inference + validation** pipeline entirely in the browser — no server,
 no round-trips.
 
-Three entry points, all taking Turtle strings:
+Three entry points, all taking RDF strings. Turtle, RDF/XML, N-Triples, N-Quads,
+TriG, and N3 are detected from content where possible; fetched playground
+dependencies also use response content type and URL extension hints.
 
 | Function | Returns |
 | --- | --- |
@@ -13,7 +15,7 @@ Three entry points, all taking Turtle strings:
 | `infer(shapesTtl, dataTtl)` | `{ inferredCount, totalCount, graphNtriples, inferredNtriples, diagnostics }` — the union graph plus just the inferred delta, as N-Triples |
 | `ntriplesToTurtle(ntriples)` | a prettified Turtle string — re-serialize a graph the UI only holds as N-Triples (e.g. the inference union) without re-running the engine |
 
-`dataTtl` may be `null`/`""` to treat `shapesTtl` as a single combined
+`dataRdf` may be `null`/`""` to treat `shapesRdf` as a single combined
 shapes+data graph (matching the embedded mode of the Python/CLI bindings).
 
 ### `options`

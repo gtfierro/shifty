@@ -43,6 +43,7 @@ pub enum ShiftyStatus {
 pub enum ShiftyRdfFormat {
     Turtle = 0,
     NTriples = 1,
+    Auto = 2,
 }
 
 #[repr(C)]
@@ -203,6 +204,7 @@ fn parse_bytes(
     base: Option<&str>,
 ) -> Result<shifty_parse::Loaded, ApiError> {
     match rdf_format(format)? {
+        ShiftyRdfFormat::Auto => shifty_parse::load_rdf_auto(data, None, None, base),
         ShiftyRdfFormat::Turtle => shifty_parse::load_turtle(data, base),
         ShiftyRdfFormat::NTriples => shifty_parse::load_ntriples(data),
     }
@@ -214,19 +216,40 @@ fn parse_file(
     format: u32,
     base: Option<&str>,
 ) -> Result<shifty_parse::Loaded, ApiError> {
-    let format = match rdf_format(format)? {
-        ShiftyRdfFormat::Turtle => shifty_parse::RdfFormat::Turtle,
-        ShiftyRdfFormat::NTriples => shifty_parse::RdfFormat::NTriples,
-    };
-    shifty_parse::Loaded::from_path(Path::new(path), format, base).map_err(|error| {
-        let message = error.to_string();
-        let status = if message.starts_with("failed to open") {
-            ShiftyStatus::IoError
-        } else {
-            ShiftyStatus::ParseError
-        };
-        ApiError::new(status, message)
-    })
+    match rdf_format(format)? {
+        ShiftyRdfFormat::Auto => std::fs::read(path)
+            .map_err(|error| ApiError::new(ShiftyStatus::IoError, error.to_string()))
+            .and_then(|bytes| {
+                shifty_parse::load_rdf_auto(&bytes, None, Some(path), base.or(Some(path)))
+                    .map_err(|error| ApiError::new(ShiftyStatus::ParseError, error.to_string()))
+            }),
+        ShiftyRdfFormat::Turtle => {
+            shifty_parse::Loaded::from_path(Path::new(path), shifty_parse::RdfFormat::Turtle, base)
+                .map_err(|error| {
+                    let message = error.to_string();
+                    let status = if message.starts_with("failed to open") {
+                        ShiftyStatus::IoError
+                    } else {
+                        ShiftyStatus::ParseError
+                    };
+                    ApiError::new(status, message)
+                })
+        }
+        ShiftyRdfFormat::NTriples => shifty_parse::Loaded::from_path(
+            Path::new(path),
+            shifty_parse::RdfFormat::NTriples,
+            base,
+        )
+        .map_err(|error| {
+            let message = error.to_string();
+            let status = if message.starts_with("failed to open") {
+                ShiftyStatus::IoError
+            } else {
+                ShiftyStatus::ParseError
+            };
+            ApiError::new(status, message)
+        }),
+    }
 }
 
 fn prepare(loaded: shifty_parse::Loaded) -> ShiftyPreparedValidator {
@@ -353,6 +376,7 @@ fn rdf_format(value: u32) -> Result<ShiftyRdfFormat, ApiError> {
     match value {
         0 => Ok(ShiftyRdfFormat::Turtle),
         1 => Ok(ShiftyRdfFormat::NTriples),
+        2 => Ok(ShiftyRdfFormat::Auto),
         _ => Err(ApiError::new(
             ShiftyStatus::InvalidArgument,
             format!("unknown RDF format value {value}"),

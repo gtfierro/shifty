@@ -18,6 +18,7 @@ namespace shifty {
 enum class RdfFormat {
     Turtle,
     NTriples,
+    Auto,
 };
 
 /// Controls which triples participate in focus discovery and evaluation.
@@ -155,6 +156,8 @@ inline ShiftyRdfFormat to_c(RdfFormat format) {
         return SHIFTY_RDF_FORMAT_TURTLE;
     case RdfFormat::NTriples:
         return SHIFTY_RDF_FORMAT_NTRIPLES;
+    case RdfFormat::Auto:
+        return SHIFTY_RDF_FORMAT_AUTO;
     }
     throw std::invalid_argument("unknown RDF format");
 }
@@ -259,13 +262,13 @@ public:
 
     /// Parses RDF from memory and adds it to this dataset.
     ///
-    /// \param data UTF-8 Turtle or N-Triples input.
+    /// \param data UTF-8 RDF input.
     /// \param format Input serialization.
     /// \param base_iri Optional base IRI used for Turtle resolution.
     /// \throws Error on parse failure.
     void load(
         std::string_view data,
-        RdfFormat format = RdfFormat::Turtle,
+        RdfFormat format = RdfFormat::Auto,
         std::string_view base_iri = {}) {
         detail::check(shifty_dataset_load_memory(
             handle_.get(),
@@ -281,7 +284,7 @@ public:
     /// \throws Error on file access or parse failure.
     void load_file(
         const std::filesystem::path &path,
-        RdfFormat format = RdfFormat::Turtle,
+        RdfFormat format = RdfFormat::Auto,
         std::string_view base_iri = {}) {
         const auto utf8 = detail::path_utf8(path);
         detail::check(shifty_dataset_load_file(
@@ -347,13 +350,13 @@ class PreparedValidator {
 public:
     /// Parses and prepares shapes from memory.
     ///
-    /// \param shapes UTF-8 Turtle or N-Triples shapes.
+    /// \param shapes UTF-8 RDF shapes.
     /// \param format Input serialization.
     /// \param base_iri Optional base IRI used for Turtle resolution.
     /// \throws Error on parse failure.
     explicit PreparedValidator(
         std::string_view shapes,
-        RdfFormat format = RdfFormat::Turtle,
+        RdfFormat format = RdfFormat::Auto,
         std::string_view base_iri = {}) {
         detail::check_abi();
         ShiftyPreparedValidator *raw = nullptr;
@@ -372,7 +375,7 @@ public:
     /// \throws Error on file access or parse failure.
     [[nodiscard]] static PreparedValidator from_file(
         const std::filesystem::path &path,
-        RdfFormat format = RdfFormat::Turtle,
+        RdfFormat format = RdfFormat::Auto,
         std::string_view base_iri = {}) {
         detail::check_abi();
         const auto utf8 = detail::path_utf8(path);

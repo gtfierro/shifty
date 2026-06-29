@@ -241,6 +241,7 @@ fn engine_options(on_unsupported: &str) -> Result<EngineOptions, String> {
 
 #[derive(Debug, Clone, Copy)]
 enum InputFormat {
+    Auto,
     Turtle,
     NTriples,
 }
@@ -248,18 +249,12 @@ enum InputFormat {
 impl InputFormat {
     fn parse(value: &str) -> Result<Self, String> {
         match value {
+            "auto" | "" => Ok(Self::Auto),
             "turtle" => Ok(Self::Turtle),
             "nt" | "ntriples" => Ok(Self::NTriples),
             other => Err(format!(
-                "unknown RDF format {other:?}; expected 'turtle' or 'nt'"
+                "unknown RDF format {other:?}; expected 'auto', 'turtle', or 'nt'"
             )),
-        }
-    }
-
-    fn parse_format(self) -> shifty_parse::RdfFormat {
-        match self {
-            Self::Turtle => shifty_parse::RdfFormat::Turtle,
-            Self::NTriples => shifty_parse::RdfFormat::NTriples,
         }
     }
 }
@@ -296,16 +291,35 @@ impl InputSpec {
     }
 
     pub(crate) fn load(&self, base: Option<&str>) -> Result<shifty_parse::Loaded, String> {
-        let loaded = match &self.source {
+        match &self.source {
             InputSource::Bytes(data) => match self.format {
+                InputFormat::Auto => shifty_parse::load_rdf_auto(data, None, None, base),
                 InputFormat::Turtle => shifty_parse::load_turtle(data, base),
                 InputFormat::NTriples => shifty_parse::load_ntriples(data),
-            },
-            InputSource::Path(path) => {
-                shifty_parse::Loaded::from_path(path, self.format.parse_format(), base)
             }
-        };
-        loaded.map_err(|e| format!("parse error: {e}"))
+            .map_err(|e| format!("parse error: {e}")),
+            InputSource::Path(path) => match self.format {
+                InputFormat::Auto => {
+                    let bytes = std::fs::read(path)
+                        .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+                    shifty_parse::load_rdf_auto(
+                        &bytes,
+                        None,
+                        path.to_str(),
+                        base.or_else(|| path.to_str()),
+                    )
+                    .map_err(|e| format!("parse error: {e}"))
+                }
+                InputFormat::Turtle => {
+                    shifty_parse::Loaded::from_path(path, shifty_parse::RdfFormat::Turtle, base)
+                        .map_err(|e| format!("parse error: {e}"))
+                }
+                InputFormat::NTriples => {
+                    shifty_parse::Loaded::from_path(path, shifty_parse::RdfFormat::NTriples, base)
+                        .map_err(|e| format!("parse error: {e}"))
+                }
+            },
+        }
     }
 }
 
@@ -701,10 +715,10 @@ fn check_unsupported_diagnostics(
 #[pyo3(signature = (
     data=None,
     data_path=None,
-    data_format="turtle",
+    data_format="auto",
     shapes=None,
     shapes_path=None,
-    shapes_format="turtle",
+    shapes_format="auto",
     graph_mode="union",
     run_infer=true,
     minimum_severity="info",
@@ -772,10 +786,10 @@ pub fn _validate_algebra(
 #[pyo3(signature = (
     data=None,
     data_path=None,
-    data_format="turtle",
+    data_format="auto",
     shapes=None,
     shapes_path=None,
-    shapes_format="turtle",
+    shapes_format="auto",
     graph_mode="union",
     run_infer=true,
     minimum_severity="info",
@@ -836,10 +850,10 @@ pub fn _validate_w3c(
 #[pyo3(signature = (
     data=None,
     data_path=None,
-    data_format="turtle",
+    data_format="auto",
     shapes=None,
     shapes_path=None,
-    shapes_format="turtle",
+    shapes_format="auto",
     on_unsupported="ignore",
     base=None
 ))]
@@ -900,7 +914,7 @@ impl PreparedValidator {
     #[pyo3(signature = (
         shapes=None,
         shapes_path=None,
-        shapes_format="turtle",
+        shapes_format="auto",
         base=None
     ))]
     fn new(
@@ -937,7 +951,7 @@ impl PreparedValidator {
     #[pyo3(signature = (
         data=None,
         data_path=None,
-        data_format="turtle",
+        data_format="auto",
         graph_mode="union",
         run_infer=true,
         minimum_severity="info",
@@ -986,7 +1000,7 @@ impl PreparedValidator {
     #[pyo3(signature = (
         data=None,
         data_path=None,
-        data_format="turtle",
+        data_format="auto",
         graph_mode="union",
         run_infer=true,
         minimum_severity="info",

@@ -101,7 +101,9 @@ impl Loaded {
         if let Some(format) = hinted {
             match Self::from_rdf(data, format, base) {
                 Ok(loaded) => return Ok(loaded),
-                Err(first_error) if content_type.is_some() || source.is_some() || sniffed.is_some() => {
+                Err(first_error)
+                    if content_type.is_some() || source.is_some() || sniffed.is_some() =>
+                {
                     return Err(first_error);
                 }
                 Err(_) => {}
@@ -188,7 +190,11 @@ impl Loaded {
         })
     }
 
-    fn from_oxrdfio(data: &[u8], format: RdfFormat, base: Option<&str>) -> Result<Self, ParseError> {
+    fn from_oxrdfio(
+        data: &[u8],
+        format: RdfFormat,
+        base: Option<&str>,
+    ) -> Result<Self, ParseError> {
         let mut parser = RdfParser::from_format(format.to_oxrdfio()).without_named_graphs();
         if let Some(base) = base {
             parser = parser
