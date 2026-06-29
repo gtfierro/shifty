@@ -411,7 +411,11 @@ async function fetchDependenciesFor(root, seen = new Set()) {
       reusable.iri ||= iri;
       reusable.dependsOn ||= root.id;
       reusable.include = true;
-      await fetchDependenciesFor(reusable, seen);
+      try {
+        await fetchDependenciesFor(reusable, seen);
+      } catch {
+        // sub-dependency failure — reusable itself is still loaded, continue
+      }
       persistWorkbench();
       renderWorkbench();
       continue;
@@ -439,7 +443,11 @@ async function fetchDependenciesFor(root, seen = new Set()) {
         error: "",
         dependsOn: root.id,
       });
-      await fetchDependenciesFor(dep, seen);
+      try {
+        await fetchDependenciesFor(dep, seen);
+      } catch {
+        // sub-dependency failure — dep itself is still loaded, continue
+      }
     } catch (e) {
       upsertWorkbenchRecord({
         iri,
