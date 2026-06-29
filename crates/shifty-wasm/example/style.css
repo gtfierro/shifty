@@ -145,6 +145,92 @@ details.advanced[open] > summary { border-bottom: 1px solid var(--border); }
 .actions .grow { flex: 1; }
 #timing { color: var(--muted); font-size: .8rem; }
 
+/* ontology workbench */
+.workbench {
+  margin-top: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.workbench-head {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .7rem .85rem;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+.workbench-head h2 {
+  font-size: .95rem;
+  margin: 0;
+}
+.workbench-head p {
+  margin: .1rem 0 0;
+  color: var(--muted);
+  font-size: .76rem;
+}
+.workbench-head .grow,
+.workbench-grow { flex: 1; }
+.workbench-list { padding: .45rem .85rem .8rem; }
+.workbench-empty {
+  color: var(--muted);
+  font-size: .82rem;
+  padding: .45rem 0;
+}
+.workbench-item {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.workbench-item:last-child { border-bottom: 0; }
+.workbench-check {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  min-width: 0;
+}
+.workbench-check input { flex: none; }
+.workbench-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.workbench-badge {
+  font-size: .68rem;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .08rem .42rem;
+  color: var(--muted);
+}
+.status-ready .workbench-badge {
+  color: var(--ok);
+  border-color: rgba(46,204,113,.35);
+}
+.status-fetching .workbench-badge {
+  color: var(--warning);
+  border-color: rgba(255,176,32,.35);
+}
+.status-missing .workbench-badge {
+  color: var(--violation);
+  border-color: rgba(255,90,95,.35);
+}
+.workbench-meta {
+  color: var(--muted);
+  font-size: .74rem;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}
+.workbench-spacer { flex: 1; }
+@media (max-width: 760px) {
+  .workbench-head,
+  .workbench-item { align-items: flex-start; flex-wrap: wrap; }
+  .workbench-meta { min-width: 100%; }
+  .workbench-spacer { display: none; }
+}
+
 /* results */
 #results:empty { display: none; }
 .result-card {

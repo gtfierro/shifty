@@ -218,6 +218,93 @@ details.advanced[open] > summary {
 .actions-grow { flex: 1; }
 .timing { color: var(--muted); font-size: 0.78rem; }
 
+/* ── Ontology workbench ───────────────────────────────────────────────── */
+.workbench {
+  margin-top: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.workbench-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.workbench-head h2 {
+  font-size: 0.92rem;
+  margin: 0;
+}
+.workbench-head p {
+  margin: 0.08rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.workbench-grow,
+.workbench-head .grow { flex: 1; }
+.workbench-list { padding: 0.45rem 0.85rem 0.8rem; }
+.workbench-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 0.45rem 0;
+}
+.workbench-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.workbench-item:last-child { border-bottom: 0; }
+.workbench-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.workbench-check input { flex: none; }
+.workbench-name {
+  font-weight: 600;
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+.workbench-badge {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.06rem 0.4rem;
+  color: var(--muted);
+}
+.status-ready .workbench-badge {
+  color: var(--ok);
+  border-color: rgba(5,150,105,.35);
+}
+.status-fetching .workbench-badge {
+  color: var(--warning);
+  border-color: rgba(217,119,6,.35);
+}
+.status-missing .workbench-badge {
+  color: var(--violation);
+  border-color: rgba(220,38,38,.35);
+}
+.workbench-meta {
+  color: var(--muted);
+  font-size: 0.74rem;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}
+.workbench-spacer { flex: 1; }
+@media (max-width: 760px) {
+  .workbench-head,
+  .workbench-item { align-items: flex-start; flex-wrap: wrap; }
+  .workbench-meta { min-width: 100%; }
+  .workbench-spacer { display: none; }
+}
+
 /* ── Result cards ─────────────────────────────────────────────────────── */
 #results:empty { display: none; }
 

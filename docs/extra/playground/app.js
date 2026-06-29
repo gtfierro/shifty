@@ -76,7 +76,12 @@ const engine = (() => {
 // ── prefix-aware IRI shortening (read @prefix/PREFIX from the inputs) ──────────
 let prefixMap = []; // [[namespace, prefix], …] longest-namespace first
 function rebuildPrefixes() {
-  const text = inputs.shapes.value + "\n" + inputs.data.value;
+  const text =
+    inputs.shapes.value +
+    "\n" +
+    inputs.data.value +
+    "\n" +
+    ontologyWorkbench.map((item) => item.content || "").join("\n");
   const map = new Map([
     ["http://www.w3.org/ns/shacl#", "sh"],
     ["http://www.w3.org/1999/02/22-rdf-syntax-ns#", "rdf"],
@@ -138,6 +143,316 @@ async function cacheDelete(name) {
   await tx(db, "readwrite", (s) => s.delete(name));
 }
 
+// ── ontology dependency workbench ────────────────────────────────────────────
+const WORKBENCH_KEY = "shifty-ontology-workbench";
+let ontologyWorkbench = [];
+
+function makeId() {
+  return `onto-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeImportIri(iri, baseIri) {
+  try {
+    const url = baseIri ? new URL(iri, baseIri) : new URL(iri);
+    if (url.protocol === "http:" && !["localhost", "127.0.0.1", "::1"].includes(url.hostname)) {
+      url.protocol = "https:";
+    }
+    return url.href;
+  } catch {
+    return iri;
+  }
+}
+
+function parseTurtlePrefixes(text) {
+  const prefixes = new Map();
+  const re = /@?prefix\s+([\w-]*):\s*<([^>]+)>/gi;
+  let m;
+  while ((m = re.exec(text))) prefixes.set(m[1], m[2]);
+  return prefixes;
+}
+
+function parseImports(text, baseIri = "") {
+  const imports = new Set();
+  const prefixes = parseTurtlePrefixes(text);
+  if (prefixes.get("owl") === "http://www.w3.org/2002/07/owl#") {
+    const prefixed = /\bowl:imports\s+((?:<[^>]+>\s*,?\s*)+)/gi;
+    let m;
+    while ((m = prefixed.exec(text))) {
+      const objectList = m[1];
+      for (const iri of objectList.matchAll(/<([^>]+)>/g)) {
+        imports.add(normalizeImportIri(iri[1], baseIri));
+      }
+    }
+  }
+
+  const iriPredicate = /(?:<http:\/\/www\.w3\.org\/2002\/07\/owl#imports>|<http:\/\/www\.w3\.org\/2002\/07\/owl#Imports>)\s+<([^>]+)>/gi;
+  let m;
+  while ((m = iriPredicate.exec(text))) imports.add(normalizeImportIri(m[1], baseIri));
+
+  const xmlImports = /<owl:imports\b[^>]*(?:rdf:resource|resource)=["']([^"']+)["'][^>]*\/?>/gi;
+  while ((m = xmlImports.exec(text))) imports.add(normalizeImportIri(m[1], baseIri));
+
+  return [...imports];
+}
+
+function displayOntologyName(iriOrName) {
+  if (!iriOrName) return "ontology";
+  try {
+    const url = new URL(iriOrName);
+    const last = url.pathname.split("/").filter(Boolean).pop();
+    return last || url.hostname;
+  } catch {
+    return iriOrName;
+  }
+}
+
+function findWorkbenchRecord({ iri, name, content }) {
+  return ontologyWorkbench.find(
+    (r) =>
+      (iri && r.iri === iri) ||
+      (!iri && name && r.name === name) ||
+      (content && r.content && r.content === content),
+  );
+}
+
+function upsertWorkbenchRecord(record) {
+  const existing = findWorkbenchRecord(record);
+  if (existing) {
+    Object.assign(existing, record, { id: existing.id });
+    return existing;
+  }
+  const next = {
+    id: makeId(),
+    name: record.name || displayOntologyName(record.iri),
+    iri: record.iri || "",
+    content: record.content || "",
+    include: record.include ?? true,
+    status: record.status || (record.content ? "ready" : "missing"),
+    source: record.source || "upload",
+    error: record.error || "",
+    dependsOn: record.dependsOn || "",
+    addedAt: Date.now(),
+  };
+  ontologyWorkbench.push(next);
+  return next;
+}
+
+function findReusableWorkbenchDependency(iri) {
+  const name = displayOntologyName(iri);
+  return ontologyWorkbench.find(
+    (r) =>
+      r.status === "ready" &&
+      r.content?.trim() &&
+      (r.iri === iri || r.name === name),
+  );
+}
+
+function workbenchIncludedShapes() {
+  const editorText = inputs.shapes.value.trim();
+  const chunks = [];
+  if (editorText) chunks.push(inputs.shapes.value);
+  for (const item of ontologyWorkbench) {
+    if (!item.include || item.status !== "ready" || !item.content.trim()) continue;
+    if (editorText && item.content.trim() === editorText) continue;
+    chunks.push(item.content);
+  }
+  return chunks.join("\n\n");
+}
+
+function workbenchStats() {
+  const ready = ontologyWorkbench.filter((r) => r.status === "ready").length;
+  const missing = ontologyWorkbench.filter((r) => r.status === "missing" || r.status === "error").length;
+  const included = ontologyWorkbench.filter((r) => r.include && r.status === "ready").length;
+  return { ready, missing, included };
+}
+
+function persistWorkbench() {
+  try {
+    localStorage.setItem(WORKBENCH_KEY, JSON.stringify(ontologyWorkbench));
+  } catch {}
+}
+
+function restoreWorkbench() {
+  try {
+    const records = JSON.parse(localStorage.getItem(WORKBENCH_KEY) || "[]");
+    if (Array.isArray(records)) {
+      ontologyWorkbench = records.map((r) => ({
+        id: r.id || makeId(),
+        name: r.name || displayOntologyName(r.iri),
+        iri: r.iri || "",
+        content: r.content || "",
+        include: r.include ?? true,
+        status: r.status || (r.content ? "ready" : "missing"),
+        source: r.source || "upload",
+        error: r.error || "",
+        dependsOn: r.dependsOn || "",
+        addedAt: r.addedAt || Date.now(),
+      }));
+    }
+  } catch {
+    ontologyWorkbench = [];
+  }
+}
+
+function renderWorkbench() {
+  const list = $("#workbenchList");
+  if (!list) return;
+  if (!ontologyWorkbench.length) {
+    list.innerHTML = `<div class="workbench-empty">Upload a shapes ontology to fetch its <code>owl:imports</code> dependencies.</div>`;
+    return;
+  }
+  list.innerHTML = ontologyWorkbench
+    .map((item) => {
+      const status = item.status === "ready" ? "ready" : item.status === "fetching" ? "fetching" : "missing";
+      const meta = item.status === "ready"
+        ? `${fmtBytes(item.content.length)}${item.iri ? ` · ${esc(item.iri)}` : ""}`
+        : item.error || item.iri || "waiting for a local file";
+      return `
+        <div class="workbench-item status-${status}" data-id="${esc(item.id)}">
+          <label class="workbench-check">
+            <input type="checkbox" ${item.include ? "checked" : ""} ${item.status === "ready" ? "" : "disabled"} data-include />
+            <span class="workbench-name">${esc(item.name)}</span>
+          </label>
+          <span class="workbench-badge">${esc(item.status)}</span>
+          <div class="workbench-meta">${meta}</div>
+          <span class="workbench-spacer"></span>
+          ${item.status !== "ready" ? `<button class="small btn-sm" data-upload-missing>Upload file</button>` : ""}
+          <button class="small btn-sm danger" data-remove>Remove</button>
+          <input type="file" accept=".ttl,.turtle,.n3,.nt,.rdf,.owl,application/rdf+xml,text/turtle,text/plain" hidden data-missing-file />
+        </div>`;
+    })
+    .join("");
+
+  $$(".workbench-item", list).forEach((row) => {
+    const item = ontologyWorkbench.find((r) => r.id === row.dataset.id);
+    if (!item) return;
+    const checkbox = $("[data-include]", row);
+    if (checkbox) {
+      checkbox.addEventListener("change", () => {
+        item.include = checkbox.checked;
+        persistWorkbench();
+        persistSession();
+      });
+    }
+    $("[data-remove]", row).addEventListener("click", () => {
+      ontologyWorkbench = ontologyWorkbench.filter((r) => r.id !== item.id);
+      persistWorkbench();
+      persistSession();
+      renderWorkbench();
+    });
+    const uploadButton = $("[data-upload-missing]", row);
+    const uploadInput = $("[data-missing-file]", row);
+    if (uploadButton && uploadInput) {
+      uploadButton.addEventListener("click", () => uploadInput.click());
+      uploadInput.addEventListener("change", async () => {
+        const file = uploadInput.files[0];
+        if (!file) return;
+        const text = await file.text();
+        item.name = file.name;
+        item.content = text;
+        item.status = "ready";
+        item.source = "upload";
+        item.error = "";
+        item.include = true;
+        await cacheSave(file.name, text);
+        await refreshLibraries();
+        await fetchDependenciesFor(item);
+        persistWorkbench();
+        renderWorkbench();
+        toast(`Loaded missing dependency “${file.name}”`);
+        uploadInput.value = "";
+      });
+    }
+  });
+}
+
+async function fetchOntology(iri) {
+  const res = await fetch(iri, {
+    headers: {
+      Accept: "text/turtle, application/rdf+xml;q=0.9, application/n-triples;q=0.8, text/plain;q=0.5",
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+async function fetchDependenciesFor(root, seen = new Set()) {
+  const imports = parseImports(root.content || "", root.iri);
+  if (!imports.length) {
+    renderWorkbench();
+    persistWorkbench();
+    return;
+  }
+
+  for (const iri of imports) {
+    if (seen.has(iri)) continue;
+    seen.add(iri);
+    const reusable = findReusableWorkbenchDependency(iri);
+    if (reusable) {
+      reusable.iri ||= iri;
+      reusable.dependsOn ||= root.id;
+      reusable.include = true;
+      await fetchDependenciesFor(reusable, seen);
+      persistWorkbench();
+      renderWorkbench();
+      continue;
+    }
+    let dep = upsertWorkbenchRecord({
+      iri,
+      name: displayOntologyName(iri),
+      status: "fetching",
+      source: "import",
+      include: true,
+      dependsOn: root.id,
+    });
+    renderWorkbench();
+    try {
+      const content = await fetchOntology(iri);
+      dep = upsertWorkbenchRecord({
+        id: dep.id,
+        iri,
+        name: dep.name || displayOntologyName(iri),
+        content,
+        status: "ready",
+        source: "import",
+        include: true,
+        error: "",
+        dependsOn: root.id,
+      });
+      await fetchDependenciesFor(dep, seen);
+    } catch (e) {
+      upsertWorkbenchRecord({
+        iri,
+        name: dep.name || displayOntologyName(iri),
+        content: "",
+        status: "missing",
+        source: "import",
+        include: false,
+        error: `Could not fetch from ${iri}: ${String(e?.message || e)}`,
+        dependsOn: root.id,
+      });
+    }
+    persistWorkbench();
+    renderWorkbench();
+  }
+}
+
+async function addUploadedOntologyToWorkbench(file, text) {
+  const root = upsertWorkbenchRecord({
+    name: file.name,
+    iri: "",
+    content: text,
+    include: true,
+    status: "ready",
+    source: "upload",
+  });
+  renderWorkbench();
+  persistWorkbench();
+  await fetchDependenciesFor(root);
+  const stats = workbenchStats();
+  toast(`Loaded “${file.name}” with ${stats.included} workbench file(s) included`);
+}
+
 // ── panels (shapes / data) ────────────────────────────────────────────────────
 const inputs = {}; // slot -> textarea
 const SLOTS = ["shapes", "data"];
@@ -178,6 +493,7 @@ function wirePanel(slot) {
     persistSession();
     await cacheSave(file.name, text);
     await refreshLibraries();
+    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, text);
     toast(`Loaded & cached “${file.name}”`);
     fileInput.value = "";
   });
@@ -231,6 +547,7 @@ function wirePanel(slot) {
     persistSession();
     await cacheSave(file.name, text);
     await refreshLibraries();
+    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, text);
     toast(`Loaded & cached “${file.name}”`);
   });
 }
@@ -302,7 +619,12 @@ function persistSession() {
     try {
       localStorage.setItem(
         SESSION_KEY,
-        JSON.stringify({ shapes: inputs.shapes.value, data: inputs.data.value, options: readOptions() }),
+        JSON.stringify({
+          shapes: inputs.shapes.value,
+          data: inputs.data.value,
+          options: readOptions(),
+          workbench: ontologyWorkbench,
+        }),
       );
     } catch {}
   }, 250);
@@ -313,13 +635,28 @@ function restoreSession() {
     if (!s) return false;
     inputs.shapes.value = s.shapes || "";
     inputs.data.value = s.data || "";
+    if (Array.isArray(s.workbench)) {
+      ontologyWorkbench = s.workbench.map((r) => ({
+        id: r.id || makeId(),
+        name: r.name || displayOntologyName(r.iri),
+        iri: r.iri || "",
+        content: r.content || "",
+        include: r.include ?? true,
+        status: r.status || (r.content ? "ready" : "missing"),
+        source: r.source || "upload",
+        error: r.error || "",
+        dependsOn: r.dependsOn || "",
+        addedAt: r.addedAt || Date.now(),
+      }));
+      persistWorkbench();
+    }
     if (s.options) {
       $("#opt-infer").checked = s.options.infer ?? true;
       $("#opt-graphmode").value = s.options.graphMode || "data";
       $("#opt-severity").value = s.options.minimumSeverity || "info";
       $("#opt-sort").checked = s.options.sortResults ?? true;
     }
-    return !!(s.shapes || s.data);
+    return !!(s.shapes || s.data || ontologyWorkbench.length);
   } catch {
     return false;
   }
@@ -337,6 +674,9 @@ function readOptions() {
 function dataArg() {
   const d = inputs.data.value;
   return d.trim() ? d : null;
+}
+function shapesArg() {
+  return workbenchIncludedShapes();
 }
 
 // ── result rendering ──────────────────────────────────────────────────────────
@@ -464,7 +804,7 @@ async function renderW3cInto(el) {
   el.innerHTML = `<div class="empty-ok">Building W3C report…</div>`;
   let rep;
   try {
-    rep = await engine.validateW3c(inputs.shapes.value, dataArg(), readOptions());
+    rep = await engine.validateW3c(shapesArg(), dataArg(), readOptions());
   } catch (e) {
     el.innerHTML = `<div class="diag">${esc(String(e))}</div>`;
     return;
@@ -557,15 +897,16 @@ function setBusy(on) {
   $("#btnValidate").disabled = on;
   $("#btnInfer").disabled = on;
   const status = $("#engineStatus");
+  const base = status.classList.contains("status-pill") ? "status-pill" : "pill";
   status.textContent = on ? "working…" : "engine ready";
-  status.className = on ? "pill busy" : "pill ready";
+  status.className = on ? `${base} busy` : `${base} ready`;
 }
 
 // The work runs in the worker, so the main thread stays responsive — the
 // "Working…" banner paints and the page keeps scrolling while big models churn.
 async function run(fn, render) {
   if (busy) return;
-  if (!inputs.shapes.value.trim()) return toast("Add a shapes graph first");
+  if (!shapesArg().trim()) return toast("Add a shapes graph first");
   rebuildPrefixes();
   results.innerHTML = `<div class="result-card"><div class="banner">⏳ Working…</div></div>`;
   setBusy(true);
@@ -630,6 +971,9 @@ async function boot() {
   $("#btnSample").addEventListener("click", () => {
     inputs.shapes.value = SAMPLE_SHAPES;
     inputs.data.value = SAMPLE_DATA;
+    ontologyWorkbench = [];
+    renderWorkbench();
+    persistWorkbench();
     SLOTS.forEach(updateMeta);
     rebuildPrefixes();
     persistSession();
@@ -639,17 +983,37 @@ async function boot() {
       inputs[s].value = "";
       updateMeta(s);
     });
+    ontologyWorkbench = [];
+    renderWorkbench();
+    persistWorkbench();
     results.innerHTML = "";
     $("#timing").textContent = "";
     persistSession();
   });
 
-  $("#btnValidate").addEventListener("click", () =>
-    run(() => engine.validate(inputs.shapes.value, dataArg(), readOptions()), renderValidation),
-  );
   $("#btnInfer").addEventListener("click", () =>
-    run(() => engine.infer(inputs.shapes.value, dataArg()), renderInfer),
+    run(() => engine.infer(shapesArg(), dataArg()), renderInfer),
   );
+  $("#btnValidate").addEventListener("click", () =>
+    run(() => engine.validate(shapesArg(), dataArg(), readOptions()), renderValidation),
+  );
+
+  $("#btnWorkbenchAll").addEventListener("click", () => {
+    ontologyWorkbench.forEach((item) => {
+      item.include = item.status === "ready";
+    });
+    persistWorkbench();
+    persistSession();
+    renderWorkbench();
+  });
+  $("#btnWorkbenchNone").addEventListener("click", () => {
+    ontologyWorkbench.forEach((item) => {
+      item.include = false;
+    });
+    persistWorkbench();
+    persistSession();
+    renderWorkbench();
+  });
 
   // options persistence
   $$("#opt-infer, #opt-graphmode, #opt-severity, #opt-sort").forEach((el) =>
@@ -664,12 +1028,15 @@ async function boot() {
   });
   $("#closeCache").addEventListener("click", () => modal.close());
 
+  restoreWorkbench();
   // restore previous session, else seed the sample
   if (!restoreSession()) {
     inputs.shapes.value = SAMPLE_SHAPES;
     inputs.data.value = SAMPLE_DATA;
+    ontologyWorkbench = [];
   }
   SLOTS.forEach(updateMeta);
+  renderWorkbench();
   rebuildPrefixes();
   await refreshLibraries();
 
@@ -677,12 +1044,16 @@ async function boot() {
   try {
     await engine.ready;
     $("#engineStatus").textContent = "engine ready";
-    $("#engineStatus").className = "pill ready";
+    $("#engineStatus").className = $("#engineStatus").classList.contains("status-pill")
+      ? "status-pill ready"
+      : "pill ready";
     $("#btnValidate").disabled = false;
     $("#btnInfer").disabled = false;
   } catch (e) {
     $("#engineStatus").textContent = "wasm failed to load";
-    $("#engineStatus").className = "pill busy";
+    $("#engineStatus").className = $("#engineStatus").classList.contains("status-pill")
+      ? "status-pill busy"
+      : "pill busy";
     renderError(e);
   }
 }
