@@ -1589,7 +1589,9 @@ fn rename_var_pattern(pattern: &mut GraphPattern, from: &Variable, to: &Variable
                 rename_var_triple(triple, from, to);
             }
         }
-        GraphPattern::Path { subject, object, .. } => {
+        GraphPattern::Path {
+            subject, object, ..
+        } => {
             rename_var_term_pattern(subject, from, to);
             rename_var_term_pattern(object, from, to);
         }
@@ -1600,7 +1602,11 @@ fn rename_var_pattern(pattern: &mut GraphPattern, from: &Variable, to: &Variable
             rename_var_pattern(left, from, to);
             rename_var_pattern(right, from, to);
         }
-        GraphPattern::LeftJoin { left, right, expression } => {
+        GraphPattern::LeftJoin {
+            left,
+            right,
+            expression,
+        } => {
             rename_var_pattern(left, from, to);
             rename_var_pattern(right, from, to);
             if let Some(expr) = expression {
@@ -1619,7 +1625,11 @@ fn rename_var_pattern(pattern: &mut GraphPattern, from: &Variable, to: &Variable
             }
             rename_var_pattern(inner, from, to);
         }
-        GraphPattern::Extend { inner, expression, variable } => {
+        GraphPattern::Extend {
+            inner,
+            expression,
+            variable,
+        } => {
             rename_var_pattern(inner, from, to);
             rename_var_expr(expression, from, to);
             if variable == from {
@@ -1647,7 +1657,11 @@ fn rename_var_pattern(pattern: &mut GraphPattern, from: &Variable, to: &Variable
         GraphPattern::Distinct { inner }
         | GraphPattern::Reduced { inner }
         | GraphPattern::Slice { inner, .. } => rename_var_pattern(inner, from, to),
-        GraphPattern::Group { inner, variables, aggregates } => {
+        GraphPattern::Group {
+            inner,
+            variables,
+            aggregates,
+        } => {
             rename_var_pattern(inner, from, to);
             for v in variables {
                 if v == from {
@@ -1671,7 +1685,10 @@ fn rename_var_pattern(pattern: &mut GraphPattern, from: &Variable, to: &Variable
             }
             rename_var_pattern(inner, from, to);
         }
-        GraphPattern::Values { variables, bindings } => {
+        GraphPattern::Values {
+            variables,
+            bindings,
+        } => {
             for v in variables {
                 if v == from {
                     *v = to.clone();
@@ -1704,7 +1721,10 @@ fn rename_var_expr(expr: &mut Expression, from: &Variable, to: &Variable) {
     match expr {
         Expression::Variable(v) if v == from => *v = to.clone(),
         Expression::Bound(v) if v == from => *v = to.clone(),
-        Expression::Variable(_) | Expression::Bound(_) | Expression::NamedNode(_) | Expression::Literal(_) => {}
+        Expression::Variable(_)
+        | Expression::Bound(_)
+        | Expression::NamedNode(_)
+        | Expression::Literal(_) => {}
         Expression::Or(a, b)
         | Expression::And(a, b)
         | Expression::Equal(a, b)

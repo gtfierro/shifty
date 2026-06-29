@@ -684,12 +684,20 @@ impl Lowerer<'_> {
 
                 // Conjoin with the shape's existing body.
                 let (severity, inner) = match self.arena.get(shape_id) {
-                    Shape::Annotated { severity, shape: inner } => (severity.clone(), *inner),
+                    Shape::Annotated {
+                        severity,
+                        shape: inner,
+                    } => (severity.clone(), *inner),
                     _ => continue, // defensive; lower_shape always produces Annotated
                 };
                 let combined = self.arena.and(vec![inner, sparql_id]);
-                self.arena
-                    .set(shape_id, Shape::Annotated { severity, shape: combined });
+                self.arena.set(
+                    shape_id,
+                    Shape::Annotated {
+                        severity,
+                        shape: combined,
+                    },
+                );
             }
         }
     }
@@ -737,7 +745,11 @@ impl Lowerer<'_> {
                     self.g.object(&pn, vocab::SH_OPTIONAL),
                     Some(Term::Literal(ref l)) if l.value() == "true"
                 );
-                params.push(ParamDef { path, var, optional });
+                params.push(ParamDef {
+                    path,
+                    var,
+                    optional,
+                });
             }
             if params.is_empty() {
                 continue;
@@ -769,12 +781,20 @@ impl Lowerer<'_> {
         let canonical = match canonical_sparql_query(self.g, &node, &raw) {
             Ok((_, c)) => c,
             Err(msg) => {
-                self.diag(DiagLevel::Error, format!("invalid SPARQL in validator: {msg}"), &node);
+                self.diag(
+                    DiagLevel::Error,
+                    format!("invalid SPARQL in validator: {msg}"),
+                    &node,
+                );
                 return None;
             }
         };
         let messages = self.g.objects(&node, vocab::SH_MESSAGE);
-        Some(ValidatorDef { kind, query: canonical, messages })
+        Some(ValidatorDef {
+            kind,
+            query: canonical,
+            messages,
+        })
     }
 
     /// Lower the `sh:rule`s of a shape (SHACL-AF). A rule fires on the shape's

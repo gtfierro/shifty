@@ -944,11 +944,9 @@ mod tests {
         let shapes = shifty_parse::load_turtle(shapes_ttl, None).unwrap();
 
         // Zero instances → violates
-        let data_none = shifty_parse::load_turtle(
-            b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .",
-            None,
-        )
-        .unwrap();
+        let data_none =
+            shifty_parse::load_turtle(b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .", None)
+                .unwrap();
         let report = validate_report_graphs(&shapes, &data_none.graph);
         assert!(
             !report.conforms,
@@ -1026,11 +1024,9 @@ mod tests {
                 ex:exactCount 1 .
         "#;
         let shapes = shifty_parse::load_turtle(shapes_ttl, None).unwrap();
-        let data = shifty_parse::load_turtle(
-            b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .",
-            None,
-        )
-        .unwrap();
+        let data =
+            shifty_parse::load_turtle(b"@prefix ex: <urn:ex/> . ex:sentinel a ex:Sentinel .", None)
+                .unwrap();
 
         // Ignore policy (default): bad query silently skipped → appears to conform
         let report = validate_report_graphs(&shapes, &data.graph);

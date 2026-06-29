@@ -436,7 +436,8 @@ fn build_components(shapes: &Loaded, policy: UnsupportedPolicy) -> Vec<CustomCom
 /// or a subclass), resolving its `sh:prefixes` into a canonical query string.
 /// Returns `Err` (with the parse error message) when the query is invalid SPARQL.
 fn parse_validator(shapes: &Loaded, node: &Term) -> Result<ComponentValidator, String> {
-    let node = term_to_node(node).ok_or_else(|| "validator node is not an IRI or blank node".to_string())?;
+    let node = term_to_node(node)
+        .ok_or_else(|| "validator node is not an IRI or blank node".to_string())?;
     let (kind, raw) = if let Some(Term::Literal(q)) = shapes.object(&node, vocab::SH_ASK) {
         (SparqlQueryKind::Ask, q.value().to_string())
     } else if let Some(Term::Literal(q)) = shapes.object(&node, vocab::SH_SELECT) {
