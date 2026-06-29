@@ -1,9 +1,9 @@
 // Web Worker: runs the (synchronous) wasm SHACL engine off the main thread so a
 // large model can't freeze the UI. Speaks a tiny request/response RPC: the page
 // posts { id, method, args }, we reply { id, ok, result } or { id, ok:false, error }.
-import init, { validate, validateW3c, infer, ntriplesToTurtle } from "./pkg/shifty_wasm.js";
+import init, { validate, validateW3c, infer, ntriplesToTurtle, rdfToTurtle } from "./pkg/shifty_wasm.js";
 
-const methods = { validate, validateW3c, infer, ntriplesToTurtle };
+const methods = { validate, validateW3c, infer, ntriplesToTurtle, rdfToTurtle };
 
 // Initialize the wasm once; announce readiness (or failure) to the page.
 const ready = init()

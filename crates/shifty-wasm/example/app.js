@@ -70,6 +70,7 @@ const engine = (() => {
     validateW3c: (s, d, o) => call("validateW3c", [s, d, o]),
     infer: (s, d) => call("infer", [s, d]),
     ntriplesToTurtle: (nt) => call("ntriplesToTurtle", [nt]),
+    rdfToTurtle: (text, contentType, url) => call("rdfToTurtle", [text, contentType, url]),
   };
 })();
 
@@ -348,13 +349,14 @@ function renderWorkbench() {
         const file = uploadInput.files[0];
         if (!file) return;
         const text = await file.text();
+        const content = await normalizeFileContent(file, text);
         item.name = file.name;
-        item.content = text;
+        item.content = content;
         item.status = "ready";
         item.source = "upload";
         item.error = "";
         item.include = true;
-        await cacheSave(file.name, text);
+        await cacheSave(file.name, content);
         await refreshLibraries();
         await fetchDependenciesFor(item);
         persistWorkbench();
@@ -373,7 +375,24 @@ async function fetchOntology(iri) {
     },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+  return {
+    text: await res.text(),
+    contentType: res.headers.get("content-type") || "",
+    url: res.url || iri,
+  };
+}
+
+async function normalizeRdfToTurtle(text, contentType = "", url = "") {
+  await engine.ready;
+  return engine.rdfToTurtle(text, contentType || null, url || null);
+}
+
+async function normalizeFileContent(file, text) {
+  try {
+    return await normalizeRdfToTurtle(text, file.type || "", file.name || "");
+  } catch {
+    return text;
+  }
 }
 
 async function fetchDependenciesFor(root, seen = new Set()) {
@@ -407,7 +426,8 @@ async function fetchDependenciesFor(root, seen = new Set()) {
     });
     renderWorkbench();
     try {
-      const content = await fetchOntology(iri);
+      const fetched = await fetchOntology(iri);
+      const content = await normalizeRdfToTurtle(fetched.text, fetched.contentType, fetched.url);
       dep = upsertWorkbenchRecord({
         id: dep.id,
         iri,
@@ -437,11 +457,11 @@ async function fetchDependenciesFor(root, seen = new Set()) {
   }
 }
 
-async function addUploadedOntologyToWorkbench(file, text) {
+async function addUploadedOntologyToWorkbench(file, content) {
   const root = upsertWorkbenchRecord({
     name: file.name,
     iri: "",
-    content: text,
+    content,
     include: true,
     status: "ready",
     source: "upload",
@@ -487,13 +507,14 @@ function wirePanel(slot) {
     const file = fileInput.files[0];
     if (!file) return;
     const text = await file.text();
-    ta.value = text;
+    const content = await normalizeFileContent(file, text);
+    ta.value = content;
     updateMeta(slot);
     rebuildPrefixes();
     persistSession();
-    await cacheSave(file.name, text);
+    await cacheSave(file.name, content);
     await refreshLibraries();
-    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, text);
+    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, content);
     toast(`Loaded & cached “${file.name}”`);
     fileInput.value = "";
   });
@@ -541,13 +562,14 @@ function wirePanel(slot) {
     const file = e.dataTransfer.files[0];
     if (!file) return;
     const text = await file.text();
-    ta.value = text;
+    const content = await normalizeFileContent(file, text);
+    ta.value = content;
     updateMeta(slot);
     rebuildPrefixes();
     persistSession();
-    await cacheSave(file.name, text);
+    await cacheSave(file.name, content);
     await refreshLibraries();
-    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, text);
+    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, content);
     toast(`Loaded & cached “${file.name}”`);
   });
 }

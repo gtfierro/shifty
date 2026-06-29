@@ -32,6 +32,17 @@ pub fn load_ntriples(data: &[u8]) -> Result<Loaded, ParseError> {
     Loaded::from_ntriples(data)
 }
 
+/// Load an RDF graph using content type, source extension, lightweight content
+/// sniffing, and finally a cascading try across common RDF formats.
+pub fn load_rdf_auto(
+    data: &[u8],
+    content_type: Option<&str>,
+    source: Option<&str>,
+    base: Option<&str>,
+) -> Result<Loaded, ParseError> {
+    Loaded::from_rdf_auto(data, content_type, source, base)
+}
+
 /// Parse and lower a Turtle shapes graph into the algebra IR.
 pub fn parse_turtle(data: &[u8], base: Option<&str>) -> Result<ParseOutput, ParseError> {
     let loaded = Loaded::from_turtle(data, base)?;
@@ -89,6 +100,29 @@ mod tests {
         assert!(text.contains("^<http://ex/child>"), "text:\n{text}");
         // datatype facet present
         assert!(text.contains("datatype(xsd:string)"), "text:\n{text}");
+    }
+
+    #[test]
+    fn auto_loads_rdf_xml_shapes() {
+        let rdfxml = br#"<?xml version="1.0"?>
+            <rdf:RDF
+                xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                xmlns:sh="http://www.w3.org/ns/shacl#"
+                xmlns:ex="http://ex/">
+              <sh:NodeShape rdf:about="http://ex/S">
+                <sh:targetClass rdf:resource="http://ex/Thing"/>
+              </sh:NodeShape>
+            </rdf:RDF>"#;
+        let loaded = load_rdf_auto(
+            rdfxml,
+            Some("application/rdf+xml"),
+            Some("https://example.test/shapes.rdf"),
+            Some("https://example.test/shapes.rdf"),
+        )
+        .unwrap();
+        let out = parse_loaded(&loaded);
+        let text = schema_to_text(&out.schema);
+        assert!(text.contains("rdf:type/rdfs:subClassOf*"), "text:\n{text}");
     }
 
     #[test]

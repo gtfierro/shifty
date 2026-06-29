@@ -1296,6 +1296,7 @@ name = "shifty-parse"
 version = "0.2.3"
 dependencies = [
  "oxrdf",
+ "oxrdfio",
  "oxttl",
  "serde",
  "serde_json",

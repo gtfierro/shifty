@@ -263,6 +263,25 @@ pub fn infer_js(shapes_ttl: &str, data_ttl: Option<String>) -> Result<JsValue, J
     to_js(&result)
 }
 
+/// Parse RDF in a browser-fetched format and re-serialize it as Turtle.
+/// The UI uses this to normalize fetched ontology dependencies before merging
+/// them into the Turtle-only validation/inference inputs.
+#[wasm_bindgen(js_name = rdfToTurtle)]
+pub fn rdf_to_turtle(
+    text: &str,
+    content_type: Option<String>,
+    url: Option<String>,
+) -> Result<String, JsError> {
+    let loaded = shifty_parse::load_rdf_auto(
+        text.as_bytes(),
+        content_type.as_deref(),
+        url.as_deref(),
+        url.as_deref(),
+    )
+    .map_err(|e| JsError::new(&format!("failed to parse RDF: {e}")))?;
+    Ok(graph_to_turtle(&loaded.graph))
+}
+
 /// Re-serialize an N-Triples string as prettified Turtle (with common prefixes).
 /// Lets the UI offer a Turtle download of a graph it only holds as N-Triples
 /// (e.g. the inference union) without re-running the engine.
@@ -282,7 +301,7 @@ fn data_text(data_ttl: &Option<String>) -> Option<&str> {
 }
 
 fn load(ttl: &str, label: &str) -> Result<Loaded, JsError> {
-    shifty_parse::load_turtle(ttl.as_bytes(), None)
+    shifty_parse::load_rdf_auto(ttl.as_bytes(), None, None, None)
         .map_err(|e| JsError::new(&format!("failed to parse {label} graph: {e}")))
 }
 

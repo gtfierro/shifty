@@ -211,14 +211,23 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn fetch_bytes(src: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+struct SourceBytes {
+    bytes: Vec<u8>,
+    content_type: Option<String>,
+}
+
+fn fetch_bytes(src: &str) -> Result<SourceBytes, Box<dyn Error>> {
     if src.starts_with("http://") || src.starts_with("https://") {
         let response = ureq::get(src).call()?;
+        let content_type = response.header("content-type").map(ToOwned::to_owned);
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut response.into_reader(), &mut bytes)?;
-        Ok(bytes)
+        Ok(SourceBytes { bytes, content_type })
     } else {
-        Ok(std::fs::read(src)?)
+        Ok(SourceBytes {
+            bytes: std::fs::read(src)?,
+            content_type: None,
+        })
     }
 }
 
@@ -228,8 +237,16 @@ fn load_sources(
 ) -> Result<shifty_parse::Loaded, Box<dyn Error>> {
     let mut merged: Option<shifty_parse::Loaded> = None;
     for src in sources {
-        let bytes = fetch_bytes(src)?;
-        let loaded = shifty_parse::load_turtle(&bytes, base)?;
+        let fetched = fetch_bytes(src)?;
+        let parsed_base = base.or_else(|| {
+            (src.starts_with("http://") || src.starts_with("https://")).then_some(src.as_str())
+        });
+        let loaded = shifty_parse::load_rdf_auto(
+            &fetched.bytes,
+            fetched.content_type.as_deref(),
+            Some(src),
+            parsed_base,
+        )?;
         match merged.as_mut() {
             None => merged = Some(loaded),
             Some(m) => m.merge_from(&loaded),
