@@ -170,6 +170,23 @@ details.advanced[open] > summary { border-bottom: 1px solid var(--border); }
   color: var(--muted);
   font-size: .76rem;
 }
+.wb-help {
+  margin-top: .35rem;
+}
+.wb-help > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: .76rem;
+  user-select: none;
+}
+.wb-help ul {
+  margin: .4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: .76rem;
+  line-height: 1.45;
+}
+.wb-help li { margin-bottom: .25rem; }
 .workbench-head .grow,
 .workbench-grow { flex: 1; }
 .workbench-list { padding: .45rem .85rem .8rem; }
@@ -186,17 +203,22 @@ details.advanced[open] > summary { border-bottom: 1px solid var(--border); }
   border-bottom: 1px solid var(--border);
 }
 .workbench-item:last-child { border-bottom: 0; }
-.workbench-check {
-  display: flex;
-  align-items: center;
-  gap: .45rem;
-  min-width: 0;
-}
-.workbench-check input { flex: none; }
+.workbench-item.viewing { background: rgba(255,255,255,.04); }
+.workbench-item input[type="checkbox"] { flex: none; }
 .workbench-name {
+  font: inherit;
   font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
   overflow-wrap: anywhere;
+  cursor: pointer;
 }
+.workbench-name:hover:not(:disabled) { text-decoration: underline; }
+.workbench-name:disabled { cursor: default; opacity: .6; }
+.workbench-item.viewing .workbench-name { text-decoration: underline; }
 .workbench-badge {
   font-size: .68rem;
   text-transform: uppercase;

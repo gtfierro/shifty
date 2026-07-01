@@ -295,6 +295,8 @@ function restoreWorkbench() {
   }
 }
 
+let viewingWorkbenchId = null;
+
 function renderWorkbench() {
   const list = $("#workbenchList");
   if (!list) return;
@@ -308,12 +310,11 @@ function renderWorkbench() {
       const meta = item.status === "ready"
         ? `${fmtBytes(item.content.length)}${item.iri ? ` · ${esc(item.iri)}` : ""}`
         : item.error || item.iri || "waiting for a local file";
+      const viewing = item.id === viewingWorkbenchId ? " viewing" : "";
       return `
-        <div class="workbench-item status-${status}" data-id="${esc(item.id)}">
-          <label class="workbench-check">
-            <input type="checkbox" ${item.include ? "checked" : ""} ${item.status === "ready" ? "" : "disabled"} data-include />
-            <span class="workbench-name">${esc(item.name)}</span>
-          </label>
+        <div class="workbench-item status-${status}${viewing}" data-id="${esc(item.id)}">
+          <input type="checkbox" ${item.include ? "checked" : ""} ${item.status === "ready" ? "" : "disabled"} data-include />
+          <button type="button" class="workbench-name" data-view ${item.status === "ready" ? "" : "disabled"} title="Show in the Shapes graph editor">${esc(item.name)}</button>
           <span class="workbench-badge">${esc(item.status)}</span>
           <div class="workbench-meta">${meta}</div>
           <span class="workbench-spacer"></span>
@@ -335,8 +336,21 @@ function renderWorkbench() {
         persistSession();
       });
     }
+    const viewButton = $("[data-view]", row);
+    if (viewButton) {
+      viewButton.addEventListener("click", () => {
+        if (item.status !== "ready") return;
+        viewingWorkbenchId = item.id;
+        inputs.shapes.value = item.content;
+        updateMeta("shapes");
+        rebuildPrefixes();
+        persistSession();
+        renderWorkbench();
+      });
+    }
     $("[data-remove]", row).addEventListener("click", () => {
       ontologyWorkbench = ontologyWorkbench.filter((r) => r.id !== item.id);
+      if (viewingWorkbenchId === item.id) viewingWorkbenchId = null;
       persistWorkbench();
       persistSession();
       renderWorkbench();
@@ -387,12 +401,29 @@ async function normalizeRdfToTurtle(text, contentType = "", url = "") {
   return engine.rdfToTurtle(text, contentType || null, url || null);
 }
 
+// rdfToTurtle also uses its `url` argument as the parse's base IRI, which must
+// be an absolute IRI with a scheme — a bare filename like "foo.ttl" isn't one,
+// so wrap it in a synthetic file:// URL (keeps the extension for format sniffing).
+function fileUrlHint(file) {
+  const name = file?.name || "";
+  return name ? `file:///${encodeURI(name)}` : "";
+}
+
 async function normalizeFileContent(file, text) {
   try {
-    return await normalizeRdfToTurtle(text, file.type || "", file.name || "");
+    return await normalizeRdfToTurtle(text, file.type || "", fileUrlHint(file));
   } catch {
     return text;
   }
+}
+
+// Extensions we'll even attempt to parse when scanning a multi-file/folder selection —
+// keeps junk (images, .DS_Store, node_modules, …) out of a dragged-in folder.
+const RDF_EXTENSIONS = new Set(["ttl", "turtle", "n3", "nt", "nq", "trig", "rdf", "owl", "xml", "jsonld"]);
+function looksLikeRdfFile(file) {
+  const name = file.name || "";
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 && RDF_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
 }
 
 async function fetchDependenciesFor(root, seen = new Set()) {
@@ -457,7 +488,7 @@ async function fetchDependenciesFor(root, seen = new Set()) {
   }
 }
 
-async function addUploadedOntologyToWorkbench(file, content) {
+async function addUploadedOntologyToWorkbench(file, content, { silent = false } = {}) {
   const root = upsertWorkbenchRecord({
     name: file.name,
     iri: "",
@@ -469,6 +500,7 @@ async function addUploadedOntologyToWorkbench(file, content) {
   renderWorkbench();
   persistWorkbench();
   await fetchDependenciesFor(root);
+  if (silent) return;
   const stats = workbenchStats();
   toast(`Loaded “${file.name}” with ${stats.included} workbench file(s) included`);
 }
@@ -500,23 +532,20 @@ function wirePanel(slot) {
     persistSession();
   });
 
-  // upload from disk -> fill + auto-cache
+  // upload from disk (supports shift/cmd-click for multiple files) -> fill + auto-cache
   const fileInput = $("[data-file]", panel);
   $("[data-upload]", panel).addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    const text = await file.text();
-    const content = await normalizeFileContent(file, text);
-    ta.value = content;
-    updateMeta(slot);
-    rebuildPrefixes();
-    persistSession();
-    await cacheSave(file.name, content);
-    await refreshLibraries();
-    if (slot === "shapes") await addUploadedOntologyToWorkbench(file, content);
-    toast(`Loaded & cached “${file.name}”`);
+    await ingestFiles(slot, fileInput.files);
     fileInput.value = "";
+  });
+
+  // upload an entire folder -> filters to recognizable RDF files, fill + auto-cache
+  const folderInput = $("[data-folder]", panel);
+  $("[data-upload-folder]", panel).addEventListener("click", () => folderInput.click());
+  folderInput.addEventListener("change", async () => {
+    await ingestFiles(slot, folderInput.files);
+    folderInput.value = "";
   });
 
   // load a cached file
@@ -550,7 +579,7 @@ function wirePanel(slot) {
     persistSession();
   });
 
-  // drag & drop a file onto the panel
+  // drag & drop file(s) — or a folder — onto the panel
   panel.addEventListener("dragover", (e) => {
     e.preventDefault();
     panel.classList.add("drop");
@@ -559,8 +588,51 @@ function wirePanel(slot) {
   panel.addEventListener("drop", async (e) => {
     e.preventDefault();
     panel.classList.remove("drop");
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
+    const files = await filesFromDataTransfer(e.dataTransfer);
+    await ingestFiles(slot, files);
+  });
+}
+
+// Reads a drop's DataTransfer, walking any dropped directories (webkitGetAsEntry)
+// so a folder dragged onto a panel behaves like the "Upload folder" picker.
+async function filesFromDataTransfer(dataTransfer) {
+  const items = dataTransfer.items ? Array.from(dataTransfer.items) : null;
+  const entries = items?.map((item) => item.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries || !entries.length) return Array.from(dataTransfer.files || []);
+
+  const files = [];
+  async function walk(entry) {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      files.push(file);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const children = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      for (const child of children) await walk(child);
+    }
+  }
+  for (const entry of entries) await walk(entry);
+  return files;
+}
+
+// Ingests one or more files into a panel: a single recognizable file keeps the
+// original lenient behavior (raw-text fallback if it doesn't parse as RDF);
+// multiple files (multi-select or a folder) only keep the ones that actually
+// parse, reporting the rest as skipped.
+async function ingestFiles(slot, fileList) {
+  const ta = inputs[slot];
+  const all = Array.from(fileList || []);
+  if (!all.length) return;
+
+  const candidates = all.filter((f) => f && !f.name.startsWith(".") && looksLikeRdfFile(f));
+  const extSkipped = all.length - candidates.length;
+  if (!candidates.length) {
+    toast(extSkipped ? `Skipped ${extSkipped} file(s) — no recognized RDF format` : "No files selected");
+    return;
+  }
+
+  if (candidates.length === 1) {
+    const file = candidates[0];
     const text = await file.text();
     const content = await normalizeFileContent(file, text);
     ta.value = content;
@@ -570,8 +642,40 @@ function wirePanel(slot) {
     await cacheSave(file.name, content);
     await refreshLibraries();
     if (slot === "shapes") await addUploadedOntologyToWorkbench(file, content);
-    toast(`Loaded & cached “${file.name}”`);
-  });
+    toast(`Loaded & cached “${file.name}”${extSkipped ? ` · skipped ${extSkipped} other file(s)` : ""}`);
+    return;
+  }
+
+  let loaded = 0;
+  const chunks = [];
+  for (const file of candidates) {
+    let content;
+    try {
+      const text = await file.text();
+      content = await normalizeRdfToTurtle(text, file.type || "", fileUrlHint(file));
+    } catch {
+      continue;
+    }
+    await cacheSave(file.name, content);
+    if (slot === "shapes") {
+      await addUploadedOntologyToWorkbench(file, content, { silent: true });
+    } else {
+      chunks.push(content);
+    }
+    loaded++;
+  }
+
+  if (slot === "data" && chunks.length) {
+    const existing = ta.value.trim();
+    ta.value = (existing ? [existing, ...chunks] : chunks).join("\n\n");
+    updateMeta(slot);
+    rebuildPrefixes();
+    persistSession();
+  }
+
+  await refreshLibraries();
+  const skipped = candidates.length - loaded + extSkipped;
+  toast(`Loaded ${loaded} of ${all.length} file(s)${skipped ? ` · skipped ${skipped}` : ""}`);
 }
 
 async function refreshLibraries() {

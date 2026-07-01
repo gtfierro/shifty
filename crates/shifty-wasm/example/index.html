@@ -24,12 +24,14 @@
             <span class="meta" data-meta></span>
             <span class="grow"></span>
             <select data-library title="Load a cached file"><option value="">cached…</option></select>
-            <button class="small" data-upload>Upload</button>
+            <button class="small" data-upload title="Hold Shift or Cmd/Ctrl while choosing files to select more than one">Upload</button>
+            <button class="small" data-upload-folder>Upload folder</button>
             <button class="small" data-save>Save</button>
             <button class="small" data-clear>Clear</button>
-            <input type="file" accept=".ttl,.turtle,.n3,.nt,.nq,.trig,.rdf,.owl,.xml,.jsonld,text/turtle,application/rdf+xml,application/n-triples,application/ld+json,text/plain" hidden data-file />
+            <input type="file" accept=".ttl,.turtle,.n3,.nt,.nq,.trig,.rdf,.owl,.xml,.jsonld,text/turtle,application/rdf+xml,application/n-triples,application/ld+json,text/plain" multiple hidden data-file />
+            <input type="file" webkitdirectory mozdirectory directory multiple hidden data-folder />
           </header>
-          <textarea data-input spellcheck="false" placeholder="Paste Turtle, drop a file here, or load a sample…"></textarea>
+          <textarea data-input spellcheck="false" placeholder="Paste Turtle, drop file(s) here, or load a sample…"></textarea>
         </div>
 
         <div class="panel" id="panel-data" data-slot="data">
@@ -38,10 +40,12 @@
             <span class="meta" data-meta>optional — leave empty to use one combined graph</span>
             <span class="grow"></span>
             <select data-library title="Load a cached file"><option value="">cached…</option></select>
-            <button class="small" data-upload>Upload</button>
+            <button class="small" data-upload title="Hold Shift or Cmd/Ctrl while choosing files to select more than one">Upload</button>
+            <button class="small" data-upload-folder>Upload folder</button>
             <button class="small" data-save>Save</button>
             <button class="small" data-clear>Clear</button>
-            <input type="file" accept=".ttl,.turtle,.n3,.nt,.nq,.trig,.rdf,.owl,.xml,.jsonld,text/turtle,application/rdf+xml,application/n-triples,application/ld+json,text/plain" hidden data-file />
+            <input type="file" accept=".ttl,.turtle,.n3,.nt,.nq,.trig,.rdf,.owl,.xml,.jsonld,text/turtle,application/rdf+xml,application/n-triples,application/ld+json,text/plain" multiple hidden data-file />
+            <input type="file" webkitdirectory mozdirectory directory multiple hidden data-folder />
           </header>
           <textarea data-input spellcheck="false" placeholder="Paste Turtle, drop a file here, or leave empty…"></textarea>
         </div>
@@ -52,6 +56,15 @@
           <div>
             <h2>Ontology workbench</h2>
             <p>Uploaded shape ontologies and fetched imports selected for validation and inference.</p>
+            <details class="wb-help">
+              <summary>How this works</summary>
+              <ul>
+                <li>Uploading or pasting a shapes graph parses its <code>owl:imports</code> and fetches them automatically (<code>http</code> URLs are normalized to <code>https</code>).</li>
+                <li>Each import shows a status: <b>ready</b>, <b>fetching</b>, <b>missing</b> (couldn't be resolved automatically — upload it manually), or <b>error</b>.</li>
+                <li>The checkbox controls whether that ontology is merged into the shapes graph used for validation/inference — unchecked ontologies are excluded even if fetched.</li>
+                <li>Selections persist across reloads (stored in your browser's local storage).</li>
+              </ul>
+            </details>
           </div>
           <span class="grow"></span>
           <button id="btnWorkbenchAll" class="small">Include all</button>
@@ -78,7 +91,7 @@
               <option value="union" selected>union — data ∪ shapes (per-default-graph)</option>
               <option value="union-all">union-all — fully merged graph</option>
             </select>
-            <div class="hint">How the data and shapes graphs combine. Only matters when both are provided.</div>
+            <div class="hint">SHACL needs full class/subclass and path information to evaluate <code>sh:class</code>, property paths, etc. — but that hierarchy usually lives in the shapes/ontology graph, not the data. <b>union</b> (default) resolves hierarchy and paths against data &cup; shapes but still only validates data-graph focus nodes. <b>union-all</b> also runs validation itself over the merged graph. <b>data</b> ignores the shapes graph when resolving hierarchy — only safe if your data graph is self-contained. Only matters when both graphs are provided.</div>
           </div>
 
           <div class="opt">
