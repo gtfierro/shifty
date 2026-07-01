@@ -120,6 +120,17 @@ traps in the browser.
 
   const result = validate(shapesTurtle, dataTurtle, { infer: true });
   console.log(result.conforms, result.violations);
+
+  // Each violation is { focusNode, shapeName?, severity, reasons: [...] }.
+  // Each reason is { value, path?, message, severity, authorMessage? }:
+  //   message       — always present, engine-generated description.
+  //   authorMessage  — present only when the source shape declared an
+  //                    sh:message ({$this}/{?var} already resolved); prefer it.
+  for (const v of result.violations) {
+    for (const r of v.reasons) {
+      console.log(r.authorMessage ?? r.message);
+    }
+  }
 </script>
 ```
 

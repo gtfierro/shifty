@@ -55,7 +55,14 @@ def main():
                 print(f"  {v.focus_node}{shape}")
                 for r in v.reasons:
                     path = f" on {r.path}" if r.path else ""
-                    print(f"    - {r.message}{path}")
+                    # Lead with the author's sh:message when the shape supplied
+                    # one, keeping the engine-generated message in parentheses so
+                    # both are always available.
+                    if r.author_message:
+                        message = f"{r.author_message} (generated message: {r.message})"
+                    else:
+                        message = r.message
+                    print(f"    - {message}{path}")
         sys.exit(0 if result.conforms else 1)
 
     else:

@@ -327,8 +327,12 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
 
 fn render_reason(r: &shifty_engine::Reason, indent: usize) -> Vec<String> {
     let pad = " ".repeat(indent);
-    // Prefer the author's `sh:message` when present; fall back to the generated one.
-    let message = r.author_message.as_deref().unwrap_or(&r.message);
+    // Lead with the author's `sh:message` when present, but keep the generated
+    // one in parentheses so it is always available.
+    let message = match &r.author_message {
+        Some(author) => format!("{author} (generated message: {})", r.message),
+        None => r.message.clone(),
+    };
     let header = match &r.path {
         Some(p) => format!("{pad}- [{}] ({p}) {} → {}", r.severity, r.value, message),
         None => format!("{pad}- [{}] {}", r.severity, message),

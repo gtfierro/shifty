@@ -856,7 +856,7 @@ function renderValidation(res, ms) {
       if (activeFilter !== "all" && v.severity !== activeFilter) return false;
       if (query) {
         const hay = (v.focusNode + " " + (v.shapeName || "") + " " +
-          v.reasons.map((r) => r.message).join(" ")).toLowerCase();
+          v.reasons.map((r) => (r.authorMessage || "") + " " + r.message).join(" ")).toLowerCase();
         if (!hay.includes(query)) return false;
       }
       return true;
@@ -876,15 +876,20 @@ function renderValidation(res, ms) {
   function violationRow(v) {
     const sc = sevClass(v.severity);
     const reasons = v.reasons
-      .map(
-        (r) => `
+      .map((r) => {
+        // Lead with the author's sh:message when the shape supplied one, keeping
+        // the engine-generated message in parentheses so both are always shown.
+        const primary = r.authorMessage
+          ? `${esc(r.authorMessage)} (generated message: ${esc(r.message)})`
+          : esc(r.message);
+        return `
         <div class="reason">
-          <div class="msg">${esc(r.message)}</div>
+          <div class="msg">${primary}</div>
           ${r.path ? `<div class="kv"><b>path</b> ${esc(shortenTerm(r.path))}</div>` : ""}
           <div class="kv"><b>value</b> ${esc(shortenTerm(r.value))}</div>
           ${r.severity !== v.severity ? `<div class="kv"><b>severity</b> ${esc(r.severity)}</div>` : ""}
-        </div>`,
-      )
+        </div>`;
+      })
       .join("");
     return `
       <details class="violation-row sev-${sc}" open>

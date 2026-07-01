@@ -275,6 +275,38 @@ class TestAlgebraResult:
                 # value can be None, string, or URIRef
                 assert r.value is None or isinstance(r.value, (str, type(rdflib.URIRef(''))))
 
+    def test_reason_has_author_message(self):
+        result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
+        for v in result.violations:
+            for r in v.reasons:
+                assert hasattr(r, 'author_message')
+                # None unless the source shape supplied an sh:message.
+                assert r.author_message is None or isinstance(r.author_message, str)
+
+    def test_author_message_surfaces_sh_message(self):
+        """The source shape's sh:message rides through onto the reason (with
+        {$this} resolved), while a constraint without one leaves it None."""
+        shapes = """
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:S a sh:NodeShape ; sh:targetClass ex:T ;
+            sh:property [ sh:path ex:kind ; sh:class ex:Kind ;
+                sh:message "{$this} needs a known kind" ] ;
+            sh:property [ sh:path ex:name ; sh:minCount 1 ] .
+        ex:a a ex:T ; ex:kind ex:X .
+        """
+        result = shifty.validate_algebra(shapes.encode(), shapes.encode(), infer=False)
+        reasons = [r for v in result.violations for r in v.reasons]
+
+        authored = [r for r in reasons if r.author_message is not None]
+        assert authored, "expected at least one authored message"
+        assert authored[0].author_message == "<http://ex/a> needs a known kind"
+        # The generated message is still available alongside the author's.
+        assert authored[0].message and authored[0].message != authored[0].author_message
+
+        # The message-less sh:minCount constraint keeps author_message None.
+        assert any(r.author_message is None for r in reasons)
+
     def test_repr_when_conforms(self):
         result = shifty.validate_algebra(VALID_DATA.encode(), SHAPES.encode())
         repr_str = repr(result)
