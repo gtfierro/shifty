@@ -368,7 +368,10 @@ mod tests {
 
     #[test]
     fn sniff_rdfxml_bare_tag() {
-        assert_eq!(sniff_format(b"<rdf:RDF xmlns:rdf=\"...\">"), Some(RdfFormat::RdfXml));
+        assert_eq!(
+            sniff_format(b"<rdf:RDF xmlns:rdf=\"...\">"),
+            Some(RdfFormat::RdfXml)
+        );
     }
 
     #[test]
@@ -389,12 +392,18 @@ mod tests {
 
     #[test]
     fn sniff_turtle_sparql_prefix() {
-        assert_eq!(sniff_format(b"PREFIX sh: <http://www.w3.org/ns/shacl#>"), Some(RdfFormat::Turtle));
+        assert_eq!(
+            sniff_format(b"PREFIX sh: <http://www.w3.org/ns/shacl#>"),
+            Some(RdfFormat::Turtle)
+        );
     }
 
     #[test]
     fn sniff_turtle_sparql_base() {
-        assert_eq!(sniff_format(b"BASE <http://example.org/>"), Some(RdfFormat::Turtle));
+        assert_eq!(
+            sniff_format(b"BASE <http://example.org/>"),
+            Some(RdfFormat::Turtle)
+        );
     }
 
     #[test]
@@ -426,7 +435,8 @@ mod tests {
     fn sniff_ntriples_contains_check_uses_first_line_only() {
         // The "> <" pattern only appears in the second line; first real line has no prefix,
         // so sniff should return None rather than scanning deep into the buffer.
-        let data = b"# comment\n_:b0 <http://ex/p> _:b1 .\n<http://ex/s> <http://ex/p> <http://ex/o> .\n";
+        let data =
+            b"# comment\n_:b0 <http://ex/p> _:b1 .\n<http://ex/s> <http://ex/p> <http://ex/o> .\n";
         assert_eq!(sniff_format(data), None);
     }
 
@@ -439,7 +449,7 @@ mod tests {
     fn sniff_only_reads_prefix() {
         // Build a buffer >4096 bytes whose format marker is at the very start.
         let mut data = b"@prefix ex: <http://ex/> .\n".to_vec();
-        data.extend(std::iter::repeat(b'x').take(8000));
+        data.extend(std::iter::repeat_n(b'x', 8000));
         assert_eq!(sniff_format(&data), Some(RdfFormat::Turtle));
     }
 

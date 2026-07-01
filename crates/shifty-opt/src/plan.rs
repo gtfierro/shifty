@@ -60,19 +60,38 @@ pub struct PhysicalPlan {
 
 /// Plan a (normalized) schema.
 pub fn plan(schema: &Schema) -> PhysicalPlan {
-    let mut arena = schema.arena.clone();
-    let costs = compute_costs(&arena);
+    plan_with_flags(schema, true, true)
+}
 
-    // reorder And/Or children cheapest-first (ties by id for determinism)
-    for i in 0..arena.len() {
-        let id = ShapeId(i as u32);
-        let reordered = match arena.get(id).clone() {
-            Shape::And(cs) => Some(Shape::And(sort_by_cost(cs, &costs))),
-            Shape::Or(cs) => Some(Shape::Or(sort_by_cost(cs, &costs))),
-            _ => None,
-        };
-        if let Some(s) = reordered {
-            arena.set(id, s);
+/// Like [`plan`] but always emits `ScanFilter` instead of `PathToConst` for
+/// class-like selectors. Used in ablation experiments to isolate the seeding
+/// optimization from all other planning work.
+pub fn plan_no_seeding(schema: &Schema) -> PhysicalPlan {
+    plan_with_flags(schema, false, true)
+}
+
+/// Like [`plan`] but skips cost-based reordering of `And`/`Or` children.
+/// Used in ablation experiments to isolate the short-circuit ordering
+/// optimization from all other planning work.
+pub fn plan_no_sort(schema: &Schema) -> PhysicalPlan {
+    plan_with_flags(schema, true, false)
+}
+
+fn plan_with_flags(schema: &Schema, seeding: bool, sort: bool) -> PhysicalPlan {
+    let mut arena = schema.arena.clone();
+
+    if sort {
+        let costs = compute_costs(&arena);
+        for i in 0..arena.len() {
+            let id = ShapeId(i as u32);
+            let reordered = match arena.get(id).clone() {
+                Shape::And(cs) => Some(Shape::And(sort_by_cost(cs, &costs))),
+                Shape::Or(cs) => Some(Shape::Or(sort_by_cost(cs, &costs))),
+                _ => None,
+            };
+            if let Some(s) = reordered {
+                arena.set(id, s);
+            }
         }
     }
 
@@ -80,7 +99,11 @@ pub fn plan(schema: &Schema) -> PhysicalPlan {
         .statements
         .iter()
         .map(|st| StatementPlan {
-            source: plan_selector(&arena, &st.selector),
+            source: if seeding {
+                plan_selector(&arena, &st.selector)
+            } else {
+                plan_selector_no_seeding(&arena, &st.selector)
+            },
             shape: st.shape,
         })
         .collect();
@@ -112,6 +135,23 @@ fn plan_selector(arena: &ShapeArena, sel: &Selector) -> FocusSource {
                 path: path.clone(),
                 qualifier: *qual,
             },
+        },
+        Selector::Sparql(target) => FocusSource::Sparql(target.clone()),
+    }
+}
+
+/// Ablation variant: always emits `ScanFilter` for `HasPath` selectors,
+/// even when the qualifier is a constant (class target). This forces the
+/// engine to scan all nodes and filter, rather than seeding backward from
+/// the constant.
+fn plan_selector_no_seeding(_arena: &ShapeArena, sel: &Selector) -> FocusSource {
+    match sel {
+        Selector::HasOut(p) => FocusSource::SubjectsOf(p.clone()),
+        Selector::HasIn(p) => FocusSource::ObjectsOf(p.clone()),
+        Selector::IsConst(c) => FocusSource::Node(c.clone()),
+        Selector::HasPath(path, qual) => FocusSource::ScanFilter {
+            path: path.clone(),
+            qualifier: *qual,
         },
         Selector::Sparql(target) => FocusSource::Sparql(target.clone()),
     }
