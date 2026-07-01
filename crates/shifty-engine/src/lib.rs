@@ -62,12 +62,108 @@ mod tests {
         validate(&loaded.graph, &out.schema).expect("stratifiable schema")
     }
 
+    /// Like [`run`], but validates the *normalized* schema — the schema the CLI
+    /// and wasm front-ends actually run, where NNF rewriting can reshape the IR
+    /// that reporting inspects.
+    fn run_normalized(shapes_and_data: &str) -> ValidationOutcome {
+        let out = parse_turtle(shapes_and_data.as_bytes(), None).unwrap();
+        let loaded = shifty_parse::load_turtle(shapes_and_data.as_bytes(), None).unwrap();
+        let normalized = shifty_opt::normalize(&out.schema);
+        validate(&loaded.graph, &normalized).expect("stratifiable schema")
+    }
+
     const PREFIXES: &str = r#"
         @prefix sh:  <http://www.w3.org/ns/shacl#> .
         @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
         @prefix ex:  <http://ex/> .
         @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
     "#;
+
+    /// A `sh:class` value constraint on a property is the universal
+    /// `∀path.(instance of C)`, lowered to `∃≤0 path.¬(instance of C)`. After
+    /// NNF normalization the inner `¬(instance of C)` becomes an `∃≤0` class
+    /// count rather than a bare `Not`, which used to defeat the drill-in and
+    /// leave the raw "at most 0 value(s) … found 1" message. The offender should
+    /// instead be told which class the value must be an instance of.
+    #[test]
+    fn normalized_class_universal_names_the_required_class() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:SensorShape a sh:NodeShape ;
+                sh:targetClass ex:Sensor ;
+                sh:property [ sh:path ex:hasKind ; sh:class ex:QuantityKind ] .
+
+            ex:s1 a ex:Sensor ; ex:hasKind ex:Temperature .
+            # ex:Temperature is deliberately untyped (as if its ontology import
+            # were missing), so it fails the class check.
+            "
+        );
+
+        let outcome = run_normalized(&ttl);
+        let messages: Vec<&str> = outcome
+            .violations
+            .iter()
+            .flat_map(|v| v.reasons.iter())
+            .map(|r| r.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|m| *m == "must be an instance of <http://ex/QuantityKind>"),
+            "expected an intuitive class message, got: {messages:?}"
+        );
+        // The old double-negated structural phrasing must not surface.
+        assert!(
+            !messages.iter().any(|m| m.contains("at most 0")),
+            "raw ∃≤0 message leaked: {messages:?}"
+        );
+
+        // The offending value node and path are carried on the reason.
+        let reason = outcome
+            .violations
+            .iter()
+            .flat_map(|v| &v.reasons)
+            .find(|r| r.message.starts_with("must be an instance of"))
+            .expect("class reason present");
+        assert_eq!(reason.value.to_string(), "<http://ex/Temperature>");
+        assert_eq!(reason.path.as_deref(), Some("<http://ex/hasKind>"));
+    }
+
+    /// A universal whose `¬φ` normalizes to a non-`Not`, non-class form — here a
+    /// complemented `sh:nodeKind` — still names the positive requirement (the
+    /// general `describe_negation` path) instead of the raw `∃≤0` count message.
+    #[test]
+    fn normalized_nodekind_universal_names_the_requirement() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:T ;
+                sh:property [ sh:path ex:p ; sh:nodeKind sh:IRI ] .
+
+            ex:a a ex:T ; ex:p \"not-an-iri\" .
+            "
+        );
+
+        let outcome = run_normalized(&ttl);
+        let messages: Vec<&str> = outcome
+            .violations
+            .iter()
+            .flat_map(|v| v.reasons.iter())
+            .map(|r| r.message.as_str())
+            .collect();
+
+        assert!(
+            messages
+                .iter()
+                .any(|m| *m == "must satisfy `nodeKind(IRI)`"),
+            "expected a nodeKind requirement message, got: {messages:?}"
+        );
+        assert!(
+            !messages.iter().any(|m| m.contains("at most 0")),
+            "raw ∃≤0 message leaked: {messages:?}"
+        );
+    }
 
     #[test]
     fn inference_rules_fire_for_implicit_class_targets() {

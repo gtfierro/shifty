@@ -17,7 +17,9 @@ use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use shifty_algebra::render::{path_to_string, shape_to_string};
+use shifty_algebra::render::{
+    describe_negation, describe_shape, negated_class_target_shape, path_to_string, shape_to_string,
+};
 use shifty_algebra::{
     NodeExpr, Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId, SparqlConstraint,
 };
@@ -1181,11 +1183,32 @@ fn explain_count(
     let n = matched.len() as u64;
     let mut reasons = Vec::new();
 
+    // For a *qualified* count (`sh:qualifiedValueShape`, e.g. `sh:class C`), the
+    // counted values are only those conforming to the qualifier, so the message
+    // must name it — otherwise "found 0" reads as if the path were empty when in
+    // fact it held values that just didn't match the qualifier. Plain
+    // `sh:minCount`/`sh:maxCount` lower with a `⊤` qualifier and need no clause.
+    let qual_clause = match evaluator.arena.get(qualifier) {
+        Shape::Top => String::new(),
+        _ => format!(" matching `{}`", describe_shape(evaluator.arena, qualifier)),
+    };
+
     if let Some(mx) = max
         && n > mx
     {
+        // A universal `∀path.φ` is lowered to `∃≤0 path.¬φ`; more generally, when
+        // a `∃≤0` (max 0) count over a non-trivial qualifier `ψ` fails, every
+        // offending value satisfies `ψ` but must satisfy `¬ψ`. Drill into each
+        // offender and report that positive requirement `¬ψ` rather than echoing
+        // the machine's double-negated `ψ`. A bare `Shape::Not` still routes
+        // through `explain` (richest, keeps sub-reasons); the `sh:class` case
+        // gets a dedicated phrasing; anything else (`sh:nodeKind`, De Morgan
+        // combinations, …) is described by `describe_negation`. A `⊤` qualifier
+        // is a plain `sh:maxCount` and keeps the concise count message.
+        let class_offense = (mx == 0)
+            .then(|| negated_class_target_shape(qualifier, evaluator.arena))
+            .flatten();
         match evaluator.arena.get(qualifier).clone() {
-            // ∀path.inner encoded as ∃≤0 path.¬inner: drill into the offenders.
             Shape::Not(inner) if mx == 0 => {
                 for u in &matched {
                     reasons.extend(explain(
@@ -1198,12 +1221,57 @@ fn explain_count(
                     ));
                 }
             }
+            // Normalized `sh:class` universal: name the class each offending value
+            // must be an instance of. (The value node and path are surfaced
+            // alongside the message by the report renderer.)
+            _ if class_offense.is_some() => {
+                let class = class_offense.expect("guard ensured Some");
+                for u in &matched {
+                    reasons.push(Reason {
+                        value: u.clone(),
+                        path: Some(path_str.clone()),
+                        shape: id,
+                        severity: severity.clone(),
+                        message: format!("must be an instance of {}", term_text(&class)),
+                        sub_reasons: Vec::new(),
+                    });
+                }
+            }
+            // Plain `sh:maxCount` (⊤ qualifier): concise count message.
+            Shape::Top => reasons.push(Reason {
+                value: node.clone(),
+                path: Some(path_str.clone()),
+                shape: id,
+                severity: severity.clone(),
+                message: format!(
+                    "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
+                ),
+                sub_reasons: Vec::new(),
+            }),
+            // Any other `∃≤0` qualifier (`sh:nodeKind`, several value constraints
+            // De-Morgan'd to an `Or`, …): describe the positive requirement.
+            _ if mx == 0 => {
+                let requirement = describe_negation(evaluator.arena, qualifier);
+                for u in &matched {
+                    reasons.push(Reason {
+                        value: u.clone(),
+                        path: Some(path_str.clone()),
+                        shape: id,
+                        severity: severity.clone(),
+                        message: format!("must satisfy `{requirement}`"),
+                        sub_reasons: Vec::new(),
+                    });
+                }
+            }
+            // Genuine `sh:qualifiedMaxCount` ≥ 1: concise count message.
             _ => reasons.push(Reason {
                 value: node.clone(),
                 path: Some(path_str.clone()),
                 shape: id,
                 severity: severity.clone(),
-                message: format!("at most {mx} value(s) may match along {path_str}, found {n}"),
+                message: format!(
+                    "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
+                ),
                 sub_reasons: Vec::new(),
             }),
         }
@@ -1217,7 +1285,9 @@ fn explain_count(
             path: Some(path_str.clone()),
             shape: id,
             severity: severity.clone(),
-            message: format!("at least {mn} value(s) required along {path_str}, found {n}"),
+            message: format!(
+                "at least {mn} value(s){qual_clause} required along {path_str}, found {n}"
+            ),
             sub_reasons: Vec::new(),
         });
     }
