@@ -114,7 +114,13 @@ pub struct Reason {
     /// `sh:severity` on the source shape, defaulting to `sh:Violation`.
     #[serde(default)]
     pub severity: Severity,
+    /// Engine-generated description of the failure — always present.
     pub message: String,
+    /// The author's `sh:message` from the source shape, if any (with
+    /// `{$this}`/`{?var}` placeholders resolved). Consumers should prefer this
+    /// over [`message`](Self::message) when set; `message` remains the fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_message: Option<String>,
     /// Non-empty when this reason is an `sh:or` group: one entry per OR branch
     /// that failed, so the caller can tell "fix any one of these."
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1034,8 +1040,29 @@ fn explain(
     let reasons = match evaluator.arena.get(id).clone() {
         Shape::Annotated {
             severity: source_severity,
+            messages,
             shape,
-        } => explain(evaluator, node, shape, path_ctx, &source_severity, stack),
+        } => {
+            let mut reasons = explain(evaluator, node, shape, path_ctx, &source_severity, stack);
+            if !messages.is_empty() {
+                // Resolve the author's `sh:message` once at this source-shape
+                // boundary (`$this` = the node this shape validates) and stamp it
+                // onto any reason that doesn't already carry a nearer one. Since
+                // the deepest `Annotated` returns first, the innermost (most
+                // specific) message wins — outer shapes only fill the gaps.
+                let author = messages
+                    .iter()
+                    .map(|m| apply_message_template(&term_text(m), node, &HashMap::new()))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                for r in &mut reasons {
+                    if r.author_message.is_none() {
+                        r.author_message = Some(author.clone());
+                    }
+                }
+            }
+            reasons
+        }
         Shape::Top | Shape::Pending => Vec::new(),
         Shape::Sparql(constraint) => {
             match evaluator.sparql.constraint_violations(&constraint, node) {
@@ -1055,6 +1082,7 @@ fn explain(
                             message,
                             shape: id,
                             severity: severity.clone(),
+                            author_message: None,
                             sub_reasons: Vec::new(),
                         }
                     })
@@ -1065,6 +1093,7 @@ fn explain(
                     shape: id,
                     severity: severity.clone(),
                     message: format!("SPARQL constraint evaluation failed: {error}"),
+                    author_message: None,
                     sub_reasons: Vec::new(),
                 }],
             }
@@ -1096,6 +1125,7 @@ fn explain(
                     shape: id,
                     severity: severity.clone(),
                     message: format!("closed: unexpected predicate(s) {}", preds.join(", ")),
+                    author_message: None,
                     sub_reasons: Vec::new(),
                 }]
             }
@@ -1108,6 +1138,7 @@ fn explain(
                     shape: id,
                     severity: severity.clone(),
                     message: "negated shape unexpectedly held".to_string(),
+                    author_message: None,
                     sub_reasons: Vec::new(),
                 }]
             } else {
@@ -1138,6 +1169,7 @@ fn explain(
                     shape: id,
                     severity: severity.clone(),
                     message: format!("none of {} alternative(s) satisfied", cs.len()),
+                    author_message: None,
                     sub_reasons,
                 }]
             }
@@ -1233,6 +1265,7 @@ fn explain_count(
                         shape: id,
                         severity: severity.clone(),
                         message: format!("must be an instance of {}", term_text(&class)),
+                        author_message: None,
                         sub_reasons: Vec::new(),
                     });
                 }
@@ -1246,6 +1279,7 @@ fn explain_count(
                 message: format!(
                     "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
                 ),
+                author_message: None,
                 sub_reasons: Vec::new(),
             }),
             // Any other `∃≤0` qualifier (`sh:nodeKind`, several value constraints
@@ -1259,6 +1293,7 @@ fn explain_count(
                         shape: id,
                         severity: severity.clone(),
                         message: format!("must satisfy `{requirement}`"),
+                        author_message: None,
                         sub_reasons: Vec::new(),
                     });
                 }
@@ -1272,6 +1307,7 @@ fn explain_count(
                 message: format!(
                     "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
                 ),
+                author_message: None,
                 sub_reasons: Vec::new(),
             }),
         }
@@ -1288,6 +1324,7 @@ fn explain_count(
             message: format!(
                 "at least {mn} value(s){qual_clause} required along {path_str}, found {n}"
             ),
+            author_message: None,
             sub_reasons: Vec::new(),
         });
     }
@@ -1381,6 +1418,7 @@ fn leaf(
             shape: id,
             severity: severity.clone(),
             message,
+            author_message: None,
             sub_reasons: Vec::new(),
         }]
     }

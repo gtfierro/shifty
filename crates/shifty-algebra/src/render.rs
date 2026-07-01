@@ -176,7 +176,9 @@ fn selector_shapes(sel: &Selector) -> Vec<ShapeId> {
 
 fn shape_def(arena: &ShapeArena, id: ShapeId) -> String {
     match arena.get(id) {
-        Shape::Annotated { severity, shape } => {
+        Shape::Annotated {
+            severity, shape, ..
+        } => {
             format!("severity({}, {})", severity, child(arena, *shape))
         }
         Shape::Top => "⊤".to_string(),

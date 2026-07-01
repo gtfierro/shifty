@@ -205,9 +205,17 @@ impl<'a> Interner<'a> {
     /// canonical id.
     fn simplify(&mut self, id: ShapeId) -> ShapeId {
         match self.src.get(id).clone() {
-            Shape::Annotated { severity, shape } => {
+            Shape::Annotated {
+                severity,
+                messages,
+                shape,
+            } => {
                 let shape = self.intern(shape);
-                self.cons(Shape::Annotated { severity, shape })
+                self.cons(Shape::Annotated {
+                    severity,
+                    messages,
+                    shape,
+                })
             }
             Shape::Top => self.top(),
             Shape::Not(c) => {
@@ -257,8 +265,13 @@ impl<'a> Interner<'a> {
     /// the variant (dedup `And`/`Or` members) but never collapse.
     fn rebuild_cyclic(&mut self, id: ShapeId) -> Shape {
         match self.src.get(id).clone() {
-            Shape::Annotated { severity, shape } => Shape::Annotated {
+            Shape::Annotated {
                 severity,
+                messages,
+                shape,
+            } => Shape::Annotated {
+                severity,
+                messages,
                 shape: self.intern(shape),
             },
             Shape::Not(c) => Shape::Not(self.intern(c)),

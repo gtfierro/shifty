@@ -327,9 +327,11 @@ fn infer(args: InferArgs) -> Result<(), Box<dyn Error>> {
 
 fn render_reason(r: &shifty_engine::Reason, indent: usize) -> Vec<String> {
     let pad = " ".repeat(indent);
+    // Prefer the author's `sh:message` when present; fall back to the generated one.
+    let message = r.author_message.as_deref().unwrap_or(&r.message);
     let header = match &r.path {
-        Some(p) => format!("{pad}- [{}] ({p}) {} → {}", r.severity, r.value, r.message),
-        None => format!("{pad}- [{}] {}", r.severity, r.message),
+        Some(p) => format!("{pad}- [{}] ({p}) {} → {}", r.severity, r.value, message),
+        None => format!("{pad}- [{}] {}", r.severity, message),
     };
     let mut lines = vec![header];
     for sub in &r.sub_reasons {

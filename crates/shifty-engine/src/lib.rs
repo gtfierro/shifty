@@ -165,6 +165,66 @@ mod tests {
         );
     }
 
+    /// A source shape's `sh:message` rides through lowering + normalization on
+    /// `Shape::Annotated` and is stamped onto each reason (with `{$this}`
+    /// resolved to the focus node), while the generated `message` stays as a
+    /// fallback. Shapes without one leave `author_message` unset.
+    #[test]
+    fn author_sh_message_is_carried_onto_reasons() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:T ;
+                sh:property [ sh:path ex:hasKind ; sh:class ex:QuantityKind ;
+                    sh:message \"{{$this}} needs a known QuantityKind\" ] .
+
+            ex:a a ex:T ; ex:hasKind ex:Temperature .
+            "
+        );
+
+        let outcome = run_normalized(&ttl);
+        let reason = outcome
+            .violations
+            .iter()
+            .flat_map(|v| &v.reasons)
+            .find(|r| r.author_message.is_some())
+            .expect("author message present");
+
+        // `{$this}` resolved to the focus node, generated message kept as fallback.
+        assert_eq!(
+            reason.author_message.as_deref(),
+            Some("<http://ex/a> needs a known QuantityKind")
+        );
+        assert_eq!(
+            reason.message,
+            "must be an instance of <http://ex/QuantityKind>"
+        );
+    }
+
+    /// Without `sh:message`, `author_message` stays `None` (generated only).
+    #[test]
+    fn absent_sh_message_leaves_author_message_unset() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:S a sh:NodeShape ;
+                sh:targetClass ex:T ;
+                sh:property [ sh:path ex:hasKind ; sh:class ex:QuantityKind ] .
+
+            ex:a a ex:T ; ex:hasKind ex:Temperature .
+            "
+        );
+
+        let outcome = run_normalized(&ttl);
+        assert!(
+            outcome
+                .violations
+                .iter()
+                .flat_map(|v| &v.reasons)
+                .all(|r| r.author_message.is_none()),
+            "no author message expected"
+        );
+    }
+
     #[test]
     fn inference_rules_fire_for_implicit_class_targets() {
         let ttl = br#"
