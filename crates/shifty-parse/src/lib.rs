@@ -191,7 +191,9 @@ mod tests {
         let out = parse_turtle(ttl.as_bytes(), None).unwrap();
         assert!(out.diagnostics.is_empty(), "diags: {:?}", out.diagnostics);
         let root = out.schema.statements[0].shape;
-        let shifty_algebra::Shape::Annotated { severity, shape } = out.schema.arena.get(root)
+        let shifty_algebra::Shape::Annotated {
+            severity, shape, ..
+        } = out.schema.arena.get(root)
         else {
             panic!("expected severity annotation");
         };

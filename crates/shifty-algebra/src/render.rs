@@ -176,7 +176,9 @@ fn selector_shapes(sel: &Selector) -> Vec<ShapeId> {
 
 fn shape_def(arena: &ShapeArena, id: ShapeId) -> String {
     match arena.get(id) {
-        Shape::Annotated { severity, shape } => {
+        Shape::Annotated {
+            severity, shape, ..
+        } => {
             format!("severity({}, {})", severity, child(arena, *shape))
         }
         Shape::Top => "⊤".to_string(),
@@ -303,6 +305,96 @@ fn join_describe(arena: &ShapeArena, cs: &[ShapeId], sep: &str, depth: u8) -> St
         .join(sep)
 }
 
+/// Describe the *positive* requirement `¬ψ` for an NNF shape `ψ` — the
+/// reporting-side inverse of the optimizer's NNF negation ([`normalize`]'s
+/// `mk_not`). A universal `∀π.φ` is stored as `∃≤0 π.¬φ`; when it fails, each
+/// offending value satisfies `ψ = ¬φ`, so what it *should* satisfy is `φ = ¬ψ`.
+/// This renders that `φ` in [`describe_shape`]'s vocabulary rather than echoing
+/// the machine's double-negated `ψ` (e.g. `∃≤0 rdf:type/… . test(C)` ⇒
+/// `instance of C`, a complemented `nodeKind` ⇒ the original kinds).
+///
+/// [`normalize`]: fn@crate::normalize
+pub fn describe_negation(arena: &ShapeArena, id: ShapeId) -> String {
+    describe_negation_within(arena, id, 8)
+}
+
+fn describe_negation_within(arena: &ShapeArena, id: ShapeId, depth: u8) -> String {
+    // ψ = ∃≤0 (rdf:type/…).test(C)  ⇒  ¬ψ = "instance of C".
+    if let Some(class) = negated_class_target_shape(id, arena) {
+        return format!("instance of {}", term_to_string(&class));
+    }
+    // ψ = ∃≥1 (rdf:type/…).test(C)  ⇒  ¬ψ = "not an instance of C" (e.g. the
+    // qualifier of an `sh:qualifiedMaxCount 0` over `sh:class C`).
+    if let Some(class) = class_target_shape(id, arena) {
+        return format!("not an instance of {}", term_to_string(&class));
+    }
+    match arena.get(id) {
+        // ¬⊤ = ⊥: unsatisfiable. Shouldn't reach reporting, but render honestly.
+        Shape::Top | Shape::Pending => "no value".to_string(),
+        _ if depth == 0 => format!("¬@{}", id.0),
+        Shape::Annotated { shape, .. } => describe_negation_within(arena, *shape, depth - 1),
+        // ¬¬φ = φ
+        Shape::Not(c) => describe_shape_within(arena, *c, depth - 1),
+        // De Morgan: ¬(a ∧ b) = ¬a ∨ ¬b, ¬(a ∨ b) = ¬a ∧ ¬b.
+        Shape::And(cs) => join_negate(arena, cs, " or ", depth),
+        Shape::Or(cs) => join_negate(arena, cs, " and ", depth),
+        // ¬(∃[min..max] π.q) = ∃[..min-1] π.q ∪ ∃[max+1..] π.q (qualifier stays).
+        Shape::Count {
+            path,
+            min,
+            max,
+            qualifier,
+        } => {
+            let q = describe_shape_within(arena, *qualifier, depth - 1);
+            let path = path_to_string(path);
+            let mut alts = Vec::new();
+            if let Some(lo) = min
+                && *lo > 0
+            {
+                alts.push(format!("∃[..{}] {path} . {q}", lo - 1));
+            }
+            if let Some(hi) = max {
+                alts.push(format!("∃[{}..] {path} . {q}", hi + 1));
+            }
+            if alts.is_empty() {
+                "no value".to_string() // ¬∃[0..] = ⊥
+            } else {
+                alts.join(" or ")
+            }
+        }
+        // ¬nodeKind(K) = nodeKind(K̄).
+        Shape::TestKind(k) => {
+            let comp = k.complement();
+            if comp.is_empty() {
+                "no value".to_string()
+            } else {
+                format!("nodeKind({})", node_kinds_to_string(&comp))
+            }
+        }
+        // Any other leaf: its plain negation reads fine.
+        _ => format!("not ({})", describe_shape_within(arena, id, depth)),
+    }
+}
+
+/// Join the *negations* of several shapes (De Morgan expansion), parenthesizing
+/// nested boolean combinations so the result reads unambiguously.
+fn join_negate(arena: &ShapeArena, cs: &[ShapeId], sep: &str, depth: u8) -> String {
+    if cs.is_empty() {
+        // ¬(empty ∧) = ¬⊤ = ⊥ ; ¬(empty ∨) = ¬⊥ = ⊤ — neither is informative.
+        return "no value".to_string();
+    }
+    cs.iter()
+        .map(|c| {
+            let d = describe_negation_within(arena, *c, depth - 1);
+            match arena.get(*c) {
+                Shape::And(_) | Shape::Or(_) => format!("({d})"),
+                _ => d,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(sep)
+}
+
 pub fn selector_to_string(sel: &Selector) -> String {
     match sel {
         Selector::HasOut(q) => format!("∃ {} .⊤", compact(q.as_str())),
@@ -352,6 +444,31 @@ pub fn class_target_shape(id: ShapeId, arena: &ShapeArena) -> Option<Term> {
         ref path,
         min: Some(1),
         max: None,
+        qualifier,
+    } = arena.get(id).clone()
+    else {
+        return None;
+    };
+    if !is_class_path(path) {
+        return None;
+    }
+    if let Shape::TestConst(c) = arena.get(qualifier).clone() {
+        Some(c)
+    } else {
+        None
+    }
+}
+
+/// If `id` is the NNF negation of a `sh:class C` value constraint —
+/// `∃≤0 (rdf:type/rdfs:subClassOf*).test(C)`, i.e. "*not* an instance of `C`" —
+/// return `C`. This is the form the optimizer produces for the `¬φ` inside a
+/// universal `∀π.(instance of C) ≡ ∃≤0 π.¬(instance of C)`, since negating the
+/// `min: Some(1)` class count rewrites it to `max: Some(0)`. `None` otherwise.
+pub fn negated_class_target_shape(id: ShapeId, arena: &ShapeArena) -> Option<Term> {
+    let Shape::Count {
+        ref path,
+        min: None,
+        max: Some(0),
         qualifier,
     } = arena.get(id).clone()
     else {
@@ -796,5 +913,61 @@ mod tests {
         // It renders without diverging and bottoms out at an `@id` slot label.
         let rendered = describe_shape(&arena, s);
         assert!(rendered.contains(&format!("@{}", s.0)), "{rendered}");
+    }
+
+    /// The NNF of `¬(sh:class C)`: `∃≤0 (rdf:type/rdfs:subClassOf*).test(C)`.
+    fn negated_class_shape(arena: &mut ShapeArena, iri: &str) -> ShapeId {
+        let test = arena.insert(Shape::TestConst(Term::NamedNode(nn(iri))));
+        arena.insert(Shape::Count {
+            path: class_path(),
+            min: None,
+            max: Some(0),
+            qualifier: test,
+        })
+    }
+
+    #[test]
+    fn negated_class_target_shape_recovers_the_class() {
+        let mut arena = ShapeArena::new();
+        let neg = negated_class_shape(&mut arena, "http://ex/QuantityKind");
+        assert_eq!(
+            negated_class_target_shape(neg, &arena),
+            Some(Term::NamedNode(nn("http://ex/QuantityKind")))
+        );
+        // The *positive* class encoding must not be mistaken for its negation.
+        let pos = class_shape(&mut arena, "http://ex/QuantityKind");
+        assert_eq!(negated_class_target_shape(pos, &arena), None);
+    }
+
+    #[test]
+    fn describe_negation_inverts_the_common_nnf_forms() {
+        let mut arena = ShapeArena::new();
+
+        // ¬(∃≤0 classpath.test(C)) = "instance of C"  (the sh:class universal)
+        let neg_class = negated_class_shape(&mut arena, "http://ex/C");
+        assert_eq!(
+            describe_negation(&arena, neg_class),
+            "instance of <http://ex/C>"
+        );
+
+        // ¬(∃≥1 classpath.test(C)) = "not an instance of C"  (qualifiedMaxCount 0)
+        let pos_class = class_shape(&mut arena, "http://ex/C");
+        assert_eq!(
+            describe_negation(&arena, pos_class),
+            "not an instance of <http://ex/C>"
+        );
+
+        // ¬nodeKind(Blank|Literal) = nodeKind(IRI)  (a complemented sh:nodeKind)
+        let kind = arena.insert(Shape::TestKind(NodeKindSet::IRI.complement()));
+        assert_eq!(describe_negation(&arena, kind), "nodeKind(IRI)");
+
+        // De Morgan: `sh:class C` + `sh:nodeKind IRI` on one path is the universal
+        // `∀p.(instance of C ∧ nodeKind IRI)`, whose `¬φ` normalizes to the `Or` of
+        // the two negated members. Its negation reads back as the conjunction.
+        let or = arena.insert(Shape::Or(vec![neg_class, kind]));
+        assert_eq!(
+            describe_negation(&arena, or),
+            "instance of <http://ex/C> and nodeKind(IRI)"
+        );
     }
 }

@@ -31,8 +31,12 @@ pub struct Reason {
     pub value: String,
     /// Path from the focus node to the value, in π notation (e.g. `ex:name`).
     pub path: Option<String>,
-    /// Human-readable description of the failing constraint.
+    /// Engine-generated description of the failing constraint — always present.
     pub message: String,
+    /// The source shape's `sh:message`, if the author supplied one (with
+    /// `{$this}`/`{?var}` resolved). `None` otherwise. Prefer this over
+    /// `message` when it is set.
+    pub author_message: Option<String>,
     /// SHACL severity (`"Violation"`, `"Warning"`, `"Info"`, or a custom IRI).
     pub severity: String,
 }
@@ -492,6 +496,7 @@ pub(crate) fn violation_to_py(
                     value: r.value.to_string(),
                     path: r.path.clone(),
                     message: r.message.clone(),
+                    author_message: r.author_message.clone(),
                     severity: r.severity.label().to_string(),
                 },
             )
@@ -512,6 +517,7 @@ struct RawReason {
     value: String,
     path: Option<String>,
     message: String,
+    author_message: Option<String>,
     severity: String,
 }
 
@@ -543,6 +549,7 @@ impl RawAlgebraResult {
                                 value: reason.value,
                                 path: reason.path,
                                 message: reason.message,
+                                author_message: reason.author_message,
                                 severity: reason.severity,
                             },
                         )
@@ -585,6 +592,7 @@ fn raw_algebra_result(
                     value: reason.value.to_string(),
                     path: reason.path.clone(),
                     message: reason.message.clone(),
+                    author_message: reason.author_message.clone(),
                     severity: reason.severity.label().to_string(),
                 })
                 .collect(),

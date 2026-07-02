@@ -22,6 +22,7 @@ use crate::term::{NamedNode, NodeKindSet, Term};
 use crate::value_type::ValueType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 /// An index into a [`ShapeArena`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -31,7 +32,16 @@ pub struct ShapeId(pub u32);
 pub enum Shape {
     /// Source-shape metadata. This wrapper is logically transparent, but keeps
     /// severity attached through normalization and physical planning.
-    Annotated { severity: Severity, shape: ShapeId },
+    Annotated {
+        severity: Severity,
+        /// Author-supplied `sh:message`(s) on the source shape, carried through
+        /// normalization for reporting. Kept in the CSE key so shapes that share
+        /// a body but differ in message stay distinct. `Arc` so cloning a
+        /// `Shape` (done throughout the analyses) stays cheap.
+        #[serde(default, skip_serializing_if = "<[Term]>::is_empty")]
+        messages: Arc<[Term]>,
+        shape: ShapeId,
+    },
     /// `⊤` — trivially satisfied.
     Top,
     /// A reserved-but-unfilled arena slot, transient during construction of

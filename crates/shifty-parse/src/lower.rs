@@ -262,6 +262,7 @@ impl Lowerer<'_> {
             id,
             Shape::Annotated {
                 severity: self.severity(s),
+                messages: self.messages(s),
                 shape: body,
             },
         );
@@ -273,6 +274,11 @@ impl Lowerer<'_> {
             Some(Term::NamedNode(value)) => Severity::from_named_node(value),
             _ => Severity::Violation,
         }
+    }
+
+    /// Author-supplied `sh:message`(s) on the source shape, kept for reporting.
+    fn messages(&self, shape: &NamedOrBlankNode) -> std::sync::Arc<[Term]> {
+        self.g.objects(shape, vocab::SH_MESSAGE).into()
     }
 
     fn collect_value_constraints(&mut self, s: &NamedOrBlankNode) -> Vec<ShapeId> {
@@ -683,11 +689,12 @@ impl Lowerer<'_> {
                 };
 
                 // Conjoin with the shape's existing body.
-                let (severity, inner) = match self.arena.get(shape_id) {
+                let (severity, messages, inner) = match self.arena.get(shape_id) {
                     Shape::Annotated {
                         severity,
+                        messages,
                         shape: inner,
-                    } => (severity.clone(), *inner),
+                    } => (severity.clone(), messages.clone(), *inner),
                     _ => continue, // defensive; lower_shape always produces Annotated
                 };
                 let combined = self.arena.and(vec![inner, sparql_id]);
@@ -695,6 +702,7 @@ impl Lowerer<'_> {
                     shape_id,
                     Shape::Annotated {
                         severity,
+                        messages,
                         shape: combined,
                     },
                 );
@@ -716,6 +724,9 @@ impl Lowerer<'_> {
             let NamedOrBlankNode::NamedNode(iri) = &subject else {
                 continue;
             };
+            if vocab::NATIVE_CONSTRAINT_COMPONENTS.contains(&iri.as_ref()) {
+                continue; // SHACL Core component; already implemented natively
+            }
             let node_validator = self
                 .g
                 .object(&subject, vocab::SH_NODE_VALIDATOR)

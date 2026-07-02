@@ -207,9 +207,13 @@ for v in result.violations:
     print(v.focus_node)       # IRI of the failing focus node
     print(v.shape_name)       # IRI of the violated shape, or None
     for r in v.reasons:
-        print(r.message)      # human-readable failure description
-        print(r.path)         # path that was checked, if applicable
-        print(r.value)        # the offending value node
+        print(r.message)          # engine-generated failure description (always set)
+        print(r.author_message)   # the shape's sh:message if it declared one, else None
+        print(r.path)             # path that was checked, if applicable
+        print(r.value)            # the offending value node
+
+        # Prefer the author's message when present, fall back to the generated one:
+        print(r.author_message or r.message)
 ```
 
 Set `infer=False` when validation should not first run embedded SHACL-AF rules

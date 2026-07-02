@@ -123,7 +123,13 @@ struct JsViolation {
 struct JsReason {
     value: String,
     path: Option<String>,
+    /// Engine-generated description of the failure — always present.
     message: String,
+    /// The source shape's `sh:message`, if the author supplied one (with
+    /// `{$this}`/`{?var}` resolved). Present only when set, so callers can
+    /// prefer it over `message` without changing existing output otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author_message: Option<String>,
     severity: String,
 }
 
@@ -359,6 +365,7 @@ fn violation_to_js(v: &Violation, schema: &Schema) -> JsViolation {
                 value: r.value.to_string(),
                 path: r.path.clone(),
                 message: r.message.clone(),
+                author_message: r.author_message.clone(),
                 severity: r.severity.label().to_string(),
             })
             .collect(),
