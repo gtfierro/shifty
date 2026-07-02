@@ -387,6 +387,9 @@ fn build_components(shapes: &Loaded, policy: UnsupportedPolicy) -> Vec<CustomCom
         let NamedOrBlankNode::NamedNode(iri) = &subject else {
             continue; // a component must be named to be a sourceConstraintComponent
         };
+        if vocab::NATIVE_CONSTRAINT_COMPONENTS.contains(&iri.as_ref()) {
+            continue; // SHACL Core component; already implemented natively
+        }
 
         let node_validator = shapes
             .object(&subject, vocab::SH_NODE_VALIDATOR)

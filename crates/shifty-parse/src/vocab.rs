@@ -351,6 +351,48 @@ iri!(
     "http://www.w3.org/ns/shacl#QualifiedMaxCountConstraintComponent"
 );
 
+/// SHACL Core constraint components that this engine already implements
+/// natively. Some shapes graphs (e.g. closures that embed the SHACL/DASH
+/// vocabularies themselves, not just user shapes) carry RDF triples
+/// describing these components' own `sh:parameter`/`sh:validator` — the same
+/// shape used to declare a genuine SHACL-AF custom component (§6.3). Without
+/// this exclusion list, the custom-component collector would treat SHACL's
+/// own vocabulary as user-defined components and re-run every native
+/// constraint a second time through the (much slower) generic SPARQL
+/// fallback validator.
+pub const NATIVE_CONSTRAINT_COMPONENTS: &[NamedNodeRef<'static>] = &[
+    SH_CC_SPARQL,
+    SH_CC_EXPRESSION,
+    SH_CC_CLASS,
+    SH_CC_DATATYPE,
+    SH_CC_NODE_KIND,
+    SH_CC_MIN_COUNT,
+    SH_CC_MAX_COUNT,
+    SH_CC_MIN_EXCLUSIVE,
+    SH_CC_MIN_INCLUSIVE,
+    SH_CC_MAX_EXCLUSIVE,
+    SH_CC_MAX_INCLUSIVE,
+    SH_CC_MIN_LENGTH,
+    SH_CC_MAX_LENGTH,
+    SH_CC_PATTERN,
+    SH_CC_AND,
+    SH_CC_OR,
+    SH_CC_NOT,
+    SH_CC_XONE,
+    SH_CC_NODE,
+    SH_CC_HAS_VALUE,
+    SH_CC_IN,
+    SH_CC_CLOSED,
+    SH_CC_EQUALS,
+    SH_CC_DISJOINT,
+    SH_CC_LESS_THAN,
+    SH_CC_LESS_THAN_OR_EQUALS,
+    SH_CC_LANGUAGE_IN,
+    SH_CC_UNIQUE_LANG,
+    SH_CC_QUALIFIED_MIN_COUNT,
+    SH_CC_QUALIFIED_MAX_COUNT,
+];
+
 /// `rdf:type` as an owned node (for path construction).
 pub fn rdf_type() -> NamedNode {
     NamedNode::new_unchecked(format!("{RDF}type"))

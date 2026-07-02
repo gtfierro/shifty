@@ -724,6 +724,9 @@ impl Lowerer<'_> {
             let NamedOrBlankNode::NamedNode(iri) = &subject else {
                 continue;
             };
+            if vocab::NATIVE_CONSTRAINT_COMPONENTS.contains(&iri.as_ref()) {
+                continue; // SHACL Core component; already implemented natively
+            }
             let node_validator = self
                 .g
                 .object(&subject, vocab::SH_NODE_VALIDATOR)
