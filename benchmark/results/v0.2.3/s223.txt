@@ -1,0 +1,22 @@
+model                               infer ms     +/-  infer+val ms     +/-   report ms     +/-
+--------------------------------  ----------  ------  ----------  ------  ----------  ------
+NIST-HPL.ttl                               0       0        1188       0           0       0
+NIST-IBAL.ttl                              0       0        1682       0           0       0
+design-patterns.ttl                        0       0        1125       0           0       0
+guideline36-2021-A-1.ttl                   0       0        1114       0           0       0
+guideline36-2021-A-2.ttl                   0       0        1143       0           0       0
+guideline36-2021-A-3.ttl                   0       0        1131       0           0       0
+guideline36-2021-A-4.ttl                   0       0        1127       0           0       0
+guideline36-2021-A-7.ttl                   0       0        1098       0           0       0
+guideline36-2021-A-8.ttl                   0       0        1144       0           0       0
+guideline36-2021-A-9.ttl                   0       0        1330       0           0       0
+lazlo_sdh_223p_anon.ttl                    0       0       26657       0           0       0
+lbnl-bdg3-1.ttl                            0       0        2917       0           0       0
+lbnl-bdg4-1.ttl                            0       0        2298       0           0       0
+lbnl-example-radiant.ttl                   0       0        1218       0           0       0
+nist-bdg1-1.ttl                            0       0        1356       0           0       0
+nrel-example.ttl                           0       0        2465       0           0       0
+pnnl-bdg1-2.ttl                            0       0        1209       0           0       0
+pnnl-bdg2-1.ttl                            0       0        4551       0           0       0
+pnnl-bdg3-2.ttl                            0       0        3218       0           0       0
+scb-vrf.ttl                                0       0        1891       0           0       0
