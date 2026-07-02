@@ -22,9 +22,9 @@ jobs:
       with:
         targets: wasm32-unknown-unknown
 
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v6
       with:
-        node-version: 20
+        node-version: 24
 
     # wasm-bindgen-cli must match the wasm-bindgen version in Cargo.lock, or it
     # refuses to process the module — read the pinned version straight from the
