@@ -108,9 +108,7 @@ mod tests {
             .collect();
 
         assert!(
-            messages
-                .iter()
-                .any(|m| *m == "must be an instance of <http://ex/QuantityKind>"),
+            messages.contains(&"must be an instance of <http://ex/QuantityKind>"),
             "expected an intuitive class message, got: {messages:?}"
         );
         // The old double-negated structural phrasing must not surface.
@@ -154,9 +152,7 @@ mod tests {
             .collect();
 
         assert!(
-            messages
-                .iter()
-                .any(|m| *m == "must satisfy `nodeKind(IRI)`"),
+            messages.contains(&"must satisfy `nodeKind(IRI)`"),
             "expected a nodeKind requirement message, got: {messages:?}"
         );
         assert!(
