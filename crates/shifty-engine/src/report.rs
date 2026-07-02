@@ -211,7 +211,7 @@ fn validate_report_context(
         r.prefetch_sparql(&shape, &foci);
         for focus in &foci {
             let mut visited = HashSet::new();
-            r.collect(&shape, focus, &mut results, &mut visited);
+            r.collect(&shape, focus, &mut results, &mut visited, &[]);
         }
     }
     if options.sort_results {
@@ -676,13 +676,31 @@ impl Reporter<'_> {
         entry
     }
 
+    /// `shape`'s own `sh:message`, falling back to `inherited` — the nearest
+    /// enclosing shape's `sh:message` — when `shape` declares none. Mirrors the
+    /// algebra path's "nearest-enclosing shape" resolution (see `explain` in
+    /// `lib.rs`) so a message authored on an outer node shape still surfaces on
+    /// violations from an unlabeled nested property shape.
+    fn messages_or_inherited(&self, shape: &NamedOrBlankNode, inherited: &[Term]) -> Vec<Term> {
+        let own = self.messages(shape);
+        if own.is_empty() {
+            inherited.to_vec()
+        } else {
+            own
+        }
+    }
+
     /// Collect the results of validating `focus` against `shape`.
+    ///
+    /// `inherited` is the nearest enclosing shape's `sh:message` (empty at the
+    /// top-level target shapes), used when `shape` itself has none.
     fn collect(
         &self,
         shape: &NamedOrBlankNode,
         focus: &Term,
         out: &mut Vec<ValidationResult>,
         visited: &mut Visited,
+        inherited: &[Term],
     ) {
         if self.deactivated(shape) {
             return; // deactivated shapes produce no results
@@ -698,7 +716,7 @@ impl Reporter<'_> {
             None => vec![focus.clone()],
         };
         let severity = self.severity(shape);
-        let messages = self.messages(shape);
+        let messages = self.messages_or_inherited(shape, inherited);
         let push = |out: &mut Vec<ValidationResult>, value, component| {
             out.push(ValidationResult {
                 focus: focus.clone(),
@@ -732,10 +750,18 @@ impl Reporter<'_> {
             }
         }
 
-        self.collect_closed(shape, focus, &value_nodes, out);
-        self.collect_property_pairs(shape, focus, &path_term, &value_nodes, out);
-        self.collect_unique_lang(shape, focus, &path_term, &value_nodes, out);
-        self.collect_qualified_counts(shape, focus, &path_term, &value_nodes, out, visited);
+        self.collect_closed(shape, focus, &value_nodes, out, &messages);
+        self.collect_property_pairs(shape, focus, &path_term, &value_nodes, out, &messages);
+        self.collect_unique_lang(shape, focus, &path_term, &value_nodes, out, &messages);
+        self.collect_qualified_counts(
+            shape,
+            focus,
+            &path_term,
+            &value_nodes,
+            out,
+            visited,
+            &messages,
+        );
 
         // value-scoped components
         for u in &value_nodes {
@@ -746,18 +772,27 @@ impl Reporter<'_> {
             }
         }
 
-        // nested property shapes: delegate (each value node is a focus for P)
+        // nested property shapes: delegate (each value node is a focus for P),
+        // passing this shape's resolved message down as the inherited fallback.
         for prop in self.shapes.objects(shape, vocab::SH_PROPERTY) {
             if let Some(pn) = term_to_node(&prop) {
                 for u in &value_nodes {
-                    self.collect(&pn, u, out, visited);
+                    self.collect(&pn, u, out, visited, &messages);
                 }
             }
         }
 
-        self.collect_sparql(shape, focus, &path_term, &parsed, out);
-        self.collect_expression(shape, focus, out, visited);
-        self.collect_components(shape, focus, &path_term, &parsed, &value_nodes, out);
+        self.collect_sparql(shape, focus, &path_term, &parsed, out, &messages);
+        self.collect_expression(shape, focus, out, visited, &messages);
+        self.collect_components(
+            shape,
+            focus,
+            &path_term,
+            &parsed,
+            &value_nodes,
+            out,
+            &messages,
+        );
 
         visited.remove(&key);
     }
@@ -768,6 +803,7 @@ impl Reporter<'_> {
     /// `$currentShape`) are pre-bound into the validator query. ASK validators
     /// run per value node (violation iff they return `false`); SELECT validators
     /// run once per focus (each solution row is a violation).
+    #[allow(clippy::too_many_arguments)]
     fn collect_components(
         &self,
         shape: &NamedOrBlankNode,
@@ -776,6 +812,7 @@ impl Reporter<'_> {
         parsed_path: &Option<Path>,
         value_nodes: &[Term],
         out: &mut Vec<ValidationResult>,
+        inherited: &[Term],
     ) {
         if self.components.is_empty() {
             return;
@@ -839,6 +876,7 @@ impl Reporter<'_> {
                                 Some(value.clone()),
                                 &bindings,
                                 &validator.messages,
+                                inherited,
                             );
                         }
                     }
@@ -867,6 +905,7 @@ impl Reporter<'_> {
                                     value,
                                     &binds,
                                     &validator.messages,
+                                    inherited,
                                 );
                             }
                         }
@@ -879,6 +918,7 @@ impl Reporter<'_> {
                             None,
                             &bindings,
                             &validator.messages,
+                            inherited,
                         ),
                     }
                 }
@@ -897,9 +937,10 @@ impl Reporter<'_> {
         value: Option<Term>,
         bindings: &[(String, Term)],
         validator_messages: &[Term],
+        inherited: &[Term],
     ) {
         let raw = if validator_messages.is_empty() {
-            self.messages(shape)
+            self.messages_or_inherited(shape, inherited)
         } else {
             validator_messages.to_vec()
         };
@@ -928,6 +969,7 @@ impl Reporter<'_> {
         focus: &Term,
         out: &mut Vec<ValidationResult>,
         visited: &mut Visited,
+        inherited: &[Term],
     ) {
         for expr_term in self.shapes.objects(shape, vocab::SH_EXPRESSION) {
             let Some(results) = self.eval_node_expr(&expr_term, focus, visited) else {
@@ -944,7 +986,7 @@ impl Reporter<'_> {
                     component: vocab::SH_CC_EXPRESSION.into_owned(),
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
-                    messages: self.messages(shape),
+                    messages: self.messages_or_inherited(shape, inherited),
                 });
             }
         }
@@ -1088,6 +1130,7 @@ impl Reporter<'_> {
         path_term: &Option<Term>,
         parsed_path: &Option<Path>,
         out: &mut Vec<ValidationResult>,
+        inherited: &[Term],
     ) {
         if !self.needs_sparql {
             return;
@@ -1104,11 +1147,12 @@ impl Reporter<'_> {
                 continue;
             };
             // Mirror lower.rs §179-184: constraint-node sh:message takes
-            // precedence; absent that, fall back to the owning shape's sh:message.
+            // precedence; absent that, fall back to the owning shape's
+            // sh:message, then to the nearest enclosing shape's.
             let raw_messages = {
                 let on_constraint = self.shapes.objects(&constraint_node, vocab::SH_MESSAGE);
                 if on_constraint.is_empty() {
-                    self.messages(shape)
+                    self.messages_or_inherited(shape, inherited)
                 } else {
                     on_constraint
                 }
@@ -1163,6 +1207,7 @@ impl Reporter<'_> {
         focus: &Term,
         value_nodes: &[Term],
         out: &mut Vec<ValidationResult>,
+        inherited: &[Term],
     ) {
         if !self.bool(shape, vocab::SH_CLOSED) {
             return;
@@ -1195,12 +1240,13 @@ impl Reporter<'_> {
                     component: vocab::SH_CC_CLOSED.into_owned(),
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
-                    messages: self.messages(shape),
+                    messages: self.messages_or_inherited(shape, inherited),
                 });
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn collect_property_pairs(
         &self,
         shape: &NamedOrBlankNode,
@@ -1208,6 +1254,7 @@ impl Reporter<'_> {
         path: &Option<Term>,
         value_nodes: &[Term],
         out: &mut Vec<ValidationResult>,
+        inherited: &[Term],
     ) {
         for predicate in self.shapes.objects(shape, vocab::SH_EQUALS) {
             let Term::NamedNode(predicate) = predicate else {
@@ -1222,6 +1269,7 @@ impl Reporter<'_> {
                     path.clone(),
                     Some((*value).clone()),
                     vocab::SH_CC_EQUALS,
+                    inherited,
                 );
             }
             for value in other.iter().filter(|value| !value_nodes.contains(*value)) {
@@ -1232,6 +1280,7 @@ impl Reporter<'_> {
                     path.clone(),
                     Some(value.clone()),
                     vocab::SH_CC_EQUALS,
+                    inherited,
                 );
             }
         }
@@ -1248,6 +1297,7 @@ impl Reporter<'_> {
                     path.clone(),
                     Some((*value).clone()),
                     vocab::SH_CC_DISJOINT,
+                    inherited,
                 );
             }
         }
@@ -1276,6 +1326,7 @@ impl Reporter<'_> {
                                 path.clone(),
                                 Some(left.clone()),
                                 component,
+                                inherited,
                             );
                         }
                     }
@@ -1284,6 +1335,7 @@ impl Reporter<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn collect_unique_lang(
         &self,
         shape: &NamedOrBlankNode,
@@ -1291,6 +1343,7 @@ impl Reporter<'_> {
         path: &Option<Term>,
         value_nodes: &[Term],
         out: &mut Vec<ValidationResult>,
+        inherited: &[Term],
     ) {
         if !self.bool(shape, vocab::SH_UNIQUE_LANG) {
             return;
@@ -1313,10 +1366,12 @@ impl Reporter<'_> {
                 path.clone(),
                 None,
                 vocab::SH_CC_UNIQUE_LANG,
+                inherited,
             );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn collect_qualified_counts(
         &self,
         shape: &NamedOrBlankNode,
@@ -1325,6 +1380,7 @@ impl Reporter<'_> {
         value_nodes: &[Term],
         out: &mut Vec<ValidationResult>,
         visited: &mut Visited,
+        inherited: &[Term],
     ) {
         for qualifier in self.shapes.objects(shape, vocab::SH_QUALIFIED_VALUE_SHAPE) {
             let Some(qualifier) = term_to_node(&qualifier) else {
@@ -1354,6 +1410,7 @@ impl Reporter<'_> {
                     path.clone(),
                     None,
                     vocab::SH_CC_QUALIFIED_MIN_COUNT,
+                    inherited,
                 );
             }
             if let Some(max) = self.int(shape, vocab::SH_QUALIFIED_MAX_COUNT)
@@ -1366,6 +1423,7 @@ impl Reporter<'_> {
                     path.clone(),
                     None,
                     vocab::SH_CC_QUALIFIED_MAX_COUNT,
+                    inherited,
                 );
             }
         }
@@ -1401,6 +1459,7 @@ impl Reporter<'_> {
         siblings.into_iter().collect()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn push(
         &self,
         out: &mut Vec<ValidationResult>,
@@ -1409,6 +1468,7 @@ impl Reporter<'_> {
         path: Option<Term>,
         value: Option<Term>,
         component: NamedNodeRef<'static>,
+        inherited: &[Term],
     ) {
         let mut bindings = HashMap::new();
         if let Some(v) = &value {
@@ -1417,7 +1477,7 @@ impl Reporter<'_> {
         if let Some(p) = &path {
             bindings.insert("path".to_string(), p.clone());
         }
-        let raw = self.messages(shape);
+        let raw = self.messages_or_inherited(shape, inherited);
         let messages = substitute_messages(&raw, focus, &bindings);
         out.push(ValidationResult {
             focus: focus.clone(),
@@ -1437,7 +1497,7 @@ impl Reporter<'_> {
 
     fn conforms(&self, shape: &NamedOrBlankNode, focus: &Term, visited: &mut Visited) -> bool {
         let mut scratch = Vec::new();
-        self.collect(shape, focus, &mut scratch, visited);
+        self.collect(shape, focus, &mut scratch, visited, &[]);
         scratch.is_empty()
     }
 
