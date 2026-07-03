@@ -10,10 +10,12 @@ pub mod diagnostics;
 pub mod graph;
 pub mod lower;
 pub mod path;
+pub mod sparql_path;
 pub mod vocab;
 
 pub use diagnostics::{DiagLevel, Diagnostic, ParseError};
 pub use graph::{Loaded, RdfFormat};
+pub use sparql_path::parse_property_path;
 
 use shifty_algebra::Schema;
 

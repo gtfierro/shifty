@@ -4,11 +4,11 @@
 //! strings. Rust-owned RDF and query types never cross the ABI boundary.
 #![allow(clippy::missing_safety_doc)]
 
-use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad};
+use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
 use shifty_engine::{
-    ValidationGraphMode, ValidationReport, infer_graphs, report_to_graph,
-    validate_report_graphs_with_mode,
+    ValidationGraphMode, ValidationReport, infer_graphs, property_witnesses_graphs_with_mode,
+    report_to_graph, validate_report_graphs_with_mode,
 };
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
@@ -91,6 +91,19 @@ pub struct ShiftyValidationResult {
     conforms: bool,
     report_turtle: String,
     results_text: String,
+}
+
+/// One `sh:property` binding at one conforming focus node, pre-stringified so
+/// the C ABI never has to hand a live RDF term across the boundary.
+struct PropertyWitnessItem {
+    focus: String,
+    shape: String,
+    key: String,
+    values: Vec<String>,
+}
+
+pub struct ShiftyPropertyWitnessList {
+    items: Vec<PropertyWitnessItem>,
 }
 
 #[derive(Debug)]
@@ -292,6 +305,70 @@ fn validate_dataset(
         report_turtle: graph_to_turtle(&report_graph)?,
         results_text: format_report_text(&report),
     })
+}
+
+/// Full-fidelity term rendering (`<iri>`, `_:label`, `"lit"^^<dt>`/`"lit"@lang`)
+/// — unambiguous and used for every witness field except `key`.
+fn term_string(term: &Term) -> String {
+    term.to_string()
+}
+
+/// A witness `key` renders as its bare lexical value when it is a literal
+/// (the common case: a `zea:roleName "outsideAirTemp"`-style annotation), so
+/// callers can use it directly as a join key without stripping quotes. Falls
+/// back to the full term rendering for the IRI/blank-node case (no key path
+/// matched, so the property shape's own source node is the key).
+fn key_string(term: &Term) -> String {
+    match term {
+        Term::Literal(literal) => literal.value().to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn witness_dataset(
+    validator: &ShiftyPreparedValidator,
+    dataset: &ShiftyDataset,
+    key_path: Option<&str>,
+    mode: u32,
+    run_inference: bool,
+) -> Result<ShiftyPropertyWitnessList, ApiError> {
+    let mode = match graph_mode(mode)? {
+        ShiftyGraphMode::Data => ValidationGraphMode::Data,
+        ShiftyGraphMode::Union => ValidationGraphMode::Union,
+        ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
+    };
+    let inferred = if run_inference && !validator.schema.rules.is_empty() {
+        Some(
+            infer_graphs(&dataset.graph, &validator.shapes.graph, &validator.schema)
+                .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?
+                .graph,
+        )
+    } else {
+        None
+    };
+    let data = inferred.as_ref().unwrap_or(&dataset.graph);
+    let key_path = key_path
+        .filter(|expr| !expr.is_empty())
+        .map(|expr| shifty_parse::parse_property_path(expr, &validator.shapes))
+        .transpose()
+        .map_err(|error| {
+            ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                format!("invalid key_path: {error}"),
+            )
+        })?;
+    let witnesses =
+        property_witnesses_graphs_with_mode(&validator.shapes, data, mode, key_path.as_ref());
+    let items = witnesses
+        .into_iter()
+        .map(|w| PropertyWitnessItem {
+            focus: term_string(&w.focus),
+            shape: term_string(&w.shape),
+            key: key_string(&w.key),
+            values: w.values.iter().map(term_string).collect(),
+        })
+        .collect();
+    Ok(ShiftyPropertyWitnessList { items })
 }
 
 fn graph_to_ntriples(graph: &Graph) -> Result<String, ApiError> {
@@ -781,6 +858,127 @@ pub unsafe extern "C" fn shifty_validation_result_results_text(
         },
         |result| string_view(&result.results_text),
     )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_prepared_validator_witnesses(
+    validator: *const ShiftyPreparedValidator,
+    dataset: *const ShiftyDataset,
+    key_path: *const c_char,
+    key_path_len: usize,
+    graph_mode: u32,
+    run_inference: u8,
+    out: *mut *mut ShiftyPropertyWitnessList,
+) -> u32 {
+    ffi_call(|| {
+        let validator = unsafe { validator.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "validator is null"))?;
+        let dataset = unsafe { dataset.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "dataset is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out result pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let key_path = unsafe { optional_str_from_raw(key_path, key_path_len, "key path") }?;
+        let result = witness_dataset(validator, dataset, key_path, graph_mode, run_inference != 0)?;
+        unsafe { out.write(Box::into_raw(Box::new(result))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_list_destroy(
+    list: *mut ShiftyPropertyWitnessList,
+) {
+    if !list.is_null() {
+        unsafe { drop(Box::from_raw(list)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_list_len(
+    list: *const ShiftyPropertyWitnessList,
+) -> usize {
+    unsafe { list.as_ref() }.map_or(0, |list| list.items.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_focus(
+    list: *const ShiftyPropertyWitnessList,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .map_or(
+            ShiftyStringView {
+                data: ptr::null(),
+                len: 0,
+            },
+            |item| string_view(&item.focus),
+        )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_shape(
+    list: *const ShiftyPropertyWitnessList,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .map_or(
+            ShiftyStringView {
+                data: ptr::null(),
+                len: 0,
+            },
+            |item| string_view(&item.shape),
+        )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_key(
+    list: *const ShiftyPropertyWitnessList,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .map_or(
+            ShiftyStringView {
+                data: ptr::null(),
+                len: 0,
+            },
+            |item| string_view(&item.key),
+        )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_value_count(
+    list: *const ShiftyPropertyWitnessList,
+    index: usize,
+) -> usize {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .map_or(0, |item| item.values.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_property_witness_value(
+    list: *const ShiftyPropertyWitnessList,
+    index: usize,
+    value_index: usize,
+) -> ShiftyStringView {
+    unsafe { list.as_ref() }
+        .and_then(|list| list.items.get(index))
+        .and_then(|item| item.values.get(value_index))
+        .map_or(
+            ShiftyStringView {
+                data: ptr::null(),
+                len: 0,
+            },
+            |value| string_view(value),
+        )
 }
 
 #[cfg(test)]

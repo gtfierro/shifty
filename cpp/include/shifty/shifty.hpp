@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace shifty {
 
@@ -43,6 +44,15 @@ struct ValidationOptions {
 
     /// Run SHACL-AF rules to a fixed point before validation.
     bool run_inference = true;
+
+    /// A SPARQL 1.1 property path expression (e.g. "zea:roleName",
+    /// "zea:role/zea:roleName", "^zea:describes/zea:roleName") evaluated from
+    /// each `sh:property` shape's own node, over the shapes graph, to produce
+    /// a stable key — used only by PreparedValidator::witnesses(). Prefixes
+    /// resolve against the shapes document's declared `@prefix`es. When empty
+    /// (the default), a property shape's own IRI/blank-node id is used as its
+    /// key instead.
+    std::string key_path;
 };
 
 /// Exception raised when an SDK operation fails.
@@ -136,6 +146,31 @@ private:
     bool conforms_;
     std::string report_turtle_;
     std::string results_text_;
+};
+
+/// The observed binding of one `sh:property` shape at one *conforming* focus
+/// node — the inverse of a violation: not what failed, but what a passing
+/// property shape's `sh:path` actually resolved to.
+struct PropertyWitness {
+    /// The focus node (e.g. an equipment IRI) that conformed.
+    std::string focus_node;
+
+    /// The node shape (application profile) `focus_node` conformed to.
+    std::string shape_id;
+
+    /// A stable id for the `sh:property` shape: the lexical value reached by
+    /// evaluating `ValidationOptions::key_path` from the property shape's own
+    /// node when it resolves to a value, otherwise the property shape's own
+    /// IRI/blank-node id.
+    std::string key;
+
+    /// The `sh:path` value nodes, deduped. Each entry is rendered in full
+    /// (`<iri>`, `_:label`, `"lit"`, `"lit"@lang`, or `"lit"^^<datatype>`) so
+    /// IRI and literal bindings (and a literal's datatype/language) stay
+    /// distinguishable. When the property shape declares a
+    /// `sh:qualifiedValueShape`, these are narrowed to the values satisfying
+    /// the qualifier rather than every raw path value.
+    std::vector<std::string> value_nodes;
 };
 
 namespace detail {
@@ -235,6 +270,12 @@ struct QueryResultDeleter {
 struct ValidationResultDeleter {
     void operator()(ShiftyValidationResult *value) const noexcept {
         shifty_validation_result_destroy(value);
+    }
+};
+
+struct PropertyWitnessListDeleter {
+    void operator()(ShiftyPropertyWitnessList *value) const noexcept {
+        shifty_property_witness_list_destroy(value);
     }
 };
 
@@ -423,6 +464,51 @@ public:
             shifty_validation_result_conforms(result.get()) != 0,
             detail::copy(shifty_validation_result_report_turtle(result.get())),
             detail::copy(shifty_validation_result_results_text(result.get())));
+    }
+
+    /// Returns the observed `sh:property` bindings for every focus node that
+    /// conforms to a target/profile node shape — the inverse of validate():
+    /// successful bindings rather than violations. `options.key_path` (when
+    /// set) is a SPARQL 1.1 property path expression evaluated from each
+    /// `sh:property` shape's own node to produce a stable key; see
+    /// [`PropertyWitness::key`].
+    ///
+    /// \throws Error for a malformed `key_path`, non-stratifiable shapes, or
+    /// validation failures.
+    [[nodiscard]] std::vector<PropertyWitness> witnesses(
+        const Dataset &dataset,
+        ValidationOptions options = {}) const {
+        ShiftyPropertyWitnessList *raw = nullptr;
+        detail::check(shifty_prepared_validator_witnesses(
+            handle_.get(),
+            dataset.handle_.get(),
+            detail::optional_data(options.key_path),
+            options.key_path.size(),
+            detail::to_c(options.graph_mode),
+            static_cast<std::uint8_t>(options.run_inference),
+            &raw));
+        std::unique_ptr<ShiftyPropertyWitnessList, detail::PropertyWitnessListDeleter>
+            list(raw);
+
+        const std::size_t count = shifty_property_witness_list_len(list.get());
+        std::vector<PropertyWitness> out;
+        out.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            PropertyWitness witness;
+            witness.focus_node = detail::copy(shifty_property_witness_focus(list.get(), i));
+            witness.shape_id = detail::copy(shifty_property_witness_shape(list.get(), i));
+            witness.key = detail::copy(shifty_property_witness_key(list.get(), i));
+
+            const std::size_t value_count =
+                shifty_property_witness_value_count(list.get(), i);
+            witness.value_nodes.reserve(value_count);
+            for (std::size_t v = 0; v < value_count; ++v) {
+                witness.value_nodes.push_back(
+                    detail::copy(shifty_property_witness_value(list.get(), i, v)));
+            }
+            out.push_back(std::move(witness));
+        }
+        return out;
     }
 
 private:

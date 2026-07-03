@@ -47,6 +47,42 @@ Boolean accessor and SPARQL Results JSON.
 The initial API stores one RDF default graph and executes read-only SPARQL
 queries over it. Named graphs, N-Quads, and SPARQL Update are not yet exposed.
 
+### Property witnesses
+
+`validate()` reports violations. `PreparedValidator::witnesses()` is its
+inverse: for every focus node that *conforms* to a target/profile node shape,
+it returns the values each `sh:property` shape's `sh:path` resolved to. When a
+property shape uses `sh:qualifiedValueShape` (e.g. to disambiguate several
+same-typed sensors), the witness is narrowed to the value(s) satisfying the
+qualifier rather than every raw path value.
+
+```cpp
+shifty::ValidationOptions options;
+options.key_path = "zea:roleName";
+
+for (const auto &w : validator.witnesses(dataset, options)) {
+    std::cout << w.focus_node << " " << w.key << " =";
+    for (const auto &value : w.value_nodes) {
+        std::cout << " " << value;
+    }
+    std::cout << "\n";
+}
+```
+
+`key_path` is a SPARQL 1.1 property path expression (sequence `/`, alternation
+`|`, inverse `^`, and the Kleene forms `*`/`+`/`?` are all supported)
+evaluated from each `sh:property` shape's own node, over the shapes graph, to
+produce a stable key. `zea:roleName` above is the direct-annotation case; if
+the key instead lives one hop further away — say, through an intermediate
+role-descriptor node — the same mechanism reaches it with e.g.
+`"zea:role/zea:roleName"` or, if the descriptor points *at* the property shape
+rather than the other way around, `"^zea:describes/zea:roleName"`. Prefixes
+resolve against the shapes document's declared `@prefix`es. Property shapes
+where the path resolves to no value fall back to their own IRI/blank-node id
+as the key. `value_nodes` entries are rendered in full (`<iri>`, `_:label`,
+`"lit"`, `"lit"@lang`, `"lit"^^<datatype>`) so IRI and literal bindings stay
+distinguishable.
+
 ## Install
 
 ```sh

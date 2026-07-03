@@ -53,6 +53,30 @@ pub struct ValidationReport {
     pub results: Vec<ValidationResult>,
 }
 
+/// The observed binding of one `sh:property` shape at one *conforming* focus
+/// node — the inverse of a violation: not what failed, but what a passing
+/// property shape's `sh:path` actually resolved to.
+///
+/// `key` identifies the property shape stably: the (deterministically first,
+/// when several) value reached by evaluating `key_path` from the property
+/// shape's own node over the shapes graph (e.g. a path to a
+/// `zea:roleName "outsideAirTemp"`-style annotation) when `key_path` is given
+/// and resolves to at least one value, otherwise the property shape's own
+/// source node (so callers can still join on it by IRI/blank-node id).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyWitness {
+    pub focus: Term,
+    /// The node shape (application profile) `focus` conforms to.
+    pub shape: Term,
+    pub key: Term,
+    /// The `sh:path` value nodes, deduped. When the property shape carries a
+    /// `sh:qualifiedValueShape`, this is filtered to the values that satisfy
+    /// the qualifier (and, under `sh:qualifiedValueShapesDisjoint`, not any
+    /// sibling qualifier) — the disambiguated binding rather than every raw
+    /// path value.
+    pub values: Vec<Term>,
+}
+
 /// Validate `data` against the shapes in `shapes`, producing a W3C report.
 pub fn validate_report(shapes: &Loaded, data: &Graph) -> ValidationReport {
     validate_report_with_options(shapes, data, &ValidationOptions::default())
@@ -150,13 +174,99 @@ pub fn validate_report_graphs_with_mode_and_options(
     }
 }
 
-fn validate_report_context(
+/// Collect [`PropertyWitness`]es for every `sh:property` shape (reached
+/// through `sh:property`, `sh:and`, and `sh:node` from a target/profile node
+/// shape) at every focus node that *conforms* to that node shape — the
+/// inverse of [`validate_report_graphs_with_mode`]. `key_path`, when given, is
+/// evaluated from each property shape's own node *over the shapes graph* to
+/// produce a stable `PropertyWitness::key`; property shapes where it resolves
+/// to no value fall back to their own source node as the key.
+pub fn property_witnesses_graphs_with_mode(
     shapes: &Loaded,
-    focus_data: &Graph,
+    data: &Graph,
+    mode: ValidationGraphMode,
+    key_path: Option<&Path>,
+) -> Vec<PropertyWitness> {
+    property_witnesses_graphs_with_mode_and_options(
+        shapes,
+        data,
+        mode,
+        key_path,
+        &ValidationOptions::default(),
+    )
+}
+
+/// [`property_witnesses_graphs_with_mode`] with an explicit severity policy,
+/// so conformance agrees exactly with [`validate_report_graphs_with_mode_and_options`]
+/// under the same options.
+pub fn property_witnesses_graphs_with_mode_and_options(
+    shapes: &Loaded,
+    data: &Graph,
+    mode: ValidationGraphMode,
+    key_path: Option<&Path>,
+    options: &ValidationOptions,
+) -> Vec<PropertyWitness> {
+    let has_shapes_graph = shapes_reference_shapes_graph(shapes);
+    let (focus_data, frozen, union_owner);
+    match mode {
+        ValidationGraphMode::Data => {
+            frozen = if has_shapes_graph {
+                FrozenIndexedDataset::from_graphs(data, &shapes.graph)
+            } else {
+                FrozenIndexedDataset::from_graph(data)
+            };
+            focus_data = data;
+        }
+        ValidationGraphMode::Union => {
+            frozen = if has_shapes_graph {
+                FrozenIndexedDataset::from_graph_union_with_shapes(data, &shapes.graph)
+            } else {
+                FrozenIndexedDataset::from_graph_union(data, &shapes.graph)
+            };
+            focus_data = data;
+        }
+        ValidationGraphMode::UnionAll => {
+            union_owner = graph_union(data, &shapes.graph);
+            frozen = if has_shapes_graph {
+                FrozenIndexedDataset::from_graphs(&union_owner, &shapes.graph)
+            } else {
+                FrozenIndexedDataset::from_graph(&union_owner)
+            };
+            focus_data = &union_owner;
+        }
+    }
+    let r = build_reporter(shapes, focus_data, frozen, has_shapes_graph, options);
+    let mut out = Vec::new();
+    for shape in r.target_shapes() {
+        let foci = r.focus_nodes(&shape);
+        r.prefetch_sparql(&shape, &foci);
+        for focus in &foci {
+            let mut check = HashSet::new();
+            let mut results = Vec::new();
+            r.collect(&shape, focus, &mut results, &mut check, &[]);
+            let conforms = !results.iter().any(|result| {
+                Severity::from_named_node(result.severity.clone()).meets(&options.minimum_severity)
+            });
+            if !conforms {
+                continue;
+            }
+            let mut visited = HashSet::new();
+            r.collect_property_witnesses(&shape, focus, &shape, key_path, &mut visited, &mut out);
+        }
+    }
+    out
+}
+
+/// Build the shared [`Reporter`] setup (SPARQL executor, class index, custom
+/// components) used by both violation reporting and property witnessing, so
+/// the two traversals stay in lockstep on what counts as "the shape holds".
+fn build_reporter<'a>(
+    shapes: &'a Loaded,
+    focus_data: &'a Graph,
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
     options: &ValidationOptions,
-) -> ValidationReport {
+) -> Reporter<'a> {
     // Only execute SPARQL target/constraint work when the shapes graph contains
     // those features. Query execution shares the frozen validation dataset.
     let needs_sparql = shapes
@@ -196,7 +306,7 @@ fn validate_report_context(
     } else {
         HashMap::new()
     };
-    let r = Reporter {
+    Reporter {
         shapes,
         focus_data,
         sparql,
@@ -204,7 +314,17 @@ fn validate_report_context(
         class_index,
         path_cache: RefCell::new(HashMap::new()),
         components: build_components(shapes, options.engine.unsupported),
-    };
+    }
+}
+
+fn validate_report_context(
+    shapes: &Loaded,
+    focus_data: &Graph,
+    frozen: FrozenIndexedDataset,
+    has_shapes_graph: bool,
+    options: &ValidationOptions,
+) -> ValidationReport {
+    let r = build_reporter(shapes, focus_data, frozen, has_shapes_graph, options);
     let mut results = Vec::new();
     for shape in r.target_shapes() {
         let foci = r.focus_nodes(&shape);
@@ -798,6 +918,118 @@ impl Reporter<'_> {
         );
 
         visited.remove(&key);
+    }
+
+    /// Walk from a (conforming) target shape down through `sh:property`,
+    /// `sh:and`, and `sh:node` — the shape forms that keep `focus` as the
+    /// same node — collecting one [`PropertyWitness`] per `sh:property` shape
+    /// reached. `sh:or`/`sh:xone`/`sh:not` are not descended: which branch
+    /// applies is not a fixed set of roles, so there is no single binding to
+    /// report.
+    fn collect_property_witnesses(
+        &self,
+        shape: &NamedOrBlankNode,
+        focus: &Term,
+        profile: &NamedOrBlankNode,
+        key_path: Option<&Path>,
+        visited: &mut Visited,
+        out: &mut Vec<PropertyWitness>,
+    ) {
+        if self.deactivated(shape) {
+            return;
+        }
+        let key = (shape.clone(), focus.clone());
+        if !visited.insert(key.clone()) {
+            return;
+        }
+
+        for prop in self.shapes.objects(shape, vocab::SH_PROPERTY) {
+            if let Some(pn) = term_to_node(&prop) {
+                self.collect_property_binding(&pn, focus, profile, key_path, visited, out);
+            }
+        }
+        for list in self.shapes.objects(shape, vocab::SH_AND) {
+            for member in self.shapes.read_list(&list) {
+                if let Some(mn) = term_to_node(&member) {
+                    self.collect_property_witnesses(&mn, focus, profile, key_path, visited, out);
+                }
+            }
+        }
+        for n in self.shapes.objects(shape, vocab::SH_NODE) {
+            if let Some(nn) = term_to_node(&n) {
+                self.collect_property_witnesses(&nn, focus, profile, key_path, visited, out);
+            }
+        }
+
+        visited.remove(&key);
+    }
+
+    /// The single [`PropertyWitness`] for one `sh:property` shape at `focus`:
+    /// its `sh:path` value nodes, narrowed to the `sh:qualifiedValueShape`
+    /// matches when the property shape declares one (mirroring the *counted*
+    /// set in [`Reporter::collect_qualified_counts`], but keeping the values
+    /// themselves rather than just their count). Property shapes without a
+    /// `sh:path` are not addressable and are skipped.
+    fn collect_property_binding(
+        &self,
+        pn: &NamedOrBlankNode,
+        focus: &Term,
+        profile: &NamedOrBlankNode,
+        key_path: Option<&Path>,
+        visited: &mut Visited,
+        out: &mut Vec<PropertyWitness>,
+    ) {
+        if self.deactivated(pn) {
+            return;
+        }
+        let (_, parsed_path) = self.shape_path(pn);
+        let Some(path) = parsed_path else { return };
+
+        // `key_path` is evaluated over the *shapes* graph, from the property
+        // shape's own node — a different graph and starting point than the
+        // `sh:path` evaluation below (which reads the data, from `focus`).
+        // When it resolves to several values, the first in string order is
+        // used, for a deterministic result independent of set iteration order.
+        let key = key_path
+            .and_then(|kp| {
+                let mut matches: Vec<Term> = succ(&self.shapes.graph, &node_term_ref(pn), kp)
+                    .into_iter()
+                    .collect();
+                matches.sort_by_key(ToString::to_string);
+                matches.into_iter().next()
+            })
+            .unwrap_or_else(|| node_term_ref(pn));
+
+        let value_nodes: Vec<Term> = succ(self.frozen(), focus, &path).into_iter().collect();
+        let values = match self.shapes.object(pn, vocab::SH_QUALIFIED_VALUE_SHAPE) {
+            Some(qualifier_term) => {
+                let Some(qualifier) = term_to_node(&qualifier_term) else {
+                    return;
+                };
+                let siblings = if self.bool(pn, vocab::SH_QUALIFIED_VALUE_SHAPES_DISJOINT) {
+                    self.sibling_qualified_shapes(pn, &qualifier)
+                } else {
+                    Vec::new()
+                };
+                value_nodes
+                    .into_iter()
+                    .filter(|v| {
+                        self.conforms(&qualifier, v, visited)
+                            && siblings
+                                .iter()
+                                .all(|sibling| !self.conforms(sibling, v, visited))
+                    })
+                    .collect()
+            }
+            None => value_nodes,
+        };
+
+        out.push(PropertyWitness {
+            focus: focus.clone(),
+            shape: node_term_ref(profile),
+            key,
+            values,
+        });
     }
 
     /// SPARQL-based custom constraint components (SHACL §6.3). A component is

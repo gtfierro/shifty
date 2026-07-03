@@ -4,7 +4,8 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
 use shifty_engine::{
     EngineOptions, UnsupportedPolicy, ValidationGraphMode, ValidationOptions, ValidationReport,
-    report_to_graph, validate_plan_graphs_with_mode_and_options, validate_plan_with_options,
+    property_witnesses_graphs_with_mode_and_options, report_to_graph,
+    validate_plan_graphs_with_mode_and_options, validate_plan_with_options,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
 use std::path::PathBuf;
@@ -163,6 +164,50 @@ impl W3cResult {
         } else {
             "W3cResult(conforms=False)".to_string()
         }
+    }
+}
+
+// ── Property witness types ───────────────────────────────────────────────────
+
+/// The observed binding of one `sh:property` shape at one *conforming* focus
+/// node — the inverse of a violation: not what failed, but what a passing
+/// property shape's `sh:path` actually resolved to.
+#[pyclass(get_all)]
+pub struct PropertyWitness {
+    /// The focus node (e.g. an equipment IRI) that conformed.
+    pub focus: String,
+    /// The node shape (application profile) `focus` conformed to.
+    pub shape: String,
+    /// A stable id for the `sh:property` shape: the lexical value reached by
+    /// evaluating `key_path` from the property shape's own node (over the
+    /// shapes graph) when it resolves to a value, otherwise the property
+    /// shape's own IRI/blank-node id.
+    pub key: String,
+    /// The `sh:path` value nodes, deduped and rendered in full (`<iri>`,
+    /// `_:label`, `"lit"`, `"lit"@lang`, `"lit"^^<datatype>`) so IRI and
+    /// literal bindings stay distinguishable. Narrowed to the
+    /// `sh:qualifiedValueShape` matches when the property shape declares one.
+    pub values: Vec<String>,
+}
+
+#[pymethods]
+impl PropertyWitness {
+    fn __repr__(&self) -> String {
+        format!(
+            "PropertyWitness(focus={:?}, key={:?}, values={})",
+            self.focus,
+            self.key,
+            self.values.len()
+        )
+    }
+}
+
+fn property_witness_to_py(w: shifty_engine::PropertyWitness) -> PropertyWitness {
+    PropertyWitness {
+        focus: w.focus.to_string(),
+        shape: w.shape.to_string(),
+        key: term_text(&w.key),
+        values: w.values.iter().map(ToString::to_string).collect(),
     }
 }
 
@@ -1057,6 +1102,70 @@ impl PreparedValidator {
         .map_err(py_value_error)
     }
 
+    /// Return the observed `sh:property` bindings for every focus node that
+    /// conforms to a target/profile node shape — the inverse of
+    /// `validate`/`validate_algebra`: successful bindings rather than
+    /// violations. `key_path`, when given, is a SPARQL 1.1 property path
+    /// expression (e.g. `"zea:roleName"`, `"zea:role/zea:roleName"`,
+    /// `"^zea:describes/zea:roleName"`) evaluated from each `sh:property`
+    /// shape's own node, over the shapes graph, to produce a stable key;
+    /// property shapes where it resolves to no value fall back to their own
+    /// IRI/blank-node id as the key. Prefixes resolve against the shapes
+    /// document's declared `@prefix`es.
+    #[pyo3(signature = (
+        data=None,
+        data_path=None,
+        data_format="auto",
+        key_path=None,
+        graph_mode="union",
+        run_infer=true,
+        on_unsupported="ignore"
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn witnesses(
+        &self,
+        py: Python<'_>,
+        data: Option<PyBackedBytes>,
+        data_path: Option<String>,
+        data_format: &str,
+        key_path: Option<String>,
+        graph_mode: &str,
+        run_infer: bool,
+        on_unsupported: &str,
+    ) -> PyResult<Vec<PropertyWitness>> {
+        let data = InputSpec::new(data, data_path, data_format, "data").map_err(py_value_error)?;
+        let mode = parse_mode(graph_mode).map_err(py_value_error)?;
+        let options = ValidationOptions {
+            engine: engine_options(on_unsupported).map_err(py_value_error)?,
+            ..ValidationOptions::default()
+        };
+        let key_path = key_path
+            .map(|expr| shifty_parse::parse_property_path(&expr, &self.shapes))
+            .transpose()
+            .map_err(|e| format!("invalid key_path: {e}"))
+            .map_err(py_value_error)?;
+        let witnesses = py
+            .allow_threads(|| {
+                let data_loaded = data.load(self.base.as_deref())?;
+                let inferred = maybe_infer(
+                    &data_loaded.graph,
+                    &self.shapes.graph,
+                    &self.schema,
+                    run_infer,
+                )?;
+                let eval_data = inferred.as_ref().unwrap_or(&data_loaded.graph);
+                Ok::<_, String>(property_witnesses_graphs_with_mode_and_options(
+                    &self.shapes,
+                    eval_data,
+                    mode,
+                    key_path.as_ref(),
+                    &options,
+                ))
+            })
+            .map_err(py_value_error)?;
+        Ok(witnesses.into_iter().map(property_witness_to_py).collect())
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "PreparedValidator(statements={}, rules={})",
@@ -1076,6 +1185,7 @@ fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AlgebraResult>()?;
     m.add_class::<W3cResult>()?;
     m.add_class::<InferResult>()?;
+    m.add_class::<PropertyWitness>()?;
     m.add_class::<PreparedValidator>()?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(_validate_algebra, m)?)?;

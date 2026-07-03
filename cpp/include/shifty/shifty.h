@@ -51,6 +51,7 @@ typedef struct ShiftyDataset ShiftyDataset;
 typedef struct ShiftyPreparedValidator ShiftyPreparedValidator;
 typedef struct ShiftyQueryResult ShiftyQueryResult;
 typedef struct ShiftyValidationResult ShiftyValidationResult;
+typedef struct ShiftyPropertyWitnessList ShiftyPropertyWitnessList;
 
 /*
  * Pointer contract:
@@ -128,6 +129,39 @@ ShiftyStringView shifty_validation_result_report_turtle(
     const ShiftyValidationResult *result);
 ShiftyStringView shifty_validation_result_results_text(
     const ShiftyValidationResult *result);
+
+/*
+ * Property witnesses: the observed sh:property bindings at conforming focus
+ * nodes (the inverse of a violation report). `key_path` (may be NULL/empty)
+ * is a SPARQL 1.1 property path expression (e.g. "zea:roleName",
+ * "zea:role/zea:roleName", "^zea:describes/zea:roleName") evaluated from each
+ * sh:property shape's own node *over the shapes graph* to produce a stable
+ * key (e.g. reaching a "zea:roleName \"outsideAirTemp\"" style annotation);
+ * property shapes where it resolves to no value report their own shape node
+ * as the key instead. Prefixes are resolved against the shapes document's
+ * declared @prefixes.
+ */
+ShiftyStatus shifty_prepared_validator_witnesses(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    const char *key_path,
+    size_t key_path_len,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftyPropertyWitnessList **out);
+
+void shifty_property_witness_list_destroy(ShiftyPropertyWitnessList *list);
+size_t shifty_property_witness_list_len(const ShiftyPropertyWitnessList *list);
+ShiftyStringView shifty_property_witness_focus(
+    const ShiftyPropertyWitnessList *list, size_t index);
+ShiftyStringView shifty_property_witness_shape(
+    const ShiftyPropertyWitnessList *list, size_t index);
+ShiftyStringView shifty_property_witness_key(
+    const ShiftyPropertyWitnessList *list, size_t index);
+size_t shifty_property_witness_value_count(
+    const ShiftyPropertyWitnessList *list, size_t index);
+ShiftyStringView shifty_property_witness_value(
+    const ShiftyPropertyWitnessList *list, size_t index, size_t value_index);
 
 #ifdef __cplusplus
 }

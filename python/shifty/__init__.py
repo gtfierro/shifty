@@ -18,6 +18,12 @@ Two validation interfaces:
     Returns an :class:`InferResult`; call ``.graph()`` to get the
     result as an :class:`rdflib.Graph`.
 
+``PreparedValidator(shacl_graph).witnesses(data_graph, ...)``
+    The inverse of validation: for every focus node that *conforms* to a
+    target/profile node shape, returns the values each ``sh:property``
+    shape's ``sh:path`` resolved to. Returns a list of
+    :class:`PropertyWitness`.
+
 Graph inputs
 ~~~~~~~~~~~~
 All three functions accept any of:
@@ -59,6 +65,7 @@ from ._shifty import (
     InferResult as _RustInferResult,
     Instantiated,
     PreparedValidator as _RustPreparedValidator,
+    PropertyWitness,
     Reason,
     RepairDelta,
     RepairOutcome,
@@ -92,6 +99,7 @@ __all__ = [
     "Reason",
     "InferResult",
     "PreparedValidator",
+    "PropertyWitness",
     # ── symbolic repair ──
     "RepairSession",
     "RepairPlan",
@@ -259,6 +267,61 @@ class PreparedValidator:
             infer,
             minimum_severity,
             sort_results,
+            on_unsupported,
+        )
+
+    def witnesses(
+        self,
+        data_graph: GraphInput,
+        *,
+        key_path: Optional[str] = None,
+        graph_mode: str = "union",
+        infer: bool = True,
+        on_unsupported: str = "ignore",
+    ) -> list[PropertyWitness]:
+        """Return the observed ``sh:property`` bindings for every focus node
+        that *conforms* to a target/profile node shape — the inverse of
+        :meth:`validate`/:meth:`validate_algebra`: successful bindings rather
+        than violations.
+
+        Parameters
+        ----------
+        data_graph:
+            The RDF data to check.
+        key_path:
+            A SPARQL 1.1 property path expression (sequence ``/``,
+            alternation ``|``, inverse ``^``, and the Kleene forms
+            ``*``/``+``/``?`` are all supported), evaluated from each
+            ``sh:property`` shape's own node, over the shapes graph, to
+            produce a stable key. ``"zea:roleName"`` reaches a direct
+            ``zea:roleName "outsideAirTemp"``-style annotation;
+            ``"zea:role/zea:roleName"`` reaches one through an intermediate
+            role-descriptor node; ``"^zea:describes/zea:roleName"`` reaches
+            one where the descriptor points *at* the property shape instead.
+            Prefixes resolve against the shapes document's declared
+            ``@prefix``es. Property shapes where the path resolves to no
+            value fall back to their own IRI/blank-node id as
+            :attr:`PropertyWitness.key`.
+        graph_mode, infer, on_unsupported:
+            Same as :meth:`validate_algebra`.
+
+        Returns
+        -------
+        list[PropertyWitness]
+            One entry per ``sh:property`` shape reached from a target shape,
+            per conforming focus node. Each has ``.focus``, ``.shape``,
+            ``.key``, and ``.values`` (the deduped, rendered ``sh:path``
+            bindings — narrowed to the ``sh:qualifiedValueShape`` matches
+            when the property shape declares one).
+        """
+        data = _to_rdf_input(data_graph)
+        return self._inner.witnesses(
+            data.data,
+            data.path,
+            data.format,
+            key_path,
+            graph_mode,
+            infer,
             on_unsupported,
         )
 

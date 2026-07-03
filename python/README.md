@@ -284,6 +284,70 @@ conforms, report, text = shifty.validate(
 )
 ```
 
+## Property witnesses (conformance bindings)
+
+`validate`/`validate_algebra` report violations. `PreparedValidator.witnesses()`
+is their inverse: for every focus node that *conforms* to a target/profile node
+shape, it returns the values each `sh:property` shape's `sh:path` resolved to.
+Useful when a SHACL profile doubles as an extraction schema — e.g. disambiguating
+several same-typed sensors on a piece of equipment via `sh:qualifiedValueShape`.
+
+(This is a different concept from the `RepairSession` "witnesses" below, which
+records why a focus node *fails* a statement for repair synthesis. This one only
+reports observed, passing bindings — no repair suggestions.)
+
+```python
+shapes = """
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix zea: <http://example.org/zea#> .
+@prefix ex:  <http://example.org/> .
+
+ex:VavProfile a sh:NodeShape ;
+    sh:targetClass ex:Vav ;
+    sh:property [
+        zea:role ex:OutsideAirTempRole ;
+        sh:path ex:hasPoint ;
+        sh:qualifiedValueShape [ sh:hasValue ex:oat ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedMaxCount 1 ;
+    ] ;
+    sh:property [
+        zea:role ex:ReturnAirTempRole ;
+        sh:path ex:hasPoint ;
+        sh:qualifiedValueShape [ sh:hasValue ex:rat ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedMaxCount 1 ;
+    ] .
+ex:OutsideAirTempRole zea:roleName "outsideAirTemp" .
+ex:ReturnAirTempRole zea:roleName "returnAirTemp" .
+"""
+data = """
+@prefix ex: <http://example.org/> .
+ex:vav1 a ex:Vav ; ex:hasPoint ex:oat, ex:rat, ex:sat, ex:mat .
+"""
+
+validator = shifty.PreparedValidator(shapes)
+for w in validator.witnesses(data, key_path="zea:role/zea:roleName"):
+    print(w.focus, w.key, w.values)
+# <http://example.org/vav1> outsideAirTemp ['<http://example.org/oat>']
+# <http://example.org/vav1> returnAirTemp  ['<http://example.org/rat>']
+```
+
+`key_path` is a SPARQL 1.1 property path expression (sequence `/`, alternation
+`|`, inverse `^`, and the Kleene forms `*`/`+`/`?` are all supported), evaluated
+from each `sh:property` shape's own node, over the shapes graph, to produce a
+stable key. The key here isn't a direct annotation on the property shape — it
+lives one hop further away, through an intermediate role-descriptor node — which
+is exactly what a bare predicate lookup couldn't reach but a path can. A direct
+annotation (`zea:roleName "outsideAirTemp"` right on the `sh:property` shape)
+would just be `key_path="zea:roleName"`; a descriptor that points *at* the
+property shape instead of the other way around would use an inverse hop,
+`key_path="^zea:describes/zea:roleName"`. Prefixes resolve against the shapes
+document's declared `@prefix`es. Property shapes where the path resolves to no
+value fall back to their own IRI/blank-node id as `.key`. `.values` entries are
+rendered in full (`<iri>`, `"lit"`, `"lit"@lang`, `"lit"^^<datatype>`) so IRI and
+literal bindings stay distinguishable.
+
 ## Witnesses (symbolic repair)
 
 `RepairSession` exposes the *witnessing* layer: for each statement it reports why

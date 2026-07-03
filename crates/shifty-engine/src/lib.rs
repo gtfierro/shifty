@@ -30,8 +30,9 @@ pub use infer::{
     infer_with_options,
 };
 pub use report::{
-    ValidationReport, ValidationResult, evaluate_function_expression, report_to_graph,
-    validate_report, validate_report_graphs, validate_report_graphs_with_mode,
+    PropertyWitness, ValidationReport, ValidationResult, evaluate_function_expression,
+    property_witnesses_graphs_with_mode, property_witnesses_graphs_with_mode_and_options,
+    report_to_graph, validate_report, validate_report_graphs, validate_report_graphs_with_mode,
     validate_report_graphs_with_mode_and_options, validate_report_with_options,
 };
 pub use synthesize::{synthesize, synthesize_focus};
