@@ -67,6 +67,19 @@ int main() {
     assert(validation.report_turtle().find("ValidationReport") != std::string::npos);
     assert(validation.results_text().find("bob") != std::string::npos);
 
+    // Algebra-path validation: same non-conformance, but as a structured
+    // violation/reason tree instead of a W3C sh:ValidationReport graph.
+    const auto algebra = validator.validate_algebra(dataset);
+    assert(!algebra.conforms());
+    assert(algebra.violations().size() == 1);
+    const auto &algebra_violation = algebra.violations().front();
+    assert(algebra_violation.focus_node == "<http://example.com/bob>");
+    assert(algebra_violation.shape_name == "http://example.com/PersonShape");
+    assert(algebra_violation.severity == "Violation");
+    assert(algebra_violation.reasons.size() == 1);
+    assert(algebra_violation.reasons.front().severity == "Violation");
+    assert(algebra.results_text().find("bob") != std::string::npos);
+
     // Property witnesses: the observed sh:property bindings for conforming
     // focus nodes, disambiguated via sh:qualifiedValueShape (the "four
     // same-quantity-kind temperature sensors" scenario). The key isn't a

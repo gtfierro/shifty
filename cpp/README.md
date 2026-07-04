@@ -47,6 +47,35 @@ Boolean accessor and SPARQL Results JSON.
 The initial API stores one RDF default graph and executes read-only SPARQL
 queries over it. Named graphs, N-Quads, and SPARQL Update are not yet exposed.
 
+### Algebra-path validation
+
+`validate()` returns a W3C `sh:ValidationReport`, serialized as Turtle.
+`PreparedValidator::validate_algebra()` runs the same underlying conformance
+oracle but returns the finding as a structured violation/reason tree instead
+of an RDF report graph — useful when the caller wants to inspect results
+programmatically rather than parse Turtle.
+
+```cpp
+auto algebra = validator.validate_algebra(dataset);
+if (!algebra.conforms()) {
+    for (const auto &violation : algebra.violations()) {
+        std::cerr << violation.severity << " at " << violation.focus_node;
+        if (!violation.shape_name.empty()) {
+            std::cerr << " (" << violation.shape_name << ")";
+        }
+        std::cerr << "\n";
+        for (const auto &reason : violation.reasons) {
+            std::cerr << "  " << reason.message << "\n";
+        }
+    }
+}
+```
+
+Each `AlgebraViolation` groups the reasons that failed at one focus node for
+one shape; `shape_name` is empty for anonymous (blank-node) shapes.
+`AlgebraResult::results_text()` gives a pre-formatted human-readable summary,
+same as `ValidationResult::results_text()`.
+
 ### Property witnesses
 
 `validate()` reports violations. `PreparedValidator::witnesses()` is its

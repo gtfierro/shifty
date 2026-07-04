@@ -6,9 +6,11 @@
 
 use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
+use shifty_algebra::Schema;
 use shifty_engine::{
-    ValidationGraphMode, ValidationReport, infer_graphs, property_witnesses_graphs_with_mode,
-    report_to_graph, validate_report_graphs_with_mode,
+    ValidationGraphMode, ValidationOptions as EngineValidationOptions, ValidationOutcome,
+    ValidationReport, Violation, infer_graphs, property_witnesses_graphs_with_mode,
+    report_to_graph, validate_plan_graphs_with_mode_and_options, validate_report_graphs_with_mode,
 };
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
@@ -76,7 +78,8 @@ pub struct ShiftyDataset {
 
 pub struct ShiftyPreparedValidator {
     shapes: shifty_parse::Loaded,
-    schema: shifty_algebra::Schema,
+    schema: Schema,
+    plan: shifty_opt::PhysicalPlan,
     diagnostics_json: String,
 }
 
@@ -104,6 +107,33 @@ struct PropertyWitnessItem {
 
 pub struct ShiftyPropertyWitnessList {
     items: Vec<PropertyWitnessItem>,
+}
+
+/// One failed atomic constraint within an [`AlgebraViolationItem`], pre-
+/// stringified for the C ABI. An absent `path`/`author_message` is
+/// represented as an empty string.
+struct AlgebraReasonItem {
+    value: String,
+    path: String,
+    message: String,
+    author_message: String,
+    severity: String,
+}
+
+/// One focus node that failed a shape, from the algebra validation path (the
+/// engine's own conformance oracle, distinct from the W3C `sh:ValidationReport`
+/// path). An absent `shape_name` (anonymous shape) is an empty string.
+struct AlgebraViolationItem {
+    focus: String,
+    shape_name: String,
+    severity: String,
+    reasons: Vec<AlgebraReasonItem>,
+}
+
+pub struct ShiftyAlgebraResult {
+    conforms: bool,
+    violations: Vec<AlgebraViolationItem>,
+    results_text: String,
 }
 
 #[derive(Debug)]
@@ -269,9 +299,11 @@ fn prepare(loaded: shifty_parse::Loaded) -> ShiftyPreparedValidator {
     let parsed = shifty_parse::parse_loaded(&loaded);
     let diagnostics: Vec<String> = parsed.diagnostics.iter().map(ToString::to_string).collect();
     let schema = shifty_opt::normalize(&parsed.schema);
+    let plan = shifty_opt::plan(&schema);
     ShiftyPreparedValidator {
         shapes: loaded,
         schema,
+        plan,
         diagnostics_json: serde_json::to_string(&diagnostics)
             .expect("serializing strings to JSON cannot fail"),
     }
@@ -369,6 +401,105 @@ fn witness_dataset(
         })
         .collect();
     Ok(ShiftyPropertyWitnessList { items })
+}
+
+/// Looks up the named-shape IRI a violated statement belongs to, if the
+/// shape was declared with an IRI/blank-node id (rather than inlined).
+fn shape_name_for(violation: &Violation, schema: &Schema) -> Option<String> {
+    let shape_id = schema.statements.get(violation.statement)?.shape;
+    schema.names.get(&shape_id).cloned()
+}
+
+fn build_algebra_result(outcome: ValidationOutcome, schema: &Schema) -> ShiftyAlgebraResult {
+    let violations: Vec<AlgebraViolationItem> = outcome
+        .violations
+        .iter()
+        .map(|violation| AlgebraViolationItem {
+            focus: term_string(&violation.focus),
+            shape_name: shape_name_for(violation, schema).unwrap_or_default(),
+            severity: violation.severity.label().to_string(),
+            reasons: violation
+                .reasons
+                .iter()
+                .map(|reason| AlgebraReasonItem {
+                    value: term_string(&reason.value),
+                    path: reason.path.clone().unwrap_or_default(),
+                    message: reason.message.clone(),
+                    author_message: reason.author_message.clone().unwrap_or_default(),
+                    severity: reason.severity.label().to_string(),
+                })
+                .collect(),
+        })
+        .collect();
+    let results_text = format_algebra_report_text(outcome.conforms, &violations);
+    ShiftyAlgebraResult {
+        conforms: outcome.conforms,
+        violations,
+        results_text,
+    }
+}
+
+fn format_algebra_report_text(conforms: bool, violations: &[AlgebraViolationItem]) -> String {
+    let mut output = String::new();
+    let _ = writeln!(output, "Validation Report");
+    let _ = writeln!(
+        output,
+        "Conforms: {}",
+        if conforms { "True" } else { "False" }
+    );
+    for violation in violations {
+        let shape = if violation.shape_name.is_empty() {
+            "<anonymous>"
+        } else {
+            &violation.shape_name
+        };
+        let _ = writeln!(
+            output,
+            "\n{} result in {} ({}):",
+            violation.severity, shape, violation.focus
+        );
+        for reason in &violation.reasons {
+            if !reason.path.is_empty() {
+                let _ = writeln!(output, "  Path: {}", reason.path);
+            }
+            let _ = writeln!(output, "  Severity: {}", reason.severity);
+            let _ = writeln!(output, "  Value: {}", reason.value);
+            let _ = writeln!(output, "  Message: {}", reason.message);
+        }
+    }
+    output
+}
+
+fn validate_algebra_dataset(
+    validator: &ShiftyPreparedValidator,
+    dataset: &ShiftyDataset,
+    mode: u32,
+    run_inference: bool,
+) -> Result<ShiftyAlgebraResult, ApiError> {
+    let mode = match graph_mode(mode)? {
+        ShiftyGraphMode::Data => ValidationGraphMode::Data,
+        ShiftyGraphMode::Union => ValidationGraphMode::Union,
+        ShiftyGraphMode::UnionAll => ValidationGraphMode::UnionAll,
+    };
+    let inferred = if run_inference && !validator.schema.rules.is_empty() {
+        Some(
+            infer_graphs(&dataset.graph, &validator.shapes.graph, &validator.schema)
+                .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?
+                .graph,
+        )
+    } else {
+        None
+    };
+    let data = inferred.as_ref().unwrap_or(&dataset.graph);
+    let outcome = validate_plan_graphs_with_mode_and_options(
+        data,
+        &validator.shapes.graph,
+        &validator.plan,
+        mode,
+        &EngineValidationOptions::default(),
+    )
+    .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
+    Ok(build_algebra_result(outcome, &validator.schema))
 }
 
 fn graph_to_ntriples(graph: &Graph) -> Result<String, ApiError> {
@@ -979,6 +1110,167 @@ pub unsafe extern "C" fn shifty_property_witness_value(
             },
             |value| string_view(value),
         )
+}
+
+fn empty_view() -> ShiftyStringView {
+    ShiftyStringView {
+        data: ptr::null(),
+        len: 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_prepared_validator_validate_algebra(
+    validator: *const ShiftyPreparedValidator,
+    dataset: *const ShiftyDataset,
+    graph_mode: u32,
+    run_inference: u8,
+    out: *mut *mut ShiftyAlgebraResult,
+) -> u32 {
+    ffi_call(|| {
+        let validator = unsafe { validator.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "validator is null"))?;
+        let dataset = unsafe { dataset.as_ref() }
+            .ok_or_else(|| ApiError::new(ShiftyStatus::InvalidArgument, "dataset is null"))?;
+        if out.is_null() {
+            return Err(ApiError::new(
+                ShiftyStatus::InvalidArgument,
+                "out result pointer is null",
+            ));
+        }
+        unsafe { out.write(ptr::null_mut()) };
+        let result = validate_algebra_dataset(validator, dataset, graph_mode, run_inference != 0)?;
+        unsafe { out.write(Box::into_raw(Box::new(result))) };
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_result_destroy(result: *mut ShiftyAlgebraResult) {
+    if !result.is_null() {
+        unsafe { drop(Box::from_raw(result)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_result_conforms(
+    result: *const ShiftyAlgebraResult,
+) -> u8 {
+    u8::from(unsafe { result.as_ref() }.is_some_and(|result| result.conforms))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_result_results_text(
+    result: *const ShiftyAlgebraResult,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }.map_or(empty_view(), |result| string_view(&result.results_text))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_result_violation_count(
+    result: *const ShiftyAlgebraResult,
+) -> usize {
+    unsafe { result.as_ref() }.map_or(0, |result| result.violations.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_violation_focus(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .map_or(empty_view(), |violation| string_view(&violation.focus))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_violation_shape_name(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .map_or(empty_view(), |violation| string_view(&violation.shape_name))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_violation_severity(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .map_or(empty_view(), |violation| string_view(&violation.severity))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_violation_reason_count(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+) -> usize {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .map_or(0, |violation| violation.reasons.len())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_value(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .and_then(|violation| violation.reasons.get(reason_index))
+        .map_or(empty_view(), |reason| string_view(&reason.value))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_path(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .and_then(|violation| violation.reasons.get(reason_index))
+        .map_or(empty_view(), |reason| string_view(&reason.path))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_message(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .and_then(|violation| violation.reasons.get(reason_index))
+        .map_or(empty_view(), |reason| string_view(&reason.message))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_author_message(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .and_then(|violation| violation.reasons.get(reason_index))
+        .map_or(empty_view(), |reason| string_view(&reason.author_message))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shifty_algebra_reason_severity(
+    result: *const ShiftyAlgebraResult,
+    index: usize,
+    reason_index: usize,
+) -> ShiftyStringView {
+    unsafe { result.as_ref() }
+        .and_then(|result| result.violations.get(index))
+        .and_then(|violation| violation.reasons.get(reason_index))
+        .map_or(empty_view(), |reason| string_view(&reason.severity))
 }
 
 #[cfg(test)]

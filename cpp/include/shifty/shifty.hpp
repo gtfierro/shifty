@@ -173,6 +173,78 @@ struct PropertyWitness {
     std::vector<std::string> value_nodes;
 };
 
+/// One failed atomic constraint within an AlgebraViolation. An absent `path`
+/// or `author_message` is represented as an empty string.
+struct AlgebraReason {
+    /// The node at which the constraint failed.
+    std::string value;
+
+    /// Path from the focus node to `value`, in π notation (e.g. `ex:name`),
+    /// or empty when the failure is not value-scoped.
+    std::string path;
+
+    /// Engine-generated description of the failing constraint — always set.
+    std::string message;
+
+    /// The source shape's `sh:message`, if the author supplied one (with
+    /// `{$this}`/`{?var}` resolved), otherwise empty. Prefer this over
+    /// `message` when non-empty.
+    std::string author_message;
+
+    /// SHACL severity (`"Violation"`, `"Warning"`, `"Info"`, or a custom IRI).
+    std::string severity;
+};
+
+/// One focus node that failed a shape, from the algebra validation path: the
+/// engine's own conformance oracle evaluated directly against the SHACL
+/// algebra, as a structured tree rather than a W3C sh:ValidationReport graph.
+struct AlgebraViolation {
+    /// The focus node that failed.
+    std::string focus_node;
+
+    /// Named shape IRI, or empty if the violated statement was an anonymous
+    /// (blank-node) shape.
+    std::string shape_name;
+
+    /// Most severe reason in this grouped finding.
+    std::string severity;
+
+    /// The individual failing constraints that make up this finding.
+    std::vector<AlgebraReason> reasons;
+};
+
+/// Owned result of algebra-path SHACL validation.
+class AlgebraResult {
+public:
+    /// Returns true when the dataset conforms to all shapes.
+    [[nodiscard]] bool conforms() const noexcept { return conforms_; }
+
+    /// Returns the violations found, if any.
+    [[nodiscard]] const std::vector<AlgebraViolation> &violations() const noexcept {
+        return violations_;
+    }
+
+    /// Returns a human-readable validation summary.
+    [[nodiscard]] const std::string &results_text() const noexcept {
+        return results_text_;
+    }
+
+private:
+    friend class PreparedValidator;
+
+    AlgebraResult(
+        bool conforms,
+        std::vector<AlgebraViolation> violations,
+        std::string results_text)
+        : conforms_(conforms),
+          violations_(std::move(violations)),
+          results_text_(std::move(results_text)) {}
+
+    bool conforms_;
+    std::vector<AlgebraViolation> violations_;
+    std::string results_text_;
+};
+
 namespace detail {
 
 inline void check_abi() {
@@ -276,6 +348,12 @@ struct ValidationResultDeleter {
 struct PropertyWitnessListDeleter {
     void operator()(ShiftyPropertyWitnessList *value) const noexcept {
         shifty_property_witness_list_destroy(value);
+    }
+};
+
+struct AlgebraResultDeleter {
+    void operator()(ShiftyAlgebraResult *value) const noexcept {
+        shifty_algebra_result_destroy(value);
     }
 };
 
@@ -509,6 +587,62 @@ public:
             out.push_back(std::move(witness));
         }
         return out;
+    }
+
+    /// Validates a dataset using the algebra path: the engine's own
+    /// conformance oracle, evaluated directly against the SHACL algebra and
+    /// returned as a structured violation/reason tree rather than a W3C
+    /// sh:ValidationReport graph. Prefer this over validate() when the
+    /// caller wants to inspect findings programmatically instead of parsing
+    /// Turtle.
+    ///
+    /// \throws Error for non-stratifiable shapes or validation failures.
+    [[nodiscard]] AlgebraResult validate_algebra(
+        const Dataset &dataset,
+        ValidationOptions options = {}) const {
+        ShiftyAlgebraResult *raw = nullptr;
+        detail::check(shifty_prepared_validator_validate_algebra(
+            handle_.get(),
+            dataset.handle_.get(),
+            detail::to_c(options.graph_mode),
+            static_cast<std::uint8_t>(options.run_inference),
+            &raw));
+        std::unique_ptr<ShiftyAlgebraResult, detail::AlgebraResultDeleter> result(raw);
+
+        const std::size_t violation_count =
+            shifty_algebra_result_violation_count(result.get());
+        std::vector<AlgebraViolation> violations;
+        violations.reserve(violation_count);
+        for (std::size_t i = 0; i < violation_count; ++i) {
+            AlgebraViolation violation;
+            violation.focus_node =
+                detail::copy(shifty_algebra_violation_focus(result.get(), i));
+            violation.shape_name =
+                detail::copy(shifty_algebra_violation_shape_name(result.get(), i));
+            violation.severity =
+                detail::copy(shifty_algebra_violation_severity(result.get(), i));
+
+            const std::size_t reason_count =
+                shifty_algebra_violation_reason_count(result.get(), i);
+            violation.reasons.reserve(reason_count);
+            for (std::size_t r = 0; r < reason_count; ++r) {
+                AlgebraReason reason;
+                reason.value = detail::copy(shifty_algebra_reason_value(result.get(), i, r));
+                reason.path = detail::copy(shifty_algebra_reason_path(result.get(), i, r));
+                reason.message = detail::copy(shifty_algebra_reason_message(result.get(), i, r));
+                reason.author_message =
+                    detail::copy(shifty_algebra_reason_author_message(result.get(), i, r));
+                reason.severity =
+                    detail::copy(shifty_algebra_reason_severity(result.get(), i, r));
+                violation.reasons.push_back(std::move(reason));
+            }
+            violations.push_back(std::move(violation));
+        }
+
+        return AlgebraResult(
+            shifty_algebra_result_conforms(result.get()) != 0,
+            std::move(violations),
+            detail::copy(shifty_algebra_result_results_text(result.get())));
     }
 
 private:

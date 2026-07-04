@@ -52,6 +52,7 @@ typedef struct ShiftyPreparedValidator ShiftyPreparedValidator;
 typedef struct ShiftyQueryResult ShiftyQueryResult;
 typedef struct ShiftyValidationResult ShiftyValidationResult;
 typedef struct ShiftyPropertyWitnessList ShiftyPropertyWitnessList;
+typedef struct ShiftyAlgebraResult ShiftyAlgebraResult;
 
 /*
  * Pointer contract:
@@ -162,6 +163,44 @@ size_t shifty_property_witness_value_count(
     const ShiftyPropertyWitnessList *list, size_t index);
 ShiftyStringView shifty_property_witness_value(
     const ShiftyPropertyWitnessList *list, size_t index, size_t value_index);
+
+/*
+ * Algebra-path validation: the engine's own conformance oracle, run directly
+ * against the SHACL algebra rather than compiled to a W3C sh:ValidationReport.
+ * Produces a structured violation/reason tree instead of an RDF report graph.
+ * An absent shape_name, path, or author_message is reported as an empty
+ * ShiftyStringView.
+ */
+ShiftyStatus shifty_prepared_validator_validate_algebra(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftyAlgebraResult **out);
+
+void shifty_algebra_result_destroy(ShiftyAlgebraResult *result);
+uint8_t shifty_algebra_result_conforms(const ShiftyAlgebraResult *result);
+ShiftyStringView shifty_algebra_result_results_text(
+    const ShiftyAlgebraResult *result);
+size_t shifty_algebra_result_violation_count(const ShiftyAlgebraResult *result);
+ShiftyStringView shifty_algebra_violation_focus(
+    const ShiftyAlgebraResult *result, size_t index);
+ShiftyStringView shifty_algebra_violation_shape_name(
+    const ShiftyAlgebraResult *result, size_t index);
+ShiftyStringView shifty_algebra_violation_severity(
+    const ShiftyAlgebraResult *result, size_t index);
+size_t shifty_algebra_violation_reason_count(
+    const ShiftyAlgebraResult *result, size_t index);
+ShiftyStringView shifty_algebra_reason_value(
+    const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+ShiftyStringView shifty_algebra_reason_path(
+    const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+ShiftyStringView shifty_algebra_reason_message(
+    const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+ShiftyStringView shifty_algebra_reason_author_message(
+    const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
+ShiftyStringView shifty_algebra_reason_severity(
+    const ShiftyAlgebraResult *result, size_t index, size_t reason_index);
 
 #ifdef __cplusplus
 }
