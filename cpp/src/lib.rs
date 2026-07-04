@@ -1153,9 +1153,7 @@ pub unsafe extern "C" fn shifty_algebra_result_destroy(result: *mut ShiftyAlgebr
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn shifty_algebra_result_conforms(
-    result: *const ShiftyAlgebraResult,
-) -> u8 {
+pub unsafe extern "C" fn shifty_algebra_result_conforms(result: *const ShiftyAlgebraResult) -> u8 {
     u8::from(unsafe { result.as_ref() }.is_some_and(|result| result.conforms))
 }
 
