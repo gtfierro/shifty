@@ -280,7 +280,7 @@ fn parse_file(
                 let path_as_base = (path.starts_with("http://")
                     || path.starts_with("https://")
                     || path.starts_with("file://"))
-                    .then_some(path);
+                .then_some(path);
                 shifty_parse::load_rdf_auto(&bytes, None, Some(path), base.or(path_as_base))
                     .map_err(|error| ApiError::new(ShiftyStatus::ParseError, error.to_string()))
             }),
