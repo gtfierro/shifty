@@ -393,6 +393,10 @@ struct AlgebraResultDeleter {
 ///
 /// Dataset is move-only. Read-only operations may run concurrently only when
 /// the caller provides external synchronization against load operations.
+///
+/// Multiple RDF sources are unioned: call `load` / `load_file` repeatedly to
+/// accumulate triples from several documents (e.g. several data files) into
+/// one dataset — the C++ analogue of the CLI's repeatable `--data`.
 class Dataset {
 public:
     /// Constructs an empty dataset.
@@ -539,6 +543,62 @@ public:
         return PreparedValidator(raw);
     }
 
+    /// Parses and prepares shapes from multiple files, unioning them at the
+    /// RDF triple level before planning — the C++ analogue of the CLI's
+    /// repeatable `--shapes`. Each file is parsed individually (so per-file
+    /// `@prefix`es and relative IRIs resolve in their own document) and the
+    /// resulting triples are merged into one graph.
+    ///
+    /// \param paths Filesystem paths to RDF shapes files.
+    /// \param format Input serialization applied to every file.
+    /// \param base_iri Optional base IRI used for Turtle resolution.
+    /// \throws Error on file access or parse failure.
+    [[nodiscard]] static PreparedValidator from_files(
+        const std::vector<std::filesystem::path> &paths,
+        RdfFormat format = RdfFormat::Auto,
+        std::string_view base_iri = {}) {
+        detail::check_abi();
+        const std::string ntriples =
+            merge_sources_to_ntriples(paths, {}, format, base_iri);
+        ShiftyPreparedValidator *raw = nullptr;
+        detail::check(shifty_prepared_validator_create_memory(
+            reinterpret_cast<const std::uint8_t *>(ntriples.data()),
+            ntriples.size(),
+            SHIFTY_RDF_FORMAT_NTRIPLES,
+            detail::optional_data(base_iri),
+            base_iri.size(),
+            &raw));
+        return PreparedValidator(raw);
+    }
+
+    /// Parses and prepares shapes from multiple in-memory documents, unioning
+    /// them at the RDF triple level before planning — the C++ analogue of the
+    /// CLI's repeatable `--shapes`. Each document is parsed individually (so
+    /// per-document `@prefix`es resolve in their own context) and the resulting
+    /// triples are merged into one graph.
+    ///
+    /// \param shapes UTF-8 RDF shapes documents (must outlive this call).
+    /// \param format Input serialization applied to every document.
+    /// \param base_iri Optional base IRI used for Turtle resolution.
+    /// \throws Error on parse failure.
+    [[nodiscard]] static PreparedValidator from_memory(
+        const std::vector<std::string_view> &shapes,
+        RdfFormat format = RdfFormat::Auto,
+        std::string_view base_iri = {}) {
+        detail::check_abi();
+        const std::string ntriples =
+            merge_sources_to_ntriples({}, shapes, format, base_iri);
+        ShiftyPreparedValidator *raw = nullptr;
+        detail::check(shifty_prepared_validator_create_memory(
+            reinterpret_cast<const std::uint8_t *>(ntriples.data()),
+            ntriples.size(),
+            SHIFTY_RDF_FORMAT_NTRIPLES,
+            detail::optional_data(base_iri),
+            base_iri.size(),
+            &raw));
+        return PreparedValidator(raw);
+    }
+
     PreparedValidator(const PreparedValidator &) = delete;
     PreparedValidator &operator=(const PreparedValidator &) = delete;
     PreparedValidator(PreparedValidator &&) noexcept = default;
@@ -679,6 +739,25 @@ public:
 
 private:
     explicit PreparedValidator(ShiftyPreparedValidator *raw) : handle_(raw) {}
+
+    /// Union several shape sources into one N-Triples buffer by loading them
+    /// into a temporary `Dataset` (which already merges at the triple level)
+    /// and serializing the result. Each source is parsed individually so its
+    /// own `@prefix`es / relative IRIs resolve in their own document.
+    static std::string merge_sources_to_ntriples(
+        const std::vector<std::filesystem::path> &files,
+        const std::vector<std::string_view> &memories,
+        RdfFormat format,
+        std::string_view base_iri) {
+        Dataset dataset;
+        for (const auto &path : files) {
+            dataset.load_file(path, format, base_iri);
+        }
+        for (const auto &shapes : memories) {
+            dataset.load(shapes, format, base_iri);
+        }
+        return dataset.ntriples();
+    }
 
     using Handle =
         std::unique_ptr<ShiftyPreparedValidator, detail::ValidatorDeleter>;

@@ -1,7 +1,10 @@
 #include <shifty/shifty.hpp>
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <vector>
 
 int main() {
     constexpr std::string_view shapes = R"(
@@ -225,6 +228,85 @@ int main() {
         assert(saw_warning);
         assert(saw_info);
     }
+
+    // ── multiple shapes / data graphs are unioned ─────────────────────────
+    // Two separate shapes documents: one constrains ex:Person (name), the
+    // other constrains ex:Widget (label). Two separate data documents hold
+    // the instances. Unioning both must enforce both shape sets, mirroring
+    // the CLI's repeatable --shapes / --data.
+    constexpr std::string_view shapes_a = R"(
+        @prefix sh:  <http://www.w3.org/ns/shacl#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+        @prefix ex:  <http://example.com/> .
+        ex:PersonShape a sh:NodeShape ;
+            sh:targetClass ex:Person ;
+            sh:property [
+                sh:path ex:name ;
+                sh:minCount 1 ;
+                sh:datatype xsd:string
+            ] .
+    )";
+    constexpr std::string_view shapes_b = R"(
+        @prefix sh:  <http://www.w3.org/ns/shacl#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+        @prefix ex:  <http://example.com/> .
+        ex:WidgetShape a sh:NodeShape ;
+            sh:targetClass ex:Widget ;
+            sh:property [
+                sh:path ex:label ;
+                sh:minCount 1 ;
+                sh:datatype xsd:string
+            ] .
+    )";
+    constexpr std::string_view data_a = R"(
+        @prefix ex: <http://example.com/> .
+        ex:alice a ex:Person ; ex:name "Alice" .
+    )";
+    constexpr std::string_view data_b = R"(
+        @prefix ex: <http://example.com/> .
+        ex:widget a ex:Widget ; ex:label "widget" .
+    )";
+    constexpr std::string_view data_broken_widget = R"(
+        @prefix ex: <http://example.com/> .
+        ex:widget a ex:Widget .
+    )";
+
+    // Dataset unions repeated loads (the data-graph side of multi-source).
+    shifty::Dataset multi_data;
+    multi_data.load(data_a);
+    multi_data.load(data_b);
+    assert(multi_data.size() == 4);  // 2 + 2 triples
+
+    // from_memory: union two in-memory shapes docs.
+    const std::vector<std::string_view> shapes_docs{shapes_a, shapes_b};
+    shifty::PreparedValidator multi_validator =
+        shifty::PreparedValidator::from_memory(shapes_docs);
+    assert(multi_validator.diagnostics_json() == "[]");
+    assert(multi_validator.validate(multi_data).conforms());
+
+    // Dropping the widget label now violates the unioned WidgetShape.
+    shifty::Dataset broken_data;
+    broken_data.load(data_a);
+    broken_data.load(data_broken_widget);
+    assert(!multi_validator.validate(broken_data).conforms());
+
+    // from_files: union two shape files written to the temp directory.
+    const auto write_tmp = [](const char *name, std::string_view body) {
+        auto path = std::filesystem::temp_directory_path() / name;
+        std::ofstream out(path);
+        out.write(body.data(), static_cast<std::streamsize>(body.size()));
+        out.close();
+        return path;
+    };
+    const auto shapes_a_path = write_tmp("shifty_smoke_a.ttl", shapes_a);
+    const auto shapes_b_path = write_tmp("shifty_smoke_b.ttl", shapes_b);
+    const std::vector<std::filesystem::path> shape_paths{
+        shapes_a_path, shapes_b_path};
+    shifty::PreparedValidator file_validator =
+        shifty::PreparedValidator::from_files(shape_paths);
+    assert(file_validator.validate(multi_data).conforms());
+    std::filesystem::remove(shapes_a_path);
+    std::filesystem::remove(shapes_b_path);
 
     return 0;
 }

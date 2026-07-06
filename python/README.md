@@ -171,6 +171,20 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 
 Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
 
+Any data or shapes argument also accepts a **list (or tuple)** of the above;
+the members are unioned (merged at the RDF triple level, the same way the CLI's
+repeatable `--shapes` / `--data` merge) before being passed to the engine. A
+single input keeps its native fast path.
+
+```python
+# Union two shapes files and two data files before validating.
+shifty.validate(["data1.ttl", "data2.ttl"], ["shapes1.ttl", "shapes2.ttl"])
+
+# Works everywhere graphs are accepted:
+validator = shifty.PreparedValidator(["shapes1.ttl", "shapes2.ttl"])
+validator.validate([rdflib.Graph(), extra_data])
+```
+
 To validate a shapes graph against itself, pass it once. The embedded path
 parses and plans one graph without constructing separate data and shapes
 graphs:

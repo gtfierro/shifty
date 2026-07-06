@@ -234,6 +234,84 @@ def test_delta_from_graph_accepts_rdflib_graph():
     assert not delta.delete
 
 
+def test_delta_from_graph_unions_list_of_adds():
+    add_a = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+    add_b = '@prefix ex: <http://example.org/> .\nex:p1 ex:kind "valve" .'
+    delta = shifty.delta_from_graph([add_a, add_b])
+    assert len(delta.add) == 2
+    assert not delta.delete
+    # Same triples as a single concatenated document.
+    single = shifty.delta_from_graph(add_a + " " + add_b)
+    assert {tuple(t) for t in delta.add} == {tuple(t) for t in single.add}
+
+
+def test_delta_from_graph_unions_list_of_deletes():
+    del_a = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+    del_b = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p2 .'
+    delta = shifty.delta_from_graph(delete=[del_a, del_b])
+    assert not delta.add
+    assert len(delta.delete) == 2
+
+
+def test_delta_from_graph_empty_and_none_serialize_to_nothing():
+    assert not shifty.delta_from_graph(None, None).add
+    assert not shifty.delta_from_graph(None, None).delete
+    assert not shifty.delta_from_graph([], []).add
+    assert not shifty.delta_from_graph([], []).delete
+    assert not shifty.delta_from_graph().add
+    assert not shifty.delta_from_graph().delete
+
+
+def test_delta_from_graph_mixed_rdflib_and_turtle_in_list():
+    import rdflib
+
+    g = rdflib.Graph()
+    g.parse(
+        data='@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .',
+        format="turtle",
+    )
+    turtle = '@prefix ex: <http://example.org/> .\nex:p1 ex:kind "valve" .'
+    delta = shifty.delta_from_graph([g, turtle])
+    assert len(delta.add) == 2
+
+
+def test_delta_from_graph_delete_then_add_is_net_add():
+    # A triple present on both sides of the patch is a net-add: deletes are
+    # applied first, then adds, so the re-add wins and the triple survives in
+    # the materialized graph. Lists make it easy to hit this across sources.
+    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    triple = '@prefix ex: <http://example.org/> .\nex:x ex:part ex:p1 .'
+    delta = shifty.delta_from_graph(add=[triple], delete=[triple])
+    # The triple is in both sides...
+    assert any(t[2] == "<http://example.org/p1>" for t in delta.add)
+    assert any(t[2] == "<http://example.org/p1>" for t in delta.delete)
+    # ...and survives in the patched graph (net-add).
+    import rdflib
+    patched = s.apply(delta)
+    ex = rdflib.Namespace("http://example.org/")
+    assert (ex.x, ex.part, ex.p1) in patched
+
+
+def test_delta_from_graph_replaces_via_delete_then_add():
+    # Standard "replace" pattern: delete the old value, add the new one. The
+    # old value is gone and the new value is present after apply.
+    s = shifty.RepairSession(QUAL_SHAPES, QUAL_DATA, infer=False)
+    base = (
+        '@prefix ex: <http://example.org/> .\n'
+        'ex:x ex:part ex:old . ex:old ex:kind "v" .'
+    )
+    session = shifty.RepairSession(QUAL_SHAPES, base, infer=False)
+    delta = shifty.delta_from_graph(
+        add='@prefix ex: <http://example.org/> .\nex:x ex:part ex:new . ex:new ex:kind "v" .',
+        delete='@prefix ex: <http://example.org/> .\nex:x ex:part ex:old . ex:old ex:kind "v" .',
+    )
+    patched = session.apply(delta)
+    import rdflib
+    ex = rdflib.Namespace("http://example.org/")
+    assert (ex.x, ex.part, ex.new) in patched
+    assert (ex.x, ex.part, ex.old) not in patched
+
+
 def test_repair_delta_from_ntriples_add_and_delete():
     nt_add = '<http://example.org/x> <http://example.org/part> <http://example.org/p1> .\n'
     nt_del = '<http://example.org/x> <http://example.org/old> "gone" .\n'

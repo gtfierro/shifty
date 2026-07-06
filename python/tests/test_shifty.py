@@ -382,3 +382,138 @@ class TestGraphMode:
     def test_unknown_mode_raises(self):
         with pytest.raises(ValueError, match="graph_mode"):
             validate(CONFORMS_DATA.encode(), SHAPES.encode(), graph_mode="bad")
+
+
+# ── multiple shapes/data graphs are unioned ───────────────────────────────────
+
+# A second shapes graph adding an extra constraint, and a second data graph
+# adding an extra conforming instance, so we can prove both lists merge.
+EXTRA_SHAPES = PREFIXES + textwrap.dedent("""\
+    ex:NamedThingShape a sh:NodeShape ;
+        sh:targetClass ex:NamedThing ;
+        sh:property [
+            sh:path ex:label ;
+            sh:minCount 1 ;
+            sh:datatype xsd:string ;
+        ] .
+""")
+
+EXTRA_DATA = PREFIXES + textwrap.dedent("""\
+    ex:Widget a ex:NamedThing ; ex:label "widget" .
+""")
+
+
+class TestMultipleGraphsUnion:
+    """Lists/tuples of graphs are merged at the RDF triple level before being
+    passed to the engine — the programmatic analogue of the CLI's repeatable
+    --shapes / --data."""
+
+    def test_multiple_shapes_union_enforced(self):
+        # Bob (Person, no name) violates PersonShape; Widget satisfies the
+        # extra shape only when EXTRA_SHAPES is merged in.
+        conforms, report, text = validate(
+            [VIOLATION_DATA.encode(), EXTRA_DATA.encode()],
+            [SHAPES.encode(), EXTRA_SHAPES.encode()],
+        )
+        assert not conforms
+        # Bob's missing name must surface in the report text.
+        assert "Bob" in text
+        SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+        assert list(report.subjects(rdflib.RDF.type, SH.ValidationReport))
+
+    def test_unioned_shapes_match_single_concatenated(self):
+        # Unioning two separate shapes graphs must behave like one graph
+        # holding both, for conforming data.
+        merged_shapes = rdflib.Graph()
+        for src in (SHAPES, EXTRA_SHAPES):
+            g = rdflib.Graph()
+            g.parse(data=src, format="turtle")
+            for t in g:
+                merged_shapes.add(t)
+        single, _, _ = validate(
+            [CONFORMS_DATA.encode(), EXTRA_DATA.encode()],
+            merged_shapes,
+        )
+        listed, _, _ = validate(
+            [CONFORMS_DATA.encode(), EXTRA_DATA.encode()],
+            [SHAPES.encode(), EXTRA_SHAPES.encode()],
+        )
+        assert single == listed
+
+    def test_list_data_union_enforced(self):
+        # Alice conforms as Person; Widget only conforms once EXTRA_SHAPES is
+        # included. With both shapes, the unioned data still conforms overall.
+        conforms, _, _ = validate(
+            [CONFORMS_DATA.encode(), EXTRA_DATA.encode()],
+            [SHAPES.encode(), EXTRA_SHAPES.encode()],
+            graph_mode="data",
+        )
+        assert conforms
+
+    def test_tuple_accepted_same_as_list(self):
+        a, _, _ = validate(
+            [CONFORMS_DATA.encode(), EXTRA_DATA.encode()],
+            (SHAPES.encode(), EXTRA_SHAPES.encode()),
+        )
+        b, _, _ = validate(
+            (CONFORMS_DATA.encode(), EXTRA_DATA.encode()),
+            [SHAPES.encode(), EXTRA_SHAPES.encode()],
+        )
+        assert a == b
+
+    def test_single_element_list_preserves_fast_path(self):
+        # A one-element list should behave exactly like passing the element
+        # directly (both shapes and data).
+        direct, _, _ = validate(CONFORMS_DATA.encode(), SHAPES.encode())
+        listed, _, _ = validate([CONFORMS_DATA.encode()], [SHAPES.encode()])
+        assert direct == listed
+
+    def test_empty_list_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            validate([], SHAPES.encode())
+        with pytest.raises(ValueError, match="empty"):
+            validate(CONFORMS_DATA.encode(), [])
+
+    def test_prepared_validator_multiple_shapes(self):
+        pv = shifty.PreparedValidator([SHAPES.encode(), EXTRA_SHAPES.encode()])
+        conforms, _, _ = pv.validate(
+            [CONFORMS_DATA.encode(), EXTRA_DATA.encode()]
+        )
+        assert conforms
+
+    def test_validate_algebra_multiple_graphs(self):
+        result = validate_algebra(
+            [VIOLATION_DATA.encode(), EXTRA_DATA.encode()],
+            [SHAPES.encode(), EXTRA_SHAPES.encode()],
+        )
+        assert not result.conforms
+        # Bob's missing name must be reported.
+        focuses = {v.focus_node for v in result.violations}
+        assert any("Bob" in f for f in focuses)
+
+    def test_repair_session_multiple_shapes(self):
+        session = shifty.RepairSession(
+            [SHAPES.encode(), EXTRA_SHAPES.encode()],
+            [VIOLATION_DATA.encode(), EXTRA_DATA.encode()],
+        )
+        ws = session.witnesses()
+        assert ws  # Bob fails PersonShape
+
+    def test_rdflib_graphs_in_list(self):
+        g1 = rdflib.Graph()
+        g1.parse(data=CONFORMS_DATA, format="turtle")
+        g2 = rdflib.Graph()
+        g2.parse(data=EXTRA_DATA, format="turtle")
+        s1 = rdflib.Graph()
+        s1.parse(data=SHAPES, format="turtle")
+        s2 = rdflib.Graph()
+        s2.parse(data=EXTRA_SHAPES, format="turtle")
+        conforms, _, _ = validate([g1, g2], [s1, s2])
+        assert conforms
+
+    def test_caller_graph_not_mutated(self):
+        g = rdflib.Graph()
+        g.parse(data=CONFORMS_DATA, format="turtle")
+        before = len(g)
+        validate([g, EXTRA_DATA.encode()], [SHAPES.encode()])
+        assert len(g) == before

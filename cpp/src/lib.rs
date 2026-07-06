@@ -273,7 +273,15 @@ fn parse_file(
         ShiftyRdfFormat::Auto => std::fs::read(path)
             .map_err(|error| ApiError::new(ShiftyStatus::IoError, error.to_string()))
             .and_then(|bytes| {
-                shifty_parse::load_rdf_auto(&bytes, None, Some(path), base.or(Some(path)))
+                // Only use the path as a base IRI when it is already an absolute
+                // URL (http(s):// or file://). A bare filesystem path is not a
+                // valid IRI, so using it as a base would fail parsing — this
+                // matches the CLI, which only derives a base from http(s) URLs.
+                let path_as_base = (path.starts_with("http://")
+                    || path.starts_with("https://")
+                    || path.starts_with("file://"))
+                    .then_some(path);
+                shifty_parse::load_rdf_auto(&bytes, None, Some(path), base.or(path_as_base))
                     .map_err(|error| ApiError::new(ShiftyStatus::ParseError, error.to_string()))
             }),
         ShiftyRdfFormat::Turtle => {

@@ -40,6 +40,34 @@ if (!report.conforms()) {
 }
 ```
 
+### Multiple shapes / data graphs
+
+Several RDF sources can be unioned (merged at the triple level) before they
+reach the engine — the C++ analogue of the CLI's repeatable `--shapes` /
+`--data`.
+
+For **data**, call `Dataset::load` / `Dataset::load_file` repeatedly; triples
+accumulate into one dataset:
+
+```cpp
+shifty::Dataset dataset;
+dataset.load_file("data1.ttl");
+dataset.load_file("data2.ttl");  // unioned with data1
+```
+
+For **shapes**, use `PreparedValidator::from_files` (multiple files) or
+`PreparedValidator::from_memory` (multiple in-memory documents). Each source is
+parsed in its own context (so per-document `@prefix`es resolve correctly) and
+the resulting triples are merged into one shapes graph before planning:
+
+```cpp
+std::vector<std::filesystem::path> shape_files{"shapes1.ttl", "shapes2.ttl"};
+auto validator = shifty::PreparedValidator::from_files(shape_files);
+
+std::vector<std::string_view> shape_docs{doc_a, doc_b};
+auto validator = shifty::PreparedValidator::from_memory(shape_docs);
+```
+
 `SELECT` results are returned as SPARQL Results JSON. `CONSTRUCT` and
 `DESCRIBE` results are returned as N-Triples. `ASK` results provide both a
 Boolean accessor and SPARQL Results JSON.

@@ -34,6 +34,11 @@ All three functions accept any of:
                                 otherwise as raw Turtle text
 * ``bytes``                   — raw Turtle bytes passed directly to the parser
 
+A ``list`` or ``tuple`` of any of the above is also accepted for every
+data/shapes argument; the members are unioned (merged at the RDF triple level,
+the same way the CLI's repeatable ``--shapes`` / ``--data`` merge) before being
+passed to the engine. A single input keeps its native fast path.
+
 ``graph_mode`` values
 ~~~~~~~~~~~~~~~~~~~~~
 * ``"union"``      (default) — focus nodes from data; evaluation uses
@@ -122,6 +127,9 @@ __all__ = [
 ]
 
 GraphInput = Union[str, bytes, pathlib.Path, "rdflib.Graph"]
+# Any single `GraphInput`, or a list/tuple of them to be unioned (merged at
+# the RDF triple level) before being passed to the engine.
+GraphInputs = Union[GraphInput, list[GraphInput], tuple[GraphInput, ...]]
 
 
 class _RdfInput(NamedTuple):
@@ -171,6 +179,64 @@ def _to_turtle_bytes(graph: GraphInput) -> bytes:
     return pathlib.Path(source.path).read_bytes()
 
 
+def _as_rdflib_graph(graph: GraphInput) -> "rdflib.Graph":
+    """Materialize a single graph input as a fresh :class:`rdflib.Graph`.
+
+    Used by :func:`_coalesce_graph_input` to union several inputs. The caller's
+    :class:`rdflib.Graph` is copied rather than mutated."""
+    import rdflib
+
+    if isinstance(graph, rdflib.Graph):
+        merged = rdflib.Graph()
+        for triple in graph:
+            merged.add(triple)
+        return merged
+    if isinstance(graph, bytes):
+        g = rdflib.Graph()
+        g.parse(data=graph, format="turtle")
+        return g
+    if isinstance(graph, pathlib.Path):
+        g = rdflib.Graph()
+        g.parse(source=str(graph), format=_path_format(graph))
+        return g
+    if isinstance(graph, str):
+        path = pathlib.Path(graph)
+        if path.is_file():
+            g = rdflib.Graph()
+            g.parse(source=graph, format=_path_format(path))
+            return g
+        g = rdflib.Graph()
+        g.parse(data=graph, format="turtle")
+        return g
+    raise TypeError(
+        f"Cannot convert {type(graph).__name__!r} to RDF data. "
+        "Expected rdflib.Graph, pathlib.Path, str (path or Turtle), or bytes."
+    )
+
+
+def _coalesce_graph_input(graph: "GraphInputs") -> GraphInput:
+    """Normalize a graph input, unioning lists/tuples into one graph.
+
+    A single input is returned unchanged so the native Rust parser keeps its
+    direct-file / direct-bytes fast path. A list or tuple of inputs is merged
+    at the RDF triple level (mirroring the CLI's repeatable ``--shapes`` /
+    ``--data``) and returned as a single :class:`rdflib.Graph`. An empty
+    sequence raises :class:`ValueError`."""
+    if isinstance(graph, (list, tuple)):
+        if len(graph) == 0:
+            raise ValueError("graph input list must not be empty")
+        if len(graph) == 1:
+            return graph[0]
+        import rdflib
+
+        merged = rdflib.Graph()
+        for item in graph:
+            for triple in _as_rdflib_graph(item):
+                merged.add(triple)
+        return merged
+    return graph
+
+
 class InferResult:
     """Result of a SHACL-AF inference run."""
 
@@ -207,8 +273,8 @@ class InferResult:
 class PreparedValidator:
     """Parsed and planned SHACL shapes reusable across data graphs."""
 
-    def __init__(self, shacl_graph: GraphInput, *, base: Optional[str] = None) -> None:
-        shapes = _to_rdf_input(shacl_graph)
+    def __init__(self, shacl_graph: GraphInputs, *, base: Optional[str] = None) -> None:
+        shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph))
         self._inner = _RustPreparedValidator(
             shapes.data,
             shapes.path,
@@ -223,7 +289,7 @@ class PreparedValidator:
 
     def validate(
         self,
-        data_graph: GraphInput,
+        data_graph: GraphInputs,
         *,
         graph_mode: str = "union",
         infer: bool = True,
@@ -233,7 +299,7 @@ class PreparedValidator:
     ) -> "tuple[bool, rdflib.Graph, str]":
         import rdflib
 
-        data = _to_rdf_input(data_graph)
+        data = _to_rdf_input(_coalesce_graph_input(data_graph))
         result: W3cResult = self._inner.validate_w3c(
             data.data,
             data.path,
@@ -250,7 +316,7 @@ class PreparedValidator:
 
     def validate_algebra(
         self,
-        data_graph: GraphInput,
+        data_graph: GraphInputs,
         *,
         graph_mode: str = "union",
         infer: bool = True,
@@ -258,7 +324,7 @@ class PreparedValidator:
         sort_results: bool = True,
         on_unsupported: str = "ignore",
     ) -> AlgebraResult:
-        data = _to_rdf_input(data_graph)
+        data = _to_rdf_input(_coalesce_graph_input(data_graph))
         return self._inner.validate_algebra(
             data.data,
             data.path,
@@ -272,7 +338,7 @@ class PreparedValidator:
 
     def witnesses(
         self,
-        data_graph: GraphInput,
+        data_graph: GraphInputs,
         *,
         key_path: Optional[str] = None,
         graph_mode: str = "union",
@@ -314,7 +380,7 @@ class PreparedValidator:
             bindings — narrowed to the ``sh:qualifiedValueShape`` matches
             when the property shape declares one).
         """
-        data = _to_rdf_input(data_graph)
+        data = _to_rdf_input(_coalesce_graph_input(data_graph))
         return self._inner.witnesses(
             data.data,
             data.path,
@@ -329,11 +395,36 @@ class PreparedValidator:
         return repr(self._inner)
 
 
-def _to_ntriples(graph: "Optional[GraphInput]") -> str:
-    """Serialize a subgraph to N-Triples. Accepts an rdflib.Graph or Turtle text."""
+def _to_ntriples(graph: "Optional[GraphInputs]") -> str:
+    """Serialize a subgraph (or a list/tuple of them, unioned) to N-Triples.
+
+    Accepts an :class:`rdflib.Graph` or Turtle text/bytes, or a list/tuple of
+    such inputs to be unioned at the RDF triple level. ``None`` and an empty
+    sequence both serialize to the empty document (no triples).
+    """
     if graph is None:
         return ""
     import rdflib
+
+    def _parse_one(item: "GraphInput") -> rdflib.Graph:
+        if isinstance(item, rdflib.Graph):
+            return item
+        if isinstance(item, (str, bytes)):
+            g = rdflib.Graph()
+            g.parse(data=item, format="turtle")
+            return g
+        raise TypeError(
+            f"expected rdflib.Graph or Turtle text, got {type(item).__name__!r}"
+        )
+
+    if isinstance(graph, (list, tuple)):
+        if not graph:
+            return ""
+        merged = rdflib.Graph()
+        for item in graph:
+            for triple in _parse_one(item):
+                merged.add(triple)
+        return merged.serialize(format="nt")
 
     if isinstance(graph, rdflib.Graph):
         return graph.serialize(format="nt")
@@ -347,8 +438,8 @@ def _to_ntriples(graph: "Optional[GraphInput]") -> str:
 
 
 def delta_from_graph(
-    add: "Optional[GraphInput]" = None,
-    delete: "Optional[GraphInput]" = None,
+    add: "Optional[GraphInputs]" = None,
+    delete: "Optional[GraphInputs]" = None,
 ) -> RepairDelta:
     """Build a :class:`RepairDelta` from hand-authored subgraph(s).
 
@@ -358,6 +449,18 @@ def delta_from_graph(
     ``delete``. The result gates and applies exactly like a synthesized delta, so
     :meth:`RepairSession.gate` still rejects a patch that doesn't make sound
     progress.
+
+    ``add`` and ``delete`` each also accept a list (or tuple) of such inputs;
+    the members are unioned at the RDF triple level before the delta is built.
+    ``None`` and an empty sequence both mean "no triples" for that side.
+
+    Application order is **deletes first, then adds** (``G ⊕ ΔG``), so a triple
+    that appears in *both* sides is a net-add — the re-add wins. This holds
+    whether the triple reaches both sides from a single input each or from the
+    union of several, so when unioning multiple sources keep that resolution in
+    mind: a triple you intend to *remove* must not also be re-asserted by one of
+    the ``add`` sources (and vice versa, a triple you intend to *keep changed*
+    should appear in ``delete`` then ``add`` — the standard replace pattern).
     """
     return RepairDelta.from_ntriples(_to_ntriples(add), _to_ntriples(delete))
 
@@ -408,15 +511,15 @@ class RepairSession:
 
     def __init__(
         self,
-        shacl_graph: GraphInput,
-        data_graph: Optional[GraphInput] = None,
+        shacl_graph: GraphInputs,
+        data_graph: Optional[GraphInputs] = None,
         *,
         infer: bool = True,
         base: Optional[str] = None,
     ) -> None:
-        shapes = _to_rdf_input(shacl_graph)
+        shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph))
         data = (
-            _to_rdf_input(data_graph)
+            _to_rdf_input(_coalesce_graph_input(data_graph))
             if data_graph is not None
             else _RdfInput(None, None, "turtle")
         )
@@ -467,11 +570,17 @@ class RepairSession:
 
     def gate(self, delta: RepairDelta) -> RepairOutcome:
         """Re-validate ``G ⊕ ΔG`` and diff the violations against ``G`` — sound
-        iff it introduces nothing. Decides and applies nothing."""
+        iff it introduces nothing. Decides and applies nothing.
+
+        ``G ⊕ ΔG`` applies deletes first, then adds, so a triple in both sides
+        of the delta is a net-add (the re-add wins)."""
         return self._inner.gate(delta)
 
     def apply(self, delta: RepairDelta) -> "rdflib.Graph":
-        """Materialize ``G ⊕ ΔG`` as a fresh :class:`rdflib.Graph`."""
+        """Materialize ``G ⊕ ΔG`` as a fresh :class:`rdflib.Graph`.
+
+        Deletes are applied first, then adds, so a triple present in both sides
+        of the delta ends up in the result (net-add)."""
         import rdflib
 
         g = rdflib.Graph()
@@ -511,8 +620,8 @@ class RepairSession:
 
 
 def validate(
-    data_graph: GraphInput,
-    shacl_graph: Optional[GraphInput] = None,
+    data_graph: GraphInputs,
+    shacl_graph: Optional[GraphInputs] = None,
     *,
     graph_mode: str = "union",
     infer: bool = True,
@@ -526,11 +635,12 @@ def validate(
     Parameters
     ----------
     data_graph:
-        The RDF data to validate.
+        The RDF data to validate. A list/tuple of inputs is unioned first.
     shacl_graph:
         The SHACL shapes graph.  If ``None``, shapes are expected to be
         embedded in *data_graph* (standard SHACL pattern). Passing an empty
-        ``rdflib.Graph()`` means an explicit empty shapes graph.
+        ``rdflib.Graph()`` means an explicit empty shapes graph. A list/tuple
+        of inputs is unioned first.
     graph_mode:
         ``"union"`` (default), ``"data"``, or ``"union-all"``.
     infer:
@@ -555,8 +665,8 @@ def validate(
     """
     import rdflib
 
-    data = _to_rdf_input(data_graph)
-    shapes = _to_rdf_input(shacl_graph) if shacl_graph is not None else _RdfInput(None, None, "turtle")
+    data = _to_rdf_input(_coalesce_graph_input(data_graph))
+    shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph)) if shacl_graph is not None else _RdfInput(None, None, "turtle")
     result: W3cResult = _validate_w3c(
         data.data,
         data.path,
@@ -579,8 +689,8 @@ def validate(
 
 
 def validate_algebra(
-    data_graph: GraphInput,
-    shacl_graph: Optional[GraphInput] = None,
+    data_graph: GraphInputs,
+    shacl_graph: Optional[GraphInputs] = None,
     *,
     graph_mode: str = "union",
     infer: bool = True,
@@ -612,8 +722,8 @@ def validate_algebra(
         ``.conforms`` is ``True`` when no violations were found.
         ``.violations`` lists each failing focus node with reasons.
     """
-    data = _to_rdf_input(data_graph)
-    shapes = _to_rdf_input(shacl_graph) if shacl_graph is not None else _RdfInput(None, None, "turtle")
+    data = _to_rdf_input(_coalesce_graph_input(data_graph))
+    shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph)) if shacl_graph is not None else _RdfInput(None, None, "turtle")
     return _validate_algebra(
         data.data,
         data.path,
@@ -631,8 +741,8 @@ def validate_algebra(
 
 
 def infer(
-    data_graph: GraphInput,
-    shapes_graph: Optional[GraphInput] = None,
+    data_graph: GraphInputs,
+    shapes_graph: Optional[GraphInputs] = None,
     *,
     on_unsupported: str = "ignore",
     base: Optional[str] = None,
@@ -642,7 +752,7 @@ def infer(
     Parameters
     ----------
     data_graph:
-        Input data graph.
+        Input data graph. A list/tuple of inputs is unioned first.
     shapes_graph:
         Shapes graph containing ``sh:rule`` definitions.  If ``None``,
         rules are expected inside *data_graph*. Passing an empty
@@ -656,8 +766,8 @@ def infer(
         Call ``.graph()`` to get the result as an :class:`rdflib.Graph`,
         or read ``.graph_ntriples`` for the raw N-Triples string.
     """
-    data = _to_rdf_input(data_graph)
-    shapes = _to_rdf_input(shapes_graph) if shapes_graph is not None else _RdfInput(None, None, "turtle")
+    data = _to_rdf_input(_coalesce_graph_input(data_graph))
+    shapes = _to_rdf_input(_coalesce_graph_input(shapes_graph)) if shapes_graph is not None else _RdfInput(None, None, "turtle")
     inner = _infer(
         data.data,
         data.path,
