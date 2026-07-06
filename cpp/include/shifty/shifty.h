@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define SHIFTY_ABI_VERSION 1u
+#define SHIFTY_ABI_VERSION 2u
 
 typedef uint32_t ShiftyStatus;
 enum {
@@ -33,6 +33,17 @@ enum {
     SHIFTY_GRAPH_MODE_DATA = 0,
     SHIFTY_GRAPH_MODE_UNION = 1,
     SHIFTY_GRAPH_MODE_UNION_ALL = 2
+};
+
+/* Lowest result severity that makes a validation outcome non-conforming.
+ * Findings below the threshold are still reported (they appear in the W3C
+ * report graph / AlgebraResult.violations); they just don't fail conforms.
+ * Matches the `minimum_severity` option of the Python / WASM / CLI APIs. */
+typedef uint32_t ShiftySeverity;
+enum {
+    SHIFTY_SEVERITY_INFO = 0,
+    SHIFTY_SEVERITY_WARNING = 1,
+    SHIFTY_SEVERITY_VIOLATION = 2
 };
 
 typedef uint32_t ShiftyQueryResultKind;
@@ -122,6 +133,7 @@ ShiftyStatus shifty_prepared_validator_validate(
     const ShiftyDataset *dataset,
     ShiftyGraphMode graph_mode,
     uint8_t run_inference,
+    ShiftySeverity minimum_severity,
     ShiftyValidationResult **out);
 
 void shifty_validation_result_destroy(ShiftyValidationResult *result);
@@ -176,6 +188,7 @@ ShiftyStatus shifty_prepared_validator_validate_algebra(
     const ShiftyDataset *dataset,
     ShiftyGraphMode graph_mode,
     uint8_t run_inference,
+    ShiftySeverity minimum_severity,
     ShiftyAlgebraResult **out);
 
 void shifty_algebra_result_destroy(ShiftyAlgebraResult *result);

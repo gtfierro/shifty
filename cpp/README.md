@@ -47,6 +47,24 @@ Boolean accessor and SPARQL Results JSON.
 The initial API stores one RDF default graph and executes read-only SPARQL
 queries over it. Named graphs, N-Quads, and SPARQL Update are not yet exposed.
 
+### Severity threshold
+
+Both `validate()` and `validate_algebra()` accept a `minimum_severity` on
+`ValidationOptions` — the lowest result severity that makes `conforms()`
+false. Findings below the threshold are still reported (they appear in the
+W3C report graph / `AlgebraResult::violations()`); they just don't fail
+validation. This mirrors the `minimum_severity` option of the Python / WASM /
+CLI APIs.
+
+```cpp
+shifty::ValidationOptions opts;
+opts.minimum_severity = shifty::Severity::Warning;  // Info no longer fails
+if (!validator.validate(dataset, opts).conforms()) { /* … */ }
+```
+
+The three levels are `Severity::Info` (the default — any finding fails),
+`Severity::Warning`, and `Severity::Violation` (only Violations fail).
+
 ### Algebra-path validation
 
 `validate()` returns a W3C `sh:ValidationReport`, serialized as Turtle.

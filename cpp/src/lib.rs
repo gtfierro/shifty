@@ -6,11 +6,12 @@
 
 use oxrdf::{Dataset as OxDataset, Graph, GraphName, Quad, Term};
 use oxttl::{NTriplesSerializer, TurtleSerializer};
-use shifty_algebra::Schema;
+use shifty_algebra::{Schema, Severity};
 use shifty_engine::{
-    ValidationGraphMode, ValidationOptions as EngineValidationOptions, ValidationOutcome,
-    ValidationReport, Violation, infer_graphs, property_witnesses_graphs_with_mode,
-    report_to_graph, validate_plan_graphs_with_mode_and_options, validate_report_graphs_with_mode,
+    EngineOptions, ValidationGraphMode, ValidationOptions as EngineValidationOptions,
+    ValidationOutcome, ValidationReport, Violation, infer_graphs,
+    property_witnesses_graphs_with_mode, report_to_graph,
+    validate_plan_graphs_with_mode_and_options, validate_report_graphs_with_mode_and_options,
 };
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 use spareval::{QueryEvaluator, QueryResults};
@@ -54,6 +55,15 @@ pub enum ShiftyGraphMode {
     Data = 0,
     Union = 1,
     UnionAll = 2,
+}
+
+/// Mirrors `ShiftySeverity` from the C header. See `severity()` for parsing.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftySeverity {
+    Info = 0,
+    Warning = 1,
+    Violation = 2,
 }
 
 #[repr(C)]
@@ -314,6 +324,7 @@ fn validate_dataset(
     dataset: &ShiftyDataset,
     mode: u32,
     run_inference: bool,
+    minimum_severity: Severity,
 ) -> Result<ShiftyValidationResult, ApiError> {
     let mode = match graph_mode(mode)? {
         ShiftyGraphMode::Data => ValidationGraphMode::Data,
@@ -330,7 +341,9 @@ fn validate_dataset(
         None
     };
     let data = inferred.as_ref().unwrap_or(&dataset.graph);
-    let report = validate_report_graphs_with_mode(&validator.shapes, data, mode);
+    let options = engine_validation_options(minimum_severity);
+    let report =
+        validate_report_graphs_with_mode_and_options(&validator.shapes, data, mode, &options);
     let report_graph = report_to_graph(&report);
     Ok(ShiftyValidationResult {
         conforms: report.conforms,
@@ -475,6 +488,7 @@ fn validate_algebra_dataset(
     dataset: &ShiftyDataset,
     mode: u32,
     run_inference: bool,
+    minimum_severity: Severity,
 ) -> Result<ShiftyAlgebraResult, ApiError> {
     let mode = match graph_mode(mode)? {
         ShiftyGraphMode::Data => ValidationGraphMode::Data,
@@ -491,12 +505,13 @@ fn validate_algebra_dataset(
         None
     };
     let data = inferred.as_ref().unwrap_or(&dataset.graph);
+    let options = engine_validation_options(minimum_severity);
     let outcome = validate_plan_graphs_with_mode_and_options(
         data,
         &validator.shapes.graph,
         &validator.plan,
         mode,
-        &EngineValidationOptions::default(),
+        &options,
     )
     .map_err(|error| ApiError::new(ShiftyStatus::ValidationError, error.to_string()))?;
     Ok(build_algebra_result(outcome, &validator.schema))
@@ -604,6 +619,32 @@ fn graph_mode(value: u32) -> Result<ShiftyGraphMode, ApiError> {
     }
 }
 
+/// Parse a `ShiftySeverity` discriminant into the engine's `Severity`. Custom
+/// severities are not expressible through the C ABI; callers that need them
+/// should use the Python / Rust APIs directly.
+fn severity(value: u32) -> Result<Severity, ApiError> {
+    match value {
+        0 => Ok(Severity::Info),
+        1 => Ok(Severity::Warning),
+        2 => Ok(Severity::Violation),
+        _ => Err(ApiError::new(
+            ShiftyStatus::InvalidArgument,
+            format!("unknown severity value {value}"),
+        )),
+    }
+}
+
+/// Build the engine `ValidationOptions` from the C-level severity discriminant,
+/// preserving the historical defaults for the fields the ABI does not expose
+/// (`sort_results = true`, `engine.unsupported = Ignore`).
+fn engine_validation_options(minimum_severity: Severity) -> EngineValidationOptions {
+    EngineValidationOptions {
+        minimum_severity,
+        sort_results: true,
+        engine: EngineOptions::default(),
+    }
+}
+
 fn set_last_error(message: &str) {
     let sanitized = message.replace('\0', "\\0");
     LAST_ERROR.with(|slot| {
@@ -686,7 +727,7 @@ fn string_view(value: &str) -> ShiftyStringView {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn shifty_abi_version() -> u32 {
-    1
+    2
 }
 
 #[unsafe(no_mangle)]
@@ -931,6 +972,7 @@ pub unsafe extern "C" fn shifty_prepared_validator_validate(
     dataset: *const ShiftyDataset,
     graph_mode: u32,
     run_inference: u8,
+    minimum_severity: u32,
     out: *mut *mut ShiftyValidationResult,
 ) -> u32 {
     ffi_call(|| {
@@ -945,7 +987,14 @@ pub unsafe extern "C" fn shifty_prepared_validator_validate(
             ));
         }
         unsafe { out.write(ptr::null_mut()) };
-        let result = validate_dataset(validator, dataset, graph_mode, run_inference != 0)?;
+        let minimum_severity = severity(minimum_severity)?;
+        let result = validate_dataset(
+            validator,
+            dataset,
+            graph_mode,
+            run_inference != 0,
+            minimum_severity,
+        )?;
         unsafe { out.write(Box::into_raw(Box::new(result))) };
         Ok(())
     })
@@ -1125,6 +1174,7 @@ pub unsafe extern "C" fn shifty_prepared_validator_validate_algebra(
     dataset: *const ShiftyDataset,
     graph_mode: u32,
     run_inference: u8,
+    minimum_severity: u32,
     out: *mut *mut ShiftyAlgebraResult,
 ) -> u32 {
     ffi_call(|| {
@@ -1139,7 +1189,14 @@ pub unsafe extern "C" fn shifty_prepared_validator_validate_algebra(
             ));
         }
         unsafe { out.write(ptr::null_mut()) };
-        let result = validate_algebra_dataset(validator, dataset, graph_mode, run_inference != 0)?;
+        let minimum_severity = severity(minimum_severity)?;
+        let result = validate_algebra_dataset(
+            validator,
+            dataset,
+            graph_mode,
+            run_inference != 0,
+            minimum_severity,
+        )?;
         unsafe { out.write(Box::into_raw(Box::new(result))) };
         Ok(())
     })

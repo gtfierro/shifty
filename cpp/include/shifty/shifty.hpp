@@ -29,6 +29,16 @@ enum class GraphMode {
     UnionAll,
 };
 
+/// Lowest result severity that fails validation. Findings below the threshold
+/// are still reported (in the W3C report graph / AlgebraResult::violations());
+/// they just don't make conforms() return false. Mirrors the
+/// `minimum_severity` option of the Python / WASM / CLI APIs.
+enum class Severity {
+    Info,
+    Warning,
+    Violation,
+};
+
 /// Identifies the form of a SPARQL query result.
 enum class QueryResultKind {
     Boolean,
@@ -44,6 +54,14 @@ struct ValidationOptions {
 
     /// Run SHACL-AF rules to a fixed point before validation.
     bool run_inference = true;
+
+    /// Lowest result severity that makes conforms() false. Defaults to
+    /// `Severity::Info`, so any finding fails validation. Set to
+    /// `Severity::Warning` to treat Info findings as non-failing, or
+    /// `Severity::Violation` to fail only on Violations. Applied by both
+    /// validate() and validate_algebra(); lower-severity findings remain
+    /// available in the report / AlgebraResult::violations() regardless.
+    Severity minimum_severity = Severity::Info;
 
     /// A SPARQL 1.1 property path expression (e.g. "zea:roleName",
     /// "zea:role/zea:roleName", "^zea:describes/zea:roleName") evaluated from
@@ -279,6 +297,18 @@ inline ShiftyGraphMode to_c(GraphMode mode) {
         return SHIFTY_GRAPH_MODE_UNION_ALL;
     }
     throw std::invalid_argument("unknown graph mode");
+}
+
+inline ShiftySeverity to_c(Severity severity) {
+    switch (severity) {
+    case Severity::Info:
+        return SHIFTY_SEVERITY_INFO;
+    case Severity::Warning:
+        return SHIFTY_SEVERITY_WARNING;
+    case Severity::Violation:
+        return SHIFTY_SEVERITY_VIOLATION;
+    }
+    throw std::invalid_argument("unknown severity");
 }
 
 inline QueryResultKind from_c(ShiftyQueryResultKind kind) {
@@ -533,6 +563,7 @@ public:
             dataset.handle_.get(),
             detail::to_c(options.graph_mode),
             static_cast<std::uint8_t>(options.run_inference),
+            detail::to_c(options.minimum_severity),
             &raw));
         std::unique_ptr<
             ShiftyValidationResult,
@@ -606,6 +637,7 @@ public:
             dataset.handle_.get(),
             detail::to_c(options.graph_mode),
             static_cast<std::uint8_t>(options.run_inference),
+            detail::to_c(options.minimum_severity),
             &raw));
         std::unique_ptr<ShiftyAlgebraResult, detail::AlgebraResultDeleter> result(raw);
 

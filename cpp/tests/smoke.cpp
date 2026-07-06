@@ -151,5 +151,80 @@ int main() {
     assert(return_air.value_nodes.size() == 1);
     assert(return_air.value_nodes[0] == "<http://example.com/rat>");
 
+    // Severity threshold (minimum_severity): the lowest result severity that
+    // fails validation. Findings below the threshold stay in the report /
+    // violation tree; they just don't make conforms() false. A focus node
+    // missing two optional fields — one sh:Warning, one sh:Info — exercises all
+    // three thresholds on both validate() and validate_algebra().
+    constexpr std::string_view sev_shapes = R"(
+        @prefix sh:  <http://www.w3.org/ns/shacl#> .
+        @prefix ex:  <http://example.com/> .
+
+        ex:SevShape a sh:NodeShape ;
+            sh:targetClass ex:SevThing ;
+            sh:property [
+                sh:path ex:warnField ;
+                sh:minCount 1 ;
+                sh:severity sh:Warning ;
+            ] ;
+            sh:property [
+                sh:path ex:infoField ;
+                sh:minCount 1 ;
+                sh:severity sh:Info ;
+            ] .
+    )";
+    constexpr std::string_view sev_data = R"(
+        @prefix ex: <http://example.com/> .
+        ex:thing a ex:SevThing .
+    )";
+
+    shifty::Dataset sev_dataset;
+    sev_dataset.load(sev_data);
+    shifty::PreparedValidator sev_validator(sev_shapes);
+
+    // Default threshold is Severity::Info, so both findings fail validation.
+    {
+        shifty::ValidationOptions opts;
+        assert(opts.minimum_severity == shifty::Severity::Info);
+        assert(!sev_validator.validate(sev_dataset, opts).conforms());
+        assert(!sev_validator.validate_algebra(sev_dataset, opts).conforms());
+    }
+    // At Severity::Warning, the Info finding no longer fails, but the Warning
+    // still does.
+    {
+        shifty::ValidationOptions opts;
+        opts.minimum_severity = shifty::Severity::Warning;
+        assert(!sev_validator.validate(sev_dataset, opts).conforms());
+        assert(!sev_validator.validate_algebra(sev_dataset, opts).conforms());
+    }
+    // At Severity::Violation, neither finding fails — conforms is true — yet
+    // the Warning/Info results are still reported.
+    {
+        shifty::ValidationOptions opts;
+        opts.minimum_severity = shifty::Severity::Violation;
+
+        const auto w3c = sev_validator.validate(sev_dataset, opts);
+        assert(w3c.conforms());
+        assert(w3c.report_turtle().find("sh:Warning") != std::string::npos);
+        assert(w3c.report_turtle().find("sh:Info") != std::string::npos);
+
+        const auto alg = sev_validator.validate_algebra(sev_dataset, opts);
+        assert(alg.conforms());
+        // Both findings remain in the violation tree despite conforming: one
+        // grouped Violation (the named parent shape) carrying one Warning and
+        // one Info reason; its own severity is the most severe of the two.
+        assert(alg.violations().size() == 1);
+        const auto &grouped = alg.violations().front();
+        assert(grouped.severity == "Warning");
+        assert(grouped.reasons.size() == 2);
+        bool saw_warning = false, saw_info = false;
+        for (const auto &reason : grouped.reasons) {
+            if (reason.severity == "Warning") saw_warning = true;
+            if (reason.severity == "Info") saw_info = true;
+        }
+        assert(saw_warning);
+        assert(saw_info);
+    }
+
     return 0;
 }
