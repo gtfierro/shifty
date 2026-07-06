@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "pyshifty"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "oxrdf",
  "oxttl",
@@ -1279,7 +1279,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-algebra"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "oxrdf",
  "regex",
@@ -1289,7 +1289,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-cli"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "clap",
  "env_logger",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-cpp"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "oxrdf",
  "oxttl",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-engine"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bigdecimal",
  "log",
@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-opt"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "petgraph",
  "serde",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-parse"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "oxrdf",
  "oxrdfio",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-repair"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "oxrdf",
  "serde",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "shifty-wasm"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
