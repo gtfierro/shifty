@@ -80,7 +80,9 @@ Keyword arguments
    * - Argument
      - Description
    * - ``graph_mode``
-     - ``"data"`` (default), ``"union"``, or ``"union-all"`` — controls which triples are visible to path traversal and SPARQL evaluation
+     - ``"union"`` (default), ``"data"``, or ``"union-all"`` — controls which triples are visible to path traversal and SPARQL evaluation
+   * - ``shape_names``
+     - Optional list of named shape IRIs to use as top-level validation entry points; referenced helper shapes are still evaluated normally
    * - ``infer``
      - ``True`` (default) — run SHACL-AF ``sh:rule`` entries to a fixed point before validating; set ``False`` to skip inference
 
@@ -89,8 +91,15 @@ Keyword arguments
    # Skip inference, validate data only
    conforms, report, text = shifty.validate(data, shapes, infer=False)
 
-   # Use the fully-merged graph for path evaluation
+   # Use data ∪ shapes for path/SPARQL evaluation
    conforms, report, text = shifty.validate(data, shapes, graph_mode="union")
+
+   # Validate only selected named shapes as entry points
+   conforms, report, text = shifty.validate(
+       data,
+       shapes,
+       shape_names=["http://example.org/PersonShape"],
+   )
 
 Embedded shapes
 ~~~~~~~~~~~~~~~
@@ -295,14 +304,34 @@ that controls which triples are visible to path traversal and SPARQL evaluation:
 
    * - Mode
      - Behaviour
-   * - ``"data"`` *(default)*
+   * - ``"data"``
      - Focus nodes come from the data graph; path traversal and SPARQL use data only
-   * - ``"union"``
+   * - ``"union"`` *(default)*
      - Focus nodes from data; paths and SPARQL use data ∪ shapes
    * - ``"union-all"``
      - Focus nodes and evaluation both use data ∪ shapes
 
 ``infer()`` does not accept ``graph_mode``.
+
+shape_names
+-----------
+
+Both ``validate()`` and ``validate_algebra()`` accept ``shape_names=[...]`` to
+validate only selected named shapes as top-level entry points:
+
+.. code-block:: python
+
+   result = shifty.validate_algebra(
+       data,
+       shapes,
+       shape_names=["http://example.org/PersonShape"],
+   )
+
+Only target-bearing statements owned by the selected named shapes are used as
+entry points. Dependencies referenced from those entries are still evaluated
+normally, including helper shapes reached through ``sh:node``, ``sh:property``,
+qualified value shapes, and boolean shape expressions. Shape names may be
+passed as bare IRIs or wrapped in angle brackets.
 
 For full API documentation including the ``RepairSession`` interface, see
 `docs.rs/shifty-engine <https://docs.rs/shifty-engine>`_.

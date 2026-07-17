@@ -223,6 +223,45 @@ mod tests {
     }
 
     #[test]
+    fn entry_shape_names_limit_top_level_validation_but_keep_dependencies() {
+        let ttl = format!(
+            "{PREFIXES}
+            ex:Selected a sh:NodeShape ;
+                sh:targetNode ex:a ;
+                sh:node ex:Helper .
+
+            ex:Skipped a sh:NodeShape ;
+                sh:targetNode ex:b ;
+                sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+
+            ex:Helper a sh:NodeShape ;
+                sh:property [ sh:path ex:required ; sh:minCount 1 ] .
+
+            ex:a ex:p \"present\" .
+            ex:b a ex:Thing .
+            "
+        );
+        let loaded = shifty_parse::load_turtle(ttl.as_bytes(), None).unwrap();
+        let parsed = shifty_parse::parse_loaded(&loaded);
+        let normalized = shifty_opt::normalize(&parsed.schema);
+        let plan = shifty_opt::plan(&normalized);
+        let options = ValidationOptions {
+            entry_shape_names: vec!["http://ex/Selected".to_string()],
+            ..Default::default()
+        };
+
+        let outcome = validate_plan_with_options(&loaded.graph, &plan, &options).unwrap();
+        assert!(!outcome.conforms);
+        assert_eq!(outcome.violations.len(), 1);
+        assert_eq!(outcome.violations[0].focus.to_string(), "<http://ex/a>");
+
+        let report = validate_report_with_options(&loaded, &loaded.graph, &options);
+        assert!(!report.conforms);
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(report.results[0].focus.to_string(), "<http://ex/a>");
+    }
+
+    #[test]
     fn inference_rules_fire_for_implicit_class_targets() {
         let ttl = br#"
             @prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .

@@ -121,6 +121,12 @@ traps in the browser.
   const result = validate(shapesTurtle, dataTurtle, { infer: true });
   console.log(result.conforms, result.violations);
 
+  // Limit validation to named top-level shape entry points. Referenced helper
+  // shapes are still evaluated normally. `entryShapeNames` is also accepted.
+  const scoped = validate(shapesTurtle, dataTurtle, {
+    shapeNames: ["http://example.org/PersonShape"],
+  });
+
   // Each violation is { focusNode, shapeName?, severity, reasons: [...] }.
   // Each reason is { value, path?, message, severity, authorMessage? }:
   //   message       — always present, engine-generated description.

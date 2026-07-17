@@ -110,6 +110,10 @@ struct ValidateArgs {
     /// RDF graph scope used during validation.
     #[arg(long, visible_alias = "graph-scope", value_enum, default_value_t = GraphMode::Union)]
     graph_mode: GraphMode,
+    /// Named shape IRI to use as a validation entry point (repeatable). When
+    /// omitted, every target-bearing shape is used.
+    #[arg(long = "shape-name", visible_alias = "entry-shape", value_name = "IRI", action = clap::ArgAction::Append)]
+    entry_shape_names: Vec<String>,
     /// Lowest result severity that makes validation non-conforming.
     #[arg(long, value_enum, default_value_t = SeverityLevel::Info)]
     minimum_severity: SeverityLevel,
@@ -360,6 +364,7 @@ fn validate(args: ValidateArgs) -> Result<(), Box<dyn Error>> {
     let validation_options = shifty_engine::ValidationOptions {
         minimum_severity: threshold.clone(),
         sort_results: true,
+        entry_shape_names: args.entry_shape_names.clone(),
         ..Default::default()
     };
 

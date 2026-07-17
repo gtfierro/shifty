@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define SHIFTY_ABI_VERSION 2u
+#define SHIFTY_ABI_VERSION 3u
 
 typedef uint32_t ShiftyStatus;
 enum {
@@ -135,6 +135,22 @@ ShiftyStatus shifty_prepared_validator_validate(
     uint8_t run_inference,
     ShiftySeverity minimum_severity,
     ShiftyValidationResult **out);
+/*
+ * Like shifty_prepared_validator_validate, but validates only the named shapes
+ * in shape_names as top-level entry points. shape_names is an array of
+ * length-delimited UTF-8 IRIs; bare IRIs and <iri> forms are accepted. Helper
+ * shapes referenced from the selected entries are still evaluated normally.
+ * Pass NULL with length 0 to validate every target-bearing shape.
+ */
+ShiftyStatus shifty_prepared_validator_validate_with_shapes(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftySeverity minimum_severity,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
+    ShiftyValidationResult **out);
 
 void shifty_validation_result_destroy(ShiftyValidationResult *result);
 uint8_t shifty_validation_result_conforms(const ShiftyValidationResult *result);
@@ -189,6 +205,21 @@ ShiftyStatus shifty_prepared_validator_validate_algebra(
     ShiftyGraphMode graph_mode,
     uint8_t run_inference,
     ShiftySeverity minimum_severity,
+    ShiftyAlgebraResult **out);
+/*
+ * Like shifty_prepared_validator_validate_algebra, but validates only the
+ * named shapes in shape_names as top-level entry points. Dependencies of those
+ * entries are still evaluated normally. Pass NULL with length 0 to validate
+ * every target-bearing shape.
+ */
+ShiftyStatus shifty_prepared_validator_validate_algebra_with_shapes(
+    const ShiftyPreparedValidator *validator,
+    const ShiftyDataset *dataset,
+    ShiftyGraphMode graph_mode,
+    uint8_t run_inference,
+    ShiftySeverity minimum_severity,
+    const ShiftyStringView *shape_names,
+    size_t shape_names_len,
     ShiftyAlgebraResult **out);
 
 void shifty_algebra_result_destroy(ShiftyAlgebraResult *result);

@@ -51,12 +51,16 @@ shapes graph is omitted or passed as ``None``, all modes are equivalent because
 data and shapes are the same embedded graph. Passing an empty ``rdflib.Graph()``
 is an explicit empty shapes graph, not embedded-shapes mode. ``infer`` does not
 accept ``graph_mode``.
+
+``shape_names`` applies to ``validate`` and ``validate_algebra``. It limits
+validation to selected named shapes as top-level entry points while still
+evaluating referenced helper shapes normally.
 """
 
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, NamedTuple, Optional, Sequence, Union
 
 from ._shifty import (
     AlgebraResult,
@@ -292,11 +296,18 @@ class PreparedValidator:
         data_graph: GraphInputs,
         *,
         graph_mode: str = "union",
+        shape_names: Optional[Sequence[str]] = None,
         infer: bool = True,
         minimum_severity: str = "info",
         sort_results: bool = True,
         on_unsupported: str = "ignore",
     ) -> "tuple[bool, rdflib.Graph, str]":
+        """Validate *data_graph* against the prepared shapes.
+
+        ``shape_names`` optionally limits validation to the named shapes in
+        that list as top-level entry points. Referenced helper shapes are still
+        evaluated normally.
+        """
         import rdflib
 
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
@@ -305,6 +316,7 @@ class PreparedValidator:
             data.path,
             data.format,
             graph_mode,
+            list(shape_names) if shape_names is not None else None,
             infer,
             minimum_severity,
             sort_results,
@@ -319,17 +331,25 @@ class PreparedValidator:
         data_graph: GraphInputs,
         *,
         graph_mode: str = "union",
+        shape_names: Optional[Sequence[str]] = None,
         infer: bool = True,
         minimum_severity: str = "info",
         sort_results: bool = True,
         on_unsupported: str = "ignore",
     ) -> AlgebraResult:
+        """Validate using the algebra result path.
+
+        ``shape_names`` optionally limits validation to the named shapes in
+        that list as top-level entry points. Referenced helper shapes are still
+        evaluated normally.
+        """
         data = _to_rdf_input(_coalesce_graph_input(data_graph))
         return self._inner.validate_algebra(
             data.data,
             data.path,
             data.format,
             graph_mode,
+            list(shape_names) if shape_names is not None else None,
             infer,
             minimum_severity,
             sort_results,
@@ -624,6 +644,7 @@ def validate(
     shacl_graph: Optional[GraphInputs] = None,
     *,
     graph_mode: str = "union",
+    shape_names: Optional[Sequence[str]] = None,
     infer: bool = True,
     minimum_severity: str = "info",
     sort_results: bool = True,
@@ -643,6 +664,10 @@ def validate(
         of inputs is unioned first.
     graph_mode:
         ``"union"`` (default), ``"data"``, or ``"union-all"``.
+    shape_names:
+        Optional list of named shape IRIs to use as top-level validation entry
+        points. Referenced helper shapes are still evaluated normally. Bare
+        IRIs and ``<iri>`` forms are both accepted.
     infer:
         Run SHACL-AF rules before validation (default ``True``).
     minimum_severity:
@@ -675,6 +700,7 @@ def validate(
         shapes.path,
         shapes.format,
         graph_mode,
+        list(shape_names) if shape_names is not None else None,
         infer,
         minimum_severity,
         sort_results,
@@ -693,6 +719,7 @@ def validate_algebra(
     shacl_graph: Optional[GraphInputs] = None,
     *,
     graph_mode: str = "union",
+    shape_names: Optional[Sequence[str]] = None,
     infer: bool = True,
     minimum_severity: str = "info",
     sort_results: bool = True,
@@ -709,7 +736,7 @@ def validate_algebra(
 
     Parameters
     ----------
-    data_graph, shacl_graph, graph_mode, infer, base:
+    data_graph, shacl_graph, graph_mode, shape_names, infer, base:
         Same as :func:`validate`.
     minimum_severity:
         Lowest level that makes ``conforms`` false: ``"info"`` (default),
@@ -732,6 +759,7 @@ def validate_algebra(
         shapes.path,
         shapes.format,
         graph_mode,
+        list(shape_names) if shape_names is not None else None,
         infer,
         minimum_severity,
         sort_results,

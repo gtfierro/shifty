@@ -179,6 +179,11 @@ pub struct ValidationOptions {
     /// Whether to sort violations by severity, focus node, and statement.
     /// Defaults to `true` for deterministic output.
     pub sort_results: bool,
+    /// Optional set of named shapes to use as validation entry points. When
+    /// empty, every target-bearing shape is validated. Dependencies reachable
+    /// from the selected shapes remain available in the arena and are evaluated
+    /// normally when referenced by the selected entries.
+    pub entry_shape_names: Vec<String>,
     /// Feature-handling policy (see [`EngineOptions`]).
     pub engine: EngineOptions,
 }
@@ -188,9 +193,33 @@ impl Default for ValidationOptions {
         Self {
             minimum_severity: Severity::Info,
             sort_results: true,
+            entry_shape_names: Vec::new(),
             engine: EngineOptions::default(),
         }
     }
+}
+
+fn requested_shape_name_matches(requested: &str, actual: &str) -> bool {
+    let requested = requested.trim();
+    requested == actual
+        || requested
+            .strip_prefix('<')
+            .and_then(|s| s.strip_suffix('>'))
+            .is_some_and(|stripped| stripped == actual)
+}
+
+/// Returns whether a named shape should be treated as a top-level validation
+/// entry under `entry_shape_names`. Empty selection means "all entries".
+pub(crate) fn entry_shape_name_selected(
+    entry_shape_names: &[String],
+    actual_name: Option<&str>,
+) -> bool {
+    entry_shape_names.is_empty()
+        || actual_name.is_some_and(|actual| {
+            entry_shape_names
+                .iter()
+                .any(|requested| requested_shape_name_matches(requested, actual))
+        })
 }
 
 fn most_severe(reasons: &[Reason]) -> Severity {
@@ -390,6 +419,12 @@ fn validate_with_frozen(
     let mut evaluator = ShapeEvaluator::new(backend, &schema.arena, &sparql);
     let mut violations = Vec::new();
     for (i, st) in schema.statements.iter().enumerate() {
+        if !entry_shape_name_selected(
+            &options.entry_shape_names,
+            schema.names.get(&st.shape).map(String::as_str),
+        ) {
+            continue;
+        }
         let label = schema
             .names
             .get(&st.shape)
@@ -583,6 +618,12 @@ fn validate_plan_with_frozen(
     let mut evaluator = ShapeEvaluator::new(backend, &plan.arena, &sparql);
     let mut violations = Vec::new();
     for (i, sp) in plan.statements.iter().enumerate() {
+        if !entry_shape_name_selected(
+            &options.entry_shape_names,
+            plan.names.get(&sp.shape).map(String::as_str),
+        ) {
+            continue;
+        }
         let label = plan
             .names
             .get(&sp.shape)

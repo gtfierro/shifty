@@ -63,6 +63,11 @@ struct ValidationOptions {
     /// available in the report / AlgebraResult::violations() regardless.
     Severity minimum_severity = Severity::Info;
 
+    /// Named shape IRIs to use as validation entry points. When empty (the
+    /// default), every target-bearing shape is used. Referenced helper shapes
+    /// are still evaluated normally from the selected entries.
+    std::vector<std::string> shape_names;
+
     /// A SPARQL 1.1 property path expression (e.g. "zea:roleName",
     /// "zea:role/zea:roleName", "^zea:describes/zea:roleName") evaluated from
     /// each `sh:property` shape's own node, over the shapes graph, to produce
@@ -341,6 +346,16 @@ inline const char *optional_data(std::string_view value) noexcept {
     return value.empty() ? nullptr : value.data();
 }
 
+inline std::vector<ShiftyStringView> string_views(
+    const std::vector<std::string> &values) {
+    std::vector<ShiftyStringView> out;
+    out.reserve(values.size());
+    for (const auto &value : values) {
+        out.push_back(ShiftyStringView{value.data(), value.size()});
+    }
+    return out;
+}
+
 inline std::string path_utf8(const std::filesystem::path &path) {
     const auto value = path.u8string();
 #if defined(__cpp_lib_char8_t)
@@ -612,18 +627,24 @@ public:
     }
 
     /// Validates a dataset using the cached shapes representation.
+    /// `options.shape_names`, when non-empty, limits validation to those named
+    /// shapes as top-level entry points while preserving normal dependency
+    /// evaluation.
     ///
     /// \throws Error for non-stratifiable shapes or validation failures.
     [[nodiscard]] ValidationResult validate(
         const Dataset &dataset,
         ValidationOptions options = {}) const {
         ShiftyValidationResult *raw = nullptr;
-        detail::check(shifty_prepared_validator_validate(
+        const auto shape_names = detail::string_views(options.shape_names);
+        detail::check(shifty_prepared_validator_validate_with_shapes(
             handle_.get(),
             dataset.handle_.get(),
             detail::to_c(options.graph_mode),
             static_cast<std::uint8_t>(options.run_inference),
             detail::to_c(options.minimum_severity),
+            shape_names.data(),
+            shape_names.size(),
             &raw));
         std::unique_ptr<
             ShiftyValidationResult,
@@ -685,19 +706,24 @@ public:
     /// returned as a structured violation/reason tree rather than a W3C
     /// sh:ValidationReport graph. Prefer this over validate() when the
     /// caller wants to inspect findings programmatically instead of parsing
-    /// Turtle.
+    /// Turtle. `options.shape_names`, when non-empty, limits validation to
+    /// those named shapes as top-level entry points while preserving normal
+    /// dependency evaluation.
     ///
     /// \throws Error for non-stratifiable shapes or validation failures.
     [[nodiscard]] AlgebraResult validate_algebra(
         const Dataset &dataset,
         ValidationOptions options = {}) const {
         ShiftyAlgebraResult *raw = nullptr;
-        detail::check(shifty_prepared_validator_validate_algebra(
+        const auto shape_names = detail::string_views(options.shape_names);
+        detail::check(shifty_prepared_validator_validate_algebra_with_shapes(
             handle_.get(),
             dataset.handle_.get(),
             detail::to_c(options.graph_mode),
             static_cast<std::uint8_t>(options.run_inference),
             detail::to_c(options.minimum_severity),
+            shape_names.data(),
+            shape_names.size(),
             &raw));
         std::unique_ptr<ShiftyAlgebraResult, detail::AlgebraResultDeleter> result(raw);
 

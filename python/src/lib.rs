@@ -771,6 +771,8 @@ pub fn version() -> &'static str {
 
 /// Run algebra-path validation. Returns an `AlgebraResult` with structured
 /// `Violation`/`Reason` objects representing the algebraic failure AST.
+/// `entry_shape_names`, when set, limits validation to those named shapes as
+/// top-level entry points while preserving normal dependency evaluation.
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (
@@ -781,6 +783,7 @@ pub fn version() -> &'static str {
     shapes_path=None,
     shapes_format="auto",
     graph_mode="union",
+    entry_shape_names=None,
     run_infer=true,
     minimum_severity="info",
     sort_results=true,
@@ -796,6 +799,7 @@ pub fn _validate_algebra(
     shapes_path: Option<String>,
     shapes_format: &str,
     graph_mode: &str,
+    entry_shape_names: Option<Vec<String>>,
     run_infer: bool,
     minimum_severity: &str,
     sort_results: bool,
@@ -813,6 +817,7 @@ pub fn _validate_algebra(
     let options = ValidationOptions {
         minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
         sort_results,
+        entry_shape_names: entry_shape_names.unwrap_or_default(),
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
     let raw = py
@@ -842,6 +847,8 @@ pub fn _validate_algebra(
 /// Run W3C-report-path validation. Returns a `W3cResult` whose `report_turtle`
 /// is a full `sh:ValidationReport` Turtle document (same as pyshacl's second
 /// return value) and `results_text` is a human-readable summary.
+/// `entry_shape_names`, when set, limits validation to those named shapes as
+/// top-level entry points while preserving normal dependency evaluation.
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (
@@ -852,6 +859,7 @@ pub fn _validate_algebra(
     shapes_path=None,
     shapes_format="auto",
     graph_mode="union",
+    entry_shape_names=None,
     run_infer=true,
     minimum_severity="info",
     sort_results=true,
@@ -867,6 +875,7 @@ pub fn _validate_w3c(
     shapes_path: Option<String>,
     shapes_format: &str,
     graph_mode: &str,
+    entry_shape_names: Option<Vec<String>>,
     run_infer: bool,
     minimum_severity: &str,
     sort_results: bool,
@@ -884,6 +893,7 @@ pub fn _validate_w3c(
     let options = ValidationOptions {
         minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
         sort_results,
+        entry_shape_names: entry_shape_names.unwrap_or_default(),
         engine: engine_options(on_unsupported).map_err(py_value_error)?,
     };
     py.allow_threads(move || {
@@ -1014,6 +1024,7 @@ impl PreparedValidator {
         data_path=None,
         data_format="auto",
         graph_mode="union",
+        entry_shape_names=None,
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
@@ -1027,6 +1038,7 @@ impl PreparedValidator {
         data_path: Option<String>,
         data_format: &str,
         graph_mode: &str,
+        entry_shape_names: Option<Vec<String>>,
         run_infer: bool,
         minimum_severity: &str,
         sort_results: bool,
@@ -1037,6 +1049,7 @@ impl PreparedValidator {
         let options = ValidationOptions {
             minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
             sort_results,
+            entry_shape_names: entry_shape_names.unwrap_or_default(),
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
         let diagnostics = self.diagnostics.clone();
@@ -1063,6 +1076,7 @@ impl PreparedValidator {
         data_path=None,
         data_format="auto",
         graph_mode="union",
+        entry_shape_names=None,
         run_infer=true,
         minimum_severity="info",
         sort_results=true,
@@ -1076,6 +1090,7 @@ impl PreparedValidator {
         data_path: Option<String>,
         data_format: &str,
         graph_mode: &str,
+        entry_shape_names: Option<Vec<String>>,
         run_infer: bool,
         minimum_severity: &str,
         sort_results: bool,
@@ -1086,6 +1101,7 @@ impl PreparedValidator {
         let options = ValidationOptions {
             minimum_severity: parse_minimum_severity(minimum_severity).map_err(py_value_error)?,
             sort_results,
+            entry_shape_names: entry_shape_names.unwrap_or_default(),
             engine: engine_options(on_unsupported).map_err(py_value_error)?,
         };
         py.allow_threads(|| {

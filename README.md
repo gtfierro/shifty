@@ -191,7 +191,17 @@ shifty validate --shapes shapes.ttl --data data.ttl --graph-mode data
 
 # focus nodes and evaluation both use data ∪ shapes
 shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
+
+# validate only selected named shapes as top-level entry points
+shifty validate \
+  --shapes shapes.ttl \
+  --data data.ttl \
+  --shape-name http://example.org/PersonShape
 ```
+
+`--shape-name` is repeatable and has the alias `--entry-shape`. Selected
+shapes are used only as entry points; referenced helper shapes are still
+evaluated normally.
 
 ### Infer
 
@@ -420,6 +430,25 @@ shifty.validate(data, shapes, graph_mode="union-all")
 When `shacl_graph` is omitted, all three modes are equivalent because focus
 discovery and evaluation use the same embedded graph. `infer()` does not accept
 `graph_mode`.
+
+### shape_names
+
+`validate()` and `validate_algebra()` accept `shape_names=[...]` to validate
+only the named SHACL shapes in that list as top-level entry points:
+
+```python
+result = shifty.validate_algebra(
+    data,
+    shapes,
+    shape_names=["http://example.org/PersonShape"],
+)
+```
+
+Only target-bearing statements owned by those named shapes are used as entry
+points. Any helper shapes referenced from them through `sh:node`, `sh:property`,
+qualified value shapes, boolean shape expressions, and similar dependencies are
+still evaluated normally. Shape names may be passed as bare IRIs or wrapped in
+angle brackets.
 
 ### File inputs
 

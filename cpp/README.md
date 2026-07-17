@@ -93,6 +93,25 @@ if (!validator.validate(dataset, opts).conforms()) { /* … */ }
 The three levels are `Severity::Info` (the default — any finding fails),
 `Severity::Warning`, and `Severity::Violation` (only Violations fail).
 
+### Scope to named shapes
+
+Set `ValidationOptions::shape_names` to validate only selected named shapes as
+top-level entry points. Dependencies referenced from those shapes are still
+evaluated normally, so helper shapes reached through `sh:node`, `sh:property`,
+qualified value shapes, and boolean shape expressions keep their usual
+semantics.
+
+```cpp
+shifty::ValidationOptions opts;
+opts.shape_names = {"http://example.org/PersonShape"};
+
+auto report = validator.validate(dataset, opts);
+auto algebra = validator.validate_algebra(dataset, opts);
+```
+
+Shape names may be bare IRIs or wrapped in angle brackets. An empty list (the
+default) validates every target-bearing shape.
+
 ### Algebra-path validation
 
 `validate()` returns a W3C `sh:ValidationReport`, serialized as Turtle.

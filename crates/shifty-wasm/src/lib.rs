@@ -49,6 +49,10 @@ struct Options {
     /// Lowest severity that makes `conforms` false: `"info"`, `"warning"`, or
     /// `"violation"`. Defaults to `"info"` (any finding fails).
     minimum_severity: Option<String>,
+    /// Named shape IRIs to use as validation entry points. Empty/omitted means
+    /// every target-bearing shape.
+    #[serde(default, alias = "entryShapeNames")]
+    shape_names: Vec<String>,
     /// Sort results deterministically. Defaults to `true`.
     #[serde(default = "default_true")]
     sort_results: bool,
@@ -94,6 +98,7 @@ impl Options {
         Ok(ValidationOptions {
             minimum_severity,
             sort_results: self.sort_results,
+            entry_shape_names: self.shape_names.clone(),
             ..Default::default()
         })
     }
@@ -169,7 +174,9 @@ pub fn version() -> String {
 /// findings: `{ conforms, violations: [...], resultsText }`.
 ///
 /// Pass `null`/`""` for `data_ttl` to treat `shapes_ttl` as a single combined
-/// shapes+data graph.
+/// shapes+data graph. `options.shapeNames` limits validation to those named
+/// shapes as top-level entry points while referenced helper shapes are still
+/// evaluated normally; `options.entryShapeNames` is accepted as an alias.
 #[wasm_bindgen(js_name = validate)]
 pub fn validate(
     shapes_ttl: &str,
@@ -213,6 +220,10 @@ pub fn validate(
 
 /// Validate and return a W3C `sh:ValidationReport`:
 /// `{ conforms, reportTurtle, resultsText }`.
+///
+/// `options.shapeNames` limits validation to those named shapes as top-level
+/// entry points while referenced helper shapes are still evaluated normally;
+/// `options.entryShapeNames` is accepted as an alias.
 #[wasm_bindgen(js_name = validateW3c)]
 pub fn validate_w3c(
     shapes_ttl: &str,

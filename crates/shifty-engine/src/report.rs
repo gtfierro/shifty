@@ -16,8 +16,8 @@ use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
 use crate::sparql::{FunctionDef, SparqlExecutor};
 use crate::validate::{
-    UnsupportedPolicy, ValidationGraphMode, ValidationOptions, apply_message_template, graph_union,
-    is_boolean_true,
+    UnsupportedPolicy, ValidationGraphMode, ValidationOptions, apply_message_template,
+    entry_shape_name_selected, graph_union, is_boolean_true,
 };
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode, Term, Triple};
@@ -265,7 +265,7 @@ fn build_reporter<'a>(
     focus_data: &'a Graph,
     frozen: FrozenIndexedDataset,
     has_shapes_graph: bool,
-    options: &ValidationOptions,
+    options: &'a ValidationOptions,
 ) -> Reporter<'a> {
     // Only execute SPARQL target/constraint work when the shapes graph contains
     // those features. Query execution shares the frozen validation dataset.
@@ -314,6 +314,7 @@ fn build_reporter<'a>(
         class_index,
         path_cache: RefCell::new(HashMap::new()),
         components: build_components(shapes, options.engine.unsupported),
+        entry_shape_names: &options.entry_shape_names,
     }
 }
 
@@ -659,6 +660,9 @@ struct Reporter<'a> {
     /// SPARQL-based custom constraint components declared in the shapes graph
     /// (empty for the common case of no custom components).
     components: Vec<CustomComponent>,
+    /// Optional named top-level shapes to validate. Referenced helper shapes
+    /// are still traversed normally from selected entries.
+    entry_shape_names: &'a [String],
 }
 
 type Visited = HashSet<(NamedOrBlankNode, Term)>;
@@ -700,8 +704,17 @@ impl Reporter<'_> {
             }
         }
         let mut v: Vec<_> = found.into_iter().collect();
+        v.retain(|shape| self.entry_shape_selected(shape));
         v.sort_by_key(|n| n.to_string());
         v
+    }
+
+    fn entry_shape_selected(&self, shape: &NamedOrBlankNode) -> bool {
+        let actual = match shape {
+            NamedOrBlankNode::NamedNode(named) => Some(named.as_str()),
+            NamedOrBlankNode::BlankNode(_) => None,
+        };
+        entry_shape_name_selected(self.entry_shape_names, actual)
     }
 
     /// Does this node look like a SHACL shape (so its class-ness implies a target)?

@@ -77,9 +77,9 @@ and SPARQL evaluation during validation.
 
    * - Mode
      - Description
-   * - ``data`` *(default)*
+   * - ``data``
      - Focus nodes come from the data graph; path traversal and SPARQL use the data graph only
-   * - ``union``
+   * - ``union`` *(default)*
      - Focus nodes from data; paths and SPARQL use data ∪ shapes
    * - ``union-all``
      - Focus nodes and evaluation both use data ∪ shapes
@@ -88,6 +88,25 @@ and SPARQL evaluation during validation.
 
    shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union
    shifty validate --shapes shapes.ttl --data data.ttl --graph-mode union-all
+
+Named Shape Entry Points
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--shape-name`` to validate only selected named shapes as top-level
+entry points. The flag is repeatable, and ``--entry-shape`` is an alias.
+
+.. code-block:: bash
+
+   shifty validate \
+     --shapes shapes.ttl \
+     --data data.ttl \
+     --shape-name http://example.org/PersonShape
+
+Only target-bearing statements owned by the selected named shapes are used as
+entry points. Referenced helper shapes are still evaluated normally, so
+dependencies reached through ``sh:node``, ``sh:property``, qualified value
+shapes, and boolean shape expressions keep their usual semantics. Shape names
+may be passed as bare IRIs or wrapped in angle brackets.
 
 infer
 -----
