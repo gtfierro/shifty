@@ -80,7 +80,7 @@ fn nested_property_shape_own_sh_message_takes_precedence() {
 }
 
 #[test]
-fn nested_property_shape_without_any_sh_message_has_no_result_message() {
+fn without_any_sh_message_a_default_message_is_generated() {
     let shapes = br#"
         @prefix sh: <http://www.w3.org/ns/shacl#> .
         @prefix ex: <http://ex/> .
@@ -98,5 +98,81 @@ fn nested_property_shape_without_any_sh_message_has_no_result_message() {
     "#;
     let messages = report_messages(shapes, data);
     assert_eq!(messages.len(), 1);
-    assert!(messages[0].is_empty());
+    assert_eq!(
+        messages[0],
+        vec!["Value <http://ex/Temperature> is not an instance of class <http://ex/QuantityKind>"]
+    );
+}
+
+#[test]
+fn default_min_count_message_omits_absent_value_and_names_the_path() {
+    let shapes = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:PersonShape a sh:NodeShape ;
+            sh:targetNode ex:alice ;
+            sh:property [
+                sh:path ex:name ;
+                sh:minCount 1 ;
+            ] .
+    "#;
+    let data = br#"
+        @prefix ex: <http://ex/> .
+        ex:alice a ex:Person .
+    "#;
+    let messages = report_messages(shapes, data);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0],
+        vec!["Fewer than 1 values on path <http://ex/name>"]
+    );
+}
+
+#[test]
+fn default_datatype_message_names_value_and_datatype() {
+    let shapes = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+        @prefix ex: <http://ex/> .
+        ex:PersonShape a sh:NodeShape ;
+            sh:targetNode ex:alice ;
+            sh:property [
+                sh:path ex:age ;
+                sh:datatype xsd:integer ;
+            ] .
+    "#;
+    let data = br#"
+        @prefix ex: <http://ex/> .
+        ex:alice ex:age "old" .
+    "#;
+    let messages = report_messages(shapes, data);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0],
+        vec!["Value old does not have datatype <http://www.w3.org/2001/XMLSchema#integer>"]
+    );
+}
+
+#[test]
+fn default_pattern_message_includes_the_regex() {
+    let shapes = br#"
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix ex: <http://ex/> .
+        ex:PersonShape a sh:NodeShape ;
+            sh:targetNode ex:alice ;
+            sh:property [
+                sh:path ex:code ;
+                sh:pattern "^[A-Z]+$" ;
+            ] .
+    "#;
+    let data = br#"
+        @prefix ex: <http://ex/> .
+        ex:alice ex:code "abc" .
+    "#;
+    let messages = report_messages(shapes, data);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0],
+        vec!["Value abc does not match pattern \"^[A-Z]+$\""]
+    );
 }

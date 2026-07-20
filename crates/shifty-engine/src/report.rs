@@ -334,6 +334,15 @@ fn validate_report_context(
             r.collect(&shape, focus, &mut results, &mut visited, &[]);
         }
     }
+    // Synthesize a default `sh:resultMessage` for any result whose source shape
+    // (and its ancestry) declared no `sh:message`, so every violation carries a
+    // human-readable explanation. Runs before sorting so content is order-free.
+    for result in &mut results {
+        if result.messages.is_empty() {
+            let message = r.default_message(result);
+            result.messages = vec![Term::Literal(Literal::new_simple_literal(message))];
+        }
+    }
     if options.sort_results {
         results.sort_by(|left, right| {
             Severity::from_named_node(right.severity.clone())
@@ -1730,6 +1739,202 @@ impl Reporter<'_> {
         self.shapes.objects(shape, vocab::SH_MESSAGE)
     }
 
+    /// A concise fallback `sh:resultMessage` for a result that carries no
+    /// authored `sh:message`, synthesized from the constraint component, the
+    /// parameter value read back off the source shape, and the result's
+    /// value/path. Clauses referencing the value or path are omitted when the
+    /// result has none (e.g. `sh:minCount`, which has no single value node).
+    fn default_message(&self, result: &ValidationResult) -> String {
+        let comp = result.component.as_ref();
+        let value = result.value.as_ref().map(render_term);
+        let path = result.path.as_ref().map(render_term);
+        let Some(shape) = term_to_node(&result.source_shape) else {
+            return format!(
+                "Value does not conform to constraint component <{}>",
+                comp.as_str()
+            );
+        };
+        // Read a shape parameter (as a rendered term or an integer) to inline.
+        let param = |p: NamedNodeRef| self.shapes.object(&shape, p).as_ref().map(render_term);
+        let int_param = |p: NamedNodeRef| self.int(&shape, p).map(|n| n.to_string());
+        let some_or = |o: Option<String>, default: &str| o.unwrap_or_else(|| default.to_string());
+        let val = || value.clone().unwrap_or_else(|| "the value".to_string());
+        let on_path = || {
+            path.as_ref()
+                .map(|p| format!(" on path {p}"))
+                .unwrap_or_default()
+        };
+
+        if comp == vocab::SH_CC_MIN_COUNT {
+            format!(
+                "Fewer than {} values{}",
+                some_or(int_param(vocab::SH_MIN_COUNT), "the required number of"),
+                on_path()
+            )
+        } else if comp == vocab::SH_CC_MAX_COUNT {
+            format!(
+                "More than {} values{}",
+                some_or(int_param(vocab::SH_MAX_COUNT), "the allowed number of"),
+                on_path()
+            )
+        } else if comp == vocab::SH_CC_CLASS {
+            format!(
+                "Value {} is not an instance of class {}",
+                val(),
+                some_or(param(vocab::SH_CLASS), "the required class")
+            )
+        } else if comp == vocab::SH_CC_DATATYPE {
+            format!(
+                "Value {} does not have datatype {}",
+                val(),
+                some_or(param(vocab::SH_DATATYPE), "the required datatype")
+            )
+        } else if comp == vocab::SH_CC_NODE_KIND {
+            format!(
+                "Value {} does not have node kind {}",
+                val(),
+                some_or(param(vocab::SH_NODE_KIND), "the required node kind")
+            )
+        } else if comp == vocab::SH_CC_MIN_INCLUSIVE {
+            format!(
+                "Value {} is less than minimum {}",
+                val(),
+                some_or(param(vocab::SH_MIN_INCLUSIVE), "the minimum")
+            )
+        } else if comp == vocab::SH_CC_MIN_EXCLUSIVE {
+            format!(
+                "Value {} is not greater than exclusive minimum {}",
+                val(),
+                some_or(param(vocab::SH_MIN_EXCLUSIVE), "the minimum")
+            )
+        } else if comp == vocab::SH_CC_MAX_INCLUSIVE {
+            format!(
+                "Value {} is greater than maximum {}",
+                val(),
+                some_or(param(vocab::SH_MAX_INCLUSIVE), "the maximum")
+            )
+        } else if comp == vocab::SH_CC_MAX_EXCLUSIVE {
+            format!(
+                "Value {} is not less than exclusive maximum {}",
+                val(),
+                some_or(param(vocab::SH_MAX_EXCLUSIVE), "the maximum")
+            )
+        } else if comp == vocab::SH_CC_MIN_LENGTH {
+            format!(
+                "Value {} is shorter than {} characters",
+                val(),
+                some_or(int_param(vocab::SH_MIN_LENGTH), "the minimum number of")
+            )
+        } else if comp == vocab::SH_CC_MAX_LENGTH {
+            format!(
+                "Value {} is longer than {} characters",
+                val(),
+                some_or(int_param(vocab::SH_MAX_LENGTH), "the maximum number of")
+            )
+        } else if comp == vocab::SH_CC_PATTERN {
+            format!(
+                "Value {} does not match pattern \"{}\"",
+                val(),
+                some_or(param(vocab::SH_PATTERN), "the required pattern")
+            )
+        } else if comp == vocab::SH_CC_IN {
+            format!("Value {} is not in the list of allowed values", val())
+        } else if comp == vocab::SH_CC_LANGUAGE_IN {
+            format!("Value {} has a language tag that is not allowed", val())
+        } else if comp == vocab::SH_CC_HAS_VALUE {
+            format!(
+                "Missing required value {}{}",
+                some_or(param(vocab::SH_HAS_VALUE), "the expected value"),
+                on_path()
+            )
+        } else if comp == vocab::SH_CC_UNIQUE_LANG {
+            format!("Values{} do not have unique language tags", on_path())
+        } else if comp == vocab::SH_CC_EQUALS {
+            format!(
+                "Value {} must equal the values of {}",
+                val(),
+                some_or(param(vocab::SH_EQUALS), "the compared property")
+            )
+        } else if comp == vocab::SH_CC_DISJOINT {
+            format!(
+                "Value {} must be disjoint from the values of {}",
+                val(),
+                some_or(param(vocab::SH_DISJOINT), "the compared property")
+            )
+        } else if comp == vocab::SH_CC_LESS_THAN {
+            format!(
+                "Value {} is not less than the values of {}",
+                val(),
+                some_or(param(vocab::SH_LESS_THAN), "the compared property")
+            )
+        } else if comp == vocab::SH_CC_LESS_THAN_OR_EQUALS {
+            format!(
+                "Value {} is not less than or equal to the values of {}",
+                val(),
+                some_or(
+                    param(vocab::SH_LESS_THAN_OR_EQUALS),
+                    "the compared property"
+                )
+            )
+        } else if comp == vocab::SH_CC_AND {
+            format!(
+                "Value {} does not conform to all of the given shapes",
+                val()
+            )
+        } else if comp == vocab::SH_CC_OR {
+            format!(
+                "Value {} does not conform to any of the given shapes",
+                val()
+            )
+        } else if comp == vocab::SH_CC_XONE {
+            format!(
+                "Value {} does not conform to exactly one of the given shapes",
+                val()
+            )
+        } else if comp == vocab::SH_CC_NOT {
+            format!("Value {} conforms to a shape it must not", val())
+        } else if comp == vocab::SH_CC_NODE {
+            format!(
+                "Value {} does not conform to shape {}",
+                val(),
+                some_or(param(vocab::SH_NODE), "the required shape")
+            )
+        } else if comp == vocab::SH_CC_CLOSED {
+            format!(
+                "Predicate{} is not allowed on {} (closed shape)",
+                path.as_ref().map(|p| format!(" {p}")).unwrap_or_default(),
+                val()
+            )
+        } else if comp == vocab::SH_CC_QUALIFIED_MIN_COUNT {
+            format!(
+                "Fewer than {} values{} conform to the qualified shape",
+                some_or(
+                    int_param(vocab::SH_QUALIFIED_MIN_COUNT),
+                    "the required number of"
+                ),
+                on_path()
+            )
+        } else if comp == vocab::SH_CC_QUALIFIED_MAX_COUNT {
+            format!(
+                "More than {} values{} conform to the qualified shape",
+                some_or(
+                    int_param(vocab::SH_QUALIFIED_MAX_COUNT),
+                    "the allowed number of"
+                ),
+                on_path()
+            )
+        } else if comp == vocab::SH_CC_EXPRESSION {
+            format!("Expression constraint not satisfied for value {}", val())
+        } else if comp == vocab::SH_CC_SPARQL {
+            "SPARQL constraint not satisfied".to_string()
+        } else {
+            format!(
+                "Value does not conform to constraint component <{}>",
+                comp.as_str()
+            )
+        }
+    }
+
     fn conforms(&self, shape: &NamedOrBlankNode, focus: &Term, visited: &mut Visited) -> bool {
         let mut scratch = Vec::new();
         self.collect(shape, focus, &mut scratch, visited, &[]);
@@ -2005,6 +2210,17 @@ fn graph_nodes(graph: &Graph) -> HashSet<Term> {
 
 fn node_term(s: oxrdf::NamedOrBlankNodeRef) -> Term {
     crate::path::term_of(s.into_owned())
+}
+
+/// Render a term for embedding in a default `sh:resultMessage`, matching
+/// [`apply_message_template`]'s conventions: IRIs as `<iri>`, blank nodes as
+/// `_:id`, literals as their lexical value.
+fn render_term(t: &Term) -> String {
+    match t {
+        Term::NamedNode(n) => format!("<{}>", n.as_str()),
+        Term::BlankNode(b) => format!("_:{}", b.as_str()),
+        Term::Literal(l) => l.value().to_string(),
+    }
 }
 
 fn node_term_ref(s: &NamedOrBlankNode) -> Term {
