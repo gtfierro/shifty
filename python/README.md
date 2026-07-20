@@ -181,6 +181,8 @@ conforms, report_graph, results_text = shifty.validate(data, shapes)
 
 Graph inputs can be a string, `bytes`, `pathlib.Path`, or `rdflib.Graph`. If `shacl_graph` is omitted or passed as `None`, shapes are expected to be embedded in the data graph. Do not pass an empty `rdflib.Graph()` for embedded shapes; that is treated as an explicit empty shapes graph.
 
+> **Where shapes are read from.** Pass a *single* graph (omit `shacl_graph` or pass `None`) and shifty reads both the shape definitions and the data from that one graph. Pass a *separate* shapes graph and the schema is compiled **only** from it — SHACL vocabulary that happens to sit in the data graph is ignored, never turned into constraints. This keeps validation predictable and matches SHACL's separation of the shapes graph from the data graph. To validate against shapes that live in the data graph, union that graph into the `shacl_graph` argument yourself (it accepts a list, unioned before evaluation); shifty will not read shapes from the data side automatically.
+
 Any data or shapes argument also accepts a **list (or tuple)** of the above;
 the members are unioned (merged at the RDF triple level, the same way the CLI's
 repeatable `--shapes` / `--data` merge) before being passed to the engine. A
