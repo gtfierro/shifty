@@ -1,0 +1,22 @@
+model                               infer ms     +/-  infer+val ms     +/-   report ms     +/-
+--------------------------------  ----------  ------  ----------  ------  ----------  ------
+NIST-HPL.ttl                               0       0        3210       0           0       0
+NIST-IBAL.ttl                              0       0        6819       0           0       0
+design-patterns.ttl                        0       0        2782       0           0       0
+guideline36-2021-A-1.ttl                   0       0        2699       0           0       0
+guideline36-2021-A-2.ttl                   0       0        2845       0           0       0
+guideline36-2021-A-3.ttl                   0       0        2879       0           0       0
+guideline36-2021-A-4.ttl                   0       0        2865       0           0       0
+guideline36-2021-A-7.ttl                   0       0        2758       0           0       0
+guideline36-2021-A-8.ttl                   0       0        2733       0           0       0
+guideline36-2021-A-9.ttl                   0       0        3450       0           0       0
+lazlo_sdh_223p_anon.ttl                    0       0     4954035       0           0       0
+lbnl-bdg3-1.ttl                            0       0        6472       0           0       0
+lbnl-bdg4-1.ttl                            0       0       12827       0           0       0
+lbnl-example-radiant.ttl                   0       0        2885       0           0       0
+nist-bdg1-1.ttl                            0       0        3637       0           0       0
+nrel-example.ttl                           0       0        9603       0           0       0
+pnnl-bdg1-2.ttl                            0       0        2946       0           0       0
+pnnl-bdg2-1.ttl                            0       0       19338       0           0       0
+pnnl-bdg3-2.ttl                            0       0       16469       0           0       0
+scb-vrf.ttl                                0       0        4937       0           0       0
