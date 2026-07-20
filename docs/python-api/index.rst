@@ -24,6 +24,15 @@ Install
 Graph inputs throughout the API can be a ``str`` (Turtle text), ``bytes``,
 ``pathlib.Path``, or an ``rdflib.Graph``.
 
+.. note::
+
+   **Where shapes are read from.** If you pass a single graph (omit ``shapes``
+   or pass ``None``), shifty reads both the shape definitions and the data from
+   that one graph. If you pass a *separate* ``shapes`` graph, the schema is
+   compiled **only** from the shapes graph — SHACL vocabulary that happens to
+   sit in the ``data`` graph is ignored, never compiled into constraints. See
+   :ref:`shapes-and-data-graphs` for the cross-frontend rule.
+
 validate
 --------
 
@@ -95,7 +104,10 @@ Keyword arguments
 Embedded shapes
 ~~~~~~~~~~~~~~~
 
-If shapes are embedded in the data graph, omit the second argument or pass ``None``:
+When you pass **two graphs**, the schema is compiled only from ``shapes``; shape
+definitions in ``data`` are not read. To validate against shapes that are
+**embedded in the data graph**, omit the second argument or pass ``None`` so the
+single graph is used for both roles:
 
 .. code-block:: python
 
@@ -104,6 +116,11 @@ If shapes are embedded in the data graph, omit the second argument or pass ``Non
 
 Do **not** pass an empty ``rdflib.Graph()`` for this case — an empty graph is treated
 as an explicit empty shapes graph and will produce no violations.
+
+To validate ``data`` against shapes that live in *both* a dedicated shapes graph
+and the data graph, union them into the ``shapes`` argument yourself (``shapes``
+accepts a list of graphs, unioned before evaluation) — shifty will not read
+shapes from the ``data`` side automatically.
 
 validate_algebra
 ~~~~~~~~~~~~~~~~

@@ -38,6 +38,16 @@ Validate a data graph against a SHACL shapes graph:
 
    shifty validate --shapes shapes.ttl --data data.ttl
 
+.. note::
+
+   ``--data`` defaults to ``--shapes`` when omitted. So ``shifty validate
+   --shapes combined.ttl`` reads shapes *and* data from the one file, while
+   ``--shapes shapes.ttl --data data.ttl`` compiles the schema **only** from
+   ``--shapes`` — SHACL vocabulary in the ``--data`` graph is ignored, never
+   turned into constraints. Both ``--shapes`` and ``--data`` are repeatable and
+   unioned, so to validate against shapes embedded in your data, add that file
+   as an extra ``--shapes`` source. See :ref:`shapes-and-data-graphs`.
+
 Default output is a human-readable summary:
 
 .. code-block:: text

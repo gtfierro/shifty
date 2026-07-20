@@ -138,3 +138,61 @@ Python quick check
    # conforms: false
    # violations: 1
    #   ex:Bob — sh:minCount 1 on ex:name
+
+.. _shapes-and-data-graphs:
+
+Shapes and data graphs
+----------------------
+
+Every frontend — CLI, Python, and WebAssembly — draws a firm line between the
+**shapes graph** (where SHACL shape definitions are read from) and the **data
+graph** (what gets validated). The rule is the same everywhere and is worth
+understanding up front:
+
+**One graph in → it is both shapes and data.** If you supply a single graph,
+shifty reads shape definitions *and* the data to validate from that one graph.
+This is the common "combined file" case where ``sh:NodeShape`` definitions and
+instance data coexist.
+
+**Two graphs in → shapes come only from the shapes graph.** If you supply a
+separate shapes graph and data graph, the shape schema is compiled *only* from
+the shapes graph. Any SHACL vocabulary that happens to live in the **data graph
+is ignored** — a stray ``sh:property`` or ``sh:NodeShape`` triple in your data
+will never silently become a constraint.
+
+This is intentional. It keeps validation predictable (data authors can't alter
+the schema by accident) and matches the SHACL specification's separation of the
+shapes graph from the data graph. Concretely:
+
+.. list-table::
+   :widths: 45 25 30
+   :header-rows: 1
+
+   * - Invocation
+     - Shapes read from
+     - Data read from
+   * - ``shifty.validate(combined)`` / ``shifty.validate(combined, None)``
+     - the one graph
+     - the one graph
+   * - ``shifty.validate(data, shapes)``
+     - ``shapes`` only
+     - ``data`` only
+   * - ``shifty validate --shapes combined.ttl``
+     - the one graph
+     - the one graph
+   * - ``shifty validate --shapes shapes.ttl --data data.ttl``
+     - ``--shapes`` only
+     - ``--data`` only
+
+.. note::
+
+   This governs where *shape definitions* are sourced. It is separate from
+   ``graph_mode`` / ``--graph-mode``, which controls which triples are *visible
+   during evaluation* (path traversal, class hierarchy, SPARQL) once the schema
+   is fixed. See the :doc:`Python <python-api/index>` and :doc:`CLI <cli/index>`
+   references for that.
+
+If you deliberately want to validate against shapes that are embedded in your
+data graph, merge them into the shapes input — e.g. pass the same file as an
+additional ``--shapes`` source, or union the graphs before calling
+``validate``. Shifty will not read them from the data side for you.
