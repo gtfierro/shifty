@@ -80,18 +80,56 @@ def collect_versions() -> list[str]:
 
 
 def build_timeseries(versions: list[str], dataset: str) -> dict:
-    """Geomean of raw validate_ms across all models, per version."""
-    points: list[dict] = []
+    """Per-version distribution of validate_ms across all models.
+
+    Each model is normalised against its own earliest recorded time, so the
+    per-version spread reflects how *uniformly* a release moved the corpus
+    rather than the (much larger) spread in model sizes.  The docs chart draws
+    these as box-and-whisker per version with the geomean overlaid.
+    """
+    per_version: dict[str, dict[str, dict]] = {}
     for version in versions:
         bench_file = RESULTS_DIR / version / f"{dataset}.txt"
         if not bench_file.exists():
             continue
         models = parse_bench_file(bench_file)
-        if not models:
-            continue
-        gm = geomean([r["val_ms"] for r in models.values()])
-        points.append({"version": version, "geomean_ms": round(gm, 1)})
-    return {"dataset": dataset, "points": points}
+        if models:
+            per_version[version] = models
+
+    ordered = [v for v in versions if v in per_version]
+
+    # Baseline per model = its time in the earliest version that recorded it.
+    # A model added mid-history therefore enters the chart at 1.0.
+    baseline: dict[str, int] = {}
+    for version in ordered:
+        for name, row in per_version[version].items():
+            baseline.setdefault(name, row["val_ms"])
+
+    points: list[dict] = []
+    for version in ordered:
+        models = per_version[version]
+        names, rel, abs_ms = [], [], []
+        for name in sorted(models):
+            base = baseline.get(name)
+            if not base:
+                continue
+            names.append(name)
+            rel.append(round(models[name]["val_ms"] / base, 4))
+            abs_ms.append(models[name]["val_ms"])
+        points.append({
+            "version": version,
+            "geomean_ms": round(geomean([r["val_ms"] for r in models.values()]), 1),
+            "geomean_rel": round(geomean(rel), 4) if rel else None,
+            "models": names,
+            "rel": rel,
+            "abs_ms": abs_ms,
+        })
+
+    return {
+        "dataset": dataset,
+        "baseline_version": ordered[0] if ordered else None,
+        "points": points,
+    }
 
 
 def build_model_table(

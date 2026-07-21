@@ -37,21 +37,22 @@ time_cmd() {
     echo $(( (end - start) / 1000000 ))
 }
 
-# mean_stddev <cmd...> -> "MEAN STDDEV" (two integers) on stdout
-mean_stddev() {
-    local samples=() t i total=0 sum_sq=0 diff mean stddev
-    for i in $(seq 1 "$ITERATIONS"); do
-        t=$(time_cmd "$@")
-        samples+=("$t")
-        total=$(( total + t ))
+# median_spread <cmd...> -> "MEDIAN SPREAD" (two integers) on stdout.
+# The median is robust to the occasional slow run (GC, scheduler, thermal);
+# SPREAD is the largest one-sided deviation from the median, so "median +/-
+# spread" brackets every sample.
+median_spread() {
+    local samples=() sorted n median lo hi dlo dhi spread
+    for _ in $(seq 1 "$ITERATIONS"); do
+        samples+=("$(time_cmd "$@")")
     done
-    mean=$(( total / ITERATIONS ))
-    for t in "${samples[@]}"; do
-        diff=$(( t - mean ))
-        sum_sq=$(( sum_sq + diff * diff ))
-    done
-    stddev=$(awk -v ss="$sum_sq" -v n="$ITERATIONS" 'BEGIN { printf "%d", int(sqrt(ss/n)+0.5) }')
-    echo "$mean $stddev"
+    mapfile -t sorted < <(printf '%s\n' "${samples[@]}" | sort -n)
+    n=${#sorted[@]}
+    median=${sorted[$(( n / 2 ))]}          # middle sample (upper-middle if even)
+    lo=${sorted[0]}; hi=${sorted[$(( n - 1 ))]}
+    dlo=$(( median - lo )); dhi=$(( hi - median ))
+    spread=$(( dlo > dhi ? dlo : dhi ))
+    echo "$median $spread"
 }
 
 # Iterate models in a stable, locale-independent order so repeated runs (and
@@ -60,9 +61,9 @@ for model in $(printf '%s\n' "$MODELS_DIR"/*.ttl | LC_ALL=C sort); do
     name="$(basename "$model")"
     validate_args=("$BINARY" validate --shapes "$SHAPES" --data "$model")
 
-    read -r infer_ms infer_sd <<< "$(mean_stddev "$BINARY" infer --shapes "$SHAPES" --data "$model")"
-    read -r val_ms   val_sd   <<< "$(mean_stddev "${validate_args[@]}")"
-    read -r rep_ms   rep_sd   <<< "$(mean_stddev "${validate_args[@]}" --report)"
+    read -r infer_ms infer_sd <<< "$(median_spread "$BINARY" infer --shapes "$SHAPES" --data "$model")"
+    read -r val_ms   val_sd   <<< "$(median_spread "${validate_args[@]}")"
+    read -r rep_ms   rep_sd   <<< "$(median_spread "${validate_args[@]}" --report)"
 
     # shellcheck disable=SC2059
     printf "$row_fmt" "$name" "$infer_ms" "$infer_sd" "$val_ms" "$val_sd" "$rep_ms" "$rep_sd"
