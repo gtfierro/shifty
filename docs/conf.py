@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 try:
@@ -25,6 +27,23 @@ def _read_version() -> str:
         return "0.0.0"
 
 
+def _regenerate_benchmark_json() -> None:
+    """Re-run process_results.py so a local ``make html`` picks up new results.
+
+    Optional, like CI's ``continue-on-error``: if there are no result
+    directories (or anything else goes wrong) the page falls back to whatever
+    benchmark_data.json already exists — or renders the "not yet generated"
+    placeholder.
+    """
+    script = ROOT / "benchmark" / "process_results.py"
+    if not script.exists():
+        return
+    try:
+        subprocess.run([sys.executable, str(script)], check=False)
+    except Exception as exc:  # noqa: BLE001 - never let this break the docs build
+        print(f"benchmark data regeneration skipped: {exc}", file=sys.stderr)
+
+
 def _write_benchmark_js() -> None:
     """Bake benchmark_data.json into a JS file loaded by benchmark.rst."""
     data_file = ROOT / "benchmark" / "results" / "benchmark_data.json"
@@ -36,6 +55,7 @@ def _write_benchmark_js() -> None:
     out_file.write_text(f"window.SHIFTY_BENCHMARK_DATA = {json.dumps(data)};\n")
 
 
+_regenerate_benchmark_json()
 _write_benchmark_js()
 
 
@@ -63,6 +83,10 @@ html_theme = "furo"
 html_static_path = ["_static"]
 html_title = "Shifty"
 html_css_files = ["custom.css"]
+# Loaded via html_js_files (not a raw <script> in benchmark.rst) so Sphinx
+# appends a content-hash ?v=… — otherwise browsers cache a stale copy and the
+# benchmark plot never updates after a rebuild.
+html_js_files = ["benchmark_data.js"]
 
 # The extra/ directory's contents are copied to the output root.
 # extra/playground/ → <build>/playground/

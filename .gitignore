@@ -21,6 +21,9 @@ shapes.ir
 
 # Benchmark and comparison outputs
 /benchmark/results/triple_counts.json
+# Generated from the per-version *.txt results by benchmark/process_results.py
+# (run automatically during the Sphinx build via docs/conf.py).
+/benchmark/results/benchmark_data.json
 /benchmark-*.csv
 /benchmark/hyperfine-json/
 /benchmark/hyperfine-plots/

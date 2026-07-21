@@ -14,10 +14,11 @@ the ``geomean`` row summarises the overall change between the two versions.
 .. raw:: html
 
    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
-   <script src="_static/benchmark_data.js"></script>
    <div id="shifty-bench-chart" style="width:100%;height:380px;margin-bottom:2rem;"></div>
    <script>
-   (function () {
+   // benchmark_data.js is loaded via html_js_files (for cache-busting) at the
+   // end of <body>, so wait for DOMContentLoaded before reading its global.
+   document.addEventListener('DOMContentLoaded', function () {
      var data = window.SHIFTY_BENCHMARK_DATA || {};
      var series = data.timeseries || [];
 
@@ -77,7 +78,7 @@ the ``geomean`` row summarises the overall change between the two versions.
        Plotly.relayout('shifty-bench-chart', makeLayout());
      }).observe(document.documentElement,
                 { attributes: true, attributeFilter: ['data-theme'] });
-   })();
+   });
    </script>
 
 Per-model results
@@ -87,7 +88,7 @@ Per-model results
 
    <div id="bench-tables"></div>
    <script>
-   (function () {
+   document.addEventListener('DOMContentLoaded', function () {
      var data = window.SHIFTY_BENCHMARK_DATA || {};
      if (!data.current_version) {
        document.getElementById('bench-tables').innerHTML =
@@ -129,7 +130,7 @@ Per-model results
 
      document.getElementById('bench-tables').innerHTML =
        buildTable('brick', 'Brick') + buildTable('s223', 'ASHRAE 223P');
-   })();
+   });
    </script>
 
 .. _run_history:
