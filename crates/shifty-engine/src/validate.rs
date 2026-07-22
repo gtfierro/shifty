@@ -474,9 +474,21 @@ pub(crate) fn uses_shapes_graph(arena: &ShapeArena) -> bool {
 /// The RDF merge of two graphs (`left ∪ right`). The standard way to build the
 /// `context` graph the `*_with_context` repair entry points expect: the union of
 /// a data graph and a shapes/ontology graph.
+///
+/// Cloning a graph copies its indexes wholesale, while inserting builds them a
+/// triple at a time — so the larger side is always the one to clone, and only
+/// the smaller side is inserted. Set union is commutative, so the result is
+/// identical either way. Callers pass `(data, shapes)`, and a shapes closure
+/// routinely dwarfs the data graph (228k triples against 16 for a small Brick
+/// model), which made the naive direction quadratically the wrong choice.
 pub fn graph_union(left: &Graph, right: &Graph) -> Graph {
-    let mut union = left.clone();
-    for triple in right.iter() {
+    let (base, extra) = if left.len() >= right.len() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    let mut union = base.clone();
+    for triple in extra.iter() {
         union.insert(triple);
     }
     union

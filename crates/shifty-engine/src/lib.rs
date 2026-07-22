@@ -27,7 +27,7 @@ pub use enumerate::{
 pub use gate::{RepairOutcome, apply, gate};
 pub use infer::{
     InferenceOutcome, infer, infer_graphs, infer_with_context, infer_with_context_and_options,
-    infer_with_options,
+    infer_with_options, infer_with_owned_context_and_options,
 };
 pub use report::{
     PropertyWitness, ValidationReport, ValidationResult, evaluate_function_expression,
