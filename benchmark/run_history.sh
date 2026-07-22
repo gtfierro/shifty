@@ -31,9 +31,9 @@ mapfile -t TAG_LIST <<< "$TAGS"
 TOTAL_TAGS=${#TAG_LIST[@]}
 
 BENCH_ITERS="${BENCH_ITERS:-3}"
-# Use the slim history bench (validate-only) to keep runtime manageable across
-# many versions. It reports the median of BENCH_ITERS runs (default 3) so a
-# single slow run can't skew a version's recorded time.
+# Use the slim history bench (infer + validate, no report) to keep runtime
+# manageable across many versions. It reports the median of BENCH_ITERS runs
+# (default 3) so a single slow run can't skew a version's recorded time.
 BENCH_SCRIPT="${BENCH_SCRIPT:-$SCRIPT_DIR/bench_history.sh}"
 
 count_models() { find "$1" -maxdepth 1 -name '*.ttl' | wc -l; }

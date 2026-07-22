@@ -1,0 +1,258 @@
+{
+ "brick/bldg1.ttl": {
+  "bytes": 35751,
+  "triples": 529
+ },
+ "brick/bldg10.ttl": {
+  "bytes": 27786,
+  "triples": 445
+ },
+ "brick/bldg11.ttl": {
+  "bytes": 510928,
+  "triples": 8608
+ },
+ "brick/bldg12.ttl": {
+  "bytes": 148468,
+  "triples": 2622
+ },
+ "brick/bldg13.ttl": {
+  "bytes": 52980,
+  "triples": 824
+ },
+ "brick/bldg14.ttl": {
+  "bytes": 4380,
+  "triples": 62
+ },
+ "brick/bldg15.ttl": {
+  "bytes": 355967,
+  "triples": 5397
+ },
+ "brick/bldg16.ttl": {
+  "bytes": 5703,
+  "triples": 90
+ },
+ "brick/bldg17.ttl": {
+  "bytes": 4019,
+  "triples": 56
+ },
+ "brick/bldg18.ttl": {
+  "bytes": 216827,
+  "triples": 3464
+ },
+ "brick/bldg19.ttl": {
+  "bytes": 19048,
+  "triples": 304
+ },
+ "brick/bldg2.ttl": {
+  "bytes": 31845,
+  "triples": 601
+ },
+ "brick/bldg20.ttl": {
+  "bytes": 31658,
+  "triples": 492
+ },
+ "brick/bldg21.ttl": {
+  "bytes": 16066,
+  "triples": 241
+ },
+ "brick/bldg22.ttl": {
+  "bytes": 18716,
+  "triples": 287
+ },
+ "brick/bldg23.ttl": {
+  "bytes": 11253,
+  "triples": 164
+ },
+ "brick/bldg24.ttl": {
+  "bytes": 1193,
+  "triples": 16
+ },
+ "brick/bldg25.ttl": {
+  "bytes": 7272,
+  "triples": 113
+ },
+ "brick/bldg26.ttl": {
+  "bytes": 13862,
+  "triples": 211
+ },
+ "brick/bldg27.ttl": {
+  "bytes": 39890,
+  "triples": 645
+ },
+ "brick/bldg28.ttl": {
+  "bytes": 37261,
+  "triples": 764
+ },
+ "brick/bldg29.ttl": {
+  "bytes": 5174,
+  "triples": 75
+ },
+ "brick/bldg3.ttl": {
+  "bytes": 4253,
+  "triples": 61
+ },
+ "brick/bldg30.ttl": {
+  "bytes": 122072,
+  "triples": 2924
+ },
+ "brick/bldg31.ttl": {
+  "bytes": 2111,
+  "triples": 31
+ },
+ "brick/bldg32.ttl": {
+  "bytes": 296398,
+  "triples": 4363
+ },
+ "brick/bldg33.ttl": {
+  "bytes": 1617,
+  "triples": 26
+ },
+ "brick/bldg34.ttl": {
+  "bytes": 92797,
+  "triples": 1503
+ },
+ "brick/bldg35.ttl": {
+  "bytes": 27206,
+  "triples": 450
+ },
+ "brick/bldg36.ttl": {
+  "bytes": 46325,
+  "triples": 829
+ },
+ "brick/bldg37.ttl": {
+  "bytes": 762149,
+  "triples": 10962
+ },
+ "brick/bldg38.ttl": {
+  "bytes": 3267,
+  "triples": 59
+ },
+ "brick/bldg39.ttl": {
+  "bytes": 24326,
+  "triples": 447
+ },
+ "brick/bldg4.ttl": {
+  "bytes": 59712,
+  "triples": 928
+ },
+ "brick/bldg40.ttl": {
+  "bytes": 133015,
+  "triples": 2174
+ },
+ "brick/bldg41.ttl": {
+  "bytes": 7503,
+  "triples": 123
+ },
+ "brick/bldg42.ttl": {
+  "bytes": 35107,
+  "triples": 634
+ },
+ "brick/bldg43.ttl": {
+  "bytes": 69942,
+  "triples": 1272
+ },
+ "brick/bldg44.ttl": {
+  "bytes": 51066,
+  "triples": 921
+ },
+ "brick/bldg5.ttl": {
+  "bytes": 218511,
+  "triples": 3444
+ },
+ "brick/bldg6.ttl": {
+  "bytes": 262290,
+  "triples": 4086
+ },
+ "brick/bldg7.ttl": {
+  "bytes": 27606,
+  "triples": 430
+ },
+ "brick/bldg8.ttl": {
+  "bytes": 64201,
+  "triples": 1000
+ },
+ "brick/bldg9.ttl": {
+  "bytes": 216360,
+  "triples": 3427
+ },
+ "brick/smc.ttl": {
+  "bytes": 122072,
+  "triples": 2924
+ },
+ "s223/NIST-HPL.ttl": {
+  "bytes": 37311,
+  "triples": 829
+ },
+ "s223/NIST-IBAL.ttl": {
+  "bytes": 252112,
+  "triples": 6016
+ },
+ "s223/design-patterns.ttl": {
+  "bytes": 19993,
+  "triples": 442
+ },
+ "s223/guideline36-2021-A-1.ttl": {
+  "bytes": 5283,
+  "triples": 102
+ },
+ "s223/guideline36-2021-A-2.ttl": {
+  "bytes": 10513,
+  "triples": 194
+ },
+ "s223/guideline36-2021-A-3.ttl": {
+  "bytes": 14442,
+  "triples": 247
+ },
+ "s223/guideline36-2021-A-4.ttl": {
+  "bytes": 15025,
+  "triples": 257
+ },
+ "s223/guideline36-2021-A-7.ttl": {
+  "bytes": 9541,
+  "triples": 166
+ },
+ "s223/guideline36-2021-A-8.ttl": {
+  "bytes": 9015,
+  "triples": 154
+ },
+ "s223/guideline36-2021-A-9.ttl": {
+  "bytes": 56335,
+  "triples": 1060
+ },
+ "s223/lbnl-bdg3-1.ttl": {
+  "bytes": 823455,
+  "triples": 26571
+ },
+ "s223/lbnl-bdg4-1.ttl": {
+  "bytes": 531323,
+  "triples": 10568
+ },
+ "s223/lbnl-example-radiant.ttl": {
+  "bytes": 58387,
+  "triples": 1709
+ },
+ "s223/nist-bdg1-1.ttl": {
+  "bytes": 71461,
+  "triples": 1707
+ },
+ "s223/nrel-example.ttl": {
+  "bytes": 314353,
+  "triples": 8130
+ },
+ "s223/pnnl-bdg1-2.ttl": {
+  "bytes": 40750,
+  "triples": 808
+ },
+ "s223/pnnl-bdg2-1.ttl": {
+  "bytes": 2606796,
+  "triples": 34810
+ },
+ "s223/pnnl-bdg3-2.ttl": {
+  "bytes": 2380973,
+  "triples": 31849
+ },
+ "s223/scb-vrf.ttl": {
+  "bytes": 392862,
+  "triples": 11722
+ }
+}
