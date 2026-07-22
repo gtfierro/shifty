@@ -317,3 +317,22 @@ Regenerating benchmark data
    ./benchmark/run_history.sh
    uv run benchmark/process_results.py
    cd docs && make html
+
+``run_history.sh`` benchmarks every release tag, then the current checkout as a
+final ``HEAD`` entry.  Tagged results are reused when they already exist, so a
+repeat run only re-measures ``HEAD`` — but the first run measures every tag and
+takes hours.  To refresh just the ``HEAD`` entry after a code change:
+
+.. code-block:: bash
+
+   BENCH_ONLY_HEAD=1 ./benchmark/run_history.sh
+   cd docs && make html
+
+Because ``HEAD`` is built from the working tree, uncommitted changes are
+included; the run logs the commit it started from and whether the tree was
+dirty.  ``BENCH_HEAD=0`` restricts a run to tags only, and ``BENCH_ITERS``
+controls how many samples each measurement takes (default 3, median reported).
+
+Shapes and models always come from the current checkout, so changing a fixture
+invalidates every previously recorded result — delete
+``benchmark/results/v*/`` and re-run the full history when that happens.

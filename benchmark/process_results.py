@@ -44,6 +44,9 @@ S223_MODELS = SCRIPT_DIR / "s223" / "models"
 OUTPUT_FILE = RESULTS_DIR / "benchmark_data.json"
 TRIPLE_CACHE = RESULTS_DIR / "model_triples.json"
 
+# Results directory for the current checkout; must match run_history.sh.
+HEAD_LABEL = "HEAD"
+
 MODEL_DIRS = {"brick": BRICK_MODELS, "s223": S223_MODELS}
 
 _ROW_RE = re.compile(
@@ -168,11 +171,20 @@ def geomean(values: list[float]) -> float:
 
 
 def collect_versions() -> list[str]:
+    """Release directories in version order, with HEAD (if present) last.
+
+    run_history.sh writes the current checkout to a `HEAD` directory so
+    unreleased work shows up on the chart. It has no version number, and it is
+    always newer than every tag, so it sorts after them rather than by name.
+    """
     dirs = [d.name for d in RESULTS_DIR.iterdir()
-            if d.is_dir() and re.match(r"v\d+\.\d+\.\d+", d.name)]
+            if d.is_dir() and (re.match(r"v\d+\.\d+\.\d+", d.name)
+                               or d.name == HEAD_LABEL)]
 
     def ver_key(s: str):
-        return tuple(int(x) for x in s.lstrip("v").split("."))
+        if s == HEAD_LABEL:
+            return (1, ())
+        return (0, tuple(int(x) for x in s.lstrip("v").split(".")))
 
     dirs.sort(key=ver_key)
     return dirs
