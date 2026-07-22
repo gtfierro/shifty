@@ -19,6 +19,11 @@
 *.pyc
 shapes.ir
 
+# Build outputs (CMake/Python staging alongside the Cargo /target above)
+/build/
+/prefix/
+/docs/shifty_docs.egg-info/
+
 # Benchmark and comparison outputs
 /benchmark/results/triple_counts.json
 # Generated from the per-version *.txt results by benchmark/process_results.py
@@ -58,6 +63,15 @@ shapes.ir
 /shape_flamegraph.svg
 /trace.jsonl
 /trace.shapes.json
+/lazlolog
+
+# Scratch data graphs (large; not fixtures — those live under benchmark/)
+/data.ttl
+/lazlo_sdh_223p_anon.ttl
+
+# Ad-hoc before/after captures from benchcmp.sh
+/benchmark/s223-before.txt
+/benchmark/s223-after.txt
 
 # Test/scratch scripts
 /223test.sh
