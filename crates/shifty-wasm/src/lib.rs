@@ -455,6 +455,9 @@ fn format_algebra_text(conforms: &bool, violations: &[Violation], schema: &Schem
             writeln!(out, "  Severity: {}", r.severity.label()).unwrap();
             writeln!(out, "  Value: {}", r.value).unwrap();
             writeln!(out, "  Message: {}", r.message).unwrap();
+            if let Some(d) = &r.sparql_diagnostic {
+                out.push_str(&format_sparql_diagnostic(d, "  "));
+            }
         }
     }
     out
@@ -493,7 +496,40 @@ fn format_report_text(report: &ValidationReport) -> String {
         for msg in &r.messages {
             writeln!(out, "  Message: {}", term_text(msg)).unwrap();
         }
+        if let Some(d) = &r.sparql_diagnostic {
+            out.push_str(&format_sparql_diagnostic(d, "  "));
+        }
         writeln!(out).unwrap();
+    }
+    out
+}
+
+/// Render a [`shifty_engine::SparqlDiagnostic`] as indented text: the compiled
+/// native plan when the query lowered to it, otherwise the query text and its
+/// SHACL bindings as executed by the Spareval fallback engine.
+fn format_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: &str) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    if let Some(plan) = &d.native_plan {
+        let _ = writeln!(out, "{indent}SPARQL (native plan):");
+        for line in plan.lines() {
+            let _ = writeln!(out, "{indent}  {line}");
+        }
+    } else {
+        let _ = writeln!(out, "{indent}SPARQL (opaque — ran via the fallback engine):");
+    }
+    let _ = writeln!(out, "{indent}  Query:");
+    for line in d.query.lines() {
+        let _ = writeln!(out, "{indent}    {line}");
+    }
+    if !d.bindings.is_empty() {
+        let _ = writeln!(out, "{indent}  Bindings:");
+        for (k, v) in &d.bindings {
+            let _ = writeln!(out, "{indent}    ${k} = {v}");
+        }
+    }
+    if let Some(reason) = &d.fallback_reason {
+        let _ = writeln!(out, "{indent}  Fallback reason: {reason}");
     }
     out
 }
