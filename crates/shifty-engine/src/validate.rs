@@ -12,7 +12,7 @@
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, pred, succ};
 use crate::profile::ShapeCacheSample;
-use crate::sparql::{SparqlExecutor, SparqlViolation};
+use crate::sparql::{SparqlDiagnostic, SparqlExecutor, SparqlViolation};
 use crate::value::{compare_terms, value_type_holds};
 use oxrdf::{Graph, NamedNode, Term};
 use regex::Regex;
@@ -125,6 +125,12 @@ pub struct Reason {
     /// that failed, so the caller can tell "fix any one of these."
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sub_reasons: Vec<Reason>,
+    /// Present only for a failed `sh:sparql`/custom SPARQL-based constraint
+    /// component: the executed query text, its SHACL bindings, and (if
+    /// natively lowered) the compiled physical plan. `None` for every other
+    /// failed constraint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparql_diagnostic: Option<SparqlDiagnostic>,
 }
 
 /// One focus node that failed its statement's shape, with the reasons why.
@@ -1107,27 +1113,39 @@ fn explain(
         Shape::Top | Shape::Pending => Vec::new(),
         Shape::Sparql(constraint) => {
             match evaluator.sparql.constraint_violations(&constraint, node) {
-                Ok(violations) => violations
-                    .into_iter()
-                    .map(|violation| {
-                        // Compute the message before the value/path fields are moved
-                        // out of `violation`.
-                        let message = sparql_violation_message(&violation, &constraint, node);
-                        Reason {
-                            value: violation.value.unwrap_or_else(|| node.clone()),
-                            path: violation
-                                .path
-                                .map(|path| path.to_string())
-                                .or_else(|| path_ctx.map(str::to_string))
-                                .or_else(|| constraint.path.as_ref().map(path_to_string)),
-                            message,
-                            shape: id,
-                            severity: severity.clone(),
-                            author_message: None,
-                            sub_reasons: Vec::new(),
-                        }
-                    })
-                    .collect(),
+                Ok(violations) if violations.is_empty() => Vec::new(),
+                Ok(violations) => {
+                    // Same (constraint, node) for every reason below, so build the
+                    // diagnostic once rather than per violation; `.ok()` because a
+                    // second, redundant compile can't fail once the call above
+                    // already succeeded.
+                    let diagnostic = evaluator
+                        .sparql
+                        .constraint_diagnostic(&constraint, node)
+                        .ok();
+                    violations
+                        .into_iter()
+                        .map(|violation| {
+                            // Compute the message before the value/path fields are
+                            // moved out of `violation`.
+                            let message = sparql_violation_message(&violation, &constraint, node);
+                            Reason {
+                                value: violation.value.unwrap_or_else(|| node.clone()),
+                                path: violation
+                                    .path
+                                    .map(|path| path.to_string())
+                                    .or_else(|| path_ctx.map(str::to_string))
+                                    .or_else(|| constraint.path.as_ref().map(path_to_string)),
+                                message,
+                                shape: id,
+                                severity: severity.clone(),
+                                author_message: None,
+                                sub_reasons: Vec::new(),
+                                sparql_diagnostic: diagnostic.clone(),
+                            }
+                        })
+                        .collect()
+                }
                 Err(error) => vec![Reason {
                     value: node.clone(),
                     path: path_ctx.map(str::to_string),
@@ -1136,6 +1154,10 @@ fn explain(
                     message: format!("SPARQL constraint evaluation failed: {error}"),
                     author_message: None,
                     sub_reasons: Vec::new(),
+                    sparql_diagnostic: evaluator
+                        .sparql
+                        .constraint_diagnostic(&constraint, node)
+                        .ok(),
                 }],
             }
         }
@@ -1168,6 +1190,7 @@ fn explain(
                     message: format!("closed: unexpected predicate(s) {}", preds.join(", ")),
                     author_message: None,
                     sub_reasons: Vec::new(),
+                    sparql_diagnostic: None,
                 }]
             }
         }
@@ -1181,6 +1204,7 @@ fn explain(
                     message: "negated shape unexpectedly held".to_string(),
                     author_message: None,
                     sub_reasons: Vec::new(),
+                    sparql_diagnostic: None,
                 }]
             } else {
                 Vec::new()
@@ -1212,6 +1236,7 @@ fn explain(
                     message: format!("none of {} alternative(s) satisfied", cs.len()),
                     author_message: None,
                     sub_reasons,
+                    sparql_diagnostic: None,
                 }]
             }
         }
@@ -1308,6 +1333,7 @@ fn explain_count(
                         message: format!("must be an instance of {}", term_text(&class)),
                         author_message: None,
                         sub_reasons: Vec::new(),
+                        sparql_diagnostic: None,
                     });
                 }
             }
@@ -1322,6 +1348,7 @@ fn explain_count(
                 ),
                 author_message: None,
                 sub_reasons: Vec::new(),
+                sparql_diagnostic: None,
             }),
             // Any other `∃≤0` qualifier (`sh:nodeKind`, several value constraints
             // De-Morgan'd to an `Or`, …): describe the positive requirement.
@@ -1336,6 +1363,7 @@ fn explain_count(
                         message: format!("must satisfy `{requirement}`"),
                         author_message: None,
                         sub_reasons: Vec::new(),
+                        sparql_diagnostic: None,
                     });
                 }
             }
@@ -1350,6 +1378,7 @@ fn explain_count(
                 ),
                 author_message: None,
                 sub_reasons: Vec::new(),
+                sparql_diagnostic: None,
             }),
         }
     }
@@ -1365,6 +1394,7 @@ fn explain_count(
             message: format!(
                 "at least {mn} value(s){qual_clause} required along {path_str}, found {n}"
             ),
+            sparql_diagnostic: None,
             author_message: None,
             sub_reasons: Vec::new(),
         });
@@ -1461,6 +1491,7 @@ fn leaf(
             message,
             author_message: None,
             sub_reasons: Vec::new(),
+            sparql_diagnostic: None,
         }]
     }
 }
