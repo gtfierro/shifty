@@ -14,7 +14,7 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
-use crate::sparql::{FunctionDef, SparqlExecutor};
+use crate::sparql::{FunctionDef, SparqlDiagnostic, SparqlExecutor};
 use crate::validate::{
     UnsupportedPolicy, ValidationGraphMode, ValidationOptions, apply_message_template,
     entry_shape_name_selected, graph_union, is_boolean_true,
@@ -45,6 +45,11 @@ pub struct ValidationResult {
     pub severity: NamedNode,
     /// `sh:resultMessage` — copied from `sh:message` on the source shape.
     pub messages: Vec<Term>,
+    /// Present only for `sh:SPARQLConstraintComponent`/custom SPARQL-based
+    /// component results: the executed query text, its SHACL bindings, and (if
+    /// natively lowered) the compiled physical plan. `None` for every other
+    /// constraint component.
+    pub sparql_diagnostic: Option<SparqlDiagnostic>,
 }
 
 #[derive(Debug, Clone)]
@@ -871,6 +876,7 @@ impl Reporter<'_> {
                 source_shape: node_term_ref(shape),
                 severity: severity.clone(),
                 messages: messages.clone(),
+                sparql_diagnostic: None,
             });
         };
 
@@ -1134,6 +1140,7 @@ impl Reporter<'_> {
                                 &bindings,
                                 &validator.messages,
                                 inherited,
+                                &validator.query,
                             );
                         }
                     }
@@ -1163,6 +1170,7 @@ impl Reporter<'_> {
                                     &binds,
                                     &validator.messages,
                                     inherited,
+                                    &validator.query,
                                 );
                             }
                         }
@@ -1176,6 +1184,7 @@ impl Reporter<'_> {
                             &bindings,
                             &validator.messages,
                             inherited,
+                            &validator.query,
                         ),
                     }
                 }
@@ -1195,6 +1204,7 @@ impl Reporter<'_> {
         bindings: &[(String, Term)],
         validator_messages: &[Term],
         inherited: &[Term],
+        validator_query: &str,
     ) {
         let raw = if validator_messages.is_empty() {
             self.messages_or_inherited(shape, inherited)
@@ -1211,6 +1221,15 @@ impl Reporter<'_> {
             source_shape: node_term_ref(shape),
             severity: self.severity(shape),
             messages,
+            // Custom constraint components always run through `eval_ask`/
+            // `eval_select` (never native lowering — see their doc comments),
+            // so this is unconditionally the opaque/fallback case.
+            sparql_diagnostic: Some(SparqlDiagnostic {
+                query: validator_query.to_string(),
+                bindings: bindings.to_vec(),
+                native_plan: None,
+                fallback_reason: None,
+            }),
         });
     }
 
@@ -1244,6 +1263,7 @@ impl Reporter<'_> {
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
                     messages: self.messages_or_inherited(shape, inherited),
+                    sparql_diagnostic: None,
                 });
             }
         }
@@ -1416,6 +1436,14 @@ impl Reporter<'_> {
             };
             match sparql.constraint_violations(&constraint, focus) {
                 Ok(violations) => {
+                    if violations.is_empty() {
+                        continue;
+                    }
+                    // Same (constraint, focus) for every row below, so build the
+                    // diagnostic once rather than per violation; `.ok()` because a
+                    // second, redundant compile can't fail once the call above
+                    // already succeeded.
+                    let diagnostic = sparql.constraint_diagnostic(&constraint, focus).ok();
                     for violation in violations {
                         let messages =
                             substitute_messages(&raw_messages, focus, &violation.bindings);
@@ -1433,6 +1461,7 @@ impl Reporter<'_> {
                             source_shape: node_term_ref(shape),
                             severity: severity.clone(),
                             messages,
+                            sparql_diagnostic: diagnostic.clone(),
                         });
                     }
                 }
@@ -1452,6 +1481,7 @@ impl Reporter<'_> {
                         source_shape: node_term_ref(shape),
                         severity: severity.clone(),
                         messages,
+                        sparql_diagnostic: sparql.constraint_diagnostic(&constraint, focus).ok(),
                     });
                 }
             }
@@ -1498,6 +1528,7 @@ impl Reporter<'_> {
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
                     messages: self.messages_or_inherited(shape, inherited),
+                    sparql_diagnostic: None,
                 });
             }
         }
@@ -1744,6 +1775,7 @@ impl Reporter<'_> {
             source_shape: node_term_ref(shape),
             severity: self.severity(shape),
             messages,
+            sparql_diagnostic: None,
         });
     }
 
