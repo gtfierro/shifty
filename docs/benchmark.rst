@@ -4,205 +4,252 @@ Benchmarks
 Performance of Shifty's ``validate`` pipeline (inference + validation) across
 real building models, tracked over each release.
 
-The chart below tracks each release against a fixed baseline and shows the
-**spread across the model corpus**, not just the headline average — so a
-release that speeds up some models while regressing others is visible as a
-tall box rather than being averaged away.
+Wall-clock ``validate`` time is dominated by a **fixed setup cost** — preparing
+the shapes graph — that is paid no matter how small the data graph is.  A
+16-triple Brick model still takes ~3.7 s.  So the raw number mostly reflects
+model size, and a single average hides *which part* of the engine a release
+improved.
+
+Each bar below is the measured time to validate one model, averaged over the
+corpus, split into the three things that time is spent on.
 
 .. raw:: html
 
    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
-   <div id="shifty-bench-chart" style="width:100%;height:420px;"></div>
+   <div id="shifty-bench-chart" style="width:100%;height:640px;"></div>
    <p id="shifty-bench-caption" class="bench-caption"></p>
+   <details class="bench-details">
+     <summary>Show the numbers</summary>
+     <div id="shifty-bench-breakdown"></div>
+   </details>
    <script>
    // benchmark_data.js is loaded via html_js_files (for cache-busting) at the
    // end of <body>, so wait for DOMContentLoaded before reading its global.
    document.addEventListener('DOMContentLoaded', function () {
      var data = window.SHIFTY_BENCHMARK_DATA || {};
-     var series = data.timeseries || [];
+     var series = (data.timeseries || []).filter(function (ts) {
+       return (ts.points || []).some(function (p) { return p.total_s > 0; });
+     });
 
-     var COLORS = { brick: '#3b7dd8', s223: '#e06b2d' };
-     var NAMES  = { brick: 'Brick', s223: 'ASHRAE 223P' };
+     var NAMES = { brick: 'Brick', s223: 'ASHRAE 223P' };
 
-     // Ordered list of versions that actually carry data, and a lookup from
-     // version -> x position. Boxes are drawn at numeric x (rather than at the
-     // category label) so the geomean line can be nudged by the *same* offset
-     // and land dead-centre on its group's boxes.
-     var versions = [];
-     (data.versions || []).forEach(function (v) {
-       var present = series.some(function (ts) {
-         return (ts.points || []).some(function (p) {
-           return p.version === v && (p.rel || []).length;
-         });
+     // Categorical slots 1-3, validated for both surfaces (CVD dE 9.2 light /
+     // 9.4 dark, normal-vision 24.0 / 20.9). Dark is a separate step for the
+     // dark surface, not an automatic flip.
+     var COMPONENTS = [
+       { key: 'setup_s',    label: 'Fixed setup', light: '#2a78d6', dark: '#3987e5' },
+       { key: 'infer_s',    label: 'Inference',   light: '#eb6834', dark: '#d95926' },
+       { key: 'validate_s', label: 'Validation',  light: '#1baf7a', dark: '#199e70' },
+     ];
+
+     // Runs predating the infer-timing change record no inference component;
+     // those fall back to a two-part stack rather than drawing a bogus zero.
+     var hasInfer = series.some(function (ts) {
+       return (ts.points || []).some(function (p) {
+         return p.infer_s !== null && p.infer_s !== undefined;
        });
-       if (present) versions.push(v);
      });
-     var xOf = {};
-     versions.forEach(function (v, i) { xOf[v] = i; });
+     var parts = COMPONENTS.filter(function (c) {
+       return c.key !== 'infer_s' || hasInfer;
+     });
 
-     var withData = series.filter(function (ts) {
-       return (ts.points || []).some(function (p) { return (p.rel || []).length; });
-     });
-     // Two datasets sit side by side; a lone dataset stays centred.
-     var SPAN = 0.19;
-     function offsetFor(i) {
-       if (withData.length < 2) return 0;
-       return -SPAN + (2 * SPAN) * (i / (withData.length - 1));
+     // Furo stamps the theme on <body>, not <html>, and its third state
+     // "auto" defers to the OS. Reading the wrong element silently pins the
+     // chart to light colours on a dark page.
+     var prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+     function isDark() {
+       var theme = document.body.dataset.theme || 'auto';
+       if (theme === 'dark')  return true;
+       if (theme === 'light') return false;
+       return prefersDark.matches;
      }
+     function axisColor()    { return isDark() ? '#aaa' : '#555'; }
+     function gridColor()    { return isDark() ? 'rgba(255,255,255,0.08)'
+                                               : 'rgba(0,0,0,0.08)'; }
+     // Drawn as each segment's border to leave a gap between fills, so
+     // adjacent segments never bleed into one another.
+     function surfaceColor() { return isDark() ? '#1a1a19' : '#ffffff'; }
 
-     var traces = [];
-     withData.forEach(function (ts, di) {
-       var ds     = ts.dataset;
-       var label  = NAMES[ds] || ds;
-       var off    = offsetFor(di);
-       var pts    = (ts.points || []).filter(function (p) {
-         return (p.rel || []).length && xOf[p.version] !== undefined;
-       });
-       if (!pts.length) return;
-
-       // One box per version: every model's time divided by its own baseline.
-       var bx = [], by = [], btext = [], babs = [];
-       pts.forEach(function (p) {
-         p.rel.forEach(function (r, k) {
-           bx.push(xOf[p.version] + off);
-           by.push(r);
-           btext.push((p.models || [])[k] || '');
-           babs.push((p.abs_ms || [])[k]);
-         });
-       });
-
-       traces.push({
-         type: 'box',
-         x: bx,
-         y: by,
-         text: btext,
-         customdata: babs,
-         name: label,
-         legendgroup: ds,
-         width: 2 * SPAN * 0.78,
-         marker: { color: COLORS[ds], size: 4, opacity: 0.8 },
-         line: { color: COLORS[ds], width: 1.5 },
-         fillcolor: 'rgba(0,0,0,0)',
-         boxpoints: 'outliers',
-         hoveron: 'boxes+points',
-         hovertemplate:
-           '%{text}<br>%{y:.3f}x baseline  (%{customdata:,} ms)' +
-           '<extra>' + label + '</extra>',
-       });
-
-       // Geomean overlay — the single-number trend, same series as before.
-       traces.push({
-         type: 'scatter',
-         mode: 'lines+markers',
-         x: pts.map(function (p) { return xOf[p.version] + off; }),
-         y: pts.map(function (p) { return p.geomean_rel; }),
-         customdata: pts.map(function (p) { return p.geomean_ms; }),
-         name: label + ' geomean',
-         legendgroup: ds,
-         showlegend: false,
-         line:   { color: COLORS[ds], width: 2.5 },
-         marker: { size: 6, color: COLORS[ds] },
-         hovertemplate:
-           'geomean %{y:.3f}x baseline  (%{customdata:,.0f} ms)' +
-           '<extra>' + label + '</extra>',
-       });
-     });
-
-     if (!traces.length) {
+     if (!series.length) {
        document.getElementById('shifty-bench-chart').innerHTML =
          '<p style="padding:1rem;font-style:italic">Benchmark data not yet generated. ' +
          'Run <code>uv run benchmark/process_results.py</code> to produce it.</p>';
        return;
      }
 
-     // Baseline reference at 1.00x. Drawn as a trace rather than a layout
-     // shape because shape coordinates are in log units on a log axis, which
-     // is an easy thing to get silently wrong.
-     traces.push({
-       type: 'scatter',
-       mode: 'lines',
-       x: [-0.5, versions.length - 0.5],
-       y: [1, 1],
-       line: { color: 'rgba(128,128,128,0.75)', width: 1, dash: 'dot' },
-       hoverinfo: 'skip',
-       showlegend: false,
+     // One panel per dataset: the corpora differ in size, so a shared y-scale
+     // would flatten the smaller one. The x-axis is shared.
+     var PANELS = series.map(function (ts, i) {
+       return { ts: ts, yaxis: i === 0 ? 'y' : 'y' + (i + 1) };
      });
 
-     function axisColor() {
-       return document.documentElement.dataset.theme === 'dark' ? '#aaa' : '#555';
+     // The recorded seconds are corpus totals. Charting them puts ~190 s on the
+     // axis for a corpus whose models each take ~4 s, which reads as wrong even
+     // though it isn't -- so divide through by the model count and show the
+     // mean per model, the number a reader actually recognises. Means are used
+     // rather than medians because only means stay additive: the segment means
+     // sum to the total mean, medians would not.
+     function perModel(p, key) {
+       return p.n_models ? (p[key] || 0) / p.n_models : 0;
      }
-     function gridColor() {
-       return document.documentElement.dataset.theme === 'dark'
-         ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+     function buildTraces() {
+       var traces = [];
+       PANELS.forEach(function (panel, pi) {
+         var pts = (panel.ts.points || []).filter(function (p) { return p.total_s > 0; });
+         parts.forEach(function (comp) {
+           traces.push({
+             type: 'bar',
+             x: pts.map(function (p) { return p.version; }),
+             y: pts.map(function (p) { return perModel(p, comp.key); }),
+             customdata: pts.map(function (p) {
+               return [(p[comp.key] || 0) / p.total_s * 100,
+                       perModel(p, 'total_s'), p.total_s];
+             }),
+             name: comp.label,
+             legendgroup: comp.key,
+             showlegend: pi === 0,
+             xaxis: 'x',
+             yaxis: panel.yaxis,
+             marker: {
+               color: isDark() ? comp.dark : comp.light,
+               line: { color: surfaceColor(), width: 1.5 },
+             },
+             hovertemplate: comp.label + ' %{y:.2f}s per model' +
+                            ' (%{customdata[0]:.0f}% of %{customdata[1]:.2f}s)' +
+                            '<br><span style="font-size:0.85em">whole corpus: ' +
+                            '%{customdata[2]:.0f}s</span>' +
+                            '<extra>' + (NAMES[panel.ts.dataset] || panel.ts.dataset) +
+                            ' %{x}</extra>',
+           });
+         });
+       });
+       return traces;
      }
 
      function makeLayout() {
-       return {
-         boxmode: 'overlay',
-         xaxis: { title: { text: 'Version', standoff: 8 }, tickangle: -35,
-                  tickmode: 'array',
-                  tickvals: versions.map(function (v, i) { return i; }),
-                  ticktext: versions,
-                  range: [-0.5, versions.length - 0.5],
+       var n = PANELS.length;
+       var gap = 0.14;
+       var h = (1 - gap * (n - 1)) / n;
+       var layout = {
+         barmode: 'stack',
+         bargap: 0.25,
+         xaxis: { anchor: PANELS[n - 1].yaxis, tickangle: -35,
+                  title: { text: 'Version', standoff: 8 },
                   gridcolor: gridColor(), color: axisColor() },
-         // Log scale: these are ratios, so a 2x regression and a 2x speedup
-         // should read as equal distances from the 1.00x baseline. It also
-         // stops a single large regression (v0.2.3) from flattening every
-         // other release into an unreadable band.
-         yaxis: { title: { text: 'validate time relative to baseline', standoff: 8 },
-                  type: 'log',
-                  tickmode: 'array',
-                  tickvals: [0.25, 0.5, 0.75, 1, 1.5, 2, 4, 8],
-                  ticktext: ['0.25x', '0.5x', '0.75x', '1.00x', '1.5x',
-                             '2x', '4x', '8x'],
-                  gridcolor: gridColor(), color: axisColor() },
-         legend: { x: 0.01, y: 0.06, orientation: 'h', bgcolor: 'rgba(0,0,0,0)' },
-         margin: { l: 70, r: 20, t: 16, b: 80 },
+         legend: { orientation: 'h', x: 0, y: 1.15, xanchor: 'left',
+                   bgcolor: 'rgba(0,0,0,0)' },
+         annotations: [],
+         margin: { l: 70, r: 20, t: 68, b: 80 },
          hovermode: 'closest',
          paper_bgcolor: 'transparent',
          plot_bgcolor:  'transparent',
          font: { color: axisColor() },
        };
+       PANELS.forEach(function (panel, i) {
+         // Panels are laid out top-down, so the first dataset sits highest.
+         var top = 1 - i * (h + gap);
+         var key = i === 0 ? 'yaxis' : 'yaxis' + (i + 1);
+         layout[key] = {
+           // Clamp: the running subtraction lands a hair below zero on the
+           // last panel, and Plotly rejects a domain outside [0, 1].
+           domain: [Math.max(0, top - h), Math.min(1, top)],
+           title: { text: 'seconds per model', standoff: 8 },
+           rangemode: 'tozero',
+           gridcolor: gridColor(), color: axisColor(),
+         };
+         layout.annotations.push({
+           text: '<b>' + (NAMES[panel.ts.dataset] || panel.ts.dataset) + '</b>' +
+                 ' — mean time to validate one model',
+           x: 0, y: top + 0.012, xref: 'paper', yref: 'paper',
+           xanchor: 'left', yanchor: 'bottom', showarrow: false,
+           font: { size: 13, color: axisColor() },
+         });
+       });
+       return layout;
      }
 
-     Plotly.newPlot('shifty-bench-chart', traces, makeLayout(),
+     Plotly.newPlot('shifty-bench-chart', buildTraces(), makeLayout(),
                     { responsive: true, displayModeBar: false });
 
-     // Caption names the actual baseline release and model counts, so it stays
-     // accurate as more versions are benchmarked.
      (function writeCaption() {
-       // Corpus size = the largest run, not the latest: an in-progress or
-       // partial benchmark run would otherwise understate the model count.
-       var parts = withData.map(function (ts) {
+       var sizes = series.map(function (ts) {
          var n = (ts.points || []).reduce(function (mx, p) {
-           return Math.max(mx, (p.models || []).length);
+           return Math.max(mx, p.n_models || 0);
          }, 0);
          return n + ' ' + (NAMES[ts.dataset] || ts.dataset) + ' models';
        });
-       var base = (withData[0] || {}).baseline_version || versions[0] || 'the first release';
-       document.getElementById('shifty-bench-caption').innerHTML =
-         '<strong>How to read this chart.</strong> Each box summarises one release ' +
-         'over the whole model corpus (' + parts.join(', ') + '). ' +
-         'Every model is divided by <em>its own</em> time in ' + base + ', so ' +
-         '<code>1.00x</code> (dotted line) is that baseline and lower is faster — ' +
-         'normalising this way cancels out the fact that some buildings are far ' +
-         'larger than others, leaving only the effect of the release itself. ' +
-         'The box spans the middle 50% of models with the median inside it, the ' +
-         'whiskers reach the rest, and individually plotted points are outliers ' +
-         '(hover to see which model). The solid line is the geometric mean, the ' +
-         'same headline number tracked before. ' +
-         '<strong>A box that is short and low means the release sped up the whole ' +
-         'corpus evenly; a tall box means it helped some models much more than ' +
-         'others.</strong> Times are wall-clock <code>validate</code> ' +
-         '(inference + validation), median of 3 runs per model.';
+       var body =
+         '<strong>How to read this chart.</strong> Each bar is the measured time to ' +
+         'validate a single model with that release, averaged across the corpus (' +
+         sizes.join(', ') + '), so bar height is the elapsed seconds you would ' +
+         'actually wait and shorter is better. Hover any segment for that ' +
+         'release&rsquo;s whole-corpus total. ' +
+         'The segments split where that time goes. <em>Fixed setup</em> is the work ' +
+         'done before any data is looked at — preparing the shapes graph — measured ' +
+         'as the inference time of the corpus&rsquo;s smallest model, which at 16 ' +
+         'triples is essentially pure startup. ';
+       if (hasInfer) {
+         body +=
+           '<em>Inference</em> and <em>validation</em> are separated by timing ' +
+           '<code>shifty infer</code> alongside <code>shifty validate</code>. The ' +
+           '<code>validate</code> timing is cumulative — it runs inference internally ' +
+           '— so inference is <code>infer − setup</code> and validation is ' +
+           '<code>validate − infer</code>, and the three segments add up to the ' +
+           'measured total exactly rather than being modelled. ';
+       } else {
+         body +=
+           'Inference is not broken out here — these results predate per-phase ' +
+           'timing, so the non-setup time is shown as one block. ';
+       }
+       body +=
+         '<strong>The point: for the Brick corpus most of the wall clock is startup, ' +
+         'not data</strong> — its models are small (median ~600 triples) against a ' +
+         '229k-triple shapes closure, so per-model startup dominates and the two ' +
+         'big engine wins are visible only in the thinner segments: v0.1.4 cut ' +
+         'validation, and v0.2.1 cut inference. Times are medians of 3 runs per ' +
+         'model, and each model pays setup once because every run is a fresh ' +
+         'process — amortising that across models is a separate win available to ' +
+         'the library API.';
+       document.getElementById('shifty-bench-caption').innerHTML = body;
      })();
 
-     new MutationObserver(function () {
-       Plotly.relayout('shifty-bench-chart', makeLayout());
-     }).observe(document.documentElement,
-                { attributes: true, attributeFilter: ['data-theme'] });
+     // Table view: relief for the light-mode contrast warning on the validation
+     // hue, and the accessible equivalent of the chart.
+     (function writeTable() {
+       var html = '';
+       series.forEach(function (ts) {
+         var pts = (ts.points || []).filter(function (p) { return p.total_s > 0; });
+         if (!pts.length) return;
+         html += '<h4>' + (NAMES[ts.dataset] || ts.dataset) + '</h4>';
+         html += '<div class="bench-table-wrap"><table class="bench-table"><thead><tr><th>Version</th>';
+         parts.forEach(function (c) { html += '<th>' + c.label + '</th>'; });
+         html += '<th>Per model</th><th>Whole corpus</th></tr></thead><tbody>';
+         pts.forEach(function (p) {
+           html += '<tr><td><code>' + p.version + '</code></td>';
+           parts.forEach(function (c) {
+             html += '<td>' + perModel(p, c.key).toFixed(2) + ' s</td>';
+           });
+           html += '<td>' + perModel(p, 'total_s').toFixed(2) + ' s</td>';
+           html += '<td>' + p.total_s.toFixed(1) + ' s</td></tr>';
+         });
+         html += '</tbody></table></div>';
+       });
+       document.getElementById('shifty-bench-breakdown').innerHTML = html;
+     })();
+
+     function repaint() {
+       Plotly.react('shifty-bench-chart', buildTraces(), makeLayout());
+     }
+     new MutationObserver(repaint).observe(document.body,
+       { attributes: true, attributeFilter: ['data-theme'] });
+     // Also follow the OS while the toggle sits in its "auto" state.
+     if (prefersDark.addEventListener) {
+       prefersDark.addEventListener('change', repaint);
+     }
    });
    </script>
+
 
 Per-model results
 -----------------
@@ -270,3 +317,22 @@ Regenerating benchmark data
    ./benchmark/run_history.sh
    uv run benchmark/process_results.py
    cd docs && make html
+
+``run_history.sh`` benchmarks every release tag, then the current checkout as a
+final ``HEAD`` entry.  Tagged results are reused when they already exist, so a
+repeat run only re-measures ``HEAD`` — but the first run measures every tag and
+takes hours.  To refresh just the ``HEAD`` entry after a code change:
+
+.. code-block:: bash
+
+   BENCH_ONLY_HEAD=1 ./benchmark/run_history.sh
+   cd docs && make html
+
+Because ``HEAD`` is built from the working tree, uncommitted changes are
+included; the run logs the commit it started from and whether the tree was
+dirty.  ``BENCH_HEAD=0`` restricts a run to tags only, and ``BENCH_ITERS``
+controls how many samples each measurement takes (default 3, median reported).
+
+Shapes and models always come from the current checkout, so changing a fixture
+invalidates every previously recorded result — delete
+``benchmark/results/v*/`` and re-run the full history when that happens.

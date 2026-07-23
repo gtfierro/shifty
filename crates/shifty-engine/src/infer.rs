@@ -59,8 +59,11 @@ pub fn infer_graphs(
     shapes: &Graph,
     schema: &Schema,
 ) -> Result<InferenceOutcome, NonStratifiable> {
+    // The union is freshly built and owned by this call, so hand it over rather
+    // than letting the callee clone it -- on a large shapes graph that copy is
+    // pure overhead (~150 ms for Brick's 228k triples).
     let context = graph_union(data, shapes);
-    infer_with_context(data, &context, schema)
+    infer_with_owned_context_and_options(data, context, schema, &EngineOptions::default())
 }
 
 /// Run inference with data-scoped focus discovery and a broader execution
@@ -81,6 +84,20 @@ pub fn infer_with_context_and_options(
     schema: &Schema,
     options: &EngineOptions,
 ) -> Result<InferenceOutcome, NonStratifiable> {
+    infer_with_owned_context_and_options(data, context.clone(), schema, options)
+}
+
+/// [`infer_with_context_and_options`] taking ownership of the execution context.
+///
+/// Inference mutates the context as it commits inferred triples, so a borrowed
+/// context has to be copied first. Callers that build the context themselves
+/// (see [`infer_graphs`]) can pass it by value and skip that copy.
+pub fn infer_with_owned_context_and_options(
+    data: &Graph,
+    context: Graph,
+    schema: &Schema,
+    options: &EngineOptions,
+) -> Result<InferenceOutcome, NonStratifiable> {
     let strat = analyze(&schema.arena);
     if !strat.stratifiable {
         let components = strat
@@ -93,7 +110,7 @@ pub fn infer_with_context_and_options(
     }
 
     let mut graph = data.clone();
-    let mut context = context.clone();
+    let mut context = context;
     let mut sparql =
         SparqlExecutor::new(&context).expect("building an in-memory Oxigraph store should succeed");
     // Register sh:SPARQLFunctions so CONSTRUCT rule bodies can call them (node

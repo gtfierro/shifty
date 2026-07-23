@@ -113,6 +113,22 @@
   font-size: 0.85em;
 }
 
+/* Table view of the chart above: the accessible equivalent, and the required
+   relief for the validation hue's light-mode contrast. */
+.bench-details {
+  margin: -1rem 0 2rem;
+}
+
+.bench-details > summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: var(--color-foreground-secondary, #666);
+}
+
+.bench-details h4 {
+  margin: 1rem 0 0.4rem;
+}
+
 /* ─────────────────────────────────────────────────────────
    Benchmark tables
    ───────────────────────────────────────────────────────── */

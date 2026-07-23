@@ -212,6 +212,7 @@ def _shifty_api():
                 None,
                 "nt",
                 graph_mode,
+                None,  # entry_shape_names
                 infer,
                 "info",
                 True,
