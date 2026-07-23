@@ -342,8 +342,43 @@ fn render_reason(r: &shifty_engine::Reason, indent: usize) -> Vec<String> {
         None => format!("{pad}- [{}] {}", r.severity, message),
     };
     let mut lines = vec![header];
+    if let Some(d) = &r.sparql_diagnostic {
+        lines.extend(render_sparql_diagnostic(d, indent + 4));
+    }
     for sub in &r.sub_reasons {
         lines.extend(render_reason(sub, indent + 4));
+    }
+    lines
+}
+
+/// Render a [`shifty_engine::SparqlDiagnostic`]: the compiled native plan when
+/// the query lowered to it, otherwise the query text and its SHACL bindings as
+/// executed by the Spareval fallback engine — so a SPARQL constraint failure is
+/// never just "not satisfied."
+fn render_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: usize) -> Vec<String> {
+    let pad = " ".repeat(indent);
+    let mut lines = Vec::new();
+    match &d.native_plan {
+        Some(plan) => {
+            lines.push(format!("{pad}SPARQL (native plan):"));
+            for line in plan.lines() {
+                lines.push(format!("{pad}  {line}"));
+            }
+        }
+        None => lines.push(format!("{pad}SPARQL (opaque — ran via the fallback engine):")),
+    }
+    lines.push(format!("{pad}  Query:"));
+    for line in d.query.lines() {
+        lines.push(format!("{pad}    {line}"));
+    }
+    if !d.bindings.is_empty() {
+        lines.push(format!("{pad}  Bindings:"));
+        for (k, v) in &d.bindings {
+            lines.push(format!("{pad}    ${k} = {v}"));
+        }
+    }
+    if let Some(reason) = &d.fallback_reason {
+        lines.push(format!("{pad}  Fallback reason: {reason}"));
     }
     lines
 }
