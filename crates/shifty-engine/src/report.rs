@@ -2351,10 +2351,7 @@ mod sparql_diagnostic_tests {
             "rendered plan should show the physical pipeline, got: {plan}"
         );
         assert!(
-            diagnostic
-                .bindings
-                .iter()
-                .any(|(name, _)| name == "this"),
+            diagnostic.bindings.iter().any(|(name, _)| name == "this"),
             "bindings should include $this, got: {:?}",
             diagnostic.bindings
         );
@@ -2410,10 +2407,7 @@ mod sparql_diagnostic_tests {
             diagnostic.query
         );
         assert!(
-            diagnostic
-                .bindings
-                .iter()
-                .any(|(name, _)| name == "this"),
+            diagnostic.bindings.iter().any(|(name, _)| name == "this"),
             "bindings should include $this, got: {:?}",
             diagnostic.bindings
         );

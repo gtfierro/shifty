@@ -516,7 +516,10 @@ fn format_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: &str) -
             let _ = writeln!(out, "{indent}  {line}");
         }
     } else {
-        let _ = writeln!(out, "{indent}SPARQL (opaque — ran via the fallback engine):");
+        let _ = writeln!(
+            out,
+            "{indent}SPARQL (opaque — ran via the fallback engine):"
+        );
     }
     let _ = writeln!(out, "{indent}  Query:");
     for line in d.query.lines() {

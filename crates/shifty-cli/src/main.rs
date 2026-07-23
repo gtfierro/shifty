@@ -365,7 +365,9 @@ fn render_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: usize) 
                 lines.push(format!("{pad}  {line}"));
             }
         }
-        None => lines.push(format!("{pad}SPARQL (opaque — ran via the fallback engine):")),
+        None => lines.push(format!(
+            "{pad}SPARQL (opaque — ran via the fallback engine):"
+        )),
     }
     lines.push(format!("{pad}  Query:"));
     for line in d.query.lines() {

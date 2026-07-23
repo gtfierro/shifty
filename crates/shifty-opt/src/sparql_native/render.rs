@@ -126,7 +126,10 @@ fn render_expr(plan: &NativeQueryPlan, e: &ExprPlan, depth: usize) -> String {
 fn render_op(plan: &NativeQueryPlan, id: OpId, depth: usize) -> Vec<String> {
     let p = pad(depth);
     match &plan.nodes[id as usize] {
-        NativeOp::InputFocus => vec![format!("{p}InputFocus(?{})", var_name(plan, plan.focus_var))],
+        NativeOp::InputFocus => vec![format!(
+            "{p}InputFocus(?{})",
+            var_name(plan, plan.focus_var)
+        )],
         NativeOp::Scan { input, pattern } => {
             let mut lines = render_op(plan, *input, depth);
             lines.push(format!("{p}Scan {}", render_triple_scan(plan, pattern)));
@@ -159,7 +162,10 @@ fn render_op(plan: &NativeQueryPlan, id: OpId, depth: usize) -> Vec<String> {
         }
         NativeOp::Project { input, vars } => {
             let mut lines = render_op(plan, *input, depth);
-            let names: Vec<String> = vars.iter().map(|v| format!("?{}", var_name(plan, *v))).collect();
+            let names: Vec<String> = vars
+                .iter()
+                .map(|v| format!("?{}", var_name(plan, *v)))
+                .collect();
             lines.push(format!("{p}Project [{}]", names.join(", ")));
             lines
         }
