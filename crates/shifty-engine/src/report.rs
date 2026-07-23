@@ -2296,3 +2296,165 @@ fn map_node_kind(term: &Term) -> Option<NodeKindSet> {
         return None;
     })
 }
+
+#[cfg(test)]
+mod sparql_diagnostic_tests {
+    use super::*;
+
+    fn report_for(turtle: &str) -> ValidationReport {
+        let loaded = shifty_parse::load_turtle(turtle.as_bytes(), None).expect("valid turtle");
+        validate_report(&loaded, &loaded.graph)
+    }
+
+    /// A simple BGP `sh:sparql` SELECT constraint lowers to the native
+    /// operator plan, so its violation should carry a rendered native plan
+    /// and no fallback reason.
+    #[test]
+    fn native_sparql_constraint_carries_rendered_plan() {
+        let report = report_for(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <urn:ex/> .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                sh:sparql [
+                    a sh:SPARQLConstraint ;
+                    sh:message "must not be a Bad" ;
+                    sh:select """
+                        PREFIX ex: <urn:ex/>
+                        SELECT ?this WHERE { ?this a ex:Bad . }
+                    """ ;
+                ] .
+
+            ex:sentinel a ex:Bad .
+            "#,
+        );
+        assert!(!report.conforms);
+        let result = report
+            .results
+            .iter()
+            .find(|r| r.component.as_str() == vocab::SH_CC_SPARQL.as_str())
+            .expect("one sh:sparql violation");
+        let diagnostic = result
+            .sparql_diagnostic
+            .as_ref()
+            .expect("sh:sparql violations carry a diagnostic");
+        assert!(
+            diagnostic.native_plan.is_some(),
+            "a simple BGP SELECT should lower to a native plan, got: {diagnostic:?}"
+        );
+        assert!(diagnostic.fallback_reason.is_none());
+        let plan = diagnostic.native_plan.as_ref().unwrap();
+        assert!(
+            plan.contains("InputFocus"),
+            "rendered plan should show the physical pipeline, got: {plan}"
+        );
+        assert!(
+            diagnostic
+                .bindings
+                .iter()
+                .any(|(name, _)| name == "this"),
+            "bindings should include $this, got: {:?}",
+            diagnostic.bindings
+        );
+    }
+
+    /// A `sh:sparql` constraint using an aggregate subquery falls back to the
+    /// Spareval engine, so its violation should carry the executed query text
+    /// and bindings but no native plan.
+    #[test]
+    fn opaque_sparql_constraint_carries_query_and_bindings() {
+        let report = report_for(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <urn:ex/> .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                sh:sparql [
+                    a sh:SPARQLConstraint ;
+                    sh:message "must have zero Bad things" ;
+                    sh:select """
+                        PREFIX ex: <urn:ex/>
+                        SELECT ?this WHERE {
+                            {
+                                SELECT ?this (COUNT(*) AS ?c) WHERE { ?this a ex:Bad . }
+                                GROUP BY ?this
+                            }
+                            FILTER (?c > 0)
+                        }
+                    """ ;
+                ] .
+
+            ex:sentinel a ex:Bad .
+            "#,
+        );
+        assert!(!report.conforms);
+        let result = report
+            .results
+            .iter()
+            .find(|r| r.component.as_str() == vocab::SH_CC_SPARQL.as_str())
+            .expect("one sh:sparql violation");
+        let diagnostic = result
+            .sparql_diagnostic
+            .as_ref()
+            .expect("sh:sparql violations carry a diagnostic");
+        assert!(
+            diagnostic.native_plan.is_none(),
+            "an aggregate subquery should not lower natively, got: {diagnostic:?}"
+        );
+        assert!(
+            diagnostic.query.contains("COUNT"),
+            "opaque diagnostic should surface the executed query text, got: {}",
+            diagnostic.query
+        );
+        assert!(
+            diagnostic
+                .bindings
+                .iter()
+                .any(|(name, _)| name == "this"),
+            "bindings should include $this, got: {:?}",
+            diagnostic.bindings
+        );
+    }
+
+    /// A custom SPARQL-based constraint component (`sh:SPARQLAskValidator`)
+    /// always runs through the fallback engine, so its violation's diagnostic
+    /// should have no native plan even for a trivially simple ASK.
+    #[test]
+    fn custom_component_diagnostic_is_always_opaque() {
+        let report = report_for(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <urn:ex/> .
+
+            ex:mustBeBadComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:mustBeBad ] ;
+                sh:validator ex:mustBeBadValidator .
+
+            ex:mustBeBadValidator a sh:SPARQLAskValidator ;
+                sh:message "must be a Bad" ;
+                sh:ask "ASK { $this a <urn:ex/Bad> }" .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                ex:mustBeBad true .
+
+            ex:sentinel a ex:NotBad .
+            "#,
+        );
+        assert!(!report.conforms);
+        let result = report
+            .results
+            .iter()
+            .find(|r| r.component.as_str() == "urn:ex/mustBeBadComponent")
+            .expect("one custom-component violation");
+        let diagnostic = result
+            .sparql_diagnostic
+            .as_ref()
+            .expect("custom SPARQL component violations carry a diagnostic");
+        assert!(diagnostic.native_plan.is_none());
+        assert!(diagnostic.query.contains("ASK"));
+    }
+}
