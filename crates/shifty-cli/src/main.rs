@@ -351,36 +351,39 @@ fn render_reason(r: &shifty_engine::Reason, indent: usize) -> Vec<String> {
     lines
 }
 
-/// Render a [`shifty_engine::SparqlDiagnostic`]: the compiled native plan when
-/// the query lowered to it, otherwise the query text and its SHACL bindings as
-/// executed by the Spareval fallback engine — so a SPARQL constraint failure is
-/// never just "not satisfied."
+/// Render a [`shifty_engine::SparqlDiagnostic`]: the query that ran, what it
+/// was bound to, and what rows it actually returned — so a SPARQL constraint
+/// failure is never just "not satisfied."
 fn render_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: usize) -> Vec<String> {
     let pad = " ".repeat(indent);
-    let mut lines = Vec::new();
-    match &d.native_plan {
-        Some(plan) => {
-            lines.push(format!("{pad}SPARQL (native plan):"));
-            for line in plan.lines() {
-                lines.push(format!("{pad}  {line}"));
-            }
-        }
-        None => lines.push(format!(
-            "{pad}SPARQL (opaque — ran via the fallback engine):"
-        )),
-    }
+    let mut lines = vec![format!("{pad}SPARQL:")];
     lines.push(format!("{pad}  Query:"));
     for line in d.query.lines() {
         lines.push(format!("{pad}    {line}"));
     }
     if !d.bindings.is_empty() {
-        lines.push(format!("{pad}  Bindings:"));
+        lines.push(format!("{pad}  Bound:"));
         for (k, v) in &d.bindings {
             lines.push(format!("{pad}    ${k} = {v}"));
         }
     }
+    if !d.results.is_empty() {
+        lines.push(format!("{pad}  Results:"));
+        for (i, row) in d.results.iter().enumerate() {
+            if row.is_empty() {
+                lines.push(format!("{pad}    [{}] (no projected variables)", i + 1));
+                continue;
+            }
+            let cols = row
+                .iter()
+                .map(|(k, v)| format!("?{k} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(format!("{pad}    [{}] {cols}", i + 1));
+        }
+    }
     if let Some(reason) = &d.fallback_reason {
-        lines.push(format!("{pad}  Fallback reason: {reason}"));
+        lines.push(format!("{pad}  Did not use the native executor: {reason}"));
     }
     lines
 }

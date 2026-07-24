@@ -26,7 +26,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
 /// Debugging detail for a failed `sh:sparql`/custom SPARQL-based constraint
-/// component: what query ran and how, so a SPARQL failure is never a dead end.
+/// component: what query ran, what it was bound to, and what it returned, so
+/// a SPARQL failure is never a dead end.
 #[pyclass(get_all)]
 #[derive(Clone)]
 pub struct SparqlDiagnostic {
@@ -35,13 +36,15 @@ pub struct SparqlDiagnostic {
     /// `$this` is left as a free variable here; its value is the first entry
     /// of `bindings`.
     pub query: String,
-    /// `(name, value)` SHACL prebindings applied, in application order.
+    /// `(name, value)` SHACL prebindings applied before execution, in
+    /// application order.
     pub bindings: Vec<(String, String)>,
-    /// The compiled native operator pipeline, rendered, when this query
-    /// lowered to it. `None` means it ran through the Spareval fallback
-    /// engine (always the case for custom constraint components today).
-    pub native_plan: Option<String>,
-    /// Why native lowering did not apply, when known.
+    /// The solution rows the query actually produced: one entry per row, each
+    /// a `(name, value)` list in projection order. Empty for `ASK` queries.
+    pub results: Vec<Vec<(String, String)>>,
+    /// Why native lowering did not apply, when known. `None` when the query
+    /// ran natively, or when it's a custom constraint component (always
+    /// opaque today).
     pub fallback_reason: Option<String>,
 }
 
@@ -49,9 +52,9 @@ pub struct SparqlDiagnostic {
 impl SparqlDiagnostic {
     fn __repr__(&self) -> String {
         format!(
-            "SparqlDiagnostic(native={}, query={:?})",
-            self.native_plan.is_some(),
-            self.query
+            "SparqlDiagnostic(query={:?}, results={})",
+            self.query,
+            self.results.len()
         )
     }
 }
@@ -59,64 +62,76 @@ impl SparqlDiagnostic {
 /// Render a [`SparqlDiagnostic`] as indented, human-readable text, appended
 /// after a violation's other fields in both the algebra and W3C text reports.
 fn format_sparql_diagnostic(d: &SparqlDiagnostic, indent: &str) -> String {
-    use std::fmt::Write;
-    let mut out = String::new();
-    if let Some(plan) = &d.native_plan {
-        let _ = writeln!(out, "{indent}SPARQL (native plan):");
-        for line in plan.lines() {
-            let _ = writeln!(out, "{indent}  {line}");
-        }
-    } else {
-        let _ = writeln!(
-            out,
-            "{indent}SPARQL (opaque — ran via the fallback engine):"
-        );
-    }
-    let _ = writeln!(out, "{indent}  Query:");
-    for line in d.query.lines() {
-        let _ = writeln!(out, "{indent}    {line}");
-    }
-    if !d.bindings.is_empty() {
-        let _ = writeln!(out, "{indent}  Bindings:");
-        for (k, v) in &d.bindings {
-            let _ = writeln!(out, "{indent}    ${k} = {v}");
-        }
-    }
-    if let Some(reason) = &d.fallback_reason {
-        let _ = writeln!(out, "{indent}  Fallback reason: {reason}");
-    }
-    out
+    render_sparql_diagnostic_parts(
+        indent,
+        &d.query,
+        &d.bindings,
+        &d.results,
+        &d.fallback_reason,
+    )
 }
 
 /// Like [`format_sparql_diagnostic`] but over the engine's own
 /// `shifty_engine::SparqlDiagnostic` (used by the W3C text report, which reads
 /// `ValidationResult` directly rather than through the pyclass wrapper).
 fn format_engine_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: &str) -> String {
+    let bindings: Vec<(String, String)> = d
+        .bindings
+        .iter()
+        .map(|(k, v)| (k.clone(), v.to_string()))
+        .collect();
+    let results: Vec<Vec<(String, String)>> = d
+        .results
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect()
+        })
+        .collect();
+    render_sparql_diagnostic_parts(indent, &d.query, &bindings, &results, &d.fallback_reason)
+}
+
+/// Shared renderer for both [`format_sparql_diagnostic`] and
+/// [`format_engine_sparql_diagnostic`], which differ only in where their
+/// `query`/`bindings`/`results`/`fallback_reason` come from.
+fn render_sparql_diagnostic_parts(
+    indent: &str,
+    query: &str,
+    bindings: &[(String, String)],
+    results: &[Vec<(String, String)>],
+    fallback_reason: &Option<String>,
+) -> String {
     use std::fmt::Write;
     let mut out = String::new();
-    if let Some(plan) = &d.native_plan {
-        let _ = writeln!(out, "{indent}SPARQL (native plan):");
-        for line in plan.lines() {
-            let _ = writeln!(out, "{indent}  {line}");
-        }
-    } else {
-        let _ = writeln!(
-            out,
-            "{indent}SPARQL (opaque — ran via the fallback engine):"
-        );
-    }
+    let _ = writeln!(out, "{indent}SPARQL:");
     let _ = writeln!(out, "{indent}  Query:");
-    for line in d.query.lines() {
+    for line in query.lines() {
         let _ = writeln!(out, "{indent}    {line}");
     }
-    if !d.bindings.is_empty() {
-        let _ = writeln!(out, "{indent}  Bindings:");
-        for (k, v) in &d.bindings {
+    if !bindings.is_empty() {
+        let _ = writeln!(out, "{indent}  Bound:");
+        for (k, v) in bindings {
             let _ = writeln!(out, "{indent}    ${k} = {v}");
         }
     }
-    if let Some(reason) = &d.fallback_reason {
-        let _ = writeln!(out, "{indent}  Fallback reason: {reason}");
+    if !results.is_empty() {
+        let _ = writeln!(out, "{indent}  Results:");
+        for (i, row) in results.iter().enumerate() {
+            if row.is_empty() {
+                let _ = writeln!(out, "{indent}    [{}] (no projected variables)", i + 1);
+                continue;
+            }
+            let cols = row
+                .iter()
+                .map(|(k, v)| format!("?{k} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(out, "{indent}    [{}] {cols}", i + 1);
+        }
+    }
+    if let Some(reason) = fallback_reason {
+        let _ = writeln!(out, "{indent}  Did not use the native executor: {reason}");
     }
     out
 }
@@ -134,7 +149,15 @@ fn sparql_diagnostic_to_py(
                 .iter()
                 .map(|(k, v)| (k.clone(), v.to_string()))
                 .collect(),
-            native_plan: d.native_plan.clone(),
+            results: d
+                .results
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|(k, v)| (k.clone(), v.to_string()))
+                        .collect()
+                })
+                .collect(),
             fallback_reason: d.fallback_reason.clone(),
         },
     )
@@ -691,7 +714,7 @@ pub(crate) fn violation_to_py(
 struct RawSparqlDiagnostic {
     query: String,
     bindings: Vec<(String, String)>,
-    native_plan: Option<String>,
+    results: Vec<Vec<(String, String)>>,
     fallback_reason: Option<String>,
 }
 
@@ -704,7 +727,15 @@ impl RawSparqlDiagnostic {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.to_string()))
                 .collect(),
-            native_plan: d.native_plan.clone(),
+            results: d
+                .results
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|(k, v)| (k.clone(), v.to_string()))
+                        .collect()
+                })
+                .collect(),
             fallback_reason: d.fallback_reason.clone(),
         }
     }
@@ -715,7 +746,7 @@ impl RawSparqlDiagnostic {
             SparqlDiagnostic {
                 query: self.query,
                 bindings: self.bindings,
-                native_plan: self.native_plan,
+                results: self.results,
                 fallback_reason: self.fallback_reason,
             },
         )

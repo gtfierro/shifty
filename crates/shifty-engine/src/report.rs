@@ -1138,6 +1138,7 @@ impl Reporter<'_> {
                                 path_term.clone(),
                                 Some(value.clone()),
                                 &bindings,
+                                &[],
                                 &validator.messages,
                                 inherited,
                                 &validator.query,
@@ -1158,8 +1159,8 @@ impl Reporter<'_> {
                                     .cloned()
                                     .or_else(|| (!is_property_shape).then(|| focus.clone()));
                                 let path = row.get("path").cloned().or_else(|| path_term.clone());
-                                let mut binds = bindings.clone();
-                                binds.extend(row);
+                                let row_vec: Vec<(String, Term)> =
+                                    row.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                                 self.push_component_result(
                                     out,
                                     component,
@@ -1167,7 +1168,8 @@ impl Reporter<'_> {
                                     focus,
                                     path,
                                     value,
-                                    &binds,
+                                    &bindings,
+                                    &row_vec,
                                     &validator.messages,
                                     inherited,
                                     &validator.query,
@@ -1182,6 +1184,7 @@ impl Reporter<'_> {
                             path_term.clone(),
                             None,
                             &bindings,
+                            &[],
                             &validator.messages,
                             inherited,
                             &validator.query,
@@ -1202,6 +1205,7 @@ impl Reporter<'_> {
         path: Option<Term>,
         value: Option<Term>,
         bindings: &[(String, Term)],
+        result_row: &[(String, Term)],
         validator_messages: &[Term],
         inherited: &[Term],
         validator_query: &str,
@@ -1211,7 +1215,12 @@ impl Reporter<'_> {
         } else {
             validator_messages.to_vec()
         };
-        let bind_map: HashMap<String, Term> = bindings.iter().cloned().collect();
+        // `{?var}` placeholders in `sh:message` can reference either a
+        // pre-execution binding (a component parameter, `$this`) or a
+        // variable the validator query projected, so message substitution
+        // sees both merged together.
+        let bind_map: HashMap<String, Term> =
+            bindings.iter().chain(result_row.iter()).cloned().collect();
         let messages = substitute_messages(&raw, focus, &bind_map);
         out.push(ValidationResult {
             focus: focus.clone(),
@@ -1227,7 +1236,11 @@ impl Reporter<'_> {
             sparql_diagnostic: Some(SparqlDiagnostic {
                 query: validator_query.to_string(),
                 bindings: bindings.to_vec(),
-                native_plan: None,
+                results: if result_row.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![result_row.to_vec()]
+                },
                 fallback_reason: None,
             }),
         });
@@ -1443,7 +1456,9 @@ impl Reporter<'_> {
                     // diagnostic once rather than per violation; `.ok()` because a
                     // second, redundant compile can't fail once the call above
                     // already succeeded.
-                    let diagnostic = sparql.constraint_diagnostic(&constraint, focus).ok();
+                    let diagnostic = sparql
+                        .constraint_diagnostic(&constraint, focus, &violations)
+                        .ok();
                     for violation in violations {
                         let messages =
                             substitute_messages(&raw_messages, focus, &violation.bindings);
@@ -1481,7 +1496,9 @@ impl Reporter<'_> {
                         source_shape: node_term_ref(shape),
                         severity: severity.clone(),
                         messages,
-                        sparql_diagnostic: sparql.constraint_diagnostic(&constraint, focus).ok(),
+                        sparql_diagnostic: sparql
+                            .constraint_diagnostic(&constraint, focus, &[])
+                            .ok(),
                     });
                 }
             }
@@ -2307,10 +2324,10 @@ mod sparql_diagnostic_tests {
     }
 
     /// A simple BGP `sh:sparql` SELECT constraint lowers to the native
-    /// operator plan, so its violation should carry a rendered native plan
-    /// and no fallback reason.
+    /// operator plan, so its violation should carry no fallback reason and
+    /// the actual result row the query produced.
     #[test]
-    fn native_sparql_constraint_carries_rendered_plan() {
+    fn native_sparql_constraint_carries_query_bindings_and_results() {
         let report = report_for(
             r#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -2341,27 +2358,32 @@ mod sparql_diagnostic_tests {
             .as_ref()
             .expect("sh:sparql violations carry a diagnostic");
         assert!(
-            diagnostic.native_plan.is_some(),
+            diagnostic.fallback_reason.is_none(),
             "a simple BGP SELECT should lower to a native plan, got: {diagnostic:?}"
-        );
-        assert!(diagnostic.fallback_reason.is_none());
-        let plan = diagnostic.native_plan.as_ref().unwrap();
-        assert!(
-            plan.contains("InputFocus"),
-            "rendered plan should show the physical pipeline, got: {plan}"
         );
         assert!(
             diagnostic.bindings.iter().any(|(name, _)| name == "this"),
             "bindings should include $this, got: {:?}",
             diagnostic.bindings
         );
+        assert_eq!(
+            diagnostic.results.len(),
+            1,
+            "the query produced one solution row, got: {:?}",
+            diagnostic.results
+        );
+        assert!(
+            diagnostic.results[0].iter().any(|(name, _)| name == "this"),
+            "the result row should carry the projected ?this binding, got: {:?}",
+            diagnostic.results
+        );
     }
 
     /// A `sh:sparql` constraint using an aggregate subquery falls back to the
-    /// Spareval engine, so its violation should carry the executed query text
-    /// and bindings but no native plan.
+    /// Spareval engine, so its violation should carry the executed query
+    /// text, a fallback reason, and the result row it produced.
     #[test]
-    fn opaque_sparql_constraint_carries_query_and_bindings() {
+    fn opaque_sparql_constraint_carries_query_bindings_and_results() {
         let report = report_for(
             r#"
             @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -2374,7 +2396,7 @@ mod sparql_diagnostic_tests {
                     sh:message "must have zero Bad things" ;
                     sh:select """
                         PREFIX ex: <urn:ex/>
-                        SELECT ?this WHERE {
+                        SELECT ?this ?c WHERE {
                             {
                                 SELECT ?this (COUNT(*) AS ?c) WHERE { ?this a ex:Bad . }
                                 GROUP BY ?this
@@ -2398,7 +2420,7 @@ mod sparql_diagnostic_tests {
             .as_ref()
             .expect("sh:sparql violations carry a diagnostic");
         assert!(
-            diagnostic.native_plan.is_none(),
+            diagnostic.fallback_reason.is_some(),
             "an aggregate subquery should not lower natively, got: {diagnostic:?}"
         );
         assert!(
@@ -2410,6 +2432,20 @@ mod sparql_diagnostic_tests {
             diagnostic.bindings.iter().any(|(name, _)| name == "this"),
             "bindings should include $this, got: {:?}",
             diagnostic.bindings
+        );
+        assert_eq!(
+            diagnostic.results.len(),
+            1,
+            "the query produced one solution row, got: {:?}",
+            diagnostic.results
+        );
+        assert!(
+            diagnostic.results[0].iter().any(|(name, _)| name == "c"),
+            "the result row should carry the projected ?c binding \
+             ($this itself is already covered by `bindings`, since it was \
+             substituted out of the query text rather than left free), \
+             got: {:?}",
+            diagnostic.results
         );
     }
 
@@ -2448,7 +2484,17 @@ mod sparql_diagnostic_tests {
             .sparql_diagnostic
             .as_ref()
             .expect("custom SPARQL component violations carry a diagnostic");
-        assert!(diagnostic.native_plan.is_none());
+        assert!(diagnostic.fallback_reason.is_none());
         assert!(diagnostic.query.contains("ASK"));
+        assert!(
+            diagnostic.results.is_empty(),
+            "ASK validators have no projected result row, got: {:?}",
+            diagnostic.results
+        );
+        assert!(
+            diagnostic.bindings.iter().any(|(name, _)| name == "this"),
+            "bindings should include $this, got: {:?}",
+            diagnostic.bindings
+        );
     }
 }

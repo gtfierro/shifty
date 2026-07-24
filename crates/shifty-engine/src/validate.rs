@@ -1121,7 +1121,7 @@ fn explain(
                     // already succeeded.
                     let diagnostic = evaluator
                         .sparql
-                        .constraint_diagnostic(&constraint, node)
+                        .constraint_diagnostic(&constraint, node, &violations)
                         .ok();
                     violations
                         .into_iter()
@@ -1156,7 +1156,7 @@ fn explain(
                     sub_reasons: Vec::new(),
                     sparql_diagnostic: evaluator
                         .sparql
-                        .constraint_diagnostic(&constraint, node)
+                        .constraint_diagnostic(&constraint, node, &[])
                         .ok(),
                 }],
             }

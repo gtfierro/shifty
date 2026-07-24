@@ -16,7 +16,7 @@ use oxrdf::{
 };
 use serde::{Deserialize, Serialize};
 use shifty_algebra::{Path, SparqlConstraint};
-use shifty_opt::{NativeQueryPlan, QueryForm, lower_query_with_stats, render_native_plan};
+use shifty_opt::{NativeQueryPlan, QueryForm, lower_query_with_stats};
 use spargebra::algebra::{
     AggregateExpression, Expression, GraphPattern, OrderExpression, PropertyPathExpression,
 };
@@ -117,10 +117,8 @@ struct Compiled {
 
 /// Debugging detail for one SPARQL-backed constraint evaluation (`sh:sparql`
 /// or a custom SPARQL-based constraint component), meant to be attached to a
-/// violating report result so a failure is never a dead end: an opaque
-/// (fallback) query shows exactly what ran and with what bindings, and a
-/// natively-lowered query shows the compiled physical pattern instead of just
-/// "SPARQL constraint failed."
+/// violating report result so a failure is never a dead end: it shows exactly
+/// what query ran, what it was bound to, and what rows it actually returned.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SparqlDiagnostic {
     /// The query actually executed, after every static SHACL substitution
@@ -128,20 +126,20 @@ pub struct SparqlDiagnostic {
     /// `$this` is left as a free variable in this text; its per-focus binding
     /// is the first entry of `bindings`.
     pub query: String,
-    /// Every SHACL prebinding applied, in application order: `$this`, then
-    /// `$currentShape`/`$shapesGraph` when present, then any custom-component
-    /// parameters (SHACL §6.2.3).
+    /// Every SHACL prebinding applied before execution, in application order:
+    /// `$this`, then `$currentShape`/`$shapesGraph` when present, then any
+    /// custom-component parameters (SHACL §6.2.3).
     pub bindings: Vec<(String, Term)>,
-    /// `Some` when the query lowered to the native operator plan, rendered as
-    /// its physical pipeline (see [`shifty_opt::render_native_plan`]). `None`
-    /// means this query ran "opaquely" through the Spareval fallback engine —
-    /// custom constraint components are always in this case today (they run
-    /// through [`SparqlExecutor::eval_ask`]/[`SparqlExecutor::eval_select`],
-    /// which never attempt native lowering).
-    pub native_plan: Option<String>,
+    /// The solution rows the query actually produced (one entry per row, each
+    /// a variable-name-to-term list in projection order). For `ASK` queries
+    /// this is always empty — the answer is captured by whether any
+    /// [`ValidationResult`](crate::report::ValidationResult)/[`Reason`](crate::validate::Reason)
+    /// exists at all, not by a bound row.
+    pub results: Vec<Vec<(String, Term)>>,
     /// Why native lowering did not apply, when known: the first unsupported
-    /// construct `lower_query` hit. Only ever `Some` alongside
-    /// `native_plan: None`.
+    /// construct `lower_query` hit. `None` when the query ran natively, or
+    /// when it's a custom constraint component (always opaque today — see
+    /// [`SparqlExecutor::eval_ask`]/[`SparqlExecutor::eval_select`]).
     pub fallback_reason: Option<String>,
 }
 
@@ -463,14 +461,18 @@ impl SparqlExecutor {
     }
 
     /// Debugging detail for `constraint` at `focus`: the executed query text,
-    /// applied SHACL bindings, and (if native) the compiled operator plan.
-    /// Reuses the same compilation cache as [`Self::constraint_violations`], so
-    /// this is cheap to call again once a violation is already known — it is
-    /// meant to be called only then, not on the hot per-focus evaluation path.
+    /// the applied SHACL bindings, and the solution rows `violations` actually
+    /// carried back (the same violations [`Self::constraint_violations`] just
+    /// returned — passed in rather than recomputed, since a fallback query has
+    /// no other side-channel for its result rows). Reuses the same compilation
+    /// cache as `constraint_violations`, so this is cheap to call again once a
+    /// violation is already known — it is meant to be called only then, not on
+    /// the hot per-focus evaluation path.
     pub fn constraint_diagnostic(
         &self,
         constraint: &SparqlConstraint,
         focus: &Term,
+        violations: &[SparqlViolation],
     ) -> Result<SparqlDiagnostic, String> {
         let compiled = self.compile_constraint(constraint)?;
         let mut bindings = vec![("this".to_string(), focus.clone())];
@@ -481,10 +483,22 @@ impl SparqlExecutor {
             bindings.push(("shapesGraph".to_string(), Term::NamedNode(graph.clone())));
         }
         bindings.extend(constraint.extra_bindings.iter().cloned());
+        let results = violations
+            .iter()
+            .map(|v| {
+                let mut row: Vec<(String, Term)> = v
+                    .bindings
+                    .iter()
+                    .map(|(k, t)| (k.clone(), t.clone()))
+                    .collect();
+                row.sort_by(|a, b| a.0.cmp(&b.0));
+                row
+            })
+            .collect();
         Ok(SparqlDiagnostic {
             query: compiled.query.to_string(),
             bindings,
-            native_plan: compiled.plan.as_ref().map(render_native_plan),
+            results,
             fallback_reason: compiled.fallback_reason.clone(),
         })
     }
