@@ -455,6 +455,9 @@ fn format_algebra_text(conforms: &bool, violations: &[Violation], schema: &Schem
             writeln!(out, "  Severity: {}", r.severity.label()).unwrap();
             writeln!(out, "  Value: {}", r.value).unwrap();
             writeln!(out, "  Message: {}", r.message).unwrap();
+            if let Some(d) = &r.sparql_diagnostic {
+                out.push_str(&format_sparql_diagnostic(d, "  "));
+            }
         }
     }
     out
@@ -493,7 +496,47 @@ fn format_report_text(report: &ValidationReport) -> String {
         for msg in &r.messages {
             writeln!(out, "  Message: {}", term_text(msg)).unwrap();
         }
+        if let Some(d) = &r.sparql_diagnostic {
+            out.push_str(&format_sparql_diagnostic(d, "  "));
+        }
         writeln!(out).unwrap();
+    }
+    out
+}
+
+/// Render a [`shifty_engine::SparqlDiagnostic`] as indented text: the query
+/// that ran, what it was bound to, and what rows it actually returned.
+fn format_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: &str) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(out, "{indent}SPARQL:");
+    let _ = writeln!(out, "{indent}  Query:");
+    for line in d.query.lines() {
+        let _ = writeln!(out, "{indent}    {line}");
+    }
+    if !d.bindings.is_empty() {
+        let _ = writeln!(out, "{indent}  Bound:");
+        for (k, v) in &d.bindings {
+            let _ = writeln!(out, "{indent}    ${k} = {v}");
+        }
+    }
+    if !d.results.is_empty() {
+        let _ = writeln!(out, "{indent}  Results:");
+        for (i, row) in d.results.iter().enumerate() {
+            if row.is_empty() {
+                let _ = writeln!(out, "{indent}    [{}] (no projected variables)", i + 1);
+                continue;
+            }
+            let cols = row
+                .iter()
+                .map(|(k, v)| format!("?{k} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(out, "{indent}    [{}] {cols}", i + 1);
+        }
+    }
+    if let Some(reason) = &d.fallback_reason {
+        let _ = writeln!(out, "{indent}  Did not use the native executor: {reason}");
     }
     out
 }

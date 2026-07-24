@@ -14,6 +14,7 @@ use oxrdf::{
     Graph, GraphName, GraphNameRef, Literal, NamedNode, NamedOrBlankNode, Quad, QuadRef, Term,
     Triple, Variable,
 };
+use serde::{Deserialize, Serialize};
 use shifty_algebra::{Path, SparqlConstraint};
 use shifty_opt::{NativeQueryPlan, QueryForm, lower_query_with_stats};
 use spargebra::algebra::{
@@ -99,12 +100,47 @@ struct CompileKey {
 struct Compiled {
     plan: Option<NativeQueryPlan>,
     query: Query,
+    /// The first unsupported construct `lower_query` hit, when the query did
+    /// not lower to a native plan and a frozen dataset was available to lower
+    /// against (`None` when native lowering was never attempted, e.g. during
+    /// inference). Discarded by every call site until [`SparqlDiagnostic`]
+    /// needed it (doc §143: "recording the first unsupported construct as the
+    /// fallback reason for inspection and telemetry").
+    fallback_reason: Option<String>,
     /// Per-focus violations precomputed in one batched fallback run (doc §189):
     /// the SELECT analog of the global CONSTRUCT batching. Populated by
     /// [`SparqlExecutor::prefetch_constraint`]; `None` until then. Only the
     /// per-focus Spareval fallback is batched here — native plans already
     /// evaluate a focus batch efficiently and keep the debug differential gate.
     batched: RefCell<Option<BatchedResults>>,
+}
+
+/// Debugging detail for one SPARQL-backed constraint evaluation (`sh:sparql`
+/// or a custom SPARQL-based constraint component), meant to be attached to a
+/// violating report result so a failure is never a dead end: it shows exactly
+/// what query ran, what it was bound to, and what rows it actually returned.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SparqlDiagnostic {
+    /// The query actually executed, after every static SHACL substitution
+    /// (`$PATH`, `$currentShape`, `$shapesGraph`, custom-component parameters).
+    /// `$this` is left as a free variable in this text; its per-focus binding
+    /// is the first entry of `bindings`.
+    pub query: String,
+    /// Every SHACL prebinding applied before execution, in application order:
+    /// `$this`, then `$currentShape`/`$shapesGraph` when present, then any
+    /// custom-component parameters (SHACL §6.2.3).
+    pub bindings: Vec<(String, Term)>,
+    /// The solution rows the query actually produced (one entry per row, each
+    /// a variable-name-to-term list in projection order). For `ASK` queries
+    /// this is always empty — the answer is captured by whether any
+    /// [`ValidationResult`](crate::report::ValidationResult)/[`Reason`](crate::validate::Reason)
+    /// exists at all, not by a bound row.
+    pub results: Vec<Vec<(String, Term)>>,
+    /// Why native lowering did not apply, when known: the first unsupported
+    /// construct `lower_query` hit. `None` when the query ran natively, or
+    /// when it's a custom constraint component (always opaque today — see
+    /// [`SparqlExecutor::eval_ask`]/[`SparqlExecutor::eval_select`]).
+    pub fallback_reason: Option<String>,
 }
 
 /// Results of a batched fallback run. `covered` is the focus set the single
@@ -407,17 +443,64 @@ impl SparqlExecutor {
         }
 
         // Native execution requires the frozen dataset as its storage backend.
-        let plan = match &self.frozen {
-            Some(frozen) => lower_query_with_stats(&query, Some(&frozen.plan_stats())).ok(),
-            None => None,
+        let (plan, fallback_reason) = match &self.frozen {
+            Some(frozen) => match lower_query_with_stats(&query, Some(&frozen.plan_stats())) {
+                Ok(plan) => (Some(plan), None),
+                Err(reason) => (None, Some(reason)),
+            },
+            None => (None, None),
         };
         let compiled = Rc::new(Compiled {
             plan,
             query,
+            fallback_reason,
             batched: RefCell::new(None),
         });
         self.compiled.borrow_mut().insert(key, compiled.clone());
         Ok(compiled)
+    }
+
+    /// Debugging detail for `constraint` at `focus`: the executed query text,
+    /// the applied SHACL bindings, and the solution rows `violations` actually
+    /// carried back (the same violations [`Self::constraint_violations`] just
+    /// returned — passed in rather than recomputed, since a fallback query has
+    /// no other side-channel for its result rows). Reuses the same compilation
+    /// cache as `constraint_violations`, so this is cheap to call again once a
+    /// violation is already known — it is meant to be called only then, not on
+    /// the hot per-focus evaluation path.
+    pub fn constraint_diagnostic(
+        &self,
+        constraint: &SparqlConstraint,
+        focus: &Term,
+        violations: &[SparqlViolation],
+    ) -> Result<SparqlDiagnostic, String> {
+        let compiled = self.compile_constraint(constraint)?;
+        let mut bindings = vec![("this".to_string(), focus.clone())];
+        if let Some(shape) = &constraint.shape {
+            bindings.push(("currentShape".to_string(), shape.clone()));
+        }
+        if let Some(graph) = &self.shapes_graph {
+            bindings.push(("shapesGraph".to_string(), Term::NamedNode(graph.clone())));
+        }
+        bindings.extend(constraint.extra_bindings.iter().cloned());
+        let results = violations
+            .iter()
+            .map(|v| {
+                let mut row: Vec<(String, Term)> = v
+                    .bindings
+                    .iter()
+                    .map(|(k, t)| (k.clone(), t.clone()))
+                    .collect();
+                row.sort_by(|a, b| a.0.cmp(&b.0));
+                row
+            })
+            .collect();
+        Ok(SparqlDiagnostic {
+            query: compiled.query.to_string(),
+            bindings,
+            results,
+            fallback_reason: compiled.fallback_reason.clone(),
+        })
     }
 
     /// Execute a native plan for one focus node, mapping its solutions to SHACL

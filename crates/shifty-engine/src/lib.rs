@@ -16,6 +16,7 @@ mod path_plan;
 pub mod profile;
 pub mod report;
 mod sparql;
+pub use sparql::SparqlDiagnostic;
 pub mod synthesize;
 pub mod validate;
 pub mod value;

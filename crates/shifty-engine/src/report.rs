@@ -14,7 +14,7 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::succ;
-use crate::sparql::{FunctionDef, SparqlExecutor};
+use crate::sparql::{FunctionDef, SparqlDiagnostic, SparqlExecutor};
 use crate::validate::{
     UnsupportedPolicy, ValidationGraphMode, ValidationOptions, apply_message_template,
     entry_shape_name_selected, graph_union, is_boolean_true,
@@ -45,6 +45,11 @@ pub struct ValidationResult {
     pub severity: NamedNode,
     /// `sh:resultMessage` — copied from `sh:message` on the source shape.
     pub messages: Vec<Term>,
+    /// Present only for `sh:SPARQLConstraintComponent`/custom SPARQL-based
+    /// component results: the executed query text, its SHACL bindings, and (if
+    /// natively lowered) the compiled physical plan. `None` for every other
+    /// constraint component.
+    pub sparql_diagnostic: Option<SparqlDiagnostic>,
 }
 
 #[derive(Debug, Clone)]
@@ -871,6 +876,7 @@ impl Reporter<'_> {
                 source_shape: node_term_ref(shape),
                 severity: severity.clone(),
                 messages: messages.clone(),
+                sparql_diagnostic: None,
             });
         };
 
@@ -1132,8 +1138,10 @@ impl Reporter<'_> {
                                 path_term.clone(),
                                 Some(value.clone()),
                                 &bindings,
+                                &[],
                                 &validator.messages,
                                 inherited,
+                                &validator.query,
                             );
                         }
                     }
@@ -1151,8 +1159,8 @@ impl Reporter<'_> {
                                     .cloned()
                                     .or_else(|| (!is_property_shape).then(|| focus.clone()));
                                 let path = row.get("path").cloned().or_else(|| path_term.clone());
-                                let mut binds = bindings.clone();
-                                binds.extend(row);
+                                let row_vec: Vec<(String, Term)> =
+                                    row.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                                 self.push_component_result(
                                     out,
                                     component,
@@ -1160,9 +1168,11 @@ impl Reporter<'_> {
                                     focus,
                                     path,
                                     value,
-                                    &binds,
+                                    &bindings,
+                                    &row_vec,
                                     &validator.messages,
                                     inherited,
+                                    &validator.query,
                                 );
                             }
                         }
@@ -1174,8 +1184,10 @@ impl Reporter<'_> {
                             path_term.clone(),
                             None,
                             &bindings,
+                            &[],
                             &validator.messages,
                             inherited,
+                            &validator.query,
                         ),
                     }
                 }
@@ -1193,15 +1205,22 @@ impl Reporter<'_> {
         path: Option<Term>,
         value: Option<Term>,
         bindings: &[(String, Term)],
+        result_row: &[(String, Term)],
         validator_messages: &[Term],
         inherited: &[Term],
+        validator_query: &str,
     ) {
         let raw = if validator_messages.is_empty() {
             self.messages_or_inherited(shape, inherited)
         } else {
             validator_messages.to_vec()
         };
-        let bind_map: HashMap<String, Term> = bindings.iter().cloned().collect();
+        // `{?var}` placeholders in `sh:message` can reference either a
+        // pre-execution binding (a component parameter, `$this`) or a
+        // variable the validator query projected, so message substitution
+        // sees both merged together.
+        let bind_map: HashMap<String, Term> =
+            bindings.iter().chain(result_row.iter()).cloned().collect();
         let messages = substitute_messages(&raw, focus, &bind_map);
         out.push(ValidationResult {
             focus: focus.clone(),
@@ -1211,6 +1230,19 @@ impl Reporter<'_> {
             source_shape: node_term_ref(shape),
             severity: self.severity(shape),
             messages,
+            // Custom constraint components always run through `eval_ask`/
+            // `eval_select` (never native lowering — see their doc comments),
+            // so this is unconditionally the opaque/fallback case.
+            sparql_diagnostic: Some(SparqlDiagnostic {
+                query: validator_query.to_string(),
+                bindings: bindings.to_vec(),
+                results: if result_row.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![result_row.to_vec()]
+                },
+                fallback_reason: None,
+            }),
         });
     }
 
@@ -1244,6 +1276,7 @@ impl Reporter<'_> {
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
                     messages: self.messages_or_inherited(shape, inherited),
+                    sparql_diagnostic: None,
                 });
             }
         }
@@ -1416,6 +1449,16 @@ impl Reporter<'_> {
             };
             match sparql.constraint_violations(&constraint, focus) {
                 Ok(violations) => {
+                    if violations.is_empty() {
+                        continue;
+                    }
+                    // Same (constraint, focus) for every row below, so build the
+                    // diagnostic once rather than per violation; `.ok()` because a
+                    // second, redundant compile can't fail once the call above
+                    // already succeeded.
+                    let diagnostic = sparql
+                        .constraint_diagnostic(&constraint, focus, &violations)
+                        .ok();
                     for violation in violations {
                         let messages =
                             substitute_messages(&raw_messages, focus, &violation.bindings);
@@ -1433,6 +1476,7 @@ impl Reporter<'_> {
                             source_shape: node_term_ref(shape),
                             severity: severity.clone(),
                             messages,
+                            sparql_diagnostic: diagnostic.clone(),
                         });
                     }
                 }
@@ -1452,6 +1496,9 @@ impl Reporter<'_> {
                         source_shape: node_term_ref(shape),
                         severity: severity.clone(),
                         messages,
+                        sparql_diagnostic: sparql
+                            .constraint_diagnostic(&constraint, focus, &[])
+                            .ok(),
                     });
                 }
             }
@@ -1498,6 +1545,7 @@ impl Reporter<'_> {
                     source_shape: node_term_ref(shape),
                     severity: self.severity(shape),
                     messages: self.messages_or_inherited(shape, inherited),
+                    sparql_diagnostic: None,
                 });
             }
         }
@@ -1744,6 +1792,7 @@ impl Reporter<'_> {
             source_shape: node_term_ref(shape),
             severity: self.severity(shape),
             messages,
+            sparql_diagnostic: None,
         });
     }
 
@@ -2263,4 +2312,189 @@ fn map_node_kind(term: &Term) -> Option<NodeKindSet> {
     } else {
         return None;
     })
+}
+
+#[cfg(test)]
+mod sparql_diagnostic_tests {
+    use super::*;
+
+    fn report_for(turtle: &str) -> ValidationReport {
+        let loaded = shifty_parse::load_turtle(turtle.as_bytes(), None).expect("valid turtle");
+        validate_report(&loaded, &loaded.graph)
+    }
+
+    /// A simple BGP `sh:sparql` SELECT constraint lowers to the native
+    /// operator plan, so its violation should carry no fallback reason and
+    /// the actual result row the query produced.
+    #[test]
+    fn native_sparql_constraint_carries_query_bindings_and_results() {
+        let report = report_for(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <urn:ex/> .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                sh:sparql [
+                    a sh:SPARQLConstraint ;
+                    sh:message "must not be a Bad" ;
+                    sh:select """
+                        PREFIX ex: <urn:ex/>
+                        SELECT ?this WHERE { ?this a ex:Bad . }
+                    """ ;
+                ] .
+
+            ex:sentinel a ex:Bad .
+            "#,
+        );
+        assert!(!report.conforms);
+        let result = report
+            .results
+            .iter()
+            .find(|r| r.component.as_str() == vocab::SH_CC_SPARQL.as_str())
+            .expect("one sh:sparql violation");
+        let diagnostic = result
+            .sparql_diagnostic
+            .as_ref()
+            .expect("sh:sparql violations carry a diagnostic");
+        assert!(
+            diagnostic.fallback_reason.is_none(),
+            "a simple BGP SELECT should lower to a native plan, got: {diagnostic:?}"
+        );
+        assert!(
+            diagnostic.bindings.iter().any(|(name, _)| name == "this"),
+            "bindings should include $this, got: {:?}",
+            diagnostic.bindings
+        );
+        assert_eq!(
+            diagnostic.results.len(),
+            1,
+            "the query produced one solution row, got: {:?}",
+            diagnostic.results
+        );
+        assert!(
+            diagnostic.results[0].iter().any(|(name, _)| name == "this"),
+            "the result row should carry the projected ?this binding, got: {:?}",
+            diagnostic.results
+        );
+    }
+
+    /// A `sh:sparql` constraint using an aggregate subquery falls back to the
+    /// Spareval engine, so its violation should carry the executed query
+    /// text, a fallback reason, and the result row it produced.
+    #[test]
+    fn opaque_sparql_constraint_carries_query_bindings_and_results() {
+        let report = report_for(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <urn:ex/> .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                sh:sparql [
+                    a sh:SPARQLConstraint ;
+                    sh:message "must have zero Bad things" ;
+                    sh:select """
+                        PREFIX ex: <urn:ex/>
+                        SELECT ?this ?c WHERE {
+                            {
+                                SELECT ?this (COUNT(*) AS ?c) WHERE { ?this a ex:Bad . }
+                                GROUP BY ?this
+                            }
+                            FILTER (?c > 0)
+                        }
+                    """ ;
+                ] .
+
+            ex:sentinel a ex:Bad .
+            "#,
+        );
+        assert!(!report.conforms);
+        let result = report
+            .results
+            .iter()
+            .find(|r| r.component.as_str() == vocab::SH_CC_SPARQL.as_str())
+            .expect("one sh:sparql violation");
+        let diagnostic = result
+            .sparql_diagnostic
+            .as_ref()
+            .expect("sh:sparql violations carry a diagnostic");
+        assert!(
+            diagnostic.fallback_reason.is_some(),
+            "an aggregate subquery should not lower natively, got: {diagnostic:?}"
+        );
+        assert!(
+            diagnostic.query.contains("COUNT"),
+            "opaque diagnostic should surface the executed query text, got: {}",
+            diagnostic.query
+        );
+        assert!(
+            diagnostic.bindings.iter().any(|(name, _)| name == "this"),
+            "bindings should include $this, got: {:?}",
+            diagnostic.bindings
+        );
+        assert_eq!(
+            diagnostic.results.len(),
+            1,
+            "the query produced one solution row, got: {:?}",
+            diagnostic.results
+        );
+        assert!(
+            diagnostic.results[0].iter().any(|(name, _)| name == "c"),
+            "the result row should carry the projected ?c binding \
+             ($this itself is already covered by `bindings`, since it was \
+             substituted out of the query text rather than left free), \
+             got: {:?}",
+            diagnostic.results
+        );
+    }
+
+    /// A custom SPARQL-based constraint component (`sh:SPARQLAskValidator`)
+    /// always runs through the fallback engine, so its violation's diagnostic
+    /// should have no native plan even for a trivially simple ASK.
+    #[test]
+    fn custom_component_diagnostic_is_always_opaque() {
+        let report = report_for(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix ex: <urn:ex/> .
+
+            ex:mustBeBadComponent a sh:ConstraintComponent ;
+                sh:parameter [ sh:path ex:mustBeBad ] ;
+                sh:validator ex:mustBeBadValidator .
+
+            ex:mustBeBadValidator a sh:SPARQLAskValidator ;
+                sh:message "must be a Bad" ;
+                sh:ask "ASK { $this a <urn:ex/Bad> }" .
+
+            ex:shape a sh:NodeShape ;
+                sh:targetNode ex:sentinel ;
+                ex:mustBeBad true .
+
+            ex:sentinel a ex:NotBad .
+            "#,
+        );
+        assert!(!report.conforms);
+        let result = report
+            .results
+            .iter()
+            .find(|r| r.component.as_str() == "urn:ex/mustBeBadComponent")
+            .expect("one custom-component violation");
+        let diagnostic = result
+            .sparql_diagnostic
+            .as_ref()
+            .expect("custom SPARQL component violations carry a diagnostic");
+        assert!(diagnostic.fallback_reason.is_none());
+        assert!(diagnostic.query.contains("ASK"));
+        assert!(
+            diagnostic.results.is_empty(),
+            "ASK validators have no projected result row, got: {:?}",
+            diagnostic.results
+        );
+        assert!(
+            diagnostic.bindings.iter().any(|(name, _)| name == "this"),
+            "bindings should include $this, got: {:?}",
+            diagnostic.bindings
+        );
+    }
 }

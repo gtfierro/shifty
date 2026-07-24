@@ -25,8 +25,145 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // ── Algebra-path types ────────────────────────────────────────────────────────
 
+/// Debugging detail for a failed `sh:sparql`/custom SPARQL-based constraint
+/// component: what query ran, what it was bound to, and what it returned, so
+/// a SPARQL failure is never a dead end.
 #[pyclass(get_all)]
 #[derive(Clone)]
+pub struct SparqlDiagnostic {
+    /// The query actually executed, after every static SHACL substitution
+    /// (`$PATH`/`$currentShape`/`$shapesGraph`/custom-component parameters).
+    /// `$this` is left as a free variable here; its value is the first entry
+    /// of `bindings`.
+    pub query: String,
+    /// `(name, value)` SHACL prebindings applied before execution, in
+    /// application order.
+    pub bindings: Vec<(String, String)>,
+    /// The solution rows the query actually produced: one entry per row, each
+    /// a `(name, value)` list in projection order. Empty for `ASK` queries.
+    pub results: Vec<Vec<(String, String)>>,
+    /// Why native lowering did not apply, when known. `None` when the query
+    /// ran natively, or when it's a custom constraint component (always
+    /// opaque today).
+    pub fallback_reason: Option<String>,
+}
+
+#[pymethods]
+impl SparqlDiagnostic {
+    fn __repr__(&self) -> String {
+        format!(
+            "SparqlDiagnostic(query={:?}, results={})",
+            self.query,
+            self.results.len()
+        )
+    }
+}
+
+/// Render a [`SparqlDiagnostic`] as indented, human-readable text, appended
+/// after a violation's other fields in both the algebra and W3C text reports.
+fn format_sparql_diagnostic(d: &SparqlDiagnostic, indent: &str) -> String {
+    render_sparql_diagnostic_parts(
+        indent,
+        &d.query,
+        &d.bindings,
+        &d.results,
+        &d.fallback_reason,
+    )
+}
+
+/// Like [`format_sparql_diagnostic`] but over the engine's own
+/// `shifty_engine::SparqlDiagnostic` (used by the W3C text report, which reads
+/// `ValidationResult` directly rather than through the pyclass wrapper).
+fn format_engine_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: &str) -> String {
+    let bindings: Vec<(String, String)> = d
+        .bindings
+        .iter()
+        .map(|(k, v)| (k.clone(), v.to_string()))
+        .collect();
+    let results: Vec<Vec<(String, String)>> = d
+        .results
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect()
+        })
+        .collect();
+    render_sparql_diagnostic_parts(indent, &d.query, &bindings, &results, &d.fallback_reason)
+}
+
+/// Shared renderer for both [`format_sparql_diagnostic`] and
+/// [`format_engine_sparql_diagnostic`], which differ only in where their
+/// `query`/`bindings`/`results`/`fallback_reason` come from.
+fn render_sparql_diagnostic_parts(
+    indent: &str,
+    query: &str,
+    bindings: &[(String, String)],
+    results: &[Vec<(String, String)>],
+    fallback_reason: &Option<String>,
+) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(out, "{indent}SPARQL:");
+    let _ = writeln!(out, "{indent}  Query:");
+    for line in query.lines() {
+        let _ = writeln!(out, "{indent}    {line}");
+    }
+    if !bindings.is_empty() {
+        let _ = writeln!(out, "{indent}  Bound:");
+        for (k, v) in bindings {
+            let _ = writeln!(out, "{indent}    ${k} = {v}");
+        }
+    }
+    if !results.is_empty() {
+        let _ = writeln!(out, "{indent}  Results:");
+        for (i, row) in results.iter().enumerate() {
+            if row.is_empty() {
+                let _ = writeln!(out, "{indent}    [{}] (no projected variables)", i + 1);
+                continue;
+            }
+            let cols = row
+                .iter()
+                .map(|(k, v)| format!("?{k} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(out, "{indent}    [{}] {cols}", i + 1);
+        }
+    }
+    if let Some(reason) = fallback_reason {
+        let _ = writeln!(out, "{indent}  Did not use the native executor: {reason}");
+    }
+    out
+}
+
+fn sparql_diagnostic_to_py(
+    py: Python<'_>,
+    d: &shifty_engine::SparqlDiagnostic,
+) -> PyResult<Py<SparqlDiagnostic>> {
+    Py::new(
+        py,
+        SparqlDiagnostic {
+            query: d.query.clone(),
+            bindings: d
+                .bindings
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect(),
+            results: d
+                .results
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|(k, v)| (k.clone(), v.to_string()))
+                        .collect()
+                })
+                .collect(),
+            fallback_reason: d.fallback_reason.clone(),
+        },
+    )
+}
+
+#[pyclass(get_all)]
 pub struct Reason {
     /// The node at which the constraint failed.
     pub value: String,
@@ -40,6 +177,9 @@ pub struct Reason {
     pub author_message: Option<String>,
     /// SHACL severity (`"Violation"`, `"Warning"`, `"Info"`, or a custom IRI).
     pub severity: String,
+    /// Present only for a failed `sh:sparql`/custom SPARQL-based constraint
+    /// component. `None` for every other failed constraint.
+    pub sparql_diagnostic: Option<Py<SparqlDiagnostic>>,
 }
 
 #[pymethods]
@@ -132,6 +272,10 @@ impl AlgebraResult {
                         out.push_str(&format!("  Severity: {}\n", r.severity));
                         out.push_str(&format!("  Value: {}\n", r.value));
                         out.push_str(&format!("  Message: {}\n", r.message));
+                        if let Some(d) = &r.sparql_diagnostic {
+                            let d = d.borrow(py);
+                            out.push_str(&format_sparql_diagnostic(&d, "  "));
+                        }
                     }
                 }
                 out
@@ -503,6 +647,9 @@ fn format_report_text(report: &ValidationReport) -> String {
         for msg in &r.messages {
             writeln!(out, "  Message: {}", term_text(msg)).unwrap();
         }
+        if let Some(d) = &r.sparql_diagnostic {
+            out.push_str(&format_engine_sparql_diagnostic(d, "  "));
+        }
         writeln!(out).unwrap();
     }
     out
@@ -535,6 +682,11 @@ pub(crate) fn violation_to_py(
         .reasons
         .iter()
         .map(|r| {
+            let sparql_diagnostic = r
+                .sparql_diagnostic
+                .as_ref()
+                .map(|d| sparql_diagnostic_to_py(py, d))
+                .transpose()?;
             Py::new(
                 py,
                 Reason {
@@ -543,6 +695,7 @@ pub(crate) fn violation_to_py(
                     message: r.message.clone(),
                     author_message: r.author_message.clone(),
                     severity: r.severity.label().to_string(),
+                    sparql_diagnostic,
                 },
             )
         })
@@ -558,12 +711,55 @@ pub(crate) fn violation_to_py(
     )
 }
 
+struct RawSparqlDiagnostic {
+    query: String,
+    bindings: Vec<(String, String)>,
+    results: Vec<Vec<(String, String)>>,
+    fallback_reason: Option<String>,
+}
+
+impl RawSparqlDiagnostic {
+    fn from_engine(d: &shifty_engine::SparqlDiagnostic) -> Self {
+        Self {
+            query: d.query.clone(),
+            bindings: d
+                .bindings
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect(),
+            results: d
+                .results
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|(k, v)| (k.clone(), v.to_string()))
+                        .collect()
+                })
+                .collect(),
+            fallback_reason: d.fallback_reason.clone(),
+        }
+    }
+
+    fn into_python(self, py: Python<'_>) -> PyResult<Py<SparqlDiagnostic>> {
+        Py::new(
+            py,
+            SparqlDiagnostic {
+                query: self.query,
+                bindings: self.bindings,
+                results: self.results,
+                fallback_reason: self.fallback_reason,
+            },
+        )
+    }
+}
+
 struct RawReason {
     value: String,
     path: Option<String>,
     message: String,
     author_message: Option<String>,
     severity: String,
+    sparql_diagnostic: Option<RawSparqlDiagnostic>,
 }
 
 struct RawViolation {
@@ -588,6 +784,10 @@ impl RawAlgebraResult {
                     .reasons
                     .into_iter()
                     .map(|reason| {
+                        let sparql_diagnostic = reason
+                            .sparql_diagnostic
+                            .map(|d| d.into_python(py))
+                            .transpose()?;
                         Py::new(
                             py,
                             Reason {
@@ -596,6 +796,7 @@ impl RawAlgebraResult {
                                 message: reason.message,
                                 author_message: reason.author_message,
                                 severity: reason.severity,
+                                sparql_diagnostic,
                             },
                         )
                     })
@@ -639,6 +840,10 @@ fn raw_algebra_result(
                     message: reason.message.clone(),
                     author_message: reason.author_message.clone(),
                     severity: reason.severity.label().to_string(),
+                    sparql_diagnostic: reason
+                        .sparql_diagnostic
+                        .as_ref()
+                        .map(RawSparqlDiagnostic::from_engine),
                 })
                 .collect(),
         })
@@ -1196,6 +1401,7 @@ impl PreparedValidator {
 #[pymodule]
 fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", VERSION)?;
+    m.add_class::<SparqlDiagnostic>()?;
     m.add_class::<Reason>()?;
     m.add_class::<Violation>()?;
     m.add_class::<AlgebraResult>()?;

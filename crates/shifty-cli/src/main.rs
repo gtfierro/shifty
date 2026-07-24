@@ -342,8 +342,48 @@ fn render_reason(r: &shifty_engine::Reason, indent: usize) -> Vec<String> {
         None => format!("{pad}- [{}] {}", r.severity, message),
     };
     let mut lines = vec![header];
+    if let Some(d) = &r.sparql_diagnostic {
+        lines.extend(render_sparql_diagnostic(d, indent + 4));
+    }
     for sub in &r.sub_reasons {
         lines.extend(render_reason(sub, indent + 4));
+    }
+    lines
+}
+
+/// Render a [`shifty_engine::SparqlDiagnostic`]: the query that ran, what it
+/// was bound to, and what rows it actually returned — so a SPARQL constraint
+/// failure is never just "not satisfied."
+fn render_sparql_diagnostic(d: &shifty_engine::SparqlDiagnostic, indent: usize) -> Vec<String> {
+    let pad = " ".repeat(indent);
+    let mut lines = vec![format!("{pad}SPARQL:")];
+    lines.push(format!("{pad}  Query:"));
+    for line in d.query.lines() {
+        lines.push(format!("{pad}    {line}"));
+    }
+    if !d.bindings.is_empty() {
+        lines.push(format!("{pad}  Bound:"));
+        for (k, v) in &d.bindings {
+            lines.push(format!("{pad}    ${k} = {v}"));
+        }
+    }
+    if !d.results.is_empty() {
+        lines.push(format!("{pad}  Results:"));
+        for (i, row) in d.results.iter().enumerate() {
+            if row.is_empty() {
+                lines.push(format!("{pad}    [{}] (no projected variables)", i + 1));
+                continue;
+            }
+            let cols = row
+                .iter()
+                .map(|(k, v)| format!("?{k} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(format!("{pad}    [{}] {cols}", i + 1));
+        }
+    }
+    if let Some(reason) = &d.fallback_reason {
+        lines.push(format!("{pad}  Did not use the native executor: {reason}"));
     }
     lines
 }
