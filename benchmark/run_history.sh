@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESULTS_DIR="$SCRIPT_DIR/results"
 
-START_TAG="${1:-v0.1.0}"
+START_TAG="${1:-v0.1.1}"
 
 # Results directory (and chart label) for the current checkout.
 HEAD_LABEL="HEAD"
