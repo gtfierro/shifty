@@ -163,6 +163,100 @@ fn sparql_diagnostic_to_py(
     )
 }
 
+#[pyclass(eq, eq_int, hash, frozen, name = "ConstraintKind")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ConstraintKind {
+    Unknown,
+    Top,
+    Constant,
+    ClassMembership,
+    ValueType,
+    NodeKind,
+    Closed,
+    Equals,
+    Disjoint,
+    LessThan,
+    LessThanOrEquals,
+    UniqueLang,
+    Negation,
+    Conjunction,
+    Disjunction,
+    Cardinality,
+    Sparql,
+    Expression,
+}
+
+pub(crate) fn constraint_kind_to_py(kind: shifty_algebra::ConstraintKind) -> ConstraintKind {
+    match kind {
+        shifty_algebra::ConstraintKind::Unknown => ConstraintKind::Unknown,
+        shifty_algebra::ConstraintKind::Top => ConstraintKind::Top,
+        shifty_algebra::ConstraintKind::Constant => ConstraintKind::Constant,
+        shifty_algebra::ConstraintKind::ClassMembership => ConstraintKind::ClassMembership,
+        shifty_algebra::ConstraintKind::ValueType => ConstraintKind::ValueType,
+        shifty_algebra::ConstraintKind::NodeKind => ConstraintKind::NodeKind,
+        shifty_algebra::ConstraintKind::Closed => ConstraintKind::Closed,
+        shifty_algebra::ConstraintKind::Equals => ConstraintKind::Equals,
+        shifty_algebra::ConstraintKind::Disjoint => ConstraintKind::Disjoint,
+        shifty_algebra::ConstraintKind::LessThan => ConstraintKind::LessThan,
+        shifty_algebra::ConstraintKind::LessThanOrEquals => ConstraintKind::LessThanOrEquals,
+        shifty_algebra::ConstraintKind::UniqueLang => ConstraintKind::UniqueLang,
+        shifty_algebra::ConstraintKind::Negation => ConstraintKind::Negation,
+        shifty_algebra::ConstraintKind::Conjunction => ConstraintKind::Conjunction,
+        shifty_algebra::ConstraintKind::Disjunction => ConstraintKind::Disjunction,
+        shifty_algebra::ConstraintKind::Cardinality => ConstraintKind::Cardinality,
+        shifty_algebra::ConstraintKind::Sparql => ConstraintKind::Sparql,
+        shifty_algebra::ConstraintKind::Expression => ConstraintKind::Expression,
+    }
+}
+
+#[pyclass(get_all, name = "Constraint")]
+#[derive(Clone)]
+pub struct Constraint {
+    /// Algebra arena id for this constraint.
+    pub id: u32,
+    /// Stable semantic operator kind.
+    pub kind: ConstraintKind,
+    /// One-level algebra rendering. Child constraints appear as `@id`.
+    pub render: String,
+    /// Fully-expanded human description, depth-limited for recursive shapes.
+    pub definition: String,
+    /// JSON serialization of the algebra node. Child constraints are represented
+    /// by their arena ids, matching `render`.
+    pub json: String,
+}
+
+#[pymethods]
+impl Constraint {
+    fn __repr__(&self) -> String {
+        format!(
+            "Constraint(id={}, kind={:?}, render={:?})",
+            self.id, self.kind, self.render
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.definition.clone()
+    }
+}
+
+pub(crate) fn constraint_to_py(
+    py: Python<'_>,
+    arena: &shifty_algebra::ShapeArena,
+    id: shifty_algebra::ShapeId,
+) -> PyResult<Py<Constraint>> {
+    Py::new(
+        py,
+        Constraint {
+            id: id.0,
+            kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, id)),
+            render: shifty_algebra::render::shape_to_string(arena, id),
+            definition: shifty_algebra::render::describe_shape(arena, id),
+            json: serde_json::to_string(arena.get(id))
+                .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
+        },
+    )
+}
+
 #[pyclass(get_all)]
 pub struct Reason {
     /// The node at which the constraint failed.
@@ -177,6 +271,14 @@ pub struct Reason {
     pub author_message: Option<String>,
     /// SHACL severity (`"Violation"`, `"Warning"`, `"Info"`, or a custom IRI).
     pub severity: String,
+    /// The complete originating algebraic constraint/operator.
+    pub constraint: Py<Constraint>,
+    /// Stable semantic operator kind of `constraint`.
+    pub constraint_kind: ConstraintKind,
+    /// Algebra arena id of `constraint`.
+    pub constraint_id: u32,
+    /// Statement id shared with repair witnesses.
+    pub statement_id: usize,
     /// Present only for a failed `sh:sparql`/custom SPARQL-based constraint
     /// component. `None` for every other failed constraint.
     pub sparql_diagnostic: Option<Py<SparqlDiagnostic>>,
@@ -193,6 +295,12 @@ impl Reason {
 pub struct Violation {
     #[pyo3(get)]
     pub focus_node: String,
+    /// Statement id shared with repair witnesses.
+    #[pyo3(get)]
+    pub statement_id: usize,
+    /// Algebra arena id for the statement's top-level shape.
+    #[pyo3(get)]
+    pub constraint_id: u32,
     /// Named shape IRI if the violated statement was a named SHACL shape.
     #[pyo3(get)]
     pub shape_name: Option<String>,
@@ -678,10 +786,20 @@ pub(crate) fn violation_to_py(
     v: &shifty_engine::Violation,
     schema: &shifty_algebra::Schema,
 ) -> PyResult<Py<Violation>> {
+    violation_to_py_with_arena(py, v, schema, &schema.arena)
+}
+
+pub(crate) fn violation_to_py_with_arena(
+    py: Python<'_>,
+    v: &shifty_engine::Violation,
+    schema: &shifty_algebra::Schema,
+    arena: &shifty_algebra::ShapeArena,
+) -> PyResult<Py<Violation>> {
     let reasons = v
         .reasons
         .iter()
         .map(|r| {
+            let constraint = constraint_to_py(py, arena, r.constraint_id)?;
             let sparql_diagnostic = r
                 .sparql_diagnostic
                 .as_ref()
@@ -695,6 +813,10 @@ pub(crate) fn violation_to_py(
                     message: r.message.clone(),
                     author_message: r.author_message.clone(),
                     severity: r.severity.label().to_string(),
+                    constraint,
+                    constraint_kind: constraint_kind_to_py(r.constraint_kind),
+                    constraint_id: r.constraint_id.0,
+                    statement_id: r.statement_id,
                     sparql_diagnostic,
                 },
             )
@@ -704,6 +826,12 @@ pub(crate) fn violation_to_py(
         py,
         Violation {
             focus_node: v.focus.to_string(),
+            statement_id: v.statement,
+            constraint_id: schema
+                .statements
+                .get(v.statement)
+                .map(|statement| statement.shape.0)
+                .unwrap_or(u32::MAX),
             shape_name: shape_name_for(v, schema),
             severity: v.severity.label().to_string(),
             reasons,
@@ -753,17 +881,57 @@ impl RawSparqlDiagnostic {
     }
 }
 
+struct RawConstraint {
+    id: u32,
+    kind: ConstraintKind,
+    render: String,
+    definition: String,
+    json: String,
+}
+
+impl RawConstraint {
+    fn from_arena(arena: &shifty_algebra::ShapeArena, id: shifty_algebra::ShapeId) -> Self {
+        Self {
+            id: id.0,
+            kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, id)),
+            render: shifty_algebra::render::shape_to_string(arena, id),
+            definition: shifty_algebra::render::describe_shape(arena, id),
+            json: serde_json::to_string(arena.get(id))
+                .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}")),
+        }
+    }
+
+    fn into_python(self, py: Python<'_>) -> PyResult<Py<Constraint>> {
+        Py::new(
+            py,
+            Constraint {
+                id: self.id,
+                kind: self.kind,
+                render: self.render,
+                definition: self.definition,
+                json: self.json,
+            },
+        )
+    }
+}
+
 struct RawReason {
     value: String,
     path: Option<String>,
     message: String,
     author_message: Option<String>,
     severity: String,
+    constraint: RawConstraint,
+    constraint_kind: ConstraintKind,
+    constraint_id: u32,
+    statement_id: usize,
     sparql_diagnostic: Option<RawSparqlDiagnostic>,
 }
 
 struct RawViolation {
     focus_node: String,
+    statement_id: usize,
+    constraint_id: u32,
     shape_name: Option<String>,
     severity: String,
     reasons: Vec<RawReason>,
@@ -796,6 +964,10 @@ impl RawAlgebraResult {
                                 message: reason.message,
                                 author_message: reason.author_message,
                                 severity: reason.severity,
+                                constraint: reason.constraint.into_python(py)?,
+                                constraint_kind: reason.constraint_kind,
+                                constraint_id: reason.constraint_id,
+                                statement_id: reason.statement_id,
                                 sparql_diagnostic,
                             },
                         )
@@ -805,6 +977,8 @@ impl RawAlgebraResult {
                     py,
                     Violation {
                         focus_node: violation.focus_node,
+                        statement_id: violation.statement_id,
+                        constraint_id: violation.constraint_id,
                         shape_name: violation.shape_name,
                         severity: violation.severity,
                         reasons,
@@ -823,12 +997,19 @@ impl RawAlgebraResult {
 fn raw_algebra_result(
     outcome: shifty_engine::ValidationOutcome,
     schema: &shifty_algebra::Schema,
+    arena: &shifty_algebra::ShapeArena,
 ) -> RawAlgebraResult {
     let violations = outcome
         .violations
         .iter()
         .map(|violation| RawViolation {
             focus_node: violation.focus.to_string(),
+            statement_id: violation.statement,
+            constraint_id: schema
+                .statements
+                .get(violation.statement)
+                .map(|statement| statement.shape.0)
+                .unwrap_or(u32::MAX),
             shape_name: shape_name_for(violation, schema),
             severity: violation.severity.label().to_string(),
             reasons: violation
@@ -840,6 +1021,10 @@ fn raw_algebra_result(
                     message: reason.message.clone(),
                     author_message: reason.author_message.clone(),
                     severity: reason.severity.label().to_string(),
+                    constraint: RawConstraint::from_arena(arena, reason.constraint_id),
+                    constraint_kind: constraint_kind_to_py(reason.constraint_kind),
+                    constraint_id: reason.constraint_id.0,
+                    statement_id: reason.statement_id,
                     sparql_diagnostic: reason
                         .sparql_diagnostic
                         .as_ref()
@@ -873,7 +1058,7 @@ fn validate_algebra_loaded(
         options,
     )
     .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema))
+    Ok(raw_algebra_result(outcome, schema, &plan.arena))
 }
 
 fn validate_algebra_embedded(
@@ -887,7 +1072,7 @@ fn validate_algebra_embedded(
     let eval_data = inferred.as_ref().unwrap_or(&loaded.graph);
     let outcome = validate_plan_with_options(eval_data, plan, options)
         .map_err(|e| format!("non-stratifiable schema: {e}"))?;
-    Ok(raw_algebra_result(outcome, schema))
+    Ok(raw_algebra_result(outcome, schema, &plan.arena))
 }
 
 fn validate_w3c_loaded(
@@ -1402,6 +1587,8 @@ impl PreparedValidator {
 fn _shifty(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", VERSION)?;
     m.add_class::<SparqlDiagnostic>()?;
+    m.add_class::<ConstraintKind>()?;
+    m.add_class::<Constraint>()?;
     m.add_class::<Reason>()?;
     m.add_class::<Violation>()?;
     m.add_class::<AlgebraResult>()?;

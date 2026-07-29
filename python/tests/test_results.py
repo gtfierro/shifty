@@ -259,6 +259,18 @@ class TestAlgebraResult:
                 assert hasattr(r, 'message')
                 assert isinstance(r.message, str)
 
+    def test_reason_exposes_algebraic_constraint_provenance(self):
+        result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode(), infer=False)
+        reason = result.violations[0].reasons[0]
+
+        assert isinstance(reason.constraint, shifty.Constraint)
+        assert reason.constraint_id == reason.constraint.id
+        assert reason.constraint_kind == reason.constraint.kind
+        assert reason.statement_id == result.violations[0].statement_id
+        assert reason.constraint_kind == shifty.ConstraintKind.Cardinality
+        assert "min" in reason.constraint.json or "Count" in reason.constraint.json
+        assert reason.constraint.render
+
     def test_reason_has_path(self):
         result = shifty.validate_algebra(VIOLATION_DATA.encode(), SHAPES.encode())
         for v in result.violations:

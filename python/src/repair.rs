@@ -7,7 +7,10 @@
 //! library computes and gates; **it decides nothing**. No canned repair loop is
 //! shipped here — the driver is yours to write in Python.
 
-use crate::{InputSpec, Violation, graph_to_ntriples, py_value_error, violation_to_py};
+use crate::{
+    Constraint, ConstraintKind, InputSpec, Violation, constraint_kind_to_py, constraint_to_py,
+    graph_to_ntriples, py_value_error, violation_to_py,
+};
 use oxrdf::{Graph, Term};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
@@ -227,6 +230,10 @@ pub enum WitnessKind {
 pub struct WitnessAtom {
     /// The leaf kind (see [`WitnessKind`]).
     pub kind: WitnessKind,
+    /// Algebra arena id of the failed constraint that produced this atom.
+    pub constraint_id: u32,
+    /// Stable semantic kind of that constraint.
+    pub constraint_kind: ConstraintKind,
     /// The π path from the focus to the offending value, if any.
     pub path: Option<String>,
     /// The offending node/value, if any.
@@ -245,55 +252,86 @@ impl WitnessAtom {
     }
 }
 
-fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
+fn witness_atom(
+    arena: &ShapeArena,
+    shape: ShapeId,
+    kind: WitnessKind,
+    path: Option<String>,
+    value: Option<String>,
+    detail: String,
+) -> WitnessAtom {
+    WitnessAtom {
+        kind,
+        constraint_id: shape.0,
+        constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(arena, shape)),
+        path,
+        value,
+        detail,
+    }
+}
+
+fn witness_leaves(arena: &ShapeArena, w: &Witness, out: &mut Vec<WitnessAtom>) {
     match w {
         Witness::Atom {
+            shape,
             node,
             reached_by,
             produced_by,
-            ..
-        } => out.push(WitnessAtom {
-            kind: WitnessKind::Atom,
-            path: Some(path_str(reached_by)),
-            value: Some(node.to_string()),
-            detail: if produced_by.is_some() {
+        } => out.push(witness_atom(
+            arena,
+            *shape,
+            WitnessKind::Atom,
+            Some(path_str(reached_by)),
+            Some(node.to_string()),
+            if produced_by.is_some() {
                 "value-type test failed (edge is cuttable)".into()
             } else {
                 "value-type test failed on the focus".into()
             },
-        }),
+        )),
         Witness::Relational {
+            shape,
             kind,
             node,
             offending,
             ..
-        } => out.push(WitnessAtom {
-            kind: WitnessKind::Relational,
-            path: None,
-            value: Some(node.to_string()),
-            detail: format!("{kind:?}: {} offending pair(s)", offending.len()),
-        }),
+        } => out.push(witness_atom(
+            arena,
+            *shape,
+            WitnessKind::Relational,
+            None,
+            Some(node.to_string()),
+            format!("{kind:?}: {} offending pair(s)", offending.len()),
+        )),
         Witness::Closed {
-            node, offenders, ..
-        } => out.push(WitnessAtom {
-            kind: WitnessKind::Closed,
-            path: None,
-            value: Some(node.to_string()),
-            detail: format!("{} disallowed triple(s)", offenders.len()),
-        }),
+            shape,
+            node,
+            offenders,
+        } => out.push(witness_atom(
+            arena,
+            *shape,
+            WitnessKind::Closed,
+            None,
+            Some(node.to_string()),
+            format!("{} disallowed triple(s)", offenders.len()),
+        )),
         Witness::CountLow {
+            shape,
             node,
             path,
             have,
             min,
             ..
-        } => out.push(WitnessAtom {
-            kind: WitnessKind::CountLow,
-            path: Some(path_str(path)),
-            value: Some(node.to_string()),
-            detail: format!("have {have}, need {min}"),
-        }),
+        } => out.push(witness_atom(
+            arena,
+            *shape,
+            WitnessKind::CountLow,
+            Some(path_str(path)),
+            Some(node.to_string()),
+            format!("have {have}, need {min}"),
+        )),
         Witness::CountHigh {
+            shape,
             node,
             path,
             matched,
@@ -301,36 +339,42 @@ fn witness_leaves(w: &Witness, out: &mut Vec<WitnessAtom>) {
             per_value,
             ..
         } => {
-            out.push(WitnessAtom {
-                kind: WitnessKind::CountHigh,
-                path: Some(path_str(path)),
-                value: Some(node.to_string()),
-                detail: format!("{} match(es), max {max}", matched.len()),
-            });
+            out.push(witness_atom(
+                arena,
+                *shape,
+                WitnessKind::CountHigh,
+                Some(path_str(path)),
+                Some(node.to_string()),
+                format!("{} match(es), max {max}", matched.len()),
+            ));
             for (_, sub) in per_value {
-                witness_leaves(sub, out);
+                witness_leaves(arena, sub, out);
             }
         }
-        Witness::Not { node, .. } => out.push(WitnessAtom {
-            kind: WitnessKind::Not,
-            path: None,
-            value: Some(node.to_string()),
-            detail: "a shape holds that must be falsified".into(),
-        }),
-        Witness::Opaque { node, .. } => out.push(WitnessAtom {
-            kind: WitnessKind::Opaque,
-            path: None,
-            value: Some(node.to_string()),
-            detail: "opaque SPARQL — no algebraic witness".into(),
-        }),
+        Witness::Not { shape, node, .. } => out.push(witness_atom(
+            arena,
+            *shape,
+            WitnessKind::Not,
+            None,
+            Some(node.to_string()),
+            "a shape holds that must be falsified".into(),
+        )),
+        Witness::Opaque { shape, node } => out.push(witness_atom(
+            arena,
+            *shape,
+            WitnessKind::Opaque,
+            None,
+            Some(node.to_string()),
+            "opaque SPARQL — no algebraic witness".into(),
+        )),
         Witness::All { failed, .. } => {
             for f in failed {
-                witness_leaves(f, out);
+                witness_leaves(arena, f, out);
             }
         }
         Witness::Any { branches, .. } => {
             for b in branches {
-                witness_leaves(b, out);
+                witness_leaves(arena, b, out);
             }
         }
     }
@@ -467,6 +511,7 @@ fn parse_term(s: &str) -> Result<Term, String> {
 #[pyclass(name = "RepairSession")]
 pub struct RepairSession {
     schema: Arc<Schema>,
+    provenance_schema: Arc<Schema>,
     /// The focus/output graph: data (+ inferred triples). What `to_graph` emits
     /// and where focus nodes and reuse candidates are drawn from.
     data: Arc<Graph>,
@@ -480,12 +525,14 @@ pub struct RepairSession {
 impl RepairSession {
     fn from_parts(
         schema: Arc<Schema>,
+        provenance_schema: Arc<Schema>,
         data: Arc<Graph>,
         context: Arc<Graph>,
         diagnostics: Vec<String>,
     ) -> Self {
         Self {
             schema,
+            provenance_schema,
             data,
             context,
             diagnostics,
@@ -546,6 +593,7 @@ impl RepairSession {
                 .map(ToString::to_string)
                 .collect();
             let schema = parse_out.schema;
+            let provenance_schema = shifty_opt::normalize(&schema);
 
             let data_loaded = data_spec
                 .map(|spec| spec.load(base.as_deref()))
@@ -582,6 +630,7 @@ impl RepairSession {
 
             Ok(RepairSession::from_parts(
                 Arc::new(schema),
+                Arc::new(provenance_schema),
                 data,
                 context,
                 diagnostics,
@@ -611,6 +660,17 @@ impl RepairSession {
                     FocusWitness {
                         focus: fw.focus.to_string(),
                         statement: fw.statement,
+                        statement_id: fw.statement,
+                        constraint_id: self.provenance_schema.statements[fw.statement].shape.0,
+                        constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(
+                            &self.provenance_schema.arena,
+                            self.provenance_schema.statements[fw.statement].shape,
+                        )),
+                        constraint: constraint_to_py(
+                            py,
+                            &self.provenance_schema.arena,
+                            self.provenance_schema.statements[fw.statement].shape,
+                        )?,
                         target,
                         inner: fw,
                         schema: Arc::clone(&self.schema),
@@ -642,6 +702,17 @@ impl RepairSession {
                     FocusWitness {
                         focus: fw.focus.to_string(),
                         statement: fw.statement,
+                        statement_id: fw.statement,
+                        constraint_id: self.provenance_schema.statements[fw.statement].shape.0,
+                        constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(
+                            &self.provenance_schema.arena,
+                            self.provenance_schema.statements[fw.statement].shape,
+                        )),
+                        constraint: constraint_to_py(
+                            py,
+                            &self.provenance_schema.arena,
+                            self.provenance_schema.statements[fw.statement].shape,
+                        )?,
                         target,
                         inner: fw,
                         schema: Arc::clone(&self.schema),
@@ -766,6 +837,7 @@ impl RepairSession {
         });
         RepairSession::from_parts(
             Arc::clone(&self.schema),
+            Arc::clone(&self.provenance_schema),
             Arc::new(next_data),
             Arc::new(next_context),
             self.diagnostics.clone(),
@@ -884,6 +956,18 @@ pub struct FocusWitness {
     focus: String,
     #[pyo3(get)]
     statement: usize,
+    /// Statement id shared with validation violations and reasons.
+    #[pyo3(get)]
+    statement_id: usize,
+    /// Algebra arena id for the statement's top-level shape.
+    #[pyo3(get)]
+    constraint_id: u32,
+    /// Stable semantic kind for the statement's top-level constraint.
+    #[pyo3(get)]
+    constraint_kind: ConstraintKind,
+    /// The statement's top-level algebraic constraint/operator.
+    #[pyo3(get)]
+    constraint: Py<Constraint>,
     /// The statement's target selector, rendered (e.g. `class(ex:Person)`). See
     /// `selector` for the structured form.
     #[pyo3(get)]
@@ -908,7 +992,7 @@ impl FocusWitness {
     /// The failing leaves, flattened (AND/OR structure dropped; see `explain`).
     fn summary(&self) -> Vec<WitnessAtom> {
         let mut out = Vec::new();
-        witness_leaves(&self.inner.failure, &mut out);
+        witness_leaves(&self.schema.arena, &self.inner.failure, &mut out);
         out
     }
 

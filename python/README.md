@@ -231,15 +231,60 @@ print(result.conforms)        # False
 print(result.results_text)    # human-readable summary (built and cached on first access)
 for v in result.violations:
     print(v.focus_node)       # IRI of the failing focus node
+    print(v.statement_id)     # stable statement id
+    print(v.constraint_id)    # statement-level algebra id shared with repair witnesses
     print(v.shape_name)       # IRI of the violated shape, or None
     for r in v.reasons:
         print(r.message)          # engine-generated failure description (always set)
         print(r.author_message)   # the shape's sh:message if it declared one, else None
         print(r.path)             # path that was checked, if applicable
         print(r.value)            # the offending value node
+        print(r.constraint_kind)   # ConstraintKind.Cardinality, ClassMembership, Sparql, ...
+        print(r.constraint.render) # algebra operator; child shapes appear as @id
 
         # Prefer the author's message when present, fall back to the generated one:
         print(r.author_message or r.message)
+```
+
+`Reason.constraint` is the originating algebraic operator, not the SHACL source
+component name. Its `constraint_id` / `constraint_kind` fields are stable programmatic
+keys; `constraint.json` is a JSON encoding of the algebra node.
+
+#### Algebraic provenance and repair correlation
+
+Use `statement_id` and `constraint_id` at two different levels:
+
+- `Violation.statement_id` identifies the top-level `(target selector, shape)`
+  statement that failed.
+- `Violation.constraint_id` identifies that statement's top-level algebraic
+  constraint. This is the id shared with `RepairSession.witnesses()`.
+- `Reason.constraint_id` identifies the specific algebra node that produced the
+  validation cause. For example, a node shape may fail at a nested cardinality
+  constraint inside a conjunction, so `reason.constraint_id` can differ from
+  `violation.constraint_id`.
+
+The practical join from validation to repair is:
+
+```python
+result = shifty.validate_algebra(data, shapes, infer=False)
+session = shifty.RepairSession(shapes, data, infer=False)
+
+witnesses = {
+    (w.focus, w.statement_id, w.constraint_id): w
+    for w in session.witnesses()
+}
+
+for v in result.violations:
+    witness = witnesses.get((v.focus_node, v.statement_id, v.constraint_id))
+    for r in v.reasons:
+        if r.constraint_kind == shifty.ConstraintKind.Cardinality:
+            print("count constraint:", r.constraint.definition)
+        elif r.constraint_kind == shifty.ConstraintKind.ClassMembership:
+            print("class constraint:", r.constraint.definition)
+        elif r.constraint_kind == shifty.ConstraintKind.Sparql:
+            print("SPARQL constraint:", r.sparql_diagnostic)
+    if witness is not None:
+        print(witness.repair_tree().explain())
 ```
 
 Set `infer=False` when validation should not first run embedded SHACL-AF rules
@@ -427,8 +472,17 @@ across the entire schema. Empty ⟺ the graph conforms.
 for w in session.witnesses():
     print(w.focus)        # '<http://example.org/dan>'
     print(w.statement)    # 0 — index into the schema's statements
+    print(w.statement_id) # same stable id as validate_algebra() violations
+    print(w.constraint_id)# same statement-level algebra id as validate_algebra()
+    print(w.constraint)   # statement-level algebraic constraint
     print(w.target)       # 'class(<http://example.org/Person>)' — rendered selector
 ```
+
+`FocusWitness.summary()` returns repair atoms, not validation causes. Each atom
+also has `constraint_id` and `constraint_kind`, but these describe the repair
+witness leaf that produced the edit alternative. Use the `(focus, statement_id,
+constraint_id)` key on `FocusWitness` itself to correlate a validation violation
+with its repair tree.
 
 ### Structured access (strings *and* objects)
 

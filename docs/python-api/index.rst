@@ -143,13 +143,65 @@ Returns structured ``Violation`` objects instead of an RDF report graph:
    print(result.conforms)           # False
    for v in result.violations:
        print(v.focus_node)          # IRI of the failing focus node
+       print(v.statement_id)        # stable statement id
+       print(v.constraint_id)       # statement-level algebra id
        print(v.shape_name)          # shape that targeted this node (if any)
        for r in v.reasons:
            print(r.message)         # human-readable failure description
            print(r.path)            # property path checked, if applicable
            print(r.value)           # the offending value node
+           print(r.constraint_kind)  # ConstraintKind.Cardinality, Sparql, ...
+           print(r.constraint.render)
 
 Accepts the same ``infer=`` and ``graph_mode=`` keyword arguments as ``validate()``.
+
+Algebraic provenance
+~~~~~~~~~~~~~~~~~~~~
+
+``validate_algebra()`` exposes the algebraic operator that produced each
+validation cause:
+
+``Reason.constraint``
+   A ``Constraint`` object for the originating algebra node. It has ``id``,
+   ``kind``, ``render``, ``definition``, and ``json`` fields.
+
+``Reason.constraint_kind``
+   A stable enum such as ``ConstraintKind.Cardinality``,
+   ``ConstraintKind.ClassMembership``, ``ConstraintKind.ValueType``,
+   ``ConstraintKind.NodeKind``, ``ConstraintKind.Conjunction``,
+   ``ConstraintKind.Disjunction``, or ``ConstraintKind.Sparql``. Use this for
+   branching instead of parsing messages or Rust class names.
+
+``Violation.statement_id`` / ``Violation.constraint_id``
+   The top-level statement identity. This is the stable key shared with
+   ``RepairSession.witnesses()``.
+
+``Reason.constraint_id``
+   The specific nested algebra node that produced the validation cause. This may
+   differ from ``Violation.constraint_id`` when the violated shape is a
+   conjunction, disjunction, or another composed constraint.
+
+The usual validation-to-repair join is:
+
+.. code-block:: python
+
+   result = shifty.validate_algebra(data, shapes, infer=False)
+   session = shifty.RepairSession(shapes, data, infer=False)
+
+   witnesses = {
+       (w.focus, w.statement_id, w.constraint_id): w
+       for w in session.witnesses()
+   }
+
+   for v in result.violations:
+       witness = witnesses.get((v.focus_node, v.statement_id, v.constraint_id))
+       for r in v.reasons:
+           if r.constraint_kind == shifty.ConstraintKind.Cardinality:
+               print("count constraint:", r.constraint.definition)
+           elif r.constraint_kind == shifty.ConstraintKind.Sparql:
+               print("SPARQL diagnostic:", r.sparql_diagnostic)
+       if witness is not None:
+           print(witness.repair_tree().explain())
 
 PreparedValidator
 ~~~~~~~~~~~~~~~~~

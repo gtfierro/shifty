@@ -317,11 +317,42 @@ serializer.
 result = shifty.validate_algebra(data, shapes)
 print(result.conforms)        # False
 for v in result.violations:
-    print(v.focus)            # IRI of the failing focus node
+    print(v.focus_node)       # IRI of the failing focus node
+    print(v.statement_id)     # stable statement id
+    print(v.constraint_id)    # statement-level algebra id shared with repair witnesses
     for r in v.reasons:
         print(r.message)      # human-readable failure description
         print(r.path)         # path that was checked, if applicable
         print(r.value)        # the offending value node
+        print(r.constraint_kind)
+        print(r.constraint.render)
+```
+
+`Reason.constraint` is the originating algebraic operator, not the SHACL source
+component name. `Violation.statement_id` and `Violation.constraint_id` identify
+the failed top-level statement; `Reason.constraint_id` identifies the specific
+nested algebra node that produced a validation cause.
+
+To connect validation output to repair witnesses:
+
+```python
+result = shifty.validate_algebra(data, shapes, infer=False)
+session = shifty.RepairSession(shapes, data, infer=False)
+
+witnesses = {
+    (w.focus, w.statement_id, w.constraint_id): w
+    for w in session.witnesses()
+}
+
+for v in result.violations:
+    witness = witnesses.get((v.focus_node, v.statement_id, v.constraint_id))
+    for r in v.reasons:
+        if r.constraint_kind == shifty.ConstraintKind.Cardinality:
+            print("count failure:", r.constraint.definition)
+        elif r.constraint_kind == shifty.ConstraintKind.ClassMembership:
+            print("class failure:", r.constraint.definition)
+    if witness is not None:
+        print(witness.repair_tree().explain())
 ```
 
 Set `infer=False` when validation should not first run embedded SHACL-AF rules
@@ -386,8 +417,9 @@ while True:
         break                                  # conforms
     fw = witnesses[0]                          # your focus-ordering policy
     print(fw.target)                           # what targeted this node
+    print(fw.statement_id, fw.constraint_id)    # shared with validate_algebra()
     for atom in fw.summary():                  # flat failing leaves
-        print(atom.kind, atom.detail)
+        print(atom.kind, atom.constraint_kind, atom.detail)
     # fw.explain()                             # the full witness tree, as text
 
     tree = fw.repair_tree()                    # the repair space

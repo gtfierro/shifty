@@ -52,9 +52,21 @@ def test_witness_summary_and_explain():
     assert len(atoms) == 1
     a = atoms[0]
     assert a.kind == shifty.WitnessKind.CountHigh
+    assert a.constraint_kind == shifty.ConstraintKind.Cardinality
     assert a.path == "<http://example.org/name>"
     assert "max 1" in a.detail
     assert "CountHigh" in fw.explain()
+
+
+def test_validation_and_repair_share_statement_constraint_identity():
+    validation = shifty.validate_algebra(DATA_MAXCOUNT.encode(), SHAPES.encode(), infer=False)
+    violation = validation.violations[0]
+    witness = session(DATA_MAXCOUNT).witnesses()[0]
+
+    assert violation.statement_id == witness.statement_id
+    assert violation.constraint_id == witness.constraint_id
+    assert witness.constraint.id == witness.constraint_id
+    assert witness.constraint_kind == witness.constraint.kind
 
 
 def test_conforming_graph_has_no_witnesses():

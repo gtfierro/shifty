@@ -52,7 +52,10 @@ def main():
             print(f"Violations ({len(result.violations)}):")
             for v in result.violations:
                 shape = f" [{v.shape_name}]" if v.shape_name else ""
-                print(f"  {v.focus_node}{shape}")
+                print(
+                    f"  {v.focus_node}{shape} "
+                    f"(statement={v.statement_id}, constraint={v.constraint_id})"
+                )
                 for r in v.reasons:
                     path = f" on {r.path}" if r.path else ""
                     # Lead with the author's sh:message when the shape supplied
@@ -62,7 +65,11 @@ def main():
                         message = f"{r.author_message} (generated message: {r.message})"
                     else:
                         message = r.message
-                    print(f"    - {message}{path}")
+                    print(
+                        f"    - {message}{path} "
+                        f"[{r.constraint_kind} #{r.constraint_id}: "
+                        f"{r.constraint.render}]"
+                    )
         sys.exit(0 if result.conforms else 1)
 
     else:

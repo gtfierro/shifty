@@ -21,7 +21,8 @@ use shifty_algebra::render::{
     describe_negation, describe_shape, negated_class_target_shape, path_to_string, shape_to_string,
 };
 use shifty_algebra::{
-    NodeExpr, Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId, SparqlConstraint,
+    ConstraintKind, NodeExpr, Path, Schema, Selector, Severity, Shape, ShapeArena, ShapeId,
+    SparqlConstraint,
 };
 use shifty_opt::{FocusSource, PhysicalPlan, analyze};
 use std::cmp::Ordering;
@@ -111,6 +112,22 @@ pub struct Reason {
     pub path: Option<String>,
     /// The failing constraint's arena slot (cross-references the algebra dump).
     pub shape: ShapeId,
+    /// The complete algebraic constraint/operator that produced this reason.
+    /// Child references are expressed as [`ShapeId`]s into the same arena, so
+    /// this is lossless together with the schema/plan being validated.
+    #[serde(default = "default_constraint")]
+    pub constraint: Shape,
+    /// Stable semantic kind of [`constraint`](Self::constraint), independent of
+    /// Rust enum variant names and source-language encodings.
+    #[serde(default)]
+    pub constraint_kind: ConstraintKind,
+    /// Stable algebra node id for the originating constraint. This aliases
+    /// [`shape`](Self::shape) but names the field by its semantic role.
+    #[serde(default)]
+    pub constraint_id: ShapeId,
+    /// Stable id of the `(selector, shape)` statement being validated.
+    #[serde(default)]
+    pub statement_id: usize,
     /// `sh:severity` on the source shape, defaulting to `sh:Violation`.
     #[serde(default)]
     pub severity: Severity,
@@ -131,6 +148,10 @@ pub struct Reason {
     /// failed constraint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sparql_diagnostic: Option<SparqlDiagnostic>,
+}
+
+fn default_constraint() -> Shape {
+    Shape::Pending
 }
 
 /// One focus node that failed its statement's shape, with the reasons why.
@@ -253,6 +274,13 @@ fn sort_violations(violations: &mut [Violation], enabled: bool) {
                 .then_with(|| left.focus.to_string().cmp(&right.focus.to_string()))
                 .then_with(|| left.statement.cmp(&right.statement))
         });
+    }
+}
+
+fn stamp_statement_id(reasons: &mut [Reason], statement_id: usize) {
+    for reason in reasons {
+        reason.statement_id = statement_id;
+        stamp_statement_id(&mut reason.sub_reasons, statement_id);
     }
 }
 
@@ -451,6 +479,7 @@ fn validate_with_frozen(
             );
             crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
+            stamp_statement_id(&mut reasons, i);
             if !reasons.is_empty() {
                 let severity = most_severe(&reasons);
                 violations.push(Violation {
@@ -662,6 +691,7 @@ fn validate_plan_with_frozen(
             );
             crate::profile::record_shape(&label, t.elapsed().as_micros() as u64);
             dedup_reasons(&mut reasons);
+            stamp_statement_id(&mut reasons, i);
             if !reasons.is_empty() {
                 let severity = most_severe(&reasons);
                 violations.push(Violation {
@@ -1141,36 +1171,38 @@ fn explain(
                             // Compute the message before the value/path fields are
                             // moved out of `violation`.
                             let message = sparql_violation_message(&violation, &constraint, node);
-                            Reason {
-                                value: violation.value.unwrap_or_else(|| node.clone()),
-                                path: violation
+                            reason(
+                                evaluator.arena,
+                                id,
+                                violation.value.unwrap_or_else(|| node.clone()),
+                                violation
                                     .path
                                     .map(|path| path.to_string())
                                     .or_else(|| path_ctx.map(str::to_string))
                                     .or_else(|| constraint.path.as_ref().map(path_to_string)),
+                                severity,
                                 message,
-                                shape: id,
-                                severity: severity.clone(),
-                                author_message: None,
-                                sub_reasons: Vec::new(),
-                                sparql_diagnostic: diagnostic.clone(),
-                            }
+                                None,
+                                Vec::new(),
+                                diagnostic.clone(),
+                            )
                         })
                         .collect()
                 }
-                Err(error) => vec![Reason {
-                    value: node.clone(),
-                    path: path_ctx.map(str::to_string),
-                    shape: id,
-                    severity: severity.clone(),
-                    message: format!("SPARQL constraint evaluation failed: {error}"),
-                    author_message: None,
-                    sub_reasons: Vec::new(),
-                    sparql_diagnostic: evaluator
+                Err(error) => vec![reason(
+                    evaluator.arena,
+                    id,
+                    node.clone(),
+                    path_ctx.map(str::to_string),
+                    severity,
+                    format!("SPARQL constraint evaluation failed: {error}"),
+                    None,
+                    Vec::new(),
+                    evaluator
                         .sparql
                         .constraint_diagnostic(&constraint, node, &[])
                         .ok(),
-                }],
+                )],
             }
         }
         Shape::TestConst(_)
@@ -1181,6 +1213,7 @@ fn explain(
         | Shape::Lt(..)
         | Shape::Le(..)
         | Shape::UniqueLang(_) => leaf(
+            evaluator.arena,
             evaluator.holds(node, id),
             node,
             id,
@@ -1194,30 +1227,32 @@ fn explain(
                 Vec::new()
             } else {
                 let preds: Vec<String> = bad.iter().map(|p| p.to_string()).collect();
-                vec![Reason {
-                    value: node.clone(),
-                    path: path_ctx.map(str::to_string),
-                    shape: id,
-                    severity: severity.clone(),
-                    message: format!("closed: unexpected predicate(s) {}", preds.join(", ")),
-                    author_message: None,
-                    sub_reasons: Vec::new(),
-                    sparql_diagnostic: None,
-                }]
+                vec![reason(
+                    evaluator.arena,
+                    id,
+                    node.clone(),
+                    path_ctx.map(str::to_string),
+                    severity,
+                    format!("closed: unexpected predicate(s) {}", preds.join(", ")),
+                    None,
+                    Vec::new(),
+                    None,
+                )]
             }
         }
         Shape::Not(c) => {
             if explain(evaluator, node, c, path_ctx, severity, stack).is_empty() {
-                vec![Reason {
-                    value: node.clone(),
-                    path: path_ctx.map(str::to_string),
-                    shape: id,
-                    severity: severity.clone(),
-                    message: "negated shape unexpectedly held".to_string(),
-                    author_message: None,
-                    sub_reasons: Vec::new(),
-                    sparql_diagnostic: None,
-                }]
+                vec![reason(
+                    evaluator.arena,
+                    id,
+                    node.clone(),
+                    path_ctx.map(str::to_string),
+                    severity,
+                    "negated shape unexpectedly held".to_string(),
+                    None,
+                    Vec::new(),
+                    None,
+                )]
             } else {
                 Vec::new()
             }
@@ -1240,16 +1275,17 @@ fn explain(
             if satisfied {
                 Vec::new()
             } else {
-                vec![Reason {
-                    value: node.clone(),
-                    path: path_ctx.map(str::to_string),
-                    shape: id,
-                    severity: severity.clone(),
-                    message: format!("none of {} alternative(s) satisfied", cs.len()),
-                    author_message: None,
+                vec![reason(
+                    evaluator.arena,
+                    id,
+                    node.clone(),
+                    path_ctx.map(str::to_string),
+                    severity,
+                    format!("none of {} alternative(s) satisfied", cs.len()),
+                    None,
                     sub_reasons,
-                    sparql_diagnostic: None,
-                }]
+                    None,
+                )]
             }
         }
         Shape::Count {
@@ -1261,6 +1297,7 @@ fn explain(
             evaluator, node, id, &path, min, max, qualifier, severity, stack,
         ),
         Shape::Expression(_) => leaf(
+            evaluator.arena,
             false, // reached only because the constraint failed (line ~923)
             node,
             id,
@@ -1337,79 +1374,78 @@ fn explain_count(
             _ if class_offense.is_some() => {
                 let class = class_offense.expect("guard ensured Some");
                 for u in &matched {
-                    reasons.push(Reason {
-                        value: u.clone(),
-                        path: Some(path_str.clone()),
-                        shape: id,
-                        severity: severity.clone(),
-                        message: format!("must be an instance of {}", term_text(&class)),
-                        author_message: None,
-                        sub_reasons: Vec::new(),
-                        sparql_diagnostic: None,
-                    });
+                    reasons.push(reason(
+                        evaluator.arena,
+                        id,
+                        u.clone(),
+                        Some(path_str.clone()),
+                        severity,
+                        format!("must be an instance of {}", term_text(&class)),
+                        None,
+                        Vec::new(),
+                        None,
+                    ));
                 }
             }
             // Plain `sh:maxCount` (⊤ qualifier): concise count message.
-            Shape::Top => reasons.push(Reason {
-                value: node.clone(),
-                path: Some(path_str.clone()),
-                shape: id,
-                severity: severity.clone(),
-                message: format!(
-                    "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
-                ),
-                author_message: None,
-                sub_reasons: Vec::new(),
-                sparql_diagnostic: None,
-            }),
+            Shape::Top => reasons.push(reason(
+                evaluator.arena,
+                id,
+                node.clone(),
+                Some(path_str.clone()),
+                severity,
+                format!("at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"),
+                None,
+                Vec::new(),
+                None,
+            )),
             // Any other `∃≤0` qualifier (`sh:nodeKind`, several value constraints
             // De-Morgan'd to an `Or`, …): describe the positive requirement.
             _ if mx == 0 => {
                 let requirement = describe_negation(evaluator.arena, qualifier);
                 for u in &matched {
-                    reasons.push(Reason {
-                        value: u.clone(),
-                        path: Some(path_str.clone()),
-                        shape: id,
-                        severity: severity.clone(),
-                        message: format!("must satisfy `{requirement}`"),
-                        author_message: None,
-                        sub_reasons: Vec::new(),
-                        sparql_diagnostic: None,
-                    });
+                    reasons.push(reason(
+                        evaluator.arena,
+                        id,
+                        u.clone(),
+                        Some(path_str.clone()),
+                        severity,
+                        format!("must satisfy `{requirement}`"),
+                        None,
+                        Vec::new(),
+                        None,
+                    ));
                 }
             }
             // Genuine `sh:qualifiedMaxCount` ≥ 1: concise count message.
-            _ => reasons.push(Reason {
-                value: node.clone(),
-                path: Some(path_str.clone()),
-                shape: id,
-                severity: severity.clone(),
-                message: format!(
-                    "at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"
-                ),
-                author_message: None,
-                sub_reasons: Vec::new(),
-                sparql_diagnostic: None,
-            }),
+            _ => reasons.push(reason(
+                evaluator.arena,
+                id,
+                node.clone(),
+                Some(path_str.clone()),
+                severity,
+                format!("at most {mx} value(s){qual_clause} allowed along {path_str}, found {n}"),
+                None,
+                Vec::new(),
+                None,
+            )),
         }
     }
 
     if let Some(mn) = min
         && n < mn
     {
-        reasons.push(Reason {
-            value: node.clone(),
-            path: Some(path_str.clone()),
-            shape: id,
-            severity: severity.clone(),
-            message: format!(
-                "at least {mn} value(s){qual_clause} required along {path_str}, found {n}"
-            ),
-            sparql_diagnostic: None,
-            author_message: None,
-            sub_reasons: Vec::new(),
-        });
+        reasons.push(reason(
+            evaluator.arena,
+            id,
+            node.clone(),
+            Some(path_str.clone()),
+            severity,
+            format!("at least {mn} value(s){qual_clause} required along {path_str}, found {n}"),
+            None,
+            Vec::new(),
+            None,
+        ));
     }
 
     reasons
@@ -1484,7 +1520,36 @@ fn term_text(term: &Term) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn reason(
+    arena: &ShapeArena,
+    id: ShapeId,
+    value: Term,
+    path: Option<String>,
+    severity: &Severity,
+    message: String,
+    author_message: Option<String>,
+    sub_reasons: Vec<Reason>,
+    sparql_diagnostic: Option<SparqlDiagnostic>,
+) -> Reason {
+    Reason {
+        value,
+        path,
+        shape: id,
+        constraint: arena.get(id).clone(),
+        constraint_kind: ConstraintKind::of(arena, id),
+        constraint_id: id,
+        statement_id: usize::MAX,
+        severity: severity.clone(),
+        message,
+        author_message,
+        sub_reasons,
+        sparql_diagnostic,
+    }
+}
+
 fn leaf(
+    arena: &ShapeArena,
     ok: bool,
     node: &Term,
     id: ShapeId,
@@ -1495,16 +1560,17 @@ fn leaf(
     if ok {
         Vec::new()
     } else {
-        vec![Reason {
-            value: node.clone(),
-            path: path_ctx.map(str::to_string),
-            shape: id,
-            severity: severity.clone(),
+        vec![reason(
+            arena,
+            id,
+            node.clone(),
+            path_ctx.map(str::to_string),
+            severity,
             message,
-            author_message: None,
-            sub_reasons: Vec::new(),
-            sparql_diagnostic: None,
-        }]
+            None,
+            Vec::new(),
+            None,
+        )]
     }
 }
 

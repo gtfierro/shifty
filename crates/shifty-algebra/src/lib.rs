@@ -38,7 +38,7 @@ pub use rule::{Rule, RuleHead};
 pub use schema::{Schema, Statement};
 pub use selector::Selector;
 pub use severity::Severity;
-pub use shape::{Shape, ShapeArena, ShapeId};
+pub use shape::{ConstraintKind, Shape, ShapeArena, ShapeId};
 pub use sparql::{SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget};
 pub use term::{BlankNode, Literal, NamedNode, NodeKindSet, Term};
 pub use value_type::{Bound, ValueType};

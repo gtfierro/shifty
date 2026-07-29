@@ -28,6 +28,38 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ShapeId(pub u32);
 
+impl Default for ShapeId {
+    fn default() -> Self {
+        Self(u32::MAX)
+    }
+}
+
+/// Stable semantic kind of the algebraic constraint/operator represented by a
+/// [`Shape`] slot. This is intentionally independent of the Rust enum variant
+/// name and of any source-language constraint component that lowered to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum ConstraintKind {
+    #[default]
+    Unknown,
+    Top,
+    Constant,
+    ClassMembership,
+    ValueType,
+    NodeKind,
+    Closed,
+    Equals,
+    Disjoint,
+    LessThan,
+    LessThanOrEquals,
+    UniqueLang,
+    Negation,
+    Conjunction,
+    Disjunction,
+    Cardinality,
+    Sparql,
+    Expression,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Shape {
     /// Source-shape metadata. This wrapper is logically transparent, but keeps
@@ -251,6 +283,59 @@ impl ShapeArena {
             qualifier,
         })
     }
+}
+
+impl ConstraintKind {
+    pub fn of(arena: &ShapeArena, id: ShapeId) -> Self {
+        match arena.get(id) {
+            Shape::Annotated { shape, .. } => Self::of(arena, *shape),
+            Shape::Top => Self::Top,
+            Shape::Pending => Self::Unknown,
+            Shape::TestConst(_) => Self::Constant,
+            Shape::TestType(_) => Self::ValueType,
+            Shape::TestKind(_) => Self::NodeKind,
+            Shape::Closed(_) => Self::Closed,
+            Shape::Eq(..) => Self::Equals,
+            Shape::Disj(..) => Self::Disjoint,
+            Shape::Lt(..) => Self::LessThan,
+            Shape::Le(..) => Self::LessThanOrEquals,
+            Shape::UniqueLang(_) => Self::UniqueLang,
+            Shape::Not(_) => Self::Negation,
+            Shape::And(_) => Self::Conjunction,
+            Shape::Or(_) => Self::Disjunction,
+            Shape::Count {
+                path,
+                min,
+                max,
+                qualifier,
+            } if is_class_membership(path, *min, *max, arena, *qualifier) => Self::ClassMembership,
+            Shape::Count { .. } => Self::Cardinality,
+            Shape::Sparql(_) => Self::Sparql,
+            Shape::Expression(_) => Self::Expression,
+        }
+    }
+}
+
+fn is_class_membership(
+    path: &Path,
+    min: Option<u64>,
+    max: Option<u64>,
+    arena: &ShapeArena,
+    qualifier: ShapeId,
+) -> bool {
+    const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+    if !matches!((min, max), (Some(1), None) | (None, Some(0))) {
+        return false;
+    }
+    let Path::Seq(parts) = path else { return false };
+    let is_class_path = matches!(
+        parts.as_slice(),
+        [Path::Pred(ty), Path::Star(sub)]
+            if ty.as_str() == RDF_TYPE
+                && matches!(sub.as_ref(), Path::Pred(s) if s.as_str() == RDFS_SUBCLASS_OF)
+    );
+    is_class_path && matches!(arena.get(qualifier), Shape::TestConst(_))
 }
 
 #[cfg(test)]
