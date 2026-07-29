@@ -26,6 +26,24 @@ DATA_MINCOUNT = """
 ex:alice a ex:Person .
 """
 
+DUPLICATE_SHAPES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://ex/> .
+
+ex:S1 a sh:NodeShape ;
+    sh:targetNode ex:x ;
+    sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+
+ex:S2 a sh:NodeShape ;
+    sh:targetNode ex:x ;
+    sh:property [ sh:path ex:p ; sh:minCount 1 ] .
+"""
+
+DUPLICATE_DATA = """
+@prefix ex: <http://ex/> .
+ex:x ex:q ex:y .
+"""
+
 
 def session(data: str) -> shifty.RepairSession:
     return shifty.RepairSession(SHAPES, data, infer=False)
@@ -66,6 +84,28 @@ def test_validation_and_repair_share_statement_constraint_identity():
     assert violation.statement_id == witness.statement_id
     assert violation.constraint_id == witness.constraint_id
     assert witness.constraint.id == witness.constraint_id
+    assert witness.constraint_kind == witness.constraint.kind
+
+
+def test_duplicate_raw_statements_join_after_normalization_dedup():
+    result = shifty.validate_algebra(DUPLICATE_DATA, DUPLICATE_SHAPES, infer=False)
+    session = shifty.RepairSession(DUPLICATE_SHAPES, DUPLICATE_DATA, infer=False)
+    witnesses = session.witnesses()
+
+    assert len(result.violations) == 1
+    assert len(witnesses) == len(result.violations)
+
+    violation = result.violations[0]
+    witness = witnesses[0]
+    assert (
+        witness.focus,
+        witness.statement_id,
+        witness.constraint_id,
+    ) == (
+        violation.focus_node,
+        violation.statement_id,
+        violation.constraint_id,
+    )
     assert witness.constraint_kind == witness.constraint.kind
 
 

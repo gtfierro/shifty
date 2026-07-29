@@ -18,20 +18,44 @@ use shifty_algebra::{
 };
 use std::collections::{HashMap, HashSet};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedSchema {
+    pub schema: Schema,
+    /// raw statement index -> normalized statement index. Several raw
+    /// statements may map to the same normalized index when CSE/deduplication
+    /// proves they are the same semantic statement.
+    pub statement_map: Vec<usize>,
+}
+
 /// Normalize a schema: CSE + compaction + Boolean/count simplification.
 pub fn normalize(schema: &Schema) -> Schema {
+    normalize_with_mapping(schema).schema
+}
+
+/// Normalize a schema and retain explicit raw-to-normalized statement
+/// provenance.
+pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
     let mut z = Interner::new(&schema.arena);
     // dedup identical (selector, shape) pairs after normalization
-    let mut seen: HashSet<(Selector, ShapeId)> = HashSet::new();
-    let statements = schema
-        .statements
-        .iter()
-        .map(|st| Statement {
+    let mut seen: HashMap<(Selector, ShapeId), usize> = HashMap::new();
+    let mut statements = Vec::new();
+    let mut statement_map = Vec::with_capacity(schema.statements.len());
+    for st in &schema.statements {
+        let normalized = Statement {
             selector: z.selector(&st.selector),
             shape: z.intern(st.shape),
-        })
-        .filter(|st| seen.insert((st.selector.clone(), st.shape)))
-        .collect();
+        };
+        let key = (normalized.selector.clone(), normalized.shape);
+        let index = if let Some(index) = seen.get(&key) {
+            *index
+        } else {
+            let index = statements.len();
+            seen.insert(key, index);
+            statements.push(normalized);
+            index
+        };
+        statement_map.push(index);
+    }
     let rules = schema.rules.iter().map(|r| z.rule(r)).collect();
     // remap shape names through the CSE memo (CSE may collapse two named shapes)
     let names = schema
@@ -46,7 +70,10 @@ pub fn normalize(schema: &Schema) -> Schema {
         names,
     };
     normalized.arena.debug_assert_finalized();
-    normalized
+    NormalizedSchema {
+        schema: normalized,
+        statement_map,
+    }
 }
 
 /// Push `Inverse` inward one level, returning the canonical inverse of `path`
@@ -1215,5 +1242,32 @@ mod tests {
         };
         let n = normalize(&schema);
         assert_eq!(n.statements.len(), 1);
+    }
+
+    #[test]
+    fn statement_dedup_preserves_raw_to_normalized_mapping() {
+        let mut a = ShapeArena::new();
+        let k = a.insert(Shape::TestKind(NodeKindSet::IRI));
+        let node =
+            shifty_algebra::Term::NamedNode(shifty_algebra::NamedNode::new("http://ex/x").unwrap());
+        let sel = Selector::IsConst(node);
+        let schema = Schema {
+            arena: a,
+            statements: vec![
+                Statement {
+                    selector: sel.clone(),
+                    shape: k,
+                },
+                Statement {
+                    selector: sel.clone(),
+                    shape: k,
+                },
+            ],
+            rules: vec![],
+            names: Default::default(),
+        };
+        let n = normalize_with_mapping(&schema);
+        assert_eq!(n.schema.statements.len(), 1);
+        assert_eq!(n.statement_map, vec![0, 0]);
     }
 }

@@ -471,7 +471,7 @@ across the entire schema. Empty ⟺ the graph conforms.
 ```python
 for w in session.witnesses():
     print(w.focus)        # '<http://example.org/dan>'
-    print(w.statement)    # 0 — index into the schema's statements
+    print(w.statement)    # raw repair-schema statement index; compatibility/debug only
     print(w.statement_id) # same stable id as validate_algebra() violations
     print(w.constraint_id)# same statement-level algebra id as validate_algebra()
     print(w.constraint)   # statement-level algebraic constraint

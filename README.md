@@ -417,6 +417,7 @@ while True:
         break                                  # conforms
     fw = witnesses[0]                          # your focus-ordering policy
     print(fw.target)                           # what targeted this node
+    # fw.statement is the raw repair-schema index; use statement_id to join.
     print(fw.statement_id, fw.constraint_id)    # shared with validate_algebra()
     for atom in fw.summary():                  # flat failing leaves
         print(atom.kind, atom.constraint_kind, atom.detail)

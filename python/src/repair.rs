@@ -24,6 +24,7 @@ use shifty_repair::{
     Edit, EditOp, Hole as IrHole, HoleConstraint, NodeId, Plan, RepairTree as IrTree, Slot,
     instantiate,
 };
+use std::collections::HashSet;
 use std::sync::Arc;
 
 // ── shared rendering (ports of the CLI renderers; kept local to the binding) ────
@@ -512,6 +513,7 @@ fn parse_term(s: &str) -> Result<Term, String> {
 pub struct RepairSession {
     schema: Arc<Schema>,
     provenance_schema: Arc<Schema>,
+    provenance_statement_map: Arc<Vec<usize>>,
     /// The focus/output graph: data (+ inferred triples). What `to_graph` emits
     /// and where focus nodes and reuse candidates are drawn from.
     data: Arc<Graph>,
@@ -526,6 +528,7 @@ impl RepairSession {
     fn from_parts(
         schema: Arc<Schema>,
         provenance_schema: Arc<Schema>,
+        provenance_statement_map: Arc<Vec<usize>>,
         data: Arc<Graph>,
         context: Arc<Graph>,
         diagnostics: Vec<String>,
@@ -533,6 +536,7 @@ impl RepairSession {
         Self {
             schema,
             provenance_schema,
+            provenance_statement_map,
             data,
             context,
             diagnostics,
@@ -548,6 +552,56 @@ impl RepairSession {
             .trim_end_matches('>');
         shape_id_for_iri(&self.schema, iri)
             .ok_or_else(|| py_value_error(format!("no shape named <{iri}> in the schema")))
+    }
+
+    fn provenance_statement(&self, raw_statement: usize) -> PyResult<usize> {
+        self.provenance_statement_map
+            .get(raw_statement)
+            .copied()
+            .ok_or_else(|| {
+                py_value_error(format!(
+                    "no provenance mapping for statement {raw_statement}"
+                ))
+            })
+    }
+
+    fn focus_witness_to_py(&self, py: Python<'_>, fw: IrFocus) -> PyResult<Py<FocusWitness>> {
+        let statement_id = self.provenance_statement(fw.statement)?;
+        let provenance_statement = self
+            .provenance_schema
+            .statements
+            .get(statement_id)
+            .ok_or_else(|| {
+                py_value_error(format!(
+                    "provenance statement {statement_id} is out of bounds"
+                ))
+            })?;
+        let target = shifty_algebra::render::selector_to_string_in(
+            &self.schema.statements[fw.statement].selector,
+            &self.schema.arena,
+        );
+        Py::new(
+            py,
+            FocusWitness {
+                focus: fw.focus.to_string(),
+                statement: fw.statement,
+                statement_id,
+                constraint_id: provenance_statement.shape.0,
+                constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(
+                    &self.provenance_schema.arena,
+                    provenance_statement.shape,
+                )),
+                constraint: constraint_to_py(
+                    py,
+                    &self.provenance_schema.arena,
+                    provenance_statement.shape,
+                )?,
+                target,
+                inner: fw,
+                schema: Arc::clone(&self.schema),
+                data: Arc::clone(&self.data),
+            },
+        )
     }
 }
 
@@ -593,7 +647,9 @@ impl RepairSession {
                 .map(ToString::to_string)
                 .collect();
             let schema = parse_out.schema;
-            let provenance_schema = shifty_opt::normalize(&schema);
+            let provenance = shifty_opt::normalize_with_mapping(&schema);
+            let provenance_schema = provenance.schema;
+            let provenance_statement_map = provenance.statement_map;
 
             let data_loaded = data_spec
                 .map(|spec| spec.load(base.as_deref()))
@@ -631,6 +687,7 @@ impl RepairSession {
             Ok(RepairSession::from_parts(
                 Arc::new(schema),
                 Arc::new(provenance_schema),
+                Arc::new(provenance_statement_map),
                 data,
                 context,
                 diagnostics,
@@ -649,36 +706,16 @@ impl RepairSession {
         let raw = py
             .allow_threads(|| witness_violations(&self.data, &self.context, &self.schema))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
-        raw.into_iter()
-            .map(|fw| {
-                let target = shifty_algebra::render::selector_to_string_in(
-                    &self.schema.statements[fw.statement].selector,
-                    &self.schema.arena,
-                );
-                Py::new(
-                    py,
-                    FocusWitness {
-                        focus: fw.focus.to_string(),
-                        statement: fw.statement,
-                        statement_id: fw.statement,
-                        constraint_id: self.provenance_schema.statements[fw.statement].shape.0,
-                        constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(
-                            &self.provenance_schema.arena,
-                            self.provenance_schema.statements[fw.statement].shape,
-                        )),
-                        constraint: constraint_to_py(
-                            py,
-                            &self.provenance_schema.arena,
-                            self.provenance_schema.statements[fw.statement].shape,
-                        )?,
-                        target,
-                        inner: fw,
-                        schema: Arc::clone(&self.schema),
-                        data: Arc::clone(&self.data),
-                    },
-                )
-            })
-            .collect()
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for fw in raw {
+            let statement_id = self.provenance_statement(fw.statement)?;
+            if !seen.insert((fw.focus.clone(), statement_id)) {
+                continue;
+            }
+            out.push(self.focus_witness_to_py(py, fw)?);
+        }
+        Ok(out)
     }
 
     /// The violation horizon for a single shape: one [`FocusWitness`] per failing
@@ -691,36 +728,16 @@ impl RepairSession {
         let raw = py
             .allow_threads(|| witness_shape(&self.data, &self.context, &self.schema, shape))
             .map_err(|e| py_value_error(format!("non-stratifiable schema: {e}")))?;
-        raw.into_iter()
-            .map(|fw| {
-                let target = shifty_algebra::render::selector_to_string_in(
-                    &self.schema.statements[fw.statement].selector,
-                    &self.schema.arena,
-                );
-                Py::new(
-                    py,
-                    FocusWitness {
-                        focus: fw.focus.to_string(),
-                        statement: fw.statement,
-                        statement_id: fw.statement,
-                        constraint_id: self.provenance_schema.statements[fw.statement].shape.0,
-                        constraint_kind: constraint_kind_to_py(shifty_algebra::ConstraintKind::of(
-                            &self.provenance_schema.arena,
-                            self.provenance_schema.statements[fw.statement].shape,
-                        )),
-                        constraint: constraint_to_py(
-                            py,
-                            &self.provenance_schema.arena,
-                            self.provenance_schema.statements[fw.statement].shape,
-                        )?,
-                        target,
-                        inner: fw,
-                        schema: Arc::clone(&self.schema),
-                        data: Arc::clone(&self.data),
-                    },
-                )
-            })
-            .collect()
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for fw in raw {
+            let statement_id = self.provenance_statement(fw.statement)?;
+            if !seen.insert((fw.focus.clone(), statement_id)) {
+                continue;
+            }
+            out.push(self.focus_witness_to_py(py, fw)?);
+        }
+        Ok(out)
     }
 
     /// The satisfaction horizon for a single shape: one [`FocusSatisfaction`] per
@@ -838,6 +855,7 @@ impl RepairSession {
         RepairSession::from_parts(
             Arc::clone(&self.schema),
             Arc::clone(&self.provenance_schema),
+            Arc::clone(&self.provenance_statement_map),
             Arc::new(next_data),
             Arc::new(next_context),
             self.diagnostics.clone(),

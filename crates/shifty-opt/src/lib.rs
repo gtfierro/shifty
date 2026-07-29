@@ -13,7 +13,7 @@ pub mod sparql_native;
 pub mod strata;
 
 pub use deps::{DepEdge, Polarity, dependency_edges};
-pub use normalize::normalize;
+pub use normalize::{NormalizedSchema, normalize, normalize_with_mapping};
 pub use plan::{FocusSource, PhysicalPlan, StatementPlan, plan, plan_no_seeding, plan_no_sort};
 pub use rule_deps::{
     RuleDependencies, rule_dependencies, rule_guard_dependencies, selector_dependencies,
