@@ -5,13 +5,17 @@ Runs all sht:Validate test cases from the official SHACL test suite and
 asserts that validate() and validate_algebra() agree on conforms=True/False,
 matching the expected outcome encoded in each test's mf:result.
 
-Test files in testdata/test-suite/advanced/ use @base <urn:shacl-advanced-*:>
-which rdflib cannot resolve as a relative-URI base; those files are silently
-skipped during collection (they are duplicate/alternate encodings of the same
-tests already covered by core/ and sparql/).
+The SHACL-AF suite in testdata/test-suite/advanced/ declares
+@base <urn:shacl-advanced-*:>, a URN with no slash after the colon, which
+rdflib refuses to join with the relative references (<class-001.test.ttl>)
+those files use. _parse_ttl() retries such files with the URN base swapped for
+the file's own directory URI, so the advanced cases are collected too.
 """
 
 import pathlib
+import re
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import pytest
 import rdflib
@@ -26,6 +30,27 @@ TEST_SUITE_DIR = (
     pathlib.Path(__file__).parent.parent.parent / "testdata" / "test-suite"
 )
 
+_URN_BASE_RE = re.compile(r"^@base\s+<urn:[^>]*>\s*\.\s*$", re.MULTILINE)
+
+
+def _parse_ttl(ttl_file: pathlib.Path) -> rdflib.Graph | None:
+    """Parse a suite file, or None if it is not readable as Turtle.
+
+    Advanced-suite files set a URN base that rdflib cannot join with their
+    relative graph references; retry those with a directory base so the
+    references resolve to real file: URIs.
+    """
+    text = ttl_file.read_text()
+    rebased = _URN_BASE_RE.sub(f"@base <{ttl_file.parent.as_uri()}/> .", text)
+    for source in (text, rebased):
+        g = rdflib.Graph()
+        try:
+            g.parse(data=source, format="turtle", publicID=ttl_file.as_uri())
+        except Exception:
+            continue
+        return g
+    return None
+
 
 def _build_urn_map():
     """Return a mapping of manifest-URN string -> file path.
@@ -37,10 +62,8 @@ def _build_urn_map():
     """
     urn_map: dict[str, pathlib.Path] = {}
     for ttl_file in TEST_SUITE_DIR.rglob("*.ttl"):
-        try:
-            g = rdflib.Graph()
-            g.parse(str(ttl_file), format="turtle")
-        except Exception:
+        g = _parse_ttl(ttl_file)
+        if g is None:
             continue
         for subject in g.subjects(rdflib.RDF.type, MF.Manifest):
             if isinstance(subject, rdflib.URIRef):
@@ -52,6 +75,10 @@ def _resolve_graph_uri(uri, test_file: pathlib.Path, urn_map: dict) -> pathlib.P
     uri_str = str(uri)
     if uri_str.startswith("urn:"):
         return urn_map.get(uri_str)
+    if uri_str.startswith("file:"):
+        # Advanced-suite reference resolved against the rewritten directory base.
+        candidate = pathlib.Path(url2pathname(urlparse(uri_str).path))
+        return candidate if candidate.exists() else None
     # Relative file reference — resolve against the test file's directory.
     candidate = test_file.parent / uri_str
     return candidate if candidate.exists() else None
@@ -63,10 +90,8 @@ def _collect_test_cases() -> list:
     params: list = []
 
     for ttl_file in sorted(TEST_SUITE_DIR.rglob("*.ttl")):
-        try:
-            g = rdflib.Graph()
-            g.parse(str(ttl_file), format="turtle")
-        except Exception:
+        g = _parse_ttl(ttl_file)
+        if g is None:
             continue
 
         for entry in g.subjects(rdflib.RDF.type, SHT.Validate):
