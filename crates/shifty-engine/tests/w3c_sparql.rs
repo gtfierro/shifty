@@ -10,20 +10,21 @@
 //! is implemented by algebra substitution, so all pre-binding cases run.
 
 use oxrdf::{Graph, NamedNodeRef, Term};
+use shifty_parse::DiagLevel;
 use std::path::{Path, PathBuf};
 
 const SH_CONFORMS: NamedNodeRef =
     NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl#conforms");
+const MF_RESULT: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#result");
+const SHT_FAILURE: NamedNodeRef =
+    NamedNodeRef::new_unchecked("http://www.w3.org/ns/shacl-test#Failure");
 
 /// Predicates whose presence means the test exercises a feature we don't
-/// support yet. SHACL-SPARQL constraints/targets/prefixes ARE supported, so
-/// they are deliberately absent here.
+/// support yet. Custom SPARQL constraint components are supported and must not
+/// be filtered here.
 const UNSUPPORTED_PREDICATES: &[&str] = &[
     "http://www.w3.org/ns/shacl#rule",
-    "http://www.w3.org/ns/shacl#parameter",
-    "http://www.w3.org/ns/shacl#validator",
-    "http://www.w3.org/ns/shacl#nodeValidator",
-    "http://www.w3.org/ns/shacl#propertyValidator",
     "http://www.w3.org/ns/shacl#js",
     "http://www.w3.org/ns/shacl#jsLibrary",
     "http://www.w3.org/ns/shacl#jsFunctionName",
@@ -49,15 +50,26 @@ fn collect_tests(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn expected_conforms(g: &Graph) -> Option<bool> {
+#[derive(Clone, Copy)]
+enum Expected {
+    Conforms(bool),
+    ValidationFailure,
+}
+
+fn expected(g: &Graph) -> Option<Expected> {
     for t in g.triples_for_predicate(SH_CONFORMS) {
         if let Term::Literal(l) = t.object.into_owned() {
             match l.value() {
-                "true" => return Some(true),
-                "false" => return Some(false),
+                "true" => return Some(Expected::Conforms(true)),
+                "false" => return Some(Expected::Conforms(false)),
                 _ => {}
             }
         }
+    }
+    if g.triples_for_predicate(MF_RESULT)
+        .any(|t| matches!(t.object, oxrdf::TermRef::NamedNode(n) if n == SHT_FAILURE))
+    {
+        return Some(Expected::ValidationFailure);
     }
     None
 }
@@ -74,7 +86,8 @@ fn w3c_sparql_conformance() {
     files.sort();
     assert!(!files.is_empty(), "no test files found");
 
-    let (mut algebra_pass, mut report_pass, mut skipped) = (0u32, 0u32, 0u32);
+    let (mut algebra_pass, mut report_pass, mut rejection_pass, mut skipped) =
+        (0u32, 0u32, 0u32, 0u32);
     let mut failures: Vec<String> = Vec::new();
 
     for file in &files {
@@ -89,7 +102,7 @@ fn w3c_sparql_conformance() {
             skipped += 1;
             continue;
         };
-        let Some(expected) = expected_conforms(&loaded.graph) else {
+        let Some(expected) = expected(&loaded.graph) else {
             skipped += 1;
             continue;
         };
@@ -98,11 +111,39 @@ fn w3c_sparql_conformance() {
             continue;
         }
         let parsed = match shifty_parse::parse_turtle(&bytes, None) {
-            Ok(p) if p.diagnostics.is_empty() => p,
-            _ => {
-                skipped += 1;
+            Ok(p) => p,
+            Err(error) => {
+                if matches!(expected, Expected::ValidationFailure) {
+                    rejection_pass += 1;
+                } else {
+                    failures.push(format!("{name}: Turtle/shape parse failed: {error}"));
+                }
                 continue;
             }
+        };
+        if matches!(expected, Expected::ValidationFailure) {
+            if parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.level == DiagLevel::Error)
+            {
+                rejection_pass += 1;
+            } else {
+                failures.push(format!(
+                    "{name}: accepted a SHACL-SPARQL query that must cause validation failure"
+                ));
+            }
+            continue;
+        }
+        if !parsed.diagnostics.is_empty() {
+            failures.push(format!(
+                "{name}: unexpected parse diagnostics: {:?}",
+                parsed.diagnostics
+            ));
+            continue;
+        }
+        let Expected::Conforms(expected) = expected else {
+            unreachable!()
         };
 
         // Algebra conformance path.
@@ -129,7 +170,7 @@ fn w3c_sparql_conformance() {
 
     eprintln!(
         "\nW3C sparql conformance: algebra {algebra_pass} pass, report {report_pass} pass, \
-         {skipped} skipped (of {} files)",
+         {rejection_pass} expected validation failures, {skipped} skipped (of {} files)",
         files.len()
     );
     for f in &failures {
@@ -141,7 +182,8 @@ fn w3c_sparql_conformance() {
         "supported sparql tests regressed: {failures:#?}"
     );
     assert!(
-        algebra_pass >= 12 && report_pass >= 12,
-        "coverage dropped: algebra={algebra_pass}, report={report_pass}"
+        algebra_pass >= 16 && report_pass >= 16 && rejection_pass >= 7 && skipped == 0,
+        "coverage dropped: algebra={algebra_pass}, report={report_pass}, \
+         rejection={rejection_pass}, skipped={skipped}"
     );
 }

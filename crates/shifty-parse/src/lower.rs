@@ -16,7 +16,7 @@ use shifty_algebra::{
     ShapeArena, ShapeId, SparqlConstraint, SparqlConstruct, SparqlQueryKind, SparqlTarget,
     Statement, ValueType,
 };
-use spargebra::{Query, SparqlParser};
+use spargebra::{Query, SparqlParser, algebra::GraphPattern};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub struct Lowered {
@@ -180,6 +180,10 @@ impl Lowerer<'_> {
             conjuncts.push(c);
         }
 
+        let mut sparql_prebound = vec!["this", "shapesGraph", "currentShape"];
+        if path.is_some() {
+            sparql_prebound.push("PATH");
+        }
         for constraint_term in self.g.objects(s, vocab::SH_SPARQL) {
             let Some(constraint_node) = term_to_node(&constraint_term) else {
                 self.diag(DiagLevel::Error, "sh:sparql must reference a resource", s);
@@ -188,13 +192,23 @@ impl Lowerer<'_> {
             let parsed = if let Some(Term::Literal(query)) =
                 self.g.object(&constraint_node, vocab::SH_SELECT)
             {
-                self.canonical_sparql(&constraint_node, query.value(), ExpectedQuery::Select)
-                    .map(|query| (SparqlQueryKind::Select, query))
+                self.canonical_shacl_sparql(
+                    &constraint_node,
+                    query.value(),
+                    ExpectedQuery::Select,
+                    &sparql_prebound,
+                )
+                .map(|query| (SparqlQueryKind::Select, query))
             } else if let Some(Term::Literal(query)) =
                 self.g.object(&constraint_node, vocab::SH_ASK)
             {
-                self.canonical_sparql(&constraint_node, query.value(), ExpectedQuery::Ask)
-                    .map(|query| (SparqlQueryKind::Ask, query))
+                self.canonical_shacl_sparql(
+                    &constraint_node,
+                    query.value(),
+                    ExpectedQuery::Ask,
+                    &sparql_prebound,
+                )
+                .map(|query| (SparqlQueryKind::Ask, query))
             } else {
                 self.diag(
                     DiagLevel::Error,
@@ -727,24 +741,6 @@ impl Lowerer<'_> {
             if vocab::NATIVE_CONSTRAINT_COMPONENTS.contains(&iri.as_ref()) {
                 continue; // SHACL Core component; already implemented natively
             }
-            let node_validator = self
-                .g
-                .object(&subject, vocab::SH_NODE_VALIDATOR)
-                .and_then(|v| self.parse_validator_def(&v));
-            let property_validator = self
-                .g
-                .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
-                .and_then(|v| self.parse_validator_def(&v));
-            let generic_validator = self
-                .g
-                .object(&subject, vocab::SH_VALIDATOR)
-                .and_then(|v| self.parse_validator_def(&v));
-            if node_validator.is_none()
-                && property_validator.is_none()
-                && generic_validator.is_none()
-            {
-                continue; // not a constraint component (e.g. a sh:SPARQLFunction)
-            }
             let mut params: Vec<ParamDef> = Vec::new();
             for p in self.g.objects(&subject, vocab::SH_PARAMETER) {
                 let Some(pn) = term_to_node(&p) else { continue };
@@ -765,6 +761,32 @@ impl Lowerer<'_> {
             if params.is_empty() {
                 continue;
             }
+            let mut prebound = vec![
+                "this".to_string(),
+                "value".to_string(),
+                "shapesGraph".to_string(),
+                "currentShape".to_string(),
+                "PATH".to_string(),
+            ];
+            prebound.extend(params.iter().map(|p| p.var.clone()));
+            let node_validator = self
+                .g
+                .object(&subject, vocab::SH_NODE_VALIDATOR)
+                .and_then(|v| self.parse_validator_def(&v, &prebound));
+            let property_validator = self
+                .g
+                .object(&subject, vocab::SH_PROPERTY_VALIDATOR)
+                .and_then(|v| self.parse_validator_def(&v, &prebound));
+            let generic_validator = self
+                .g
+                .object(&subject, vocab::SH_VALIDATOR)
+                .and_then(|v| self.parse_validator_def(&v, &prebound));
+            if node_validator.is_none()
+                && property_validator.is_none()
+                && generic_validator.is_none()
+            {
+                continue; // not a constraint component (e.g. a sh:SPARQLFunction)
+            }
             out.push(ComponentDef {
                 iri: iri.clone(),
                 params,
@@ -780,7 +802,7 @@ impl Lowerer<'_> {
     /// Parse a validator node into a `ValidatorDef`, canonicalizing its SPARQL
     /// query. Returns `None` (and emits an error diagnostic) if the query is
     /// invalid SPARQL.
-    fn parse_validator_def(&mut self, node: &Term) -> Option<ValidatorDef> {
+    fn parse_validator_def(&mut self, node: &Term, prebound: &[String]) -> Option<ValidatorDef> {
         let node = term_to_node(node)?;
         let (kind, raw) = if let Some(Term::Literal(q)) = self.g.object(&node, vocab::SH_ASK) {
             (SparqlQueryKind::Ask, q.value().to_string())
@@ -789,8 +811,11 @@ impl Lowerer<'_> {
         } else {
             return None; // no query body — not a SPARQL validator
         };
-        let canonical = match canonical_sparql_query(self.g, &node, &raw) {
-            Ok((_, c)) => c,
+        let canonical = match canonical_sparql_query(self.g, &node, &raw).and_then(|(query, c)| {
+            validate_shacl_prebinding(&query, prebound.iter().map(String::as_str))?;
+            Ok(c)
+        }) {
+            Ok(c) => c,
             Err(msg) => {
                 self.diag(
                     DiagLevel::Error,
@@ -1152,6 +1177,144 @@ impl Lowerer<'_> {
         }
         Some(canonical)
     }
+
+    /// Parse and validate a query that is evaluated with SHACL pre-bound
+    /// variables. The SPARQL grammar accepts several constructs whose
+    /// interaction with pre-binding is explicitly forbidden by SHACL 1.0.
+    fn canonical_shacl_sparql(
+        &mut self,
+        owner: &NamedOrBlankNode,
+        raw: &str,
+        expected: ExpectedQuery,
+        prebound: &[&str],
+    ) -> Option<String> {
+        let (query, canonical) = match canonical_sparql_query(self.g, owner, raw) {
+            Ok(result) => result,
+            Err(message) => {
+                self.diag(DiagLevel::Error, message, owner);
+                return None;
+            }
+        };
+        let actual = match &query {
+            Query::Select { .. } => ExpectedQuery::Select,
+            Query::Ask { .. } => ExpectedQuery::Ask,
+            Query::Construct { .. } => ExpectedQuery::Construct,
+            Query::Describe { .. } => ExpectedQuery::Describe,
+        };
+        if actual != expected {
+            self.diag(
+                DiagLevel::Error,
+                format!("expected SPARQL {expected}, found {actual}"),
+                owner,
+            );
+            return None;
+        }
+        if let Err(message) = validate_shacl_prebinding(&query, prebound.iter().copied()) {
+            self.diag(DiagLevel::Error, message, owner);
+            return None;
+        }
+        Some(canonical)
+    }
+}
+
+/// Enforce the SHACL 1.0 restrictions needed to make pre-binding well-defined.
+fn validate_shacl_prebinding<'a>(
+    query: &Query,
+    prebound: impl IntoIterator<Item = &'a str>,
+) -> Result<(), String> {
+    let prebound: HashSet<&str> = prebound.into_iter().collect();
+    let pattern = match query {
+        Query::Select { pattern, .. }
+        | Query::Ask { pattern, .. }
+        | Query::Construct { pattern, .. }
+        | Query::Describe { pattern, .. } => pattern,
+    };
+    let mut in_scope = HashSet::new();
+    pattern.on_in_scope_variable(|variable| {
+        in_scope.insert(variable.as_str());
+    });
+    let projection_prebound: HashSet<&str> = prebound
+        .iter()
+        .copied()
+        .filter(|name| matches!(*name, "this" | "value" | "PATH") && in_scope.contains(name))
+        .collect();
+
+    fn visit(
+        pattern: &GraphPattern,
+        prebound: &HashSet<&str>,
+        projection_prebound: &HashSet<&str>,
+        seen_top_projection: bool,
+    ) -> Result<(), String> {
+        match pattern {
+            GraphPattern::Minus { .. } => {
+                return Err("SHACL-SPARQL queries must not contain MINUS".into());
+            }
+            GraphPattern::Service { .. } => {
+                return Err("SHACL-SPARQL queries must not contain SERVICE".into());
+            }
+            GraphPattern::Values { .. } => {
+                return Err("SHACL-SPARQL queries must not contain VALUES".into());
+            }
+            GraphPattern::Extend {
+                inner, variable, ..
+            } => {
+                if prebound.contains(variable.as_str()) {
+                    return Err(format!(
+                        "SHACL-SPARQL must not assign potentially pre-bound variable ?{} with AS",
+                        variable.as_str()
+                    ));
+                }
+                visit(inner, prebound, projection_prebound, seen_top_projection)?;
+            }
+            GraphPattern::Project { inner, variables } => {
+                if seen_top_projection {
+                    let projected: HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
+                    let mut missing: Vec<&str> = projection_prebound
+                        .iter()
+                        .copied()
+                        .filter(|name| !projected.contains(name))
+                        .collect();
+                    missing.sort_unstable();
+                    if !missing.is_empty() {
+                        return Err(format!(
+                            "SHACL-SPARQL subquery does not project potentially pre-bound variable(s): {}",
+                            missing
+                                .into_iter()
+                                .map(|name| format!("?{name}"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ));
+                    }
+                }
+                visit(inner, prebound, projection_prebound, true)?;
+            }
+            GraphPattern::Join { left, right }
+            | GraphPattern::LeftJoin { left, right, .. }
+            | GraphPattern::Union { left, right }
+            | GraphPattern::Lateral { left, right } => {
+                visit(left, prebound, projection_prebound, seen_top_projection)?;
+                visit(right, prebound, projection_prebound, seen_top_projection)?;
+            }
+            GraphPattern::Graph { inner, .. }
+            | GraphPattern::Filter { inner, .. }
+            | GraphPattern::OrderBy { inner, .. }
+            | GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::Slice { inner, .. }
+            | GraphPattern::Group { inner, .. } => {
+                visit(inner, prebound, projection_prebound, seen_top_projection)?;
+            }
+            GraphPattern::Bgp { .. } | GraphPattern::Path { .. } => {}
+        }
+        Ok(())
+    }
+
+    // We intentionally apply the subquery-projection rule only to SHACL's
+    // standard pre-bound variables that occur in the query's visible scope.
+    // This preserves the existing aggregate-subquery extension for custom
+    // component parameters. AS reassignment remains forbidden for every
+    // declared parameter through the full `prebound` set.
+    visit(pattern, &prebound, &projection_prebound, false)
 }
 
 /// Build the canonical, prefix-expanded form of a SHACL SPARQL query string.
