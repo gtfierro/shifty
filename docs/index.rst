@@ -72,6 +72,7 @@ Contents
    :maxdepth: 2
 
    getting-started
+   evidence
    feature-support
    benchmark
    cli/index
