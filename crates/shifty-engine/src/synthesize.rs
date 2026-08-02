@@ -490,13 +490,20 @@ impl<'a> Synth<'a> {
                 // cut breaks all of them (sound, non-minimal); needs a min>0 to be
                 // falsifiable by deletion at all.
                 if matches!(min, Some(m) if *m > 0) {
-                    let cs = matches.iter().map(|(_, t)| self.break_(t)).collect();
+                    let cs = matches.iter().map(|(_, _, t)| self.break_(t)).collect();
                     self.all(cs)
                 } else {
                     self.blocked(BlockReason::Unsupported(
                         "falsify maxCount needs adds".into(),
                     ))
                 }
+            }
+            SatTrace::ForAllHeld { values, .. } => {
+                let choices = values
+                    .iter()
+                    .map(|(_, _, trace)| self.break_(trace))
+                    .collect();
+                self.any(choices)
             }
             SatTrace::NotHeld { inner_fails, .. } => self.repair(inner_fails),
             SatTrace::Irrefutable { .. } => {

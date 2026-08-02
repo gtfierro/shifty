@@ -3,7 +3,8 @@
 //! statement it returns a [`Witness`]: the failed sub-DAG of `φ`, pruned to
 //! exactly what did not hold, with the structural gap at each node. Its dual,
 //! [`SatTrace`], records *why* a shape currently holds, so a `Not(φ)` failure can
-//! be repaired by breaking `φ`. The two are mutually recursive through `Not`.
+//! be repaired by breaking `φ`. One dispatcher produces both tagged polarities;
+//! they are mutually recursive only in their data grammar through `Not`.
 //!
 //! This is the input to repair synthesis; it makes no repair decisions. It reuses
 //! the [`ShapeEvaluator`] satisfaction oracle (`holds`) and its gfp back-edge
@@ -11,11 +12,11 @@
 
 use crate::frozen::FrozenIndexedDataset;
 use crate::path::{PathBackend, node_of, succ};
-use crate::sparql::SparqlExecutor;
+use crate::sparql::{SparqlDiagnostic, SparqlExecutor};
 use crate::validate::{NonStratifiable, ShapeEvaluator, focus_nodes_with, uses_shapes_graph};
 use oxrdf::{Graph, NamedNode, Term, Triple};
 use serde::{Deserialize, Serialize};
-use shifty_algebra::{Path, Schema, Shape, ShapeArena, ShapeId};
+use shifty_algebra::{ConstraintKind, Path, Schema, Selector, Shape, ShapeArena, ShapeId};
 use shifty_opt::analyze;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
@@ -39,22 +40,45 @@ pub enum RelKind {
     UniqueLang,
 }
 
-/// The existing triples that make a node a `π`-successor of its parent: the
-/// edges a deletion would cut. The deletion-side dual of path materialization.
+/// One concrete positive certificate that a node is a `π`-successor of its
+/// parent. Every [`Edge`](PathSupport::Edge) is present in the evaluation graph.
+///
+/// This is deliberately *not* a complete deletion cut: an alternative or
+/// cyclic path may have additional routes that are not represented here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum PathSupport {
     /// Reflexive (`Id`): the node reached itself; nothing to cut.
     Empty,
-    /// A single triple edge whose removal breaks this step.
+    /// A single triple edge used by this certificate.
     Edge(Triple),
-    /// A chain (`Seq`/`Star` expansion): every edge present; cut any one to break.
+    /// A chain (`Seq`/`Star` expansion) used by this certificate.
     Chain(Vec<PathSupport>),
-    /// Parallel witnessing chains (`Alt`): cut all to break.
+    /// Multiple certificate branches when a caller explicitly retains them.
+    /// The current path fold is allowed to return only the first successful
+    /// syntactic alternative.
     Alt(Vec<PathSupport>),
+}
+
+/// A reached value that satisfied a qualified count's nested shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualifiedMatch {
+    pub value: Term,
+    pub path_support: PathSupport,
+    pub satisfaction: Box<SatTrace>,
+}
+
+/// A reached near-match that failed a qualified count's nested shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RejectedCandidate {
+    pub value: Term,
+    pub path_support: PathSupport,
+    pub failure: Box<Witness>,
 }
 
 /// The failed sub-structure of `φ` (additive direction: what to *add*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum Witness {
     /// A value-type leaf failed at `node` (TestConst / TestType / TestKind).
     /// `produced_by` names the triples that made `node` a value (`Some` for a
@@ -62,6 +86,8 @@ pub enum Witness {
     Atom {
         shape: ShapeId,
         node: Term,
+        observed: Vec<Term>,
+        expected: Shape,
         reached_by: Path,
         produced_by: Option<PathSupport>,
     },
@@ -115,6 +141,8 @@ pub enum Witness {
         qualifier: ShapeId,
         have: u64,
         min: u64,
+        qualifying_matches: Vec<QualifiedMatch>,
+        rejected_candidates: Vec<RejectedCandidate>,
         sibling_qualifiers: Vec<ShapeId>,
     },
     /// `∃≤max π.q` over-satisfied. `matched` pairs each counted value with its
@@ -127,15 +155,22 @@ pub enum Witness {
         qualifier: ShapeId,
         matched: Vec<(Term, PathSupport)>,
         max: u64,
+        excess_values: Vec<(Term, PathSupport)>,
         per_value: Vec<(Term, Witness)>,
     },
     /// Opaque SPARQL — no algebraic witness.
-    Opaque { shape: ShapeId, node: Term },
+    Opaque {
+        shape: ShapeId,
+        node: Term,
+        messages: Vec<Term>,
+        diagnostic: Option<SparqlDiagnostic>,
+    },
 }
 
 /// Why `φ` currently *holds* at a node (deletive direction: what to *delete*).
 /// The dual of [`Witness`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "details", rename_all = "snake_case")]
 pub enum SatTrace {
     /// `⊤` — vacuously true; no graph edit falsifies it.
     Irrefutable { shape: ShapeId },
@@ -143,6 +178,8 @@ pub enum SatTrace {
     Atom {
         shape: ShapeId,
         node: Term,
+        observed: Vec<Term>,
+        expected: Shape,
         reached_by: Path,
         produced_by: PathSupport,
     },
@@ -159,15 +196,26 @@ pub enum SatTrace {
         satisfied: Vec<SatTrace>,
     },
     /// `∃[min..max] π.q` holds. `matches` carries each counted value with its
-    /// q-support.
+    /// concrete path certificate and q-satisfaction trace.
     CountHeld {
         shape: ShapeId,
         node: Term,
         path: Path,
         qualifier: ShapeId,
-        matches: Vec<(Term, SatTrace)>,
+        matches: Vec<(Term, PathSupport, SatTrace)>,
+        observed_count: u64,
         min: Option<u64>,
         max: Option<u64>,
+    },
+    /// Universal encoding `∃≤0 π.¬q` holds because every reached value
+    /// satisfies `q`. Each checked value retains its path certificate and
+    /// satisfaction trace, including coinductive back-edges.
+    ForAllHeld {
+        shape: ShapeId,
+        node: Term,
+        path: Path,
+        qualifier: ShapeId,
+        values: Vec<(Term, PathSupport, SatTrace)>,
     },
     /// `¬φ` holds because `φ` fails ⟹ make `φ` hold. Flips to the additive side.
     NotHeld {
@@ -185,6 +233,526 @@ pub enum SatTrace {
     /// Support reached only through a gfp back-edge: coinductively assumed true,
     /// with no finite set of facts to delete.
     Coinductive { shape: ShapeId, node: Term },
+}
+
+/// The applicable evidence polarity for one selected `(statement, focus)` pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", content = "evidence", rename_all = "snake_case")]
+pub enum Evidence {
+    #[serde(rename = "pass")]
+    Satisfaction(SatTrace),
+    #[serde(rename = "fail")]
+    Failure(Witness),
+}
+
+/// Public name for failure-side evidence. `Witness` remains as an internal and
+/// repair-facing spelling while callers migrate to the unified vocabulary.
+pub type Failure = Witness;
+
+/// Public name for pass-side evidence.
+pub type Satisfaction = SatTrace;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvaluationStatus {
+    Pass,
+    Fail,
+}
+
+impl Evidence {
+    pub fn status(&self) -> EvaluationStatus {
+        match self {
+            Self::Satisfaction(_) => EvaluationStatus::Pass,
+            Self::Failure(_) => EvaluationStatus::Fail,
+        }
+    }
+
+    /// Typed pre-order traversal. Variant child order, path value order, and
+    /// source conjunction/disjunction order are stable.
+    pub fn walk(&self) -> Vec<EvidenceNodeRef<'_>> {
+        let mut out = Vec::new();
+        walk_evidence(self, &mut out);
+        out
+    }
+
+    pub fn supporting_triples(&self) -> Vec<Triple> {
+        let mut triples = Vec::new();
+        collect_support(self, &mut triples);
+        dedup_stable(triples)
+    }
+
+    /// Positive path certificates referenced by the evidence in traversal
+    /// order, deduplicated by structural equality.
+    pub fn path_supports(&self) -> Vec<PathSupport> {
+        let mut supports = Vec::new();
+        collect_path_supports(self, &mut supports);
+        supports.into_iter().fold(Vec::new(), |mut out, value| {
+            if !out.contains(&value) {
+                out.push(value);
+            }
+            out
+        })
+    }
+
+    pub fn matched_values(&self) -> Vec<Term> {
+        let mut values = Vec::new();
+        collect_matched(self, &mut values);
+        dedup_stable(values)
+    }
+
+    pub fn missing_obligations(&self) -> Vec<MissingObligation> {
+        let mut out = Vec::new();
+        collect_missing(self, &mut out);
+        out
+    }
+
+    pub fn offending_values(&self) -> Vec<Term> {
+        let mut values = Vec::new();
+        collect_offending(self, &mut values);
+        dedup_stable(values)
+    }
+
+    pub fn source_constraints(&self) -> Vec<ShapeId> {
+        dedup_stable(
+            self.walk()
+                .into_iter()
+                .map(EvidenceNodeRef::constraint_id)
+                .collect(),
+        )
+    }
+
+    pub fn explain(&self) -> String {
+        self.walk()
+            .into_iter()
+            .enumerate()
+            .map(|(index, node)| format!("{index}: {} @{}", node.kind(), node.constraint_id().0))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string(self)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum EvidenceNodeRef<'a> {
+    Satisfaction(&'a SatTrace),
+    Failure(&'a Witness),
+}
+
+impl EvidenceNodeRef<'_> {
+    pub fn constraint_id(self) -> ShapeId {
+        match self {
+            Self::Satisfaction(value) => satisfaction_constraint_id(value),
+            Self::Failure(value) => failure_constraint_id(value),
+        }
+    }
+
+    pub fn status(self) -> EvaluationStatus {
+        match self {
+            Self::Satisfaction(_) => EvaluationStatus::Pass,
+            Self::Failure(_) => EvaluationStatus::Fail,
+        }
+    }
+
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::Satisfaction(value) => match value {
+                SatTrace::Irrefutable { .. } => "irrefutable",
+                SatTrace::Atom { .. } => "atom_held",
+                SatTrace::AllHeld { .. } => "all_held",
+                SatTrace::AnyHeld { .. } => "any_held",
+                SatTrace::CountHeld { .. } => "count_held",
+                SatTrace::ForAllHeld { .. } => "all_values_held",
+                SatTrace::NotHeld { .. } => "not_held",
+                SatTrace::Blocked { .. } => "blocked",
+                SatTrace::Coinductive { .. } => "coinductive",
+            },
+            Self::Failure(value) => match value {
+                Witness::Atom { .. } => "atom_failed",
+                Witness::Relational { .. } => "relational_failed",
+                Witness::Closed { .. } => "closed_failed",
+                Witness::Not { .. } => "not_failed",
+                Witness::All { .. } => "all_failed",
+                Witness::Any { .. } => "any_failed",
+                Witness::CountLow { .. } => "count_low",
+                Witness::CountHigh { .. } => "count_high",
+                Witness::Opaque { .. } => "opaque",
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissingObligation {
+    pub constraint_id: ShapeId,
+    pub observed_count: u64,
+    pub required_count: u64,
+    pub missing: u64,
+}
+
+fn dedup_stable<T: Clone + Eq + std::hash::Hash>(values: Vec<T>) -> Vec<T> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
+}
+
+fn failure_constraint_id(value: &Witness) -> ShapeId {
+    match value {
+        Witness::Atom { shape, .. }
+        | Witness::Relational { shape, .. }
+        | Witness::Closed { shape, .. }
+        | Witness::Not { shape, .. }
+        | Witness::All { shape, .. }
+        | Witness::Any { shape, .. }
+        | Witness::CountLow { shape, .. }
+        | Witness::CountHigh { shape, .. }
+        | Witness::Opaque { shape, .. } => *shape,
+    }
+}
+
+fn satisfaction_constraint_id(value: &SatTrace) -> ShapeId {
+    match value {
+        SatTrace::Irrefutable { shape }
+        | SatTrace::Atom { shape, .. }
+        | SatTrace::AllHeld { shape, .. }
+        | SatTrace::AnyHeld { shape, .. }
+        | SatTrace::CountHeld { shape, .. }
+        | SatTrace::ForAllHeld { shape, .. }
+        | SatTrace::NotHeld { shape, .. }
+        | SatTrace::Blocked { shape, .. }
+        | SatTrace::Coinductive { shape, .. } => *shape,
+    }
+}
+
+fn walk_evidence<'a>(value: &'a Evidence, out: &mut Vec<EvidenceNodeRef<'a>>) {
+    match value {
+        Evidence::Satisfaction(value) => walk_sat(value, out),
+        Evidence::Failure(value) => walk_failure(value, out),
+    }
+}
+
+fn walk_failure<'a>(value: &'a Witness, out: &mut Vec<EvidenceNodeRef<'a>>) {
+    out.push(EvidenceNodeRef::Failure(value));
+    match value {
+        Witness::Not { inner, .. } => walk_sat(inner, out),
+        Witness::All { failed, .. } => failed.iter().for_each(|child| walk_failure(child, out)),
+        Witness::Any { branches, .. } => {
+            branches.iter().for_each(|child| walk_failure(child, out));
+        }
+        Witness::CountLow {
+            qualifying_matches,
+            rejected_candidates,
+            ..
+        } => {
+            qualifying_matches
+                .iter()
+                .for_each(|item| walk_sat(&item.satisfaction, out));
+            rejected_candidates
+                .iter()
+                .for_each(|item| walk_failure(&item.failure, out));
+        }
+        Witness::CountHigh { per_value, .. } => per_value
+            .iter()
+            .for_each(|(_, child)| walk_failure(child, out)),
+        Witness::Atom { .. }
+        | Witness::Relational { .. }
+        | Witness::Closed { .. }
+        | Witness::Opaque { .. } => {}
+    }
+}
+
+fn walk_sat<'a>(value: &'a SatTrace, out: &mut Vec<EvidenceNodeRef<'a>>) {
+    out.push(EvidenceNodeRef::Satisfaction(value));
+    match value {
+        SatTrace::AllHeld { children, .. } => {
+            children.iter().for_each(|child| walk_sat(child, out));
+        }
+        SatTrace::AnyHeld { satisfied, .. } => {
+            satisfied.iter().for_each(|child| walk_sat(child, out));
+        }
+        SatTrace::CountHeld { matches, .. } => matches
+            .iter()
+            .for_each(|(_, _, child)| walk_sat(child, out)),
+        SatTrace::ForAllHeld { values, .. } => {
+            values.iter().for_each(|(_, _, child)| walk_sat(child, out))
+        }
+        SatTrace::NotHeld { inner_fails, .. } => walk_failure(inner_fails, out),
+        SatTrace::Irrefutable { .. }
+        | SatTrace::Atom { .. }
+        | SatTrace::Blocked { .. }
+        | SatTrace::Coinductive { .. } => {}
+    }
+}
+
+fn support_triples(value: &PathSupport, out: &mut Vec<Triple>) {
+    match value {
+        PathSupport::Empty => {}
+        PathSupport::Edge(triple) => out.push(triple.clone()),
+        PathSupport::Chain(children) | PathSupport::Alt(children) => {
+            children
+                .iter()
+                .for_each(|child| support_triples(child, out));
+        }
+    }
+}
+
+fn collect_support(value: &Evidence, out: &mut Vec<Triple>) {
+    for node in value.walk() {
+        match node {
+            EvidenceNodeRef::Satisfaction(SatTrace::Atom { produced_by, .. }) => {
+                support_triples(produced_by, out);
+            }
+            EvidenceNodeRef::Satisfaction(SatTrace::CountHeld { matches, .. }) => matches
+                .iter()
+                .for_each(|(_, support, _)| support_triples(support, out)),
+            EvidenceNodeRef::Satisfaction(SatTrace::ForAllHeld { values, .. }) => values
+                .iter()
+                .for_each(|(_, support, _)| support_triples(support, out)),
+            EvidenceNodeRef::Failure(Witness::Atom {
+                produced_by: Some(support),
+                ..
+            }) => support_triples(support, out),
+            EvidenceNodeRef::Failure(Witness::Relational { lhs, rhs, .. }) => lhs
+                .iter()
+                .chain(rhs)
+                .for_each(|(_, support)| support_triples(support, out)),
+            EvidenceNodeRef::Failure(Witness::CountLow {
+                qualifying_matches,
+                rejected_candidates,
+                ..
+            }) => {
+                qualifying_matches
+                    .iter()
+                    .for_each(|item| support_triples(&item.path_support, out));
+                rejected_candidates
+                    .iter()
+                    .for_each(|item| support_triples(&item.path_support, out));
+            }
+            EvidenceNodeRef::Failure(Witness::CountHigh { matched, .. }) => matched
+                .iter()
+                .for_each(|(_, support)| support_triples(support, out)),
+            _ => {}
+        }
+    }
+}
+
+fn collect_path_supports(value: &Evidence, out: &mut Vec<PathSupport>) {
+    for node in value.walk() {
+        match node {
+            EvidenceNodeRef::Satisfaction(SatTrace::Atom { produced_by, .. }) => {
+                out.push(produced_by.clone());
+            }
+            EvidenceNodeRef::Satisfaction(SatTrace::CountHeld { matches, .. }) => {
+                out.extend(matches.iter().map(|(_, support, _)| support.clone()));
+            }
+            EvidenceNodeRef::Satisfaction(SatTrace::ForAllHeld { values, .. }) => {
+                out.extend(values.iter().map(|(_, support, _)| support.clone()));
+            }
+            EvidenceNodeRef::Failure(Witness::Atom {
+                produced_by: Some(support),
+                ..
+            }) => out.push(support.clone()),
+            EvidenceNodeRef::Failure(Witness::Relational { lhs, rhs, .. }) => {
+                out.extend(lhs.iter().chain(rhs).map(|(_, support)| support.clone()))
+            }
+            EvidenceNodeRef::Failure(Witness::CountLow {
+                qualifying_matches,
+                rejected_candidates,
+                ..
+            }) => {
+                out.extend(
+                    qualifying_matches
+                        .iter()
+                        .map(|item| item.path_support.clone()),
+                );
+                out.extend(
+                    rejected_candidates
+                        .iter()
+                        .map(|item| item.path_support.clone()),
+                );
+            }
+            EvidenceNodeRef::Failure(Witness::CountHigh { matched, .. }) => {
+                out.extend(matched.iter().map(|(_, support)| support.clone()));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_matched(value: &Evidence, out: &mut Vec<Term>) {
+    for node in value.walk() {
+        match node {
+            EvidenceNodeRef::Satisfaction(SatTrace::CountHeld { matches, .. }) => {
+                out.extend(matches.iter().map(|(value, _, _)| value.clone()));
+            }
+            EvidenceNodeRef::Satisfaction(SatTrace::ForAllHeld { values, .. }) => {
+                out.extend(values.iter().map(|(value, _, _)| value.clone()));
+            }
+            EvidenceNodeRef::Failure(Witness::CountLow {
+                qualifying_matches, ..
+            }) => out.extend(qualifying_matches.iter().map(|item| item.value.clone())),
+            EvidenceNodeRef::Failure(Witness::CountHigh { matched, .. }) => {
+                out.extend(matched.iter().map(|(value, _)| value.clone()));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_missing(value: &Evidence, out: &mut Vec<MissingObligation>) {
+    for node in value.walk() {
+        if let EvidenceNodeRef::Failure(Witness::CountLow {
+            shape, have, min, ..
+        }) = node
+        {
+            out.push(MissingObligation {
+                constraint_id: *shape,
+                observed_count: *have,
+                required_count: *min,
+                missing: min - have,
+            });
+        }
+    }
+}
+
+fn collect_offending(value: &Evidence, out: &mut Vec<Term>) {
+    for node in value.walk() {
+        match node {
+            EvidenceNodeRef::Failure(Witness::Atom { node, .. }) => out.push(node.clone()),
+            EvidenceNodeRef::Failure(Witness::Closed { offenders, .. }) => {
+                out.extend(offenders.iter().map(|(_, value)| value.clone()));
+            }
+            EvidenceNodeRef::Failure(Witness::Relational { offending, .. }) => {
+                out.extend(
+                    offending
+                        .iter()
+                        .flat_map(|(left, right)| [left.clone(), right.clone()]),
+                );
+            }
+            EvidenceNodeRef::Failure(Witness::CountLow {
+                rejected_candidates,
+                ..
+            }) => out.extend(rejected_candidates.iter().map(|item| item.value.clone())),
+            EvidenceNodeRef::Failure(Witness::CountHigh { excess_values, .. }) => {
+                out.extend(excess_values.iter().map(|(value, _)| value.clone()));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A serializable catalog entry. Child shape ids in `constraint` resolve in
+/// the containing source or normalized catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConstraintRecord {
+    pub id: ShapeId,
+    pub constraint_kind: ConstraintKind,
+    pub constraint: Shape,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConstraintCatalog {
+    pub source: Vec<ConstraintRecord>,
+    pub normalized: Vec<ConstraintRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceSummary {
+    pub constraint_id: ShapeId,
+    pub constraint_kind: ConstraintKind,
+    pub status: EvaluationStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChildEvaluation {
+    pub source_constraint_ref: ShapeId,
+    pub normalized_constraint_ref: Option<ShapeId>,
+    pub status: EvaluationStatus,
+    pub evidence_summary: EvidenceSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EvaluationProgress {
+    pub evaluated_children: Vec<ChildEvaluation>,
+}
+
+/// One selected focus under one authored statement. The evidence enum makes an
+/// inconsistent status/evidence pairing unrepresentable; `status()` is derived.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FocusEvaluation {
+    pub focus: Term,
+    pub evidence: Evidence,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<EvaluationProgress>,
+}
+
+impl FocusEvaluation {
+    pub fn status(&self) -> EvaluationStatus {
+        self.evidence.status()
+    }
+
+    pub fn explain(&self) -> String {
+        self.evidence.explain()
+    }
+}
+
+/// Results are grouped by authored statement, including statements whose
+/// selector chooses no focus nodes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatementEvaluation {
+    pub source_statement_id: usize,
+    pub normalized_statement_id: Option<usize>,
+    pub source_constraint_id: ShapeId,
+    pub normalized_constraint_id: Option<ShapeId>,
+    pub constraint_kind: ConstraintKind,
+    pub constraint: Shape,
+    pub selector: Selector,
+    pub selected_foci: Vec<FocusEvaluation>,
+}
+
+impl StatementEvaluation {
+    /// Authored constraint ids referenced by this statement and its immediate
+    /// progress views, in first-occurrence order.
+    pub fn source_constraints(&self) -> Vec<ShapeId> {
+        let mut values = vec![self.source_constraint_id];
+        for focus in &self.selected_foci {
+            if let Some(progress) = &focus.progress {
+                values.extend(
+                    progress
+                        .evaluated_children
+                        .iter()
+                        .map(|child| child.source_constraint_ref),
+                );
+            }
+        }
+        dedup_stable(values)
+    }
+}
+
+/// The complete statement-oriented coverage horizon for one validation run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceRun {
+    pub conforms: bool,
+    pub constraints: ConstraintCatalog,
+    pub statements: Vec<StatementEvaluation>,
+}
+
+impl EvidenceRun {
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string(self)
+    }
+
+    pub fn walk(&self) -> Vec<EvidenceNodeRef<'_>> {
+        self.statements
+            .iter()
+            .flat_map(|statement| &statement.selected_foci)
+            .flat_map(|focus| focus.evidence.walk())
+            .collect()
+    }
 }
 
 /// Why a holding shape admits no data-deletion repair.
@@ -425,95 +993,10 @@ fn witness(
     scope: &[(Path, ShapeId)],
     stack: &mut Stack,
 ) -> Option<Witness> {
-    let key = (id, node.clone());
-    if !stack.insert(key.clone()) {
-        return None; // back-edge ⇒ assume conforming (gfp)
+    match evaluate_node(eval, node, id, reached_by, produced_by, scope, stack) {
+        Evidence::Failure(value) => Some(value),
+        Evidence::Satisfaction(_) => None,
     }
-    if eval.holds(node, id) {
-        stack.remove(&key);
-        return None; // holds ⇒ nothing to repair
-    }
-    let shape = eval.arena().get(id).clone();
-    let result = match shape {
-        Shape::Top | Shape::Pending => None,
-        // `sh:severity` is transparent to witnessing: repair the wrapped shape.
-        Shape::Annotated { shape, .. } => {
-            let inner = witness(eval, node, shape, reached_by, produced_by, scope, stack);
-            stack.remove(&key);
-            return inner;
-        }
-        Shape::TestConst(_) | Shape::TestType(_) | Shape::TestKind(_) => Some(Witness::Atom {
-            shape: id,
-            node: node.clone(),
-            reached_by: reached_by.clone(),
-            produced_by: produced_by.cloned(),
-        }),
-        Shape::Eq(..) | Shape::Disj(..) | Shape::Lt(..) | Shape::Le(..) | Shape::UniqueLang(_) => {
-            Some(relational_witness(eval, node, id, &shape))
-        }
-        Shape::Closed(ref q) => {
-            let offenders = closed_offenders(eval.backend(), node, q);
-            (!offenders.is_empty()).then(|| Witness::Closed {
-                shape: id,
-                node: node.clone(),
-                offenders,
-            })
-        }
-        Shape::Not(c) => {
-            // Crossing to the deletive side: outer universals don't constrain the
-            // value rebuild, so the inner witness starts from an empty scope.
-            sat_trace(eval, node, c, reached_by, produced_by, stack).map(|t| Witness::Not {
-                shape: id,
-                node: node.clone(),
-                inner: Box::new(t),
-            })
-        }
-        Shape::And(cs) => {
-            // This `And`'s universals join the scope its children witness under, so
-            // a count in one conjunct sees the `∀π.φ` siblings in the others.
-            let mut child_scope: Vec<(Path, ShapeId)> = scope.to_vec();
-            child_scope.extend(cs.iter().filter_map(|&c| as_universal(eval.arena(), c)));
-            let failed: Vec<Witness> = cs
-                .iter()
-                .filter_map(|c| {
-                    witness(eval, node, *c, reached_by, produced_by, &child_scope, stack)
-                })
-                .collect();
-            (!failed.is_empty()).then(|| Witness::All {
-                shape: id,
-                node: node.clone(),
-                failed,
-            })
-        }
-        Shape::Or(cs) => {
-            // Or failed ⟹ every disjunct failed. A disjunction does not conjoin its
-            // branches, so the scope passes through unchanged (no branch's
-            // universals constrain another's).
-            let branches: Vec<Witness> = cs
-                .iter()
-                .filter_map(|c| witness(eval, node, *c, reached_by, produced_by, scope, stack))
-                .collect();
-            (!branches.is_empty()).then(|| Witness::Any {
-                shape: id,
-                node: node.clone(),
-                branches,
-            })
-        }
-        Shape::Count {
-            path,
-            min,
-            max,
-            qualifier,
-        } => count_witness(
-            eval, node, id, &path, min, max, qualifier, reached_by, scope, stack,
-        ),
-        Shape::Sparql(_) | Shape::Expression(_) => Some(Witness::Opaque {
-            shape: id,
-            node: node.clone(),
-        }),
-    };
-    stack.remove(&key);
-    result
 }
 
 /// Peel transparent `sh:severity` (`Annotated`) wrappers to the shape beneath.
@@ -542,90 +1025,6 @@ fn as_universal(arena: &ShapeArena, id: ShapeId) -> Option<(Path, ShapeId)> {
         Shape::Not(inner) => Some((path, *inner)),
         _ => None,
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn count_witness(
-    eval: &mut ShapeEvaluator<'_>,
-    node: &Term,
-    id: ShapeId,
-    path: &Path,
-    min: Option<u64>,
-    max: Option<u64>,
-    qualifier: ShapeId,
-    reached_by: &Path,
-    scope: &[(Path, ShapeId)],
-    stack: &mut Stack,
-) -> Option<Witness> {
-    let values: Vec<Term> = succ(eval.backend(), node, path).into_iter().collect();
-    let matched: Vec<Term> = values
-        .into_iter()
-        .filter(|u| eval.holds(u, qualifier))
-        .collect();
-    let n = matched.len() as u64;
-
-    if let Some(m) = min
-        && n < m
-    {
-        // Universals conjoined on this same path apply to every value we add.
-        let sibling_qualifiers = scope
-            .iter()
-            .filter(|(p, _)| p == path)
-            .map(|(_, inner)| *inner)
-            .collect();
-        return Some(Witness::CountLow {
-            shape: id,
-            node: node.clone(),
-            path: path.clone(),
-            qualifier,
-            have: n,
-            min: m,
-            sibling_qualifiers,
-        });
-    }
-    if let Some(m) = max
-        && n > m
-    {
-        let matched_sup: Vec<(Term, PathSupport)> = matched
-            .iter()
-            .map(|u| {
-                (
-                    u.clone(),
-                    path_support(eval.backend(), node, path, u).unwrap_or(PathSupport::Empty),
-                )
-            })
-            .collect();
-        // ∀-encoding `∃≤0 π.¬inner`: drill into each offending value.
-        let per_value = if m == 0 {
-            if let Shape::Not(inner) = eval.arena().get(qualifier).clone() {
-                let reached = Path::seq(vec![reached_by.clone(), path.clone()]);
-                let mut pv = Vec::new();
-                for u in &matched {
-                    let ps = path_support(eval.backend(), node, path, u);
-                    // Replace-in-place rebuilds `u` against `inner` from a fresh
-                    // scope; sibling universals for this dual are future work.
-                    if let Some(w) = witness(eval, u, inner, &reached, ps.as_ref(), &[], stack) {
-                        pv.push((u.clone(), w));
-                    }
-                }
-                pv
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
-        return Some(Witness::CountHigh {
-            shape: id,
-            node: node.clone(),
-            path: path.clone(),
-            qualifier,
-            matched: matched_sup,
-            max: m,
-            per_value,
-        });
-    }
-    None
 }
 
 fn relational_witness(
@@ -732,86 +1131,225 @@ fn sat_trace(
     produced_by: Option<&PathSupport>,
     stack: &mut Stack,
 ) -> Option<SatTrace> {
+    match evaluate_node(eval, node, id, reached_by, produced_by, &[], stack) {
+        Evidence::Satisfaction(value) => Some(value),
+        Evidence::Failure(_) => None,
+    }
+}
+
+/// Materialize both evidence polarities through one dispatcher. Composite
+/// children and qualified-count candidates are evaluated once and partitioned
+/// into the applicable canonical side; negation crosses sides directly.
+fn evaluate_node(
+    eval: &mut ShapeEvaluator<'_>,
+    node: &Term,
+    id: ShapeId,
+    reached_by: &Path,
+    produced_by: Option<&PathSupport>,
+    scope: &[(Path, ShapeId)],
+    stack: &mut Stack,
+) -> Evidence {
     let key = (id, node.clone());
     if !stack.insert(key.clone()) {
-        // back-edge: coinductively assumed true, no grounded support to delete.
-        return Some(SatTrace::Coinductive {
+        return Evidence::Satisfaction(SatTrace::Coinductive {
             shape: id,
             node: node.clone(),
         });
     }
-    if !eval.holds(node, id) {
-        stack.remove(&key);
-        return None; // fails ⇒ no satisfaction to break
-    }
+
     let shape = eval.arena().get(id).clone();
-    let result = match shape {
-        Shape::Top | Shape::Pending => Some(SatTrace::Irrefutable { shape: id }),
-        // `sh:severity` is transparent: break the satisfaction of the wrapped shape.
+    let evidence = match shape {
         Shape::Annotated { shape, .. } => {
-            let inner = sat_trace(eval, node, shape, reached_by, produced_by, stack);
-            stack.remove(&key);
-            return inner;
+            evaluate_node(eval, node, shape, reached_by, produced_by, scope, stack)
         }
-        Shape::TestConst(_) | Shape::TestType(_) | Shape::TestKind(_) => Some(SatTrace::Atom {
-            shape: id,
-            node: node.clone(),
-            reached_by: reached_by.clone(),
-            produced_by: produced_by.cloned().unwrap_or(PathSupport::Empty),
-        }),
+        Shape::Top | Shape::Pending => Evidence::Satisfaction(SatTrace::Irrefutable { shape: id }),
+        Shape::TestConst(_) | Shape::TestType(_) | Shape::TestKind(_) => {
+            if eval.holds(node, id) {
+                Evidence::Satisfaction(SatTrace::Atom {
+                    shape: id,
+                    node: node.clone(),
+                    observed: vec![node.clone()],
+                    expected: eval.arena().get(id).clone(),
+                    reached_by: reached_by.clone(),
+                    produced_by: produced_by.cloned().unwrap_or(PathSupport::Empty),
+                })
+            } else {
+                Evidence::Failure(Witness::Atom {
+                    shape: id,
+                    node: node.clone(),
+                    observed: vec![node.clone()],
+                    expected: eval.arena().get(id).clone(),
+                    reached_by: reached_by.clone(),
+                    produced_by: produced_by.cloned(),
+                })
+            }
+        }
         Shape::Eq(..) | Shape::Disj(..) | Shape::Lt(..) | Shape::Le(..) | Shape::UniqueLang(_) => {
-            Some(SatTrace::Blocked {
-                shape: id,
-                node: node.clone(),
-                reason: BlockReason::Unsupported,
-            })
+            if eval.holds(node, id) {
+                Evidence::Satisfaction(SatTrace::Blocked {
+                    shape: id,
+                    node: node.clone(),
+                    reason: BlockReason::Unsupported,
+                })
+            } else {
+                Evidence::Failure(relational_witness(eval, node, id, &shape))
+            }
         }
-        Shape::Closed(_) => Some(SatTrace::Blocked {
-            shape: id,
-            node: node.clone(),
-            reason: BlockReason::ClosedNeedsAdd,
-        }),
-        Shape::Sparql(_) => Some(SatTrace::Blocked {
-            shape: id,
-            node: node.clone(),
-            reason: BlockReason::OpaqueSparql,
-        }),
-        // An expression constraint computes a boolean; there is no data repair
-        // the synthesizer can derive from it, so the trace is blocked.
-        Shape::Expression(_) => Some(SatTrace::Blocked {
-            shape: id,
-            node: node.clone(),
-            reason: BlockReason::Unsupported,
-        }),
-        Shape::Not(c) => {
-            witness(eval, node, c, reached_by, produced_by, &[], stack).map(|w| SatTrace::NotHeld {
-                shape: id,
-                node: node.clone(),
-                inner_fails: Box::new(w),
-            })
+        Shape::Closed(ref allowed) => {
+            let offenders = closed_offenders(eval.backend(), node, allowed);
+            if offenders.is_empty() {
+                Evidence::Satisfaction(SatTrace::Blocked {
+                    shape: id,
+                    node: node.clone(),
+                    reason: BlockReason::ClosedNeedsAdd,
+                })
+            } else {
+                Evidence::Failure(Witness::Closed {
+                    shape: id,
+                    node: node.clone(),
+                    offenders,
+                })
+            }
         }
-        Shape::And(cs) => {
-            // holds ⟹ all children hold.
-            let children: Vec<SatTrace> = cs
+        Shape::Sparql(constraint) => {
+            if eval.holds(node, id) {
+                Evidence::Satisfaction(SatTrace::Blocked {
+                    shape: id,
+                    node: node.clone(),
+                    reason: BlockReason::OpaqueSparql,
+                })
+            } else {
+                let violations = eval
+                    .sparql()
+                    .constraint_violations(&constraint, node)
+                    .unwrap_or_default();
+                let diagnostic = eval
+                    .sparql()
+                    .constraint_diagnostic(&constraint, node, &violations)
+                    .ok();
+                Evidence::Failure(Witness::Opaque {
+                    shape: id,
+                    node: node.clone(),
+                    messages: constraint.messages,
+                    diagnostic,
+                })
+            }
+        }
+        Shape::Expression(_) => {
+            if eval.holds(node, id) {
+                Evidence::Satisfaction(SatTrace::Blocked {
+                    shape: id,
+                    node: node.clone(),
+                    reason: BlockReason::Unsupported,
+                })
+            } else {
+                Evidence::Failure(Witness::Opaque {
+                    shape: id,
+                    node: node.clone(),
+                    messages: Vec::new(),
+                    diagnostic: None,
+                })
+            }
+        }
+        Shape::Not(child) => {
+            match evaluate_node(eval, node, child, reached_by, produced_by, &[], stack) {
+                Evidence::Failure(inner_fails) => Evidence::Satisfaction(SatTrace::NotHeld {
+                    shape: id,
+                    node: node.clone(),
+                    inner_fails: Box::new(inner_fails),
+                }),
+                Evidence::Satisfaction(inner) => Evidence::Failure(Witness::Not {
+                    shape: id,
+                    node: node.clone(),
+                    inner: Box::new(inner),
+                }),
+            }
+        }
+        Shape::And(children) => {
+            let mut child_scope = scope.to_vec();
+            child_scope.extend(
+                children
+                    .iter()
+                    .filter_map(|&child| as_universal(eval.arena(), child)),
+            );
+            let evaluated: Vec<Evidence> = children
                 .iter()
-                .filter_map(|c| sat_trace(eval, node, *c, reached_by, produced_by, stack))
+                .map(|&child| {
+                    evaluate_node(
+                        eval,
+                        node,
+                        child,
+                        reached_by,
+                        produced_by,
+                        &child_scope,
+                        stack,
+                    )
+                })
                 .collect();
-            Some(SatTrace::AllHeld {
-                shape: id,
-                node: node.clone(),
-                children,
-            })
-        }
-        Shape::Or(cs) => {
-            let satisfied: Vec<SatTrace> = cs
+            if evaluated
                 .iter()
-                .filter_map(|c| sat_trace(eval, node, *c, reached_by, produced_by, stack))
+                .all(|item| matches!(item, Evidence::Satisfaction(_)))
+            {
+                Evidence::Satisfaction(SatTrace::AllHeld {
+                    shape: id,
+                    node: node.clone(),
+                    children: evaluated
+                        .into_iter()
+                        .map(|item| match item {
+                            Evidence::Satisfaction(value) => value,
+                            Evidence::Failure(_) => unreachable!(),
+                        })
+                        .collect(),
+                })
+            } else {
+                Evidence::Failure(Witness::All {
+                    shape: id,
+                    node: node.clone(),
+                    failed: evaluated
+                        .into_iter()
+                        .filter_map(|item| match item {
+                            Evidence::Failure(value) => Some(value),
+                            Evidence::Satisfaction(_) => None,
+                        })
+                        .collect(),
+                })
+            }
+        }
+        Shape::Or(children) => {
+            let evaluated: Vec<Evidence> = children
+                .iter()
+                .map(|&child| {
+                    evaluate_node(eval, node, child, reached_by, produced_by, scope, stack)
+                })
                 .collect();
-            Some(SatTrace::AnyHeld {
-                shape: id,
-                node: node.clone(),
-                satisfied,
-            })
+            if evaluated
+                .iter()
+                .any(|item| matches!(item, Evidence::Satisfaction(_)))
+            {
+                Evidence::Satisfaction(SatTrace::AnyHeld {
+                    shape: id,
+                    node: node.clone(),
+                    satisfied: evaluated
+                        .into_iter()
+                        .filter_map(|item| match item {
+                            Evidence::Satisfaction(value) => Some(value),
+                            Evidence::Failure(_) => None,
+                        })
+                        .collect(),
+                })
+            } else {
+                Evidence::Failure(Witness::Any {
+                    shape: id,
+                    node: node.clone(),
+                    branches: evaluated
+                        .into_iter()
+                        .map(|item| match item {
+                            Evidence::Failure(value) => value,
+                            Evidence::Satisfaction(_) => unreachable!(),
+                        })
+                        .collect(),
+                })
+            }
         }
         Shape::Count {
             path,
@@ -819,30 +1357,130 @@ fn sat_trace(
             max,
             qualifier,
         } => {
-            let values: Vec<Term> = succ(eval.backend(), node, &path).into_iter().collect();
             let reached = Path::seq(vec![reached_by.clone(), path.clone()]);
             let mut matches = Vec::new();
-            for u in values {
-                if eval.holds(&u, qualifier) {
-                    let ps = path_support(eval.backend(), node, &path, &u);
-                    if let Some(t) = sat_trace(eval, &u, qualifier, &reached, ps.as_ref(), stack) {
-                        matches.push((u, t));
-                    }
+            let mut rejected = Vec::new();
+            for value in succ(eval.backend(), node, &path) {
+                let support =
+                    path_support(eval.backend(), node, &path, &value).unwrap_or(PathSupport::Empty);
+                match evaluate_node(
+                    eval,
+                    &value,
+                    qualifier,
+                    &reached,
+                    Some(&support),
+                    &[],
+                    stack,
+                ) {
+                    Evidence::Satisfaction(satisfaction) => matches.push(QualifiedMatch {
+                        value,
+                        path_support: support,
+                        satisfaction: Box::new(satisfaction),
+                    }),
+                    Evidence::Failure(failure) => rejected.push(RejectedCandidate {
+                        value,
+                        path_support: support,
+                        failure: Box::new(failure),
+                    }),
                 }
             }
-            Some(SatTrace::CountHeld {
-                shape: id,
-                node: node.clone(),
-                path: path.clone(),
-                qualifier,
-                matches,
-                min,
-                max,
-            })
+            let observed = matches.len() as u64;
+            if min.is_some_and(|minimum| observed < minimum) {
+                let minimum = min.expect("checked above");
+                let sibling_qualifiers = scope
+                    .iter()
+                    .filter(|(candidate_path, _)| candidate_path == &path)
+                    .map(|(_, inner)| *inner)
+                    .collect();
+                Evidence::Failure(Witness::CountLow {
+                    shape: id,
+                    node: node.clone(),
+                    path,
+                    qualifier,
+                    have: observed,
+                    min: minimum,
+                    qualifying_matches: matches,
+                    rejected_candidates: rejected,
+                    sibling_qualifiers,
+                })
+            } else if max.is_some_and(|maximum| observed > maximum) {
+                let maximum = max.expect("checked above");
+                let matched: Vec<(Term, PathSupport)> = matches
+                    .iter()
+                    .map(|item| (item.value.clone(), item.path_support.clone()))
+                    .collect();
+                let excess_values = matched.iter().skip(maximum as usize).cloned().collect();
+                let per_value = if maximum == 0 {
+                    matches
+                        .iter()
+                        .filter_map(|item| match item.satisfaction.as_ref() {
+                            SatTrace::NotHeld { inner_fails, .. } => {
+                                Some((item.value.clone(), (**inner_fails).clone()))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                Evidence::Failure(Witness::CountHigh {
+                    shape: id,
+                    node: node.clone(),
+                    path,
+                    qualifier,
+                    matched,
+                    max: maximum,
+                    excess_values,
+                    per_value,
+                })
+            } else if min.is_none()
+                && max == Some(0)
+                && let Shape::Not(inner) = eval.arena().get(qualifier)
+            {
+                let values = rejected
+                    .into_iter()
+                    .filter_map(|candidate| match candidate.failure.as_ref() {
+                        Witness::Not { inner: trace, .. } => {
+                            Some((candidate.value, candidate.path_support, (**trace).clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                Evidence::Satisfaction(SatTrace::ForAllHeld {
+                    shape: id,
+                    node: node.clone(),
+                    path,
+                    qualifier: *inner,
+                    values,
+                })
+            } else {
+                let trace_matches = matches
+                    .into_iter()
+                    .map(|item| (item.value, item.path_support, *item.satisfaction))
+                    .collect();
+                Evidence::Satisfaction(SatTrace::CountHeld {
+                    shape: id,
+                    node: node.clone(),
+                    path,
+                    qualifier,
+                    matches: trace_matches,
+                    observed_count: observed,
+                    min,
+                    max,
+                })
+            }
         }
     };
     stack.remove(&key);
-    result
+    evidence
+}
+
+pub(crate) fn materialize_evidence(
+    eval: &mut ShapeEvaluator<'_>,
+    node: &Term,
+    shape: ShapeId,
+) -> Evidence {
+    evaluate_node(eval, node, shape, &Path::Id, None, &[], &mut Stack::new())
 }
 
 /// Predicates+objects on `node` not allowed by a closed shape's set `q`.
@@ -1128,6 +1766,26 @@ mod tests {
     }
 
     #[test]
+    fn alternative_path_support_is_one_positive_certificate() {
+        let ttl = format!(
+            "{PREFIXES}
+             ex:x ex:p ex:y ; ex:q ex:y ."
+        );
+        let loaded = load_turtle(ttl.as_bytes(), None).unwrap();
+        let x = Term::NamedNode(NamedNode::new("http://ex/x").unwrap());
+        let y = Term::NamedNode(NamedNode::new("http://ex/y").unwrap());
+        let path = Path::Alt(vec![
+            Path::Pred(NamedNode::new("http://ex/p").unwrap()),
+            Path::Pred(NamedNode::new("http://ex/q").unwrap()),
+        ]);
+        let support = path_support(&loaded.graph, &x, &path, &y).expect("reachable");
+        let PathSupport::Edge(edge) = support else {
+            panic!("Alt retains one successful route, got {support:?}")
+        };
+        assert!(loaded.graph.contains(edge.as_ref()));
+    }
+
+    #[test]
     fn non_stratifiable_schema_is_diagnosed() {
         let ttl = format!(
             "{PREFIXES}
@@ -1175,7 +1833,7 @@ mod tests {
         // ex:good holds because the ex:p count is met by ex:y.
         assert!(any_sat(&sats[0].trace, &|t| matches!(
             t,
-            SatTrace::CountHeld { matches, .. } if matches.iter().any(|(v, _)| v.to_string() == "<http://ex/y>")
+            SatTrace::CountHeld { matches, .. } if matches.iter().any(|(v, _, _)| v.to_string() == "<http://ex/y>")
         )));
     }
 
@@ -1187,7 +1845,8 @@ mod tests {
         match t {
             SatTrace::AllHeld { children, .. } => children.iter().any(|c| any_sat(c, pred)),
             SatTrace::AnyHeld { satisfied, .. } => satisfied.iter().any(|c| any_sat(c, pred)),
-            SatTrace::CountHeld { matches, .. } => matches.iter().any(|(_, c)| any_sat(c, pred)),
+            SatTrace::CountHeld { matches, .. } => matches.iter().any(|(_, _, c)| any_sat(c, pred)),
+            SatTrace::ForAllHeld { values, .. } => values.iter().any(|(_, _, c)| any_sat(c, pred)),
             _ => false,
         }
     }

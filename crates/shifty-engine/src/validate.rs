@@ -765,7 +765,7 @@ pub(crate) fn focus_nodes_with(
     focus_nodes_with_evaluator(data, sel, &mut evaluator)
 }
 
-fn focus_nodes_with_evaluator(
+pub(crate) fn focus_nodes_with_evaluator(
     data: &Graph,
     sel: &Selector,
     evaluator: &mut ShapeEvaluator<'_>,
@@ -1068,7 +1068,7 @@ fn estimated_term_heap_bytes(term: &Term) -> usize {
 /// are skipped here and fall back to per-focus execution. Prefetching is a pure
 /// memo (constraint violations depend only on focus + immutable dataset), so it
 /// is sound regardless of the operator context the constraint is reached in.
-fn prefetch_sparql_constraints(
+pub(crate) fn prefetch_sparql_constraints(
     arena: &ShapeArena,
     root: ShapeId,
     foci: &[Term],

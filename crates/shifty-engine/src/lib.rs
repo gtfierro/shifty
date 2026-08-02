@@ -7,6 +7,7 @@
 //! execution mode must agree with this oracle.
 
 pub mod enumerate;
+pub mod evidence;
 pub mod frozen;
 pub mod gate;
 pub mod infer;
@@ -24,6 +25,12 @@ pub mod witness;
 
 pub use enumerate::{
     EnumOptions, FixpointResult, RepairSolution, candidates, enumerate_repair, repair_to_fixpoint,
+};
+pub use evidence::{
+    PreparedEvidenceValidator, validate_graphs_with_evidence,
+    validate_graphs_with_evidence_and_mode, validate_graphs_with_evidence_and_mode_and_options,
+    validate_with_context_and_evidence, validate_with_context_and_evidence_and_options,
+    validate_with_evidence, validate_with_evidence_and_options,
 };
 pub use gate::{RepairOutcome, apply, gate};
 pub use infer::{
@@ -47,8 +54,11 @@ pub use validate::{
     validate_with_context_and_options, validate_with_options,
 };
 pub use witness::{
-    BlockReason, FocusSat, FocusWitness, PathSupport, RelKind, SatTrace, Witness, satisfy_shape,
-    shape_id_for_iri, witness_node, witness_shape, witness_violations,
+    BlockReason, ChildEvaluation, ConstraintCatalog, ConstraintRecord, EvaluationProgress,
+    EvaluationStatus, Evidence, EvidenceNodeRef, EvidenceRun, EvidenceSummary, Failure,
+    FocusEvaluation, FocusSat, FocusWitness, MissingObligation, PathSupport, QualifiedMatch,
+    RejectedCandidate, RelKind, SatTrace, Satisfaction, StatementEvaluation, Witness,
+    satisfy_shape, shape_id_for_iri, witness_node, witness_shape, witness_violations,
 };
 
 #[cfg(test)]

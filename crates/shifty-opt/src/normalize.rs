@@ -25,6 +25,10 @@ pub struct NormalizedSchema {
     /// statements may map to the same normalized index when CSE/deduplication
     /// proves they are the same semantic statement.
     pub statement_map: Vec<usize>,
+    /// Raw arena slot -> normalized arena slot. Unreachable/orphaned raw slots
+    /// map to `None`; every slot reachable from a statement or rule maps to the
+    /// canonical slot that normalization evaluates.
+    pub shape_map: Vec<Option<ShapeId>>,
 }
 
 /// Normalize a schema: CSE + compaction + Boolean/count simplification.
@@ -63,6 +67,9 @@ pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
         .iter()
         .filter_map(|(old, name)| z.memo.get(old).map(|new| (*new, name.clone())))
         .collect();
+    let shape_map = (0..schema.arena.len())
+        .map(|index| z.memo.get(&ShapeId(index as u32)).copied())
+        .collect();
     let normalized = Schema {
         arena: z.dst,
         statements,
@@ -73,6 +80,7 @@ pub fn normalize_with_mapping(schema: &Schema) -> NormalizedSchema {
     NormalizedSchema {
         schema: normalized,
         statement_map,
+        shape_map,
     }
 }
 

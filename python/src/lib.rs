@@ -501,7 +501,7 @@ impl InferResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
+pub(crate) fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
     match mode {
         "data" => Ok(ValidationGraphMode::Data),
         "union" => Ok(ValidationGraphMode::Union),
@@ -512,7 +512,7 @@ fn parse_mode(mode: &str) -> Result<ValidationGraphMode, String> {
     }
 }
 
-fn parse_minimum_severity(value: &str) -> Result<shifty_algebra::Severity, String> {
+pub(crate) fn parse_minimum_severity(value: &str) -> Result<shifty_algebra::Severity, String> {
     match value.to_ascii_lowercase().as_str() {
         "info" => Ok(shifty_algebra::Severity::Info),
         "warning" => Ok(shifty_algebra::Severity::Warning),

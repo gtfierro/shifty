@@ -358,6 +358,47 @@ for v in result.violations:
 Set `infer=False` when validation should not first run embedded SHACL-AF rules
 to a fixed point.
 
+### Evidence coverage
+
+`EvidenceSession` returns a statement-oriented `EvidenceRun`. Every authored
+statement remains visible, including a target that selects no nodes; each
+selected focus contains exactly one tagged `Satisfaction` or `Failure`:
+
+```python
+session = shifty.EvidenceSession(shapes, data, infer=False)
+run = session.validate()
+
+for statement in run.statements:
+    print(statement.source_statement_id, statement.selector)
+    if not statement.selected_foci:
+        print("target selected nothing")
+    for focus in statement.selected_foci:
+        print(focus.status, focus.focus, focus.evidence.explain())
+        if focus.progress:
+            print([(child.status, child.source_constraint_ref)
+                   for child in focus.progress.evaluated_children])
+        print("matched", focus.evidence.matched_values())
+        print("missing", focus.evidence.missing_obligations())
+        print("offending", focus.evidence.offending_values())
+
+assert run.to_dict() == json.loads(run.to_json())
+```
+
+`walk()` traverses canonical evidence in deterministic pre-order. Projection
+methods preserve first occurrence in that order and deduplicate subsequent
+values or triples. A `PathSupport` is one concrete positive reachability
+certificate only: predicate, inverse, sequence, and closure paths are retained;
+an alternative path uses the first successful syntactic route. It is not an
+all-route enumeration or a deletion cut.
+
+Positive recursive back-edges follow Shifty's existing greatest-fixed-point
+semantics and appear as `coinductive` satisfaction nodes. Negation crosses the
+typed grammars directly. Passing SPARQL, expression, closed, and relational
+constraints may be `blocked` when no deletive repair is supported; failing
+SPARQL/expression constraints are `opaque`, with SPARQL messages and diagnostics
+retained when available. A `Failure` is also the repair entry point through
+`failure.repair_tree()`.
+
 ### Infer
 
 Run SHACL-AF rules to a fixed point:

@@ -13,6 +13,10 @@ Two validation interfaces:
     :class:`Violation` / :class:`Reason` objects representing the algebraic
     failure tree — useful for programmatic inspection.
 
+``EvidenceSession(shacl_graph, data_graph).validate()``
+    Returns complete selected-pair coverage: exactly one structured satisfaction
+    trace or failure witness for each selected ``(statement, focus)`` pair.
+
 ``infer(data_graph, shapes_graph=None, ...)``
     Run SHACL-AF forward-chaining rules to a fixed point.
     Returns an :class:`InferResult`; call ``.graph()`` to get the
@@ -68,13 +72,22 @@ from ._shifty import (
     ChoiceKind,
     Constraint,
     ConstraintKind,
-    FocusSatisfaction,
-    FocusWitness,
+    EvidenceSession as _RustEvidenceSession,
+    ChildEvaluation,
+    EvaluationProgress,
+    EvidenceNode,
+    EvidenceRun,
+    Failure,
+    FocusEvaluation,
+    Satisfaction,
+    StatementEvaluation,
     Hole,
     SatAtom,
     SatKind,
     InferResult as _RustInferResult,
     Instantiated,
+    MissingObligation,
+    PathSupport,
     PreparedValidator as _RustPreparedValidator,
     PropertyWitness,
     Reason,
@@ -112,12 +125,21 @@ __all__ = [
     "ConstraintKind",
     "InferResult",
     "PreparedValidator",
+    "EvidenceSession",
+    "EvidenceRun",
+    "StatementEvaluation",
+    "FocusEvaluation",
+    "EvaluationProgress",
+    "ChildEvaluation",
+    "EvidenceNode",
+    "MissingObligation",
+    "PathSupport",
     "PropertyWitness",
     # ── symbolic repair ──
     "RepairSession",
     "RepairPlan",
-    "FocusWitness",
-    "FocusSatisfaction",
+    "Failure",
+    "Satisfaction",
     "Target",
     "TargetKind",
     "WitnessAtom",
@@ -489,6 +511,60 @@ def delta_from_graph(
     return RepairDelta.from_ntriples(_to_ntriples(add), _to_ntriples(delete))
 
 
+class EvidenceSession:
+    """Prepared evidence validation over one immutable shapes/data snapshot.
+
+    Parsing, lowering, optional inference, and dataset indexing happen in the
+    constructor. :meth:`validate` returns every authored statement, including
+    empty selections, with one tagged pass/fail object per selected focus.
+    """
+
+    def __init__(
+        self,
+        shacl_graph: GraphInputs,
+        data_graph: Optional[GraphInputs] = None,
+        *,
+        infer: bool = True,
+        graph_mode: str = "union",
+        base: Optional[str] = None,
+    ) -> None:
+        shapes = _to_rdf_input(_coalesce_graph_input(shacl_graph))
+        data = (
+            _to_rdf_input(_coalesce_graph_input(data_graph))
+            if data_graph is not None
+            else _RdfInput(None, None, "turtle")
+        )
+        self._inner = _RustEvidenceSession(
+            shapes.data,
+            shapes.path,
+            shapes.format,
+            data.data,
+            data.path,
+            data.format,
+            infer,
+            graph_mode,
+            base,
+        )
+
+    @property
+    def diagnostics(self) -> list[str]:
+        return self._inner.diagnostics
+
+    def validate(
+        self,
+        *,
+        shape_names: Optional[Sequence[str]] = None,
+        minimum_severity: str = "info",
+        sort_results: bool = True,
+    ) -> EvidenceRun:
+        """Return the complete evidence coverage horizon for this snapshot."""
+        return self._inner.validate(
+            list(shape_names) if shape_names is not None else None,
+            minimum_severity,
+            sort_results,
+        )
+
+
 class RepairSession:
     """Inspect and drive symbolic repair of a data graph.
 
@@ -569,13 +645,13 @@ class RepairSession:
         """Warnings produced while lowering the shapes graph."""
         return self._inner.diagnostics
 
-    def witnesses(self) -> list[FocusWitness]:
-        """The violation horizon: one :class:`FocusWitness` per failing
+    def witnesses(self) -> list[Failure]:
+        """The violation horizon: one :class:`Failure` per failing
         ``(focus node, statement)``. Empty ⟺ the graph conforms."""
         return self._inner.witnesses()
 
-    def witnesses_for(self, shape_iri: str) -> list[FocusWitness]:
-        """The violation horizon for a single shape: one :class:`FocusWitness`
+    def witnesses_for(self, shape_iri: str) -> list[Failure]:
+        """The violation horizon for a single shape: one :class:`Failure`
         per failing ``(focus node, statement)`` whose statement targets
         ``shape_iri`` (matched against the schema's shape IRIs; angle brackets
         optional). The shape-scoped counterpart of :meth:`witnesses`; its
@@ -583,9 +659,9 @@ class RepairSession:
         :class:`ValueError` if no shape is named ``shape_iri``."""
         return self._inner.witnesses_for(shape_iri)
 
-    def satisfactions_for(self, shape_iri: str) -> list["FocusSatisfaction"]:
+    def satisfactions_for(self, shape_iri: str) -> list["Satisfaction"]:
         """The satisfaction horizon for a single shape: one
-        :class:`FocusSatisfaction` per *passing* ``(focus node, statement)``
+        :class:`Satisfaction` per *passing* ``(focus node, statement)``
         whose statement targets ``shape_iri`` — the dual of
         :meth:`witnesses_for`. Each entry records why the focus conforms,
         including the values matched along every checked path. Raises

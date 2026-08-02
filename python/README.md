@@ -441,7 +441,7 @@ literal bindings stay distinguishable.
 ## Witnesses (symbolic repair)
 
 `RepairSession` exposes the *witnessing* layer: for each statement it reports why
-a focus node fails (a `FocusWitness`) or why it holds (a `FocusSatisfaction`),
+a focus node fails (a `Failure`) or why it holds (a `Satisfaction`),
 the structured input to repair synthesis. The session is immutable; it computes
 and gates but decides nothing.
 
@@ -465,7 +465,7 @@ session = shifty.RepairSession(shapes, data, infer=False)
 
 ### The whole horizon
 
-`witnesses()` returns one `FocusWitness` per `(focus node, failed statement)`
+`witnesses()` returns one `Failure` per `(focus node, failed statement)`
 across the entire schema. Empty ⟺ the graph conforms.
 
 ```python
@@ -478,10 +478,10 @@ for w in session.witnesses():
     print(w.target)       # 'class(<http://example.org/Person>)' — rendered selector
 ```
 
-`FocusWitness.summary()` returns repair atoms, not validation causes. Each atom
+`Failure.summary()` returns repair atoms, not validation causes. Each atom
 also has `constraint_id` and `constraint_kind`, but these describe the repair
 witness leaf that produced the edit alternative. Use the `(focus, statement_id,
-constraint_id)` key on `FocusWitness` itself to correlate a validation violation
+constraint_id)` key on `Failure` itself to correlate a validation violation
 with its repair tree.
 
 ### Structured access (strings *and* objects)
@@ -534,7 +534,7 @@ for w in session.witnesses_for("http://example.org/PersonShape"):
 
 ### Passing nodes and the values that satisfied them
 
-`satisfactions_for(shape_iri)` is the dual: one `FocusSatisfaction` per *passing*
+`satisfactions_for(shape_iri)` is the dual: one `Satisfaction` per *passing*
 focus node for that shape. Each records why the node conforms, including the
 values matched along every checked path — the satisfaction-side mirror of
 `witnesses_for`.

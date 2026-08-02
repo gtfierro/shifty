@@ -359,11 +359,12 @@ pub enum SatTrace {
 }
 ```
 
-`PathSupport` is the deletion-side dual of path materialization: instead of
-minting a chain to a fresh value, it enumerates the *existing* triples that made
-`node` a π-successor. For `Pred(p)` it is the single triple `(focus, p, node)`;
-for a `Seq` it is an OR over the chain (cut any one edge); `Alt`/`Star` give
-multiple parallel witnessing chains, OR'd together.
+`PathSupport` is a positive reachability certificate: it records one concrete
+route of *existing* triples that made `node` a π-successor. For `Pred(p)` it is
+the single triple `(focus, p, node)`; `Seq` and `Star` retain one concrete chain.
+For `Alt`, the current fold may retain only the first successful syntactic
+alternative. It is therefore not a complete deletion cut when parallel routes
+exist; any repair derived from it remains a candidate that must pass the gate.
 
 ### 5.3 The interlocked signatures
 
