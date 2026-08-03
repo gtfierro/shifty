@@ -73,6 +73,7 @@ Contents
 
    getting-started
    evidence
+   evidence-performance
    feature-support
    benchmark
    cli/index
