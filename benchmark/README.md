@@ -127,6 +127,33 @@ Size columns cover both encodings: `run_bytes` is the full `EvidenceRun`,
 `compact_bytes` the hash-consed encoding, and `compact_bytes_no_catalog` the
 same with the constraint catalog elided for consumers that hold the schema.
 
+### Downloading and generating LUBM
+
+Brick and 223P are checked in; LUBM is not. It is distributed by Lehigh, so the
+ontology and the UBA data generator are downloaded on first run rather than
+vendored here:
+
+```sh
+./benchmark/lubm/generate.sh        # 5 universities, ~600k triples
+./benchmark/lubm/generate.sh 25     # any university count
+./benchmark/bench_evidence.sh lubm > lubm.csv
+```
+
+`generate.sh` fetches `univ-bench.owl` and `uba1.7.zip` from
+`swat.cse.lehigh.edu` into `benchmark/lubm/.uba/`, runs the generator, converts
+its RDF/XML output to Turtle, and writes one model per university into
+`benchmark/lubm/models/` plus the `lubm-closure.ttl` that `--shapes` wants. It
+needs `java` (UBA is a Java tool), `curl`, `unzip`, and `uv`; downloads and
+generated data are gitignored. `LUBM_SEED` fixes the generator seed (default 0)
+so a corpus is reproducible across machines.
+
+Re-running is incremental: the download, generation, and conversion steps each
+skip work that already exists, so changing the university count means clearing
+`benchmark/lubm/.uba/generated` (or the whole `.uba/` directory) first. Because
+university count is a parameter, this is the one suite that can answer whether
+evidence overhead is constant in data size — see `benchmark/lubm/README.md` for
+the scaling sweep and for what the shapes deliberately cover.
+
 ### Attribution
 
 `probe_evidence_cost` explains a single model rather than timing the corpus:
@@ -171,7 +198,14 @@ benchmark/
     223p.ttl               # ASHRAE 223P ontology
     223p-closure.ttl       # 223P + all transitive OWL imports (used by scripts)
     models/                # 19 real building models (NIST, LBNL, NREL, PNNL)
+  lubm/
+    shapes.ttl             # the SHACL side of the suite (LUBM ships queries, not shapes)
+    generate.sh            # downloads LUBM and generates the corpus
+    univ-bench.ttl         # ontology            ] generated, gitignored
+    lubm-closure.ttl       # ontology + shapes   ]
+    models/                # one model per university
 ```
 
 The `*-closure.ttl` files are pre-computed and passed as the `--shapes` argument
-so the engine does not need to fetch remote imports at benchmark time.
+so the engine does not need to fetch remote imports at benchmark time. The Brick
+and 223P files are checked in; LUBM's are produced by `generate.sh` above.
