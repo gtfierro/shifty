@@ -33,8 +33,9 @@
 //! format for free.
 
 use crate::witness::EvidenceRun;
+use rustc_hash::{FxHashMap, FxHasher};
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::hash::Hasher;
 
 /// Field name marking an interned evidence-node reference.
 const NODE_REF: &str = "#";
@@ -240,25 +241,93 @@ fn array<'a>(value: &'a Value, key: &str) -> Result<&'a [Value], CompactError> {
 #[derive(Default)]
 struct Interner {
     table: Vec<Value>,
-    index: HashMap<String, usize>,
+    /// Structural hash to the ids that hash there. Buckets hold more than one
+    /// id only on a genuine hash collision, which the value comparison below
+    /// then settles.
+    index: FxHashMap<u64, Vec<u32>>,
     /// Every intern call, whether or not it was a first sight. The excess over
     /// `table.len()` is exactly what the encoding collapses.
     occurrences: usize,
 }
 
 impl Interner {
-    /// The id for `value`, inserting it on first sight. Keyed by the value's
-    /// canonical text, so structurally identical entries collapse.
+    /// The id for `value`, inserting it on first sight, so that structurally
+    /// identical entries collapse.
+    ///
+    /// Keyed by a structural hash rather than by the value's canonical text.
+    /// Serializing each occurrence to a `String` to use as a key allocated once
+    /// per *occurrence* and discarded it on every hit — and hits are the whole
+    /// point of an interner. On `bldg11.ttl` that was roughly six million
+    /// allocations for 371k distinct entries.
     fn intern(&mut self, value: Value) -> usize {
         self.occurrences += 1;
-        let key = value.to_string();
-        if let Some(&id) = self.index.get(&key) {
-            return id;
+        let hash = structural_hash(&value);
+        if let Some(bucket) = self.index.get(&hash) {
+            for &id in bucket {
+                if self.table[id as usize] == value {
+                    return id as usize;
+                }
+            }
         }
         let id = self.table.len();
-        self.index.insert(key, id);
         self.table.push(value);
+        self.index.entry(hash).or_default().push(id as u32);
         id
+    }
+}
+
+/// Hash a value by structure, without materializing it.
+///
+/// Agrees with `Value`'s own equality — including `Number`'s, which
+/// distinguishes the integer and float representations rather than comparing
+/// numerically — so equal values always land in the same bucket. Should that
+/// ever cease to hold (`serde_json`'s `preserve_order` feature would make
+/// object iteration order significant while equality stays order-independent),
+/// the failure is a missed merge, not a wrong encoding: the value is stored
+/// under a second id and expands to exactly the same tree.
+fn structural_hash(value: &Value) -> u64 {
+    let mut hasher = FxHasher::default();
+    hash_into(value, &mut hasher);
+    hasher.finish()
+}
+
+fn hash_into(value: &Value, hasher: &mut FxHasher) {
+    match value {
+        Value::Null => hasher.write_u8(0),
+        Value::Bool(flag) => {
+            hasher.write_u8(1);
+            hasher.write_u8(u8::from(*flag));
+        }
+        Value::Number(number) => {
+            hasher.write_u8(2);
+            if let Some(unsigned) = number.as_u64() {
+                hasher.write_u8(0);
+                hasher.write_u64(unsigned);
+            } else if let Some(signed) = number.as_i64() {
+                hasher.write_u8(1);
+                hasher.write_i64(signed);
+            } else {
+                hasher.write_u8(2);
+                hasher.write_u64(number.as_f64().map_or(0, f64::to_bits));
+            }
+        }
+        Value::String(text) => {
+            hasher.write_u8(3);
+            hasher.write(text.as_bytes());
+        }
+        Value::Array(items) => {
+            hasher.write_u8(4);
+            hasher.write_usize(items.len());
+            items.iter().for_each(|item| hash_into(item, hasher));
+        }
+        Value::Object(map) => {
+            hasher.write_u8(5);
+            hasher.write_usize(map.len());
+            for (key, child) in map {
+                hasher.write(key.as_bytes());
+                hash_into(child, hasher);
+            }
+        }
     }
 }
 
@@ -279,32 +348,39 @@ fn is_node(map: &Map<String, Value>) -> bool {
 }
 
 /// Replace every term and tagged node with a table reference, children first.
-fn intern(value: Value, terms: &mut Interner, nodes: &mut Interner) -> Value {
-    match value {
+fn intern(mut value: Value, terms: &mut Interner, nodes: &mut Interner) -> Value {
+    let (term, tagged) = match &value {
+        Value::Object(map) => (is_term(map), is_node(map)),
+        _ => (false, false),
+    };
+    if term {
+        let id = terms.intern(value);
+        return json!({ TERM_REF: id });
+    }
+    // Children are rewritten in place. Collecting them into a fresh `Map` or
+    // `Vec` allocated a new container for every object and array in the run,
+    // which is the whole tree — and the tree is what makes runs large enough
+    // to want compacting in the first place.
+    match &mut value {
         Value::Object(map) => {
-            if is_term(&map) {
-                let id = terms.intern(Value::Object(map));
-                return json!({ TERM_REF: id });
-            }
-            let tagged = is_node(&map);
-            let interned: Map<String, Value> = map
-                .into_iter()
-                .map(|(key, child)| (key, intern(child, terms, nodes)))
-                .collect();
-            if tagged {
-                let id = nodes.intern(Value::Object(interned));
-                json!({ NODE_REF: id })
-            } else {
-                Value::Object(interned)
+            for child in map.values_mut() {
+                let taken = std::mem::replace(child, Value::Null);
+                *child = intern(taken, terms, nodes);
             }
         }
-        Value::Array(items) => Value::Array(
-            items
-                .into_iter()
-                .map(|item| intern(item, terms, nodes))
-                .collect(),
-        ),
-        other => other,
+        Value::Array(items) => {
+            for item in items.iter_mut() {
+                let taken = std::mem::replace(item, Value::Null);
+                *item = intern(taken, terms, nodes);
+            }
+        }
+        _ => {}
+    }
+    if tagged {
+        let id = nodes.intern(value);
+        json!({ NODE_REF: id })
+    } else {
+        value
     }
 }
 
@@ -448,6 +524,65 @@ mod tests {
         assert!(measured.term_occurrences > measured.distinct_terms);
         assert!(measured.node_redundancy() > 1.0);
         assert!(measured.term_redundancy() > 1.0);
+    }
+
+    // The structural hash replaced a canonical-text key, so what needs pinning
+    // is that it still agrees with equality: one table entry per distinct
+    // value, and never two distinct values sharing an id.
+    #[test]
+    fn interning_gives_one_entry_per_distinct_value() {
+        let distinct = [
+            json!(null),
+            json!(true),
+            json!(false),
+            json!(0),
+            json!(-1),
+            json!(1.5),
+            json!(""),
+            json!("0"),
+            json!([]),
+            json!([json!(0)]),
+            json!([json!(0), json!(0)]),
+            json!({}),
+            json!({ "a": 0 }),
+            json!({ "a": 0, "b": 1 }),
+            json!({ "b": 0, "a": 1 }),
+            json!({ "a": { "a": 0 } }),
+        ];
+
+        let mut interner = Interner::default();
+        let first: Vec<usize> = distinct
+            .iter()
+            .map(|value| interner.intern(value.clone()))
+            .collect();
+        assert_eq!(first, (0..distinct.len()).collect::<Vec<_>>());
+
+        // Re-interning returns the original ids and adds nothing.
+        let again: Vec<usize> = distinct
+            .iter()
+            .map(|value| interner.intern(value.clone()))
+            .collect();
+        assert_eq!(again, first);
+        assert_eq!(interner.table.len(), distinct.len());
+        assert_eq!(interner.occurrences, 2 * distinct.len());
+
+        // Every id resolves back to the value that produced it.
+        for (value, &id) in distinct.iter().zip(first.iter()) {
+            assert_eq!(&interner.table[id], value);
+        }
+    }
+
+    #[test]
+    fn colliding_values_stay_distinct() {
+        // Force the collision path: two unequal values pushed into one bucket
+        // must still receive different ids.
+        let mut interner = Interner::default();
+        let a = interner.intern(json!({ "type": "uri", "value": "urn:a" }));
+        let b = interner.intern(json!({ "type": "uri", "value": "urn:b" }));
+        assert_ne!(a, b);
+
+        let bucket: Vec<u32> = interner.index.values().flatten().copied().collect();
+        assert_eq!(bucket.len(), 2, "both ids are reachable from the index");
     }
 
     #[test]

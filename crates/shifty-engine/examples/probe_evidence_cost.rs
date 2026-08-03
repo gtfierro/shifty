@@ -102,10 +102,20 @@ fn main() {
 
     // ---- compact encoding --------------------------------------------------
     let full_json = run.to_json().expect("evidence run serializes");
-    let compact_start = Instant::now();
-    let compact_json =
-        shifty_engine::to_compact_json(&run, true).expect("compact encoding succeeds");
-    let compact_ms = compact_start.elapsed().as_secs_f64() * 1e3;
+    // Split so the encoding's own cost is separable from the intermediate
+    // `Value` tree it currently has to be handed: compaction is worth doing
+    // inline only if the total stays under the validation it describes.
+    let to_value_start = Instant::now();
+    let run_value = serde_json::to_value(&run).expect("run serializes");
+    let to_value_ms = to_value_start.elapsed().as_secs_f64() * 1e3;
+    let intern_start = Instant::now();
+    let interned = shifty_engine::compact_value(run_value, true);
+    let intern_ms = intern_start.elapsed().as_secs_f64() * 1e3;
+    let emit_start = Instant::now();
+    let compact_json = serde_json::to_string(&interned).expect("compact encoding serializes");
+    let emit_ms = emit_start.elapsed().as_secs_f64() * 1e3;
+    let compact_ms = to_value_ms + intern_ms + emit_ms;
+    drop(interned);
     let compact_no_catalog =
         shifty_engine::to_compact_json(&run, false).expect("compact encoding succeeds");
     println!();
@@ -115,7 +125,8 @@ fn main() {
         full_json.len() as f64 / pairs
     );
     println!(
-        "compact (with catalog):    {:>10.2} MB  ({:.0} bytes/pair, {:.1}% smaller, {compact_ms:.0} ms)",
+        "compact (with catalog):    {:>10.2} MB  ({:.0} bytes/pair, {:.1}% smaller, {compact_ms:.0} ms \
+         = {to_value_ms:.0} to_value + {intern_ms:.0} intern + {emit_ms:.0} emit)",
         compact_json.len() as f64 / 1e6,
         compact_json.len() as f64 / pairs,
         100.0 * (full_json.len() - compact_json.len()) as f64 / full_json.len() as f64
